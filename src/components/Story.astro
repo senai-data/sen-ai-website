@@ -1,0 +1,29 @@
+---
+import site from '../content/site.json';
+const { story } = site;
+---
+
+<section id="histoire" class="py-20 sm:py-28 px-4 bg-gray-50">
+  <div class="max-w-3xl mx-auto">
+    <!-- Titre -->
+    <h2 class="text-3xl sm:text-4xl font-bold text-charcoal-dark text-center mb-12">
+      {story.title}
+    </h2>
+
+    <!-- Prose -->
+    <div class="space-y-6 mb-12">
+      {story.paragraphs.map((paragraph) => (
+        <p class="text-lg text-charcoal-light leading-relaxed text-center">
+          {paragraph}
+        </p>
+      ))}
+    </div>
+
+    <!-- Citation stylisée -->
+    <blockquote class="text-center">
+      <p class="text-2xl sm:text-3xl font-light text-coral italic tracking-wide">
+        &ldquo;{story.quote}&rdquo;
+      </p>
+    </blockquote>
+  </div>
+</section>

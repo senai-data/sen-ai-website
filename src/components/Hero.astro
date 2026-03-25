@@ -1,0 +1,44 @@
+---
+import site from '../content/site.json';
+const { hero } = site;
+---
+
+<section class="min-h-screen flex items-center justify-center pt-16 px-4">
+  <div class="max-w-3xl mx-auto text-center">
+    <!-- Tagline -->
+    <p class="text-coral uppercase tracking-[0.25em] text-sm font-medium mb-6">
+      {hero.tagline}
+    </p>
+
+    <!-- H1 -->
+    <h1 class="text-4xl sm:text-5xl lg:text-6xl font-bold text-charcoal-dark leading-tight mb-4">
+      {hero.headline}
+    </h1>
+
+    <!-- Sous-titre -->
+    <p class="text-xl sm:text-2xl lg:text-3xl text-charcoal-light font-light mb-8">
+      {hero.subheadline}
+    </p>
+
+    <!-- Description -->
+    <p class="text-lg text-charcoal-light/80 max-w-2xl mx-auto mb-10 leading-relaxed">
+      {hero.description}
+    </p>
+
+    <!-- CTA -->
+    <div class="flex flex-col sm:flex-row items-center justify-center gap-4">
+      <a
+        href="#solution"
+        class="inline-flex items-center px-8 py-3.5 bg-emerald text-white font-medium rounded-lg hover:bg-emerald-dark transition-colors text-lg shadow-lg shadow-emerald/20"
+      >
+        {hero.cta_primary}
+      </a>
+      <a
+        href="#resultats"
+        class="inline-flex items-center px-8 py-3.5 border-2 border-charcoal-light text-charcoal font-medium rounded-lg hover:border-coral hover:text-coral transition-colors text-lg"
+      >
+        {hero.cta_secondary}
+      </a>
+    </div>
+  </div>
+</section>

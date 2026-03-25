@@ -1,0 +1,89 @@
+---
+import site from '../content/site.json';
+import '../styles/global.css';
+
+interface Props {
+  title?: string;
+  description?: string;
+}
+
+const {
+  title = site.meta.title,
+  description = site.meta.description,
+} = Astro.props;
+
+const canonicalURL = new URL(Astro.url.pathname, site.meta.url);
+
+const organizationSchema = {
+  "@context": "https://schema.org",
+  "@type": "Organization",
+  "name": "sen-ai.fr",
+  "url": "https://sen-ai.fr",
+  "logo": "https://sen-ai.fr/logo.svg",
+  "description": site.meta.description,
+  "slogan": "from data to bloom",
+  "contactPoint": {
+    "@type": "ContactPoint",
+    "email": "contact@sen-ai.fr",
+    "contactType": "customer service",
+    "availableLanguage": "French"
+  }
+};
+
+const softwareSchema = {
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "sen-ai.fr",
+  "applicationCategory": "BusinessApplication",
+  "description": site.meta.description,
+  "operatingSystem": "Web",
+  "url": "https://sen-ai.fr",
+  "featureList": [
+    "Analyse de visibilité LLM multi-modèles",
+    "Génération de contenu GEO optimisé",
+    "Intelligence netlinking automatisée",
+    "Génération FAQ Schema.org",
+    "Veille réputation RAPP"
+  ]
+};
+---
+
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content={description} />
+    <meta name="robots" content="index, follow" />
+    <link rel="canonical" href={canonicalURL.href} />
+
+    <!-- Open Graph -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content={canonicalURL.href} />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:image" content="https://sen-ai.fr/og-image.png" />
+    <meta property="og:locale" content="fr_FR" />
+
+    <!-- Twitter -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content="https://sen-ai.fr/og-image.png" />
+
+    <!-- Favicon -->
+    <link rel="icon" href="/favicon.ico" sizes="48x48" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+
+    <title>{title}</title>
+
+    <!-- JSON-LD Structured Data -->
+    <script type="application/ld+json" set:html={JSON.stringify(organizationSchema)} />
+    <script type="application/ld+json" set:html={JSON.stringify(softwareSchema)} />
+  </head>
+  <body class="bg-white text-charcoal font-sans antialiased">
+    <slot />
+  </body>
+</html>

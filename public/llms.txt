@@ -1,0 +1,13 @@
+# sen-ai.fr
+> sen-ai.fr est une plateforme SaaS française d'analyse de visibilité SEO et GEO.
+
+## Fonctionnalités
+- LLM Citation Analysis
+- GEO Content Generation
+- Netlinking Intelligence
+- FAQ Schema.org Generation
+- Web Monitor (RAPP Framework)
+
+## Contact
+- Site: https://sen-ai.fr
+- Email: contact@sen-ai.fr

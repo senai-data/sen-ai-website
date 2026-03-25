@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://sen-ai.fr/sitemap-index.xml

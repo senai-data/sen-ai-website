@@ -1,0 +1,43 @@
+---
+import site from '../content/site.json';
+const { features } = site;
+---
+
+<section id="fonctionnalites" class="py-20 sm:py-28 px-4 bg-gray-50">
+  <div class="max-w-6xl mx-auto">
+    <!-- Titre -->
+    <h2 class="text-3xl sm:text-4xl font-bold text-charcoal-dark text-center mb-16">
+      {features.title}
+    </h2>
+
+    <!-- Grille de cartes -->
+    <div class="grid md:grid-cols-2 gap-6 lg:gap-8">
+      {features.items.map((feature) => (
+        <div class="bg-white rounded-2xl p-8 border border-gray-200 hover:shadow-lg hover:border-coral/20 transition-all duration-300 group">
+          <!-- Icône + Titre -->
+          <div class="flex items-center gap-3 mb-4">
+            <span class="text-3xl" role="img">{feature.icon}</span>
+            <h3 class="text-xl font-bold text-charcoal-dark group-hover:text-coral transition-colors">
+              {feature.title}
+            </h3>
+          </div>
+
+          <!-- Description -->
+          <p class="text-charcoal-light mb-5 leading-relaxed">
+            {feature.description}
+          </p>
+
+          <!-- Points clés -->
+          <ul class="space-y-2">
+            {feature.points.map((point) => (
+              <li class="flex items-start gap-2 text-sm text-charcoal-light">
+                <span class="text-emerald mt-0.5 shrink-0">✓</span>
+                <span>{point}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+    </div>
+  </div>
+</section>

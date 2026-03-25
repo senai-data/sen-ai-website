@@ -1,0 +1,27 @@
+---
+import site from '../content/site.json';
+const { results } = site;
+---
+
+<section id="resultats" class="py-20 sm:py-28 px-4">
+  <div class="max-w-5xl mx-auto">
+    <!-- Titre -->
+    <h2 class="text-3xl sm:text-4xl font-bold text-charcoal-dark text-center mb-16">
+      {results.title}
+    </h2>
+
+    <!-- Métriques -->
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-6 lg:gap-8">
+      {results.metrics.map((metric) => (
+        <div class="bg-gray-50 rounded-2xl p-8 text-center border border-gray-100">
+          <div class={`text-4xl sm:text-5xl font-bold mb-3 ${metric.color === 'coral' ? 'text-coral' : 'text-emerald'}`}>
+            {metric.value}
+          </div>
+          <div class="text-charcoal-light text-sm sm:text-base font-medium uppercase tracking-wide">
+            {metric.unit}
+          </div>
+        </div>
+      ))}
+    </div>
+  </div>
+</section>

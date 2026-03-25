@@ -1,0 +1,67 @@
+---
+import site from '../content/site.json';
+const { pricing } = site;
+---
+
+<section id="tarifs" class="py-20 sm:py-28 px-4">
+  <div class="max-w-6xl mx-auto">
+    <!-- Titre -->
+    <h2 class="text-3xl sm:text-4xl font-bold text-charcoal-dark text-center mb-16">
+      {pricing.title}
+    </h2>
+
+    <!-- Grille tarifs -->
+    <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
+      {pricing.tiers.map((tier) => (
+        <div
+          class={`rounded-2xl p-8 flex flex-col transition-all duration-300 hover:shadow-lg
+            ${tier.highlight
+              ? 'bg-white border-2 border-coral shadow-lg shadow-coral/10 relative'
+              : 'bg-white border border-gray-200'
+            }`}
+        >
+          {/* Badge populaire */}
+          {tier.highlight && (
+            <div class="absolute -top-3 left-1/2 -translate-x-1/2">
+              <span class="bg-coral text-white text-xs font-bold uppercase tracking-wide px-4 py-1 rounded-full">
+                Populaire
+              </span>
+            </div>
+          )}
+
+          {/* Nom */}
+          <h3 class={`text-xl font-bold mb-2 ${tier.highlight ? 'text-coral' : 'text-charcoal-dark'}`}>
+            {tier.name}
+          </h3>
+
+          {/* Prix */}
+          <div class="text-2xl font-bold text-charcoal-dark mb-6">
+            {tier.price}
+          </div>
+
+          {/* Features */}
+          <ul class="space-y-3 mb-8 flex-1">
+            {tier.features.map((feature) => (
+              <li class="flex items-start gap-2 text-sm text-charcoal-light">
+                <span class="text-emerald shrink-0 mt-0.5">✓</span>
+                <span>{feature}</span>
+              </li>
+            ))}
+          </ul>
+
+          {/* CTA */}
+          <a
+            href="mailto:contact@sen-ai.fr"
+            class={`inline-flex items-center justify-center px-6 py-3 rounded-lg font-medium text-sm transition-colors
+              ${tier.highlight
+                ? 'bg-coral text-white hover:bg-coral-dark'
+                : 'bg-gray-100 text-charcoal hover:bg-gray-200'
+              }`}
+          >
+            {tier.cta}
+          </a>
+        </div>
+      ))}
+    </div>
+  </div>
+</section>

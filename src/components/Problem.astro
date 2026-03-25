@@ -1,0 +1,53 @@
+---
+import site from '../content/site.json';
+const { problem } = site;
+---
+
+<section id="probleme" class="py-20 sm:py-28 px-4 bg-gray-50">
+  <div class="max-w-5xl mx-auto">
+    <!-- Titre -->
+    <h2 class="text-3xl sm:text-4xl font-bold text-charcoal-dark text-center mb-16">
+      {problem.title}
+    </h2>
+
+    <!-- Comparaison Hier vs Aujourd'hui -->
+    <div class="grid md:grid-cols-2 gap-8 lg:gap-12 mb-16">
+      <!-- Hier -->
+      <div class="bg-white rounded-2xl p-8 border border-gray-200">
+        <h3 class="text-xl font-bold text-charcoal-light mb-6 uppercase tracking-wide">
+          {problem.hier.label}
+        </h3>
+        <ul class="space-y-4">
+          {problem.hier.items.map((item) => (
+            <li class="flex items-start gap-3 text-charcoal-light">
+              <span class="text-gray-400 mt-0.5 shrink-0">●</span>
+              <span>{item}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      <!-- Aujourd'hui -->
+      <div class="bg-white rounded-2xl p-8 border-2 border-coral/30 shadow-lg shadow-coral/5">
+        <h3 class="text-xl font-bold text-coral mb-6 uppercase tracking-wide">
+          {problem.aujourdhui.label}
+        </h3>
+        <ul class="space-y-4">
+          {problem.aujourdhui.items.map((item) => (
+            <li class="flex items-start gap-3 text-charcoal-dark">
+              <span class="text-coral mt-0.5 shrink-0">●</span>
+              <span class="font-medium">{item}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
+
+    <!-- Citation -->
+    <blockquote class="text-center">
+      <p class="text-lg sm:text-xl text-charcoal-light italic max-w-2xl mx-auto">
+        &laquo;&nbsp;{problem.quote}&nbsp;&raquo;
+      </p>
+    </blockquote>
+  </div>
+</section>

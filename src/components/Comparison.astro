@@ -1,0 +1,65 @@
+---
+import site from '../content/site.json';
+const { comparison } = site;
+
+function renderCell(value: boolean | string) {
+  if (value === true) return { text: '✓', class: 'text-emerald font-bold text-lg' };
+  if (value === false) return { text: '✗', class: 'text-gray-300 text-lg' };
+  return { text: value, class: 'text-gold text-sm font-medium' };
+}
+---
+
+<section id="comparatif" class="py-20 sm:py-28 px-4 bg-gray-50">
+  <div class="max-w-5xl mx-auto">
+    <!-- Titre -->
+    <h2 class="text-3xl sm:text-4xl font-bold text-charcoal-dark text-center mb-16">
+      {comparison.title}
+    </h2>
+
+    <!-- Tableau responsive -->
+    <div class="overflow-x-auto rounded-2xl border border-gray-200 bg-white">
+      <table class="w-full text-left">
+        <!-- En-tête -->
+        <thead>
+          <tr class="border-b border-gray-200">
+            {comparison.columns.map((col, i) => (
+              <th
+                class={`px-6 py-4 text-sm font-bold uppercase tracking-wide
+                  ${i === 0 ? 'text-charcoal-dark text-left' : 'text-center'}
+                  ${i === 3 ? 'bg-coral/5 text-coral' : 'text-charcoal-light'}
+                `}
+              >
+                {col}
+              </th>
+            ))}
+          </tr>
+        </thead>
+
+        <!-- Lignes -->
+        <tbody>
+          {comparison.rows.map((row, rowIdx) => {
+            const generic = renderCell(row.generic);
+            const agency = renderCell(row.agency);
+            const senai = renderCell(row.senai);
+            return (
+              <tr class={`border-b border-gray-100 ${rowIdx % 2 === 0 ? '' : 'bg-gray-50/50'}`}>
+                <td class="px-6 py-4 text-sm font-medium text-charcoal-dark">
+                  {row.feature}
+                </td>
+                <td class={`px-6 py-4 text-center ${generic.class}`}>
+                  {generic.text}
+                </td>
+                <td class={`px-6 py-4 text-center ${agency.class}`}>
+                  {agency.text}
+                </td>
+                <td class={`px-6 py-4 text-center bg-coral/5 ${senai.class}`}>
+                  {senai.text}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>

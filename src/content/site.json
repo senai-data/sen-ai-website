@@ -1,0 +1,222 @@
+{
+  "meta": {
+    "title": "sen-ai.fr | Visibilité SEO + GEO pour les marques",
+    "description": "sen-ai.fr mesure la visibilité de votre marque dans les réponses des LLM (ChatGPT, Gemini, Perplexity) et génère du contenu optimisé pour la recherche générative.",
+    "url": "https://sen-ai.fr",
+    "locale": "fr_FR"
+  },
+  "hero": {
+    "tagline": "from data to bloom",
+    "headline": "Vos clients cherchent sur Google et ChatGPT.",
+    "subheadline": "Est-ce qu'ils vous trouvent ?",
+    "description": "sen-ai.fr mesure votre visibilité dans les réponses des intelligences artificielles, identifie les lacunes et génère du contenu optimisé pour que votre marque soit citée — partout.",
+    "cta_primary": "Découvrir la solution",
+    "cta_secondary": "Voir les résultats"
+  },
+  "problem": {
+    "title": "Le monde de la recherche a changé",
+    "hier": {
+      "label": "Hier",
+      "items": [
+        "Vos clients tapent sur Google",
+        "Vous optimisez votre SEO",
+        "Vous publiez du contenu régulier",
+        "Vous suivez vos positions"
+      ]
+    },
+    "aujourdhui": {
+      "label": "Aujourd'hui",
+      "items": [
+        "Vos clients demandent à ChatGPT et Gemini",
+        "Êtes-vous cité par les IA ?",
+        "Votre contenu est-il optimisé pour les LLM ?",
+        "Qui surveille votre visibilité IA ?"
+      ]
+    },
+    "quote": "76% des consommateurs utilisent la recherche avant d'acheter."
+  },
+  "solution": {
+    "title": "Une plateforme, un cycle complet",
+    "steps": [
+      {
+        "number": 1,
+        "title": "Mesurer",
+        "description": "sen-ai.fr interroge 6+ modèles LLM (ChatGPT, Gemini, Perplexity, Mistral…) avec 90 questions par topic pour cartographier votre visibilité IA."
+      },
+      {
+        "number": 2,
+        "title": "Analyser",
+        "description": "Génération automatique de personas, analyse du taux de citation, position dans les réponses, benchmark concurrentiel."
+      },
+      {
+        "number": 3,
+        "title": "Créer",
+        "description": "Contenu GEO optimisé pour les LLM : articles avec sources réelles, scoring YourTextGuru, zéro hallucination."
+      },
+      {
+        "number": 4,
+        "title": "Publier",
+        "description": "Publication automatique vers Notion, prêt pour intégration CMS. Contenu clé en main avec FAQ Schema.org."
+      },
+      {
+        "number": 5,
+        "title": "Re-mesurer",
+        "description": "Ré-analyse mensuelle automatique pour suivre l'évolution de votre visibilité LLM et mesurer l'impact du contenu."
+      }
+    ]
+  },
+  "features": {
+    "title": "Ce que sen-ai.fr fait pour vous",
+    "items": [
+      {
+        "icon": "📡",
+        "title": "Visibilité LLM",
+        "description": "Mesurez votre présence dans les réponses de ChatGPT, Gemini, Perplexity et d'autres modèles.",
+        "points": [
+          "Test multi-LLM (ChatGPT, Gemini, Perplexity, Mistral…)",
+          "Taux de citation et position dans les réponses",
+          "Benchmark concurrentiel automatisé",
+          "90 questions par topic, personas variées"
+        ]
+      },
+      {
+        "icon": "✍️",
+        "title": "Contenu GEO",
+        "description": "Générez des articles optimisés pour la recherche générative, avec des sources vérifiées.",
+        "points": [
+          "Articles optimisés pour les citations IA",
+          "Sources réelles uniquement — zéro hallucination",
+          "Scoring sémantique YourTextGuru intégré",
+          "Format HTML prêt à publier"
+        ]
+      },
+      {
+        "icon": "🔗",
+        "title": "Netlinking",
+        "description": "Identifiez les meilleures opportunités de liens et obtenez du contenu clé en main.",
+        "points": [
+          "Détection automatique d'opportunités",
+          "Pricing média via Getfluence / Babbar",
+          "Contenu optimisé GEO clé en main",
+          "Scoring de pertinence thématique"
+        ]
+      },
+      {
+        "icon": "❓",
+        "title": "FAQ Schema.org",
+        "description": "Détectez les questions manquantes et générez des FAQ structurées pour vos pages.",
+        "points": [
+          "Détection des gaps de questions",
+          "Matching automatique question → page",
+          "Génération Q&A avec sources",
+          "Balisage Schema.org prêt à intégrer"
+        ]
+      },
+      {
+        "icon": "🛡️",
+        "title": "Veille réputation",
+        "description": "Surveillez votre présence SERP et détectez les menaces à votre e-réputation.",
+        "points": [
+          "Surveillance SERP hebdomadaire",
+          "Framework RAPP (Risque, Alerte, Priorité, Plan)",
+          "Détection PBN et liens toxiques",
+          "Rapport Power BI automatisé"
+        ]
+      }
+    ]
+  },
+  "results": {
+    "title": "Des chiffres, pas des promesses",
+    "metrics": [
+      { "value": "40", "unit": "topics/mois", "color": "coral" },
+      { "value": "90", "unit": "questions/topic", "color": "emerald" },
+      { "value": "6+", "unit": "modèles LLM", "color": "coral" },
+      { "value": "100%", "unit": "automatisé", "color": "emerald" }
+    ]
+  },
+  "comparison": {
+    "title": "Pourquoi sen-ai.fr ?",
+    "columns": ["Fonctionnalité", "Outils génériques", "Agences SEO", "sen-ai.fr"],
+    "rows": [
+      { "feature": "Mesure visibilité LLM", "generic": false, "agency": false, "senai": true },
+      { "feature": "Contenu optimisé IA", "generic": false, "agency": "partiel", "senai": true },
+      { "feature": "Multi-LLM (6+ modèles)", "generic": false, "agency": false, "senai": true },
+      { "feature": "FAQ Schema.org auto", "generic": false, "agency": false, "senai": true },
+      { "feature": "Netlinking scoring", "generic": "partiel", "agency": true, "senai": true },
+      { "feature": "Rapport Power BI", "generic": false, "agency": false, "senai": true },
+      { "feature": "Coût maîtrisé", "generic": true, "agency": false, "senai": true }
+    ]
+  },
+  "pricing": {
+    "title": "Transparent. Sans engagement.",
+    "tiers": [
+      {
+        "name": "Découverte",
+        "price": "Gratuit",
+        "highlight": false,
+        "features": [
+          "1 topic analysé",
+          "90 questions × 6 LLM",
+          "Rapport de visibilité PDF",
+          "Benchmark 3 concurrents"
+        ],
+        "cta": "Essayer gratuitement"
+      },
+      {
+        "name": "Standard",
+        "price": "Sur devis",
+        "highlight": false,
+        "features": [
+          "10 topics/mois",
+          "Analyse multi-LLM complète",
+          "Rapport Power BI mensuel",
+          "Benchmark concurrentiel",
+          "Support email"
+        ],
+        "cta": "Demander un devis"
+      },
+      {
+        "name": "Premium",
+        "price": "Sur devis",
+        "highlight": true,
+        "features": [
+          "40+ topics/mois",
+          "Contenu GEO automatisé",
+          "Netlinking clé en main",
+          "FAQ Schema.org",
+          "Veille réputation RAPP",
+          "Rapport Power BI temps réel",
+          "Account manager dédié"
+        ],
+        "cta": "Demander un devis"
+      },
+      {
+        "name": "Exclusivité sectorielle",
+        "price": "5 000 €/marque/an",
+        "highlight": false,
+        "features": [
+          "Exclusivité sur votre secteur",
+          "sen-ai.fr ne travaille qu'avec vous",
+          "Accès prioritaire aux nouveautés",
+          "Stratégie GEO dédiée",
+          "Accompagnement trimestriel"
+        ],
+        "cta": "Nous contacter"
+      }
+    ]
+  },
+  "story": {
+    "title": "Pourquoi Sen ?",
+    "paragraphs": [
+      "En vietnamien, « Sen » signifie « lotus ». Le lotus pousse dans la boue, traverse l'eau trouble, et finit par éclore — magnifique — à la surface.",
+      "C'est exactement ce que fait sen-ai.fr avec vos données. On part du chaos — des milliers de requêtes, des dizaines de modèles IA, des réponses fragmentées — et on en fait émerger une visibilité digitale claire et mesurable.",
+      "Le lotus ne fleurit pas malgré la boue. Il fleurit grâce à elle."
+    ],
+    "quote": "from data to bloom"
+  },
+  "footer": {
+    "tagline": "from data to bloom",
+    "email": "contact@sen-ai.fr",
+    "copyright": "© 2026 sen-ai.fr. Tous droits réservés."
+  }
+}

@@ -53,7 +53,7 @@
         {
           "id": "livrable",
           "title": "On vous donne les clés pour agir",
-          "description": "Une newsletter mensuelle pour la marque — ce qui a changé, ce qu'il faut faire. Un dashboard interactif pour ceux qui veulent deep-diver dans chaque donnée.",
+          "description": "Une newsletter mensuelle pour la marque — ce qui a changé, ce qu'il faut faire. Un dashboard interactif pour ceux qui veulent explorer chaque donnée en détail.",
           "icon": "document"
         }
       ]
@@ -72,7 +72,7 @@
       },
       "dashboard": {
         "title": "Le Dashboard interactif — pour les curieux",
-        "subtitle": "Pour ceux qui veulent deep-diver dans la data, explorer chaque angle, comprendre chaque chiffre.",
+        "subtitle": "Pour ceux qui veulent analyser chaque angle, explorer chaque chiffre.",
         "points": [
           "Dashboard Power BI connecté à vos données en temps réel",
           "Deep-dive par persona, segment, modèle LLM, concurrent",
@@ -152,7 +152,7 @@
       },
       "dashboard": {
         "title": "Le Dashboard interactif — pour piloter le réseau",
-        "subtitle": "Pour le siège qui veut deep-diver dans chaque point de vente, chaque campagne.",
+        "subtitle": "Pour le siège qui veut piloter chaque point de vente, chaque campagne.",
         "points": [
           "Vue réseau complète avec KPIs par point de vente",
           "Drill-down par campagne, zone géographique, point de vente",
@@ -174,7 +174,7 @@
       { "feature": "Questions calibrées sur vos segments métier", "generic": false, "senai": true },
       { "feature": "Analyse par univers produit (pas une moyenne globale)", "generic": false, "senai": true },
       { "feature": "Newsletter actionnable pour la marque", "generic": false, "senai": true },
-      { "feature": "Dashboard interactif qui permet de deep-diver dans chaque donnée", "generic": false, "senai": true },
+      { "feature": "Dashboard interactif pour explorer chaque donnée en profondeur", "generic": false, "senai": true },
       { "feature": "Configuration sur vos marques, produits, concurrents", "generic": false, "senai": true },
       { "feature": "Multi-LLM (ChatGPT, Gemini, Perplexity...)", "generic": "partiel", "senai": true }
     ]

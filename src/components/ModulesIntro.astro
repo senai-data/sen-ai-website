@@ -1,0 +1,15 @@
+---
+import site from '../content/site.json';
+const { modules_intro } = site;
+---
+
+<section id="modules" class="py-16 sm:py-20 px-4">
+  <div class="max-w-3xl mx-auto text-center">
+    <h2 class="text-3xl sm:text-4xl font-bold text-charcoal-dark mb-4">
+      {modules_intro.title}
+    </h2>
+    <p class="text-lg text-charcoal-light leading-relaxed">
+      {modules_intro.subtitle}
+    </p>
+  </div>
+</section>

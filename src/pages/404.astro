@@ -1,0 +1,30 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import Nav from '../components/Nav.astro';
+import Footer from '../components/Footer.astro';
+---
+
+<BaseLayout title="Page introuvable | sen-ai.fr" description="La page que vous recherchez n'existe pas.">
+  <Nav />
+  <main class="min-h-[70vh] flex items-center justify-center pt-16 px-4">
+    <div class="max-w-md mx-auto text-center">
+      <p class="text-6xl font-bold text-coral mb-4">404</p>
+      <h1 class="text-2xl sm:text-3xl font-bold text-charcoal-dark mb-4">
+        Page introuvable
+      </h1>
+      <p class="text-charcoal-light mb-8">
+        La page que vous recherchez n'existe pas ou a été déplacée.
+      </p>
+      <a
+        href="/"
+        class="inline-flex items-center gap-2 px-6 py-3 bg-coral text-white font-medium rounded-lg hover:bg-coral-dark transition-colors"
+      >
+        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7" />
+        </svg>
+        Retour à l'accueil
+      </a>
+    </div>
+  </main>
+  <Footer />
+</BaseLayout>

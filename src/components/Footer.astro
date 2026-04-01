@@ -8,7 +8,7 @@ const { footer } = site;
     <div class="flex flex-col md:flex-row items-center justify-between gap-8">
       <!-- Logo + tagline -->
       <div class="flex flex-col items-center md:items-start gap-2">
-        <img src="/logo.svg" alt="sen-ai.fr" class="h-8 w-auto brightness-0 invert" />
+        <img src="/logo-sen-ai-fr.png" alt="sen-ai.fr" class="h-8 w-auto brightness-0 invert" />
         <p class="text-coral-light text-sm italic tracking-wide">
           {footer.tagline}
         </p>
@@ -16,7 +16,7 @@ const { footer } = site;
 
       <!-- Liens -->
       <div class="flex flex-col items-center md:items-end gap-2 text-sm">
-        <a href="mailto:{footer.email}" class="text-gray-300 hover:text-coral-light transition-colors">
+        <a href={`mailto:${footer.email}`} class="text-gray-300 hover:text-coral-light transition-colors">
           {footer.email}
         </a>
         <a href="/mentions-legales" class="text-gray-400 hover:text-gray-200 transition-colors">

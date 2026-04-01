@@ -2,7 +2,8 @@
 // Navigation sticky avec menu mobile CSS-only
 ---
 
-<nav class="fixed top-0 left-0 right-0 z-50 bg-white/95 backdrop-blur-sm border-b border-gray-100 transition-shadow duration-300" id="nav">
+<header>
+<nav class="fixed top-0 left-0 right-0 z-50 bg-white/95 backdrop-blur-sm border-b border-gray-100 transition-shadow duration-300" id="nav" aria-label="Navigation principale">
   <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
     <!-- Checkbox pour le menu mobile (CSS-only) -->
     <input type="checkbox" id="mobile-menu-toggle" class="sr-only" aria-label="Menu mobile" />
@@ -10,7 +11,7 @@
     <div class="flex items-center justify-between h-16">
       <!-- Logo -->
       <a href="/" class="flex items-center gap-2 shrink-0" aria-label="sen-ai.fr — Accueil">
-        <img src="/logo.svg" alt="sen-ai.fr" class="h-8 w-auto" />
+        <img src="/logo-sen-ai-fr.png" alt="sen-ai.fr" class="h-10 w-auto" />
       </a>
 
       <!-- Desktop navigation -->
@@ -19,9 +20,9 @@
         <a href="#ai-scan" class="text-charcoal hover:text-coral transition-colors text-sm font-medium">AI Scan</a>
         <a href="#store-impact" class="text-charcoal hover:text-coral transition-colors text-sm font-medium">Store Impact</a>
         <a href="#engagement" class="text-charcoal hover:text-coral transition-colors text-sm font-medium">Engagement</a>
-        <a href="mailto:contact@sen-ai.fr" class="inline-flex items-center px-4 py-2 bg-coral text-white text-sm font-medium rounded-lg hover:bg-coral-dark transition-colors">
+        <button id="nav-contact-desktop" class="inline-flex items-center px-4 py-2 bg-coral text-white text-sm font-medium rounded-lg hover:bg-coral-dark transition-colors cursor-pointer">
           Contact
-        </a>
+        </button>
       </div>
 
       <!-- Mobile hamburger -->
@@ -39,13 +40,14 @@
         <a href="#ai-scan" class="text-charcoal hover:text-coral transition-colors py-2 text-sm font-medium">AI Scan</a>
         <a href="#store-impact" class="text-charcoal hover:text-coral transition-colors py-2 text-sm font-medium">Store Impact</a>
         <a href="#engagement" class="text-charcoal hover:text-coral transition-colors py-2 text-sm font-medium">Engagement</a>
-        <a href="mailto:contact@sen-ai.fr" class="inline-flex items-center justify-center px-4 py-2 bg-coral text-white text-sm font-medium rounded-lg hover:bg-coral-dark transition-colors">
+        <button id="nav-contact-mobile" class="inline-flex items-center justify-center px-4 py-2 bg-coral text-white text-sm font-medium rounded-lg hover:bg-coral-dark transition-colors cursor-pointer">
           Contact
-        </a>
+        </button>
       </div>
     </div>
   </div>
 </nav>
+</header>
 
 <style>
   .mobile-panel {
@@ -84,4 +86,5 @@
       nav?.classList.remove('shadow-md');
     }
   });
+
 </script>

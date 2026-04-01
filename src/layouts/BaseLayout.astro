@@ -19,7 +19,7 @@ const organizationSchema = {
   "@type": "Organization",
   "name": "sen-ai.fr",
   "url": "https://sen-ai.fr",
-  "logo": "https://sen-ai.fr/logo.svg",
+  "logo": "https://sen-ai.fr/logo-sen-ai-fr.png",
   "description": site.meta.description,
   "slogan": "from data to bloom",
   "contactPoint": {
@@ -84,6 +84,9 @@ const softwareSchema = {
     <script type="application/ld+json" set:html={JSON.stringify(softwareSchema)} />
   </head>
   <body class="bg-white text-charcoal font-sans antialiased">
+    <a href="#main-content" class="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[100] focus:px-4 focus:py-2 focus:bg-coral focus:text-white focus:rounded-lg focus:text-sm focus:font-medium">
+      Aller au contenu principal
+    </a>
     <slot />
   </body>
 </html>

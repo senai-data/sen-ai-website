@@ -19,11 +19,11 @@
   },
   "aiscan": {
     "id": "ai-scan",
-    "title": "ai-scan",
+    "title": "AI Scan",
     "tagline": "Votre marque est-elle visible dans les réponses de l'IA ?",
-    "description": "ai-scan mesure si ChatGPT, Gemini et les autres LLMs citent votre marque quand vos clients leur posent des questions. Pas un dashboard générique — une analyse calibrée sur vos produits, vos segments, vos concurrents.",
+    "description": "AI Scan mesure si ChatGPT, Gemini et les autres LLMs citent votre marque quand vos clients leur posent des questions. Pas un dashboard générique — une analyse calibrée sur vos produits, vos segments, vos concurrents.",
     "mindset": {
-      "title": "La démarche ai-scan",
+      "title": "La démarche AI Scan",
       "subtitle": "On ne compte pas des mots-clés. On pense comme vos clients.",
       "steps": [
         {
@@ -83,7 +83,7 @@
       }
     },
     "clients": {
-      "title": "Marques accompagnées par ai-scan",
+      "title": "Marques accompagnées par AI Scan",
       "brands": [
         { "name": "Eau Thermale Avène", "logo": "/logos/avene.png" },
         { "name": "A-Derma", "logo": "/logos/aderma.png" },
@@ -99,11 +99,11 @@
   },
   "storeimpact": {
     "id": "store-impact",
-    "title": "store-impact",
+    "title": "Store Impact",
     "tagline": "Vos points de vente ont une vitrine digitale. Qui s'en occupe ?",
-    "description": "Vous investissez en Google Ads pour votre marque, mais sans site e-commerce, difficile de mesurer le retour. Votre chiffre d'affaires se fait en point de vente. store-impact combine la puissance de votre marque avec vos points de vente physiques — Google Ads Store Visit + fiches Google optimisées — pour transformer votre budget pub en visites réelles. Et vos points de vente n'ont rien à faire : on gère tout pour eux.",
+    "description": "Vous investissez en Google Ads pour votre marque, mais sans site e-commerce, difficile de mesurer le retour. Votre chiffre d'affaires se fait en point de vente. Store Impact combine la puissance de votre marque avec vos points de vente physiques — Google Ads Store Visit + fiches Google optimisées — pour transformer votre budget pub en visites réelles. Et vos points de vente n'ont rien à faire : on gère tout pour eux.",
     "mindset": {
-      "title": "La démarche store-impact",
+      "title": "La démarche Store Impact",
       "subtitle": "La notoriété de votre marque au service de chaque point de vente.",
       "steps": [
         {

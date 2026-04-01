@@ -15,10 +15,10 @@
 
       <!-- Desktop navigation -->
       <div class="hidden md:flex items-center gap-8">
-        <a href="#solution" class="text-charcoal hover:text-coral transition-colors text-sm font-medium">Solution</a>
-        <a href="#fonctionnalites" class="text-charcoal hover:text-coral transition-colors text-sm font-medium">Fonctionnalites</a>
-        <a href="#resultats" class="text-charcoal hover:text-coral transition-colors text-sm font-medium">Resultats</a>
-        <a href="#tarifs" class="text-charcoal hover:text-coral transition-colors text-sm font-medium">Tarifs</a>
+        <a href="#solutions" class="text-charcoal hover:text-coral transition-colors text-sm font-medium">Solutions</a>
+        <a href="#ai-scan" class="text-charcoal hover:text-coral transition-colors text-sm font-medium">ai-scan</a>
+        <a href="#store-impact" class="text-charcoal hover:text-coral transition-colors text-sm font-medium">store-impact</a>
+        <a href="#engagement" class="text-charcoal hover:text-coral transition-colors text-sm font-medium">Engagement</a>
         <a href="mailto:contact@sen-ai.fr" class="inline-flex items-center px-4 py-2 bg-coral text-white text-sm font-medium rounded-lg hover:bg-coral-dark transition-colors">
           Contact
         </a>
@@ -35,10 +35,10 @@
     <!-- Menu mobile -->
     <div class="mobile-panel md:hidden overflow-hidden transition-all duration-300" id="mobile-menu">
       <div class="pb-4 flex flex-col gap-3">
-        <a href="#solution" class="text-charcoal hover:text-coral transition-colors py-2 text-sm font-medium">Solution</a>
-        <a href="#fonctionnalites" class="text-charcoal hover:text-coral transition-colors py-2 text-sm font-medium">Fonctionnalites</a>
-        <a href="#resultats" class="text-charcoal hover:text-coral transition-colors py-2 text-sm font-medium">Resultats</a>
-        <a href="#tarifs" class="text-charcoal hover:text-coral transition-colors py-2 text-sm font-medium">Tarifs</a>
+        <a href="#solutions" class="text-charcoal hover:text-coral transition-colors py-2 text-sm font-medium">Solutions</a>
+        <a href="#ai-scan" class="text-charcoal hover:text-coral transition-colors py-2 text-sm font-medium">ai-scan</a>
+        <a href="#store-impact" class="text-charcoal hover:text-coral transition-colors py-2 text-sm font-medium">store-impact</a>
+        <a href="#engagement" class="text-charcoal hover:text-coral transition-colors py-2 text-sm font-medium">Engagement</a>
         <a href="mailto:contact@sen-ai.fr" class="inline-flex items-center justify-center px-4 py-2 bg-coral text-white text-sm font-medium rounded-lg hover:bg-coral-dark transition-colors">
           Contact
         </a>
@@ -48,18 +48,13 @@
 </nav>
 
 <style>
-  /* Menu fermé par défaut */
   .mobile-panel {
     max-height: 0;
   }
-
-  /* Menu ouvert quand checkbox cochée */
   #mobile-menu-toggle:checked ~ * .mobile-panel,
   #mobile-menu-toggle:checked ~ .mobile-panel {
     max-height: 24rem;
   }
-
-  /* Hamburger → croix */
   #mobile-menu-toggle:checked ~ * .line-1,
   #mobile-menu-toggle:checked ~ .flex .line-1 {
     transform: rotate(45deg) translateY(4px) translateX(4px);
@@ -75,15 +70,12 @@
 </style>
 
 <script>
-  // Fermer le menu mobile au clic sur un lien
   document.querySelectorAll('#mobile-menu a').forEach(link => {
     link.addEventListener('click', () => {
       const toggle = document.getElementById('mobile-menu-toggle') as HTMLInputElement;
       if (toggle) toggle.checked = false;
     });
   });
-
-  // Ombre sur scroll
   const nav = document.getElementById('nav');
   window.addEventListener('scroll', () => {
     if (window.scrollY > 10) {

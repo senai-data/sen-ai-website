@@ -1,215 +1,216 @@
 {
   "meta": {
-    "title": "sen-ai.fr | Visibilité SEO + GEO pour les marques",
-    "description": "sen-ai.fr mesure la visibilité de votre marque dans les réponses des LLM (ChatGPT, Gemini, Perplexity) et génère du contenu optimisé pour la recherche générative.",
+    "title": "sen-ai.fr | Solutions sur-mesure pour votre visibilité digitale",
+    "description": "sen-ai.fr transforme la complexité digitale en actions concrètes pour votre business. Solutions personnalisées, facturées à l'impact.",
     "url": "https://sen-ai.fr",
     "locale": "fr_FR"
   },
   "hero": {
     "tagline": "from data to bloom",
-    "headline": "Vos clients cherchent sur Google et ChatGPT.",
-    "subheadline": "Est-ce qu'ils vous trouvent ?",
-    "description": "sen-ai.fr mesure votre visibilité dans les réponses des intelligences artificielles, identifie les lacunes et génère du contenu optimisé pour que votre marque soit citée — partout.",
-    "cta_primary": "Découvrir la solution",
-    "cta_secondary": "Voir les résultats"
+    "headline": "Le digital est complexe. Vos décisions ne devraient pas l'être.",
+    "subheadline": "On transforme la boue en fleurs.",
+    "description": "SEO, GEO, SEA, data, marketing digital — tout ça, c'est la boue. sen-ai.fr construit des solutions sur-mesure qui en font émerger des actions concrètes pour votre business. Pas d'outil générique. Pas d'abonnement figé. Une solution adaptée à votre métier, facturée à l'impact.",
+    "cta_primary": "Parlons de votre marque",
+    "cta_secondary": "Comprendre la démarche"
   },
-  "problem": {
-    "title": "Le monde de la recherche a changé",
-    "hier": {
-      "label": "Hier",
-      "items": [
-        "Vos clients tapent sur Google",
-        "Vous optimisez votre SEO",
-        "Vous publiez du contenu régulier",
-        "Vous suivez vos positions"
+  "solutions_intro": {
+    "title": "Nos solutions",
+    "subtitle": "Chaque business est différent. Chaque solution aussi. Aujourd'hui deux solutions, demain autant que nécessaire — toujours sur-mesure, toujours facturées à l'impact."
+  },
+  "aiscan": {
+    "id": "ai-scan",
+    "title": "ai-scan",
+    "tagline": "Votre marque est-elle visible dans les réponses de l'IA ?",
+    "description": "ai-scan mesure si ChatGPT, Gemini et les autres LLMs citent votre marque quand vos clients leur posent des questions. Pas un dashboard générique — une analyse calibrée sur vos produits, vos segments, vos concurrents.",
+    "mindset": {
+      "title": "La démarche ai-scan",
+      "subtitle": "On ne compte pas des mots-clés. On pense comme vos clients.",
+      "steps": [
+        {
+          "id": "persona",
+          "title": "On pense comme vos clients",
+          "description": "À partir de vos données Search Console et Haloscan, on crée des profils réalistes — pas des personas marketing, mais des vrais comportements de recherche, ancrés dans vos segments métier.",
+          "icon": "user"
+        },
+        {
+          "id": "question",
+          "title": "On pose leurs questions",
+          "description": "Chaque profil génère les questions qu'il poserait naturellement à ChatGPT ou Gemini — urgentes, comparatives, techniques, de validation.",
+          "icon": "chat"
+        },
+        {
+          "id": "test",
+          "title": "On interroge les IA à leur place",
+          "description": "On soumet ces questions aux LLMs et on observe : est-ce que votre marque est citée ? À quelle position ? Avec quel concurrent à côté ?",
+          "icon": "beaker"
+        },
+        {
+          "id": "analyse",
+          "title": "On décode ce que l'IA pense de vous",
+          "description": "Taux de citation, sentiment, recommandations produit, gaps vs concurrents — tout est segmenté par univers métier, pas noyé dans une moyenne globale.",
+          "icon": "chart"
+        },
+        {
+          "id": "livrable",
+          "title": "On vous donne les clés pour agir",
+          "description": "Une newsletter mensuelle pour la marque — ce qui a changé, ce qu'il faut faire. Un dashboard interactif pour ceux qui veulent deep-diver dans chaque donnée.",
+          "icon": "document"
+        }
       ]
     },
-    "aujourdhui": {
-      "label": "Aujourd'hui",
-      "items": [
-        "Vos clients demandent à ChatGPT et Gemini",
-        "Êtes-vous cité par les IA ?",
-        "Votre contenu est-il optimisé pour les LLM ?",
-        "Qui surveille votre visibilité IA ?"
+    "livrables": {
+      "newsletter": {
+        "title": "La Newsletter mensuelle — pour le business",
+        "subtitle": "Pour ceux qui veulent comprendre la situation et savoir quoi faire. Pas besoin d'ouvrir une application.",
+        "points": [
+          "Envoyée chaque mois, directement dans votre boîte mail",
+          "Ce que l'IA dit de vos produits ce mois-ci — en clair",
+          "Ce qui a changé par rapport au mois dernier",
+          "Actions prioritaires : quoi faire pour avancer",
+          "Benchmark concurrentiel : qui gagne du terrain, qui en perd"
+        ]
+      },
+      "dashboard": {
+        "title": "Le Dashboard interactif — pour les curieux",
+        "subtitle": "Pour ceux qui veulent deep-diver dans la data, explorer chaque angle, comprendre chaque chiffre.",
+        "points": [
+          "Dashboard Power BI connecté à vos données en temps réel",
+          "Deep-dive par persona, segment, modèle LLM, concurrent",
+          "Évolution mensuelle de votre visibilité IA",
+          "Analyse de sentiment et recommandations produit par gamme",
+          "Export et partage avec vos équipes"
+        ]
+      }
+    },
+    "clients": {
+      "title": "Marques accompagnées par ai-scan",
+      "brands": [
+        { "name": "Eau Thermale Avène", "logo": "/logos/avene.png" },
+        { "name": "A-Derma", "logo": "/logos/aderma.png" },
+        { "name": "Ducray", "logo": "/logos/ducray.png" },
+        { "name": "Klorane", "logo": "/logos/klorane.png" },
+        { "name": "René Furterer", "logo": "/logos/rene-furterer.png" },
+        { "name": "Elgydium", "logo": "/logos/elgydium.png" },
+        { "name": "Eluday", "logo": "/logos/eluday.png" },
+        { "name": "Arthrodont", "logo": "/logos/arthrodont.png" },
+        { "name": "Inava", "logo": "/logos/inava.png" }
+      ]
+    }
+  },
+  "storeimpact": {
+    "id": "store-impact",
+    "title": "store-impact",
+    "tagline": "Vos points de vente ont une vitrine digitale. Qui s'en occupe ?",
+    "description": "Vous investissez en Google Ads pour votre marque, mais sans site e-commerce, difficile de mesurer le retour. Votre chiffre d'affaires se fait en point de vente. store-impact combine la puissance de votre marque avec vos points de vente physiques — Google Ads Store Visit + fiches Google optimisées — pour transformer votre budget pub en visites réelles. Et vos points de vente n'ont rien à faire : on gère tout pour eux.",
+    "mindset": {
+      "title": "La démarche store-impact",
+      "subtitle": "La notoriété de votre marque au service de chaque point de vente.",
+      "steps": [
+        {
+          "id": "connecter",
+          "title": "On connecte marque et points de vente",
+          "description": "Google Ads Store Visit + Google Business Profile. La puissance de votre marque au service de chaque point de vente local. Un budget pub, des visites réelles.",
+          "icon": "link"
+        },
+        {
+          "id": "auditer",
+          "title": "On audite chaque fiche Google",
+          "description": "Score de santé, photos manquantes, avis non répondus, horaires incorrects. Chaque point de vente reçoit un diagnostic personnalisé.",
+          "icon": "clipboard"
+        },
+        {
+          "id": "publier",
+          "title": "On publie pour eux",
+          "description": "Calendrier de contenu automatisé, posts GBP quotidiens. Les points de vente n'ont pas le temps ni l'envie : on s'en charge.",
+          "icon": "megaphone"
+        },
+        {
+          "id": "mesurer",
+          "title": "On mesure l'impact IA",
+          "description": "Est-ce que Gemini et ChatGPT recommandent vos points de vente quand un client cherche à proximité ? Mesure avant/après chaque action.",
+          "icon": "cpu"
+        },
+        {
+          "id": "livrer",
+          "title": "On livre les résultats",
+          "description": "Newsletter mensuelle par point de vente + dashboard interactif pour piloter le réseau entier.",
+          "icon": "envelope"
+        }
       ]
     },
-    "quote": "76% des consommateurs utilisent la recherche avant d'acheter."
+    "livrables": {
+      "newsletter": {
+        "title": "La Newsletter mensuelle — pour chaque point de vente",
+        "subtitle": "Chaque gérant reçoit SA newsletter. Pas besoin d'outil, tout arrive dans la boîte mail.",
+        "points": [
+          "Performance Google Ads Store Visit de son point de vente",
+          "Santé de sa fiche Google (score + audit)",
+          "Recommandations concrètes : quoi améliorer ce mois-ci",
+          "Top termes de recherche qui génèrent des visites",
+          "Comparaison avec la moyenne du réseau"
+        ]
+      },
+      "dashboard": {
+        "title": "Le Dashboard interactif — pour piloter le réseau",
+        "subtitle": "Pour le siège qui veut deep-diver dans chaque point de vente, chaque campagne.",
+        "points": [
+          "Vue réseau complète avec KPIs par point de vente",
+          "Drill-down par campagne, zone géographique, point de vente",
+          "Impact des posts GBP sur la visibilité LLM locale",
+          "Évolution mensuelle et comparaison inter-points de vente",
+          "Export et partage avec vos équipes terrain"
+        ]
+      }
+    },
+    "clients": {
+      "text": "20 000+ points de vente activés en France"
+    }
   },
-  "solution": {
-    "title": "Une plateforme, un cycle complet",
+  "comparison": {
+    "title": "Générique vs. sur-mesure",
+    "columns": ["", "Outil générique", "sen-ai.fr"],
+    "rows": [
+      { "feature": "Personas basées sur vos vraies données Search Console / Haloscan", "generic": false, "senai": true },
+      { "feature": "Questions calibrées sur vos segments métier", "generic": false, "senai": true },
+      { "feature": "Analyse par univers produit (pas une moyenne globale)", "generic": false, "senai": true },
+      { "feature": "Newsletter actionnable pour la marque", "generic": false, "senai": true },
+      { "feature": "Dashboard interactif qui permet de deep-diver dans chaque donnée", "generic": false, "senai": true },
+      { "feature": "Configuration sur vos marques, produits, concurrents", "generic": false, "senai": true },
+      { "feature": "Multi-LLM (ChatGPT, Gemini, Perplexity...)", "generic": "partiel", "senai": true }
+    ]
+  },
+  "engagement": {
+    "title": "Comment on travaille ensemble",
+    "subtitle": "Pas d'abonnement figé. On facture à l'impact, après avoir prouvé la valeur.",
     "steps": [
       {
         "number": 1,
-        "title": "Mesurer",
-        "description": "sen-ai.fr interroge 6+ modèles LLM (ChatGPT, Gemini, Perplexity, Mistral…) avec 90 questions par topic pour cartographier votre visibilité IA."
+        "title": "Audit offert",
+        "description": "On analyse un premier périmètre gratuitement. Vous voyez concrètement ce que l'IA dit de vous — et ce qu'elle ne dit pas."
       },
       {
         "number": 2,
-        "title": "Analyser",
-        "description": "Génération automatique de personas, analyse du taux de citation, position dans les réponses, benchmark concurrentiel."
+        "title": "Premier test",
+        "description": "On déploie la solution sur-mesure sur un périmètre réel. Vous mesurez l'impact avant de vous engager."
       },
       {
         "number": 3,
-        "title": "Créer",
-        "description": "Contenu GEO optimisé pour les LLM : articles avec sources réelles, scoring YourTextGuru, zéro hallucination."
+        "title": "Production",
+        "description": "Newsletter mensuelle + dashboard interactif, livrés automatiquement. La solution tourne, vous agissez."
       },
       {
         "number": 4,
-        "title": "Publier",
-        "description": "Publication automatique vers Notion, prêt pour intégration CMS. Contenu clé en main avec FAQ Schema.org."
-      },
-      {
-        "number": 5,
-        "title": "Re-mesurer",
-        "description": "Ré-analyse mensuelle automatique pour suivre l'évolution de votre visibilité LLM et mesurer l'impact du contenu."
+        "title": "Itération",
+        "description": "On ajuste en continu selon vos retours et votre stratégie. Nouvelles solutions quand le besoin émerge."
       }
-    ]
-  },
-  "features": {
-    "title": "Ce que sen-ai.fr fait pour vous",
-    "items": [
-      {
-        "icon": "📡",
-        "title": "Visibilité LLM",
-        "description": "Mesurez votre présence dans les réponses de ChatGPT, Gemini, Perplexity et d'autres modèles.",
-        "points": [
-          "Test multi-LLM (ChatGPT, Gemini, Perplexity, Mistral…)",
-          "Taux de citation et position dans les réponses",
-          "Benchmark concurrentiel automatisé",
-          "90 questions par topic, personas variées"
-        ]
-      },
-      {
-        "icon": "✍️",
-        "title": "Contenu GEO",
-        "description": "Générez des articles optimisés pour la recherche générative, avec des sources vérifiées.",
-        "points": [
-          "Articles optimisés pour les citations IA",
-          "Sources réelles uniquement — zéro hallucination",
-          "Scoring sémantique YourTextGuru intégré",
-          "Format HTML prêt à publier"
-        ]
-      },
-      {
-        "icon": "🔗",
-        "title": "Netlinking",
-        "description": "Identifiez les meilleures opportunités de liens et obtenez du contenu clé en main.",
-        "points": [
-          "Détection automatique d'opportunités",
-          "Pricing média via Getfluence / Babbar",
-          "Contenu optimisé GEO clé en main",
-          "Scoring de pertinence thématique"
-        ]
-      },
-      {
-        "icon": "❓",
-        "title": "FAQ Schema.org",
-        "description": "Détectez les questions manquantes et générez des FAQ structurées pour vos pages.",
-        "points": [
-          "Détection des gaps de questions",
-          "Matching automatique question → page",
-          "Génération Q&A avec sources",
-          "Balisage Schema.org prêt à intégrer"
-        ]
-      },
-      {
-        "icon": "🛡️",
-        "title": "Veille réputation",
-        "description": "Surveillez votre présence SERP et détectez les menaces à votre e-réputation.",
-        "points": [
-          "Surveillance SERP hebdomadaire",
-          "Framework RAPP (Risque, Alerte, Priorité, Plan)",
-          "Détection PBN et liens toxiques",
-          "Rapport Power BI automatisé"
-        ]
-      }
-    ]
-  },
-  "results": {
-    "title": "Des chiffres, pas des promesses",
-    "metrics": [
-      { "value": "40", "unit": "topics/mois", "color": "coral" },
-      { "value": "90", "unit": "questions/topic", "color": "emerald" },
-      { "value": "6+", "unit": "modèles LLM", "color": "coral" },
-      { "value": "100%", "unit": "automatisé", "color": "emerald" }
-    ]
-  },
-  "comparison": {
-    "title": "Pourquoi sen-ai.fr ?",
-    "columns": ["Fonctionnalité", "Outils génériques", "Agences SEO", "sen-ai.fr"],
-    "rows": [
-      { "feature": "Mesure visibilité LLM", "generic": false, "agency": false, "senai": true },
-      { "feature": "Contenu optimisé IA", "generic": false, "agency": "partiel", "senai": true },
-      { "feature": "Multi-LLM (6+ modèles)", "generic": false, "agency": false, "senai": true },
-      { "feature": "FAQ Schema.org auto", "generic": false, "agency": false, "senai": true },
-      { "feature": "Netlinking scoring", "generic": "partiel", "agency": true, "senai": true },
-      { "feature": "Rapport Power BI", "generic": false, "agency": false, "senai": true },
-      { "feature": "Coût maîtrisé", "generic": true, "agency": false, "senai": true }
-    ]
-  },
-  "pricing": {
-    "title": "Transparent. Sans engagement.",
-    "tiers": [
-      {
-        "name": "Découverte",
-        "price": "Gratuit",
-        "highlight": false,
-        "features": [
-          "1 topic analysé",
-          "90 questions × 6 LLM",
-          "Rapport de visibilité PDF",
-          "Benchmark 3 concurrents"
-        ],
-        "cta": "Essayer gratuitement"
-      },
-      {
-        "name": "Standard",
-        "price": "Sur devis",
-        "highlight": false,
-        "features": [
-          "10 topics/mois",
-          "Analyse multi-LLM complète",
-          "Rapport Power BI mensuel",
-          "Benchmark concurrentiel",
-          "Support email"
-        ],
-        "cta": "Demander un devis"
-      },
-      {
-        "name": "Premium",
-        "price": "Sur devis",
-        "highlight": true,
-        "features": [
-          "40+ topics/mois",
-          "Contenu GEO automatisé",
-          "Netlinking clé en main",
-          "FAQ Schema.org",
-          "Veille réputation RAPP",
-          "Rapport Power BI temps réel",
-          "Account manager dédié"
-        ],
-        "cta": "Demander un devis"
-      },
-      {
-        "name": "Exclusivité sectorielle",
-        "price": "5 000 €/marque/an",
-        "highlight": false,
-        "features": [
-          "Exclusivité sur votre secteur",
-          "sen-ai.fr ne travaille qu'avec vous",
-          "Accès prioritaire aux nouveautés",
-          "Stratégie GEO dédiée",
-          "Accompagnement trimestriel"
-        ],
-        "cta": "Nous contacter"
-      }
-    ]
+    ],
+    "cta": "Réserver un audit gratuit"
   },
   "story": {
-    "title": "Pourquoi Sen ?",
+    "title": "Pourquoi sen ?",
     "paragraphs": [
-      "En vietnamien, « Sen » signifie « lotus ». Le lotus pousse dans la boue, traverse l'eau trouble, et finit par éclore — magnifique — à la surface.",
-      "C'est exactement ce que fait sen-ai.fr avec vos données. On part du chaos — des milliers de requêtes, des dizaines de modèles IA, des réponses fragmentées — et on en fait émerger une visibilité digitale claire et mesurable.",
+      "En vietnamien, « sen » signifie « lotus ». Le lotus pousse dans la boue, traverse l'eau trouble, et finit par éclore — magnifique — à la surface.",
+      "SEO, GEO, SEA, data, marketing digital — c'est la boue. Complexe, fragmentée, difficile à transformer en décisions. sen-ai.fr prend cette complexité et en fait émerger des actions claires, mesurables, utiles pour le business.",
       "Le lotus ne fleurit pas malgré la boue. Il fleurit grâce à elle."
     ],
     "quote": "from data to bloom"

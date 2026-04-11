@@ -1,0 +1,31 @@
+---
+/**
+ * Breadcrumb for scan result pages.
+ * Recognition over Recall (lawsofux): always shows where the user is.
+ *
+ * Usage: <ScanBreadcrumb scanId={id} scanName="Avene tracking" current="Overview" />
+ */
+interface Props {
+  scanId: string;
+  scanName: string;
+  current: string;
+}
+
+const { scanId, scanName, current } = Astro.props;
+---
+
+<nav class="px-8 pt-4 pb-2" aria-label="Breadcrumb">
+  <ol class="flex items-center gap-1.5 text-xs text-charcoal-light">
+    <li>
+      <a href="/app/scans" class="hover:text-charcoal-dark transition-colors">My Scans</a>
+    </li>
+    <li class="text-gray-300">/</li>
+    <li>
+      <a href={`/app/scans/${scanId}/results`} class="hover:text-charcoal-dark transition-colors truncate max-w-[200px] inline-block align-bottom">
+        {scanName}
+      </a>
+    </li>
+    <li class="text-gray-300">/</li>
+    <li class="text-charcoal-dark font-medium">{current}</li>
+  </ol>
+</nav>

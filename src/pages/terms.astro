@@ -1,0 +1,214 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import Nav from '../components/Nav.astro';
+import Footer from '../components/Footer.astro';
+
+const lastUpdated = "2026-04-10";
+---
+
+<BaseLayout title="Terms of Service | sen-ai.fr" description="Terms governing your use of sen-ai.fr — accounts, credits, acceptable use, AI output disclaimer, liability.">
+  <Nav />
+  <main class="pt-24 pb-20 px-4">
+    <div class="max-w-3xl mx-auto prose prose-charcoal">
+      <h1 class="text-3xl sm:text-4xl font-bold text-charcoal-dark mb-2">Terms of Service</h1>
+      <p class="text-sm text-charcoal-light mb-12">Last updated: {lastUpdated}</p>
+
+      <section class="mb-10">
+        <h2 class="text-xl font-bold text-charcoal-dark mb-4">1. Acceptance</h2>
+        <p class="text-charcoal-light leading-relaxed">
+          By creating an account on sen-ai.fr ("the Service"), you agree to these Terms
+          of Service and to our
+          <a href="/privacy" class="text-coral hover:text-coral-dark">Privacy Policy</a>.
+          If you do not agree, do not use the Service. The Service is operated by the
+          entity listed on our
+          <a href="/mentions-legales" class="text-coral hover:text-coral-dark">Legal Notice</a> page.
+        </p>
+      </section>
+
+      <section class="mb-10">
+        <h2 class="text-xl font-bold text-charcoal-dark mb-4">2. The Service</h2>
+        <p class="text-charcoal-light leading-relaxed">
+          sen-ai.fr is a SaaS platform that helps you understand how generative AI models
+          (such as ChatGPT and Gemini) reference your brand or domain. You enter a target
+          domain, the platform pulls SEO data, generates personas and questions, queries
+          one or more LLM providers on your behalf, and presents the results in
+          dashboards and reports.
+        </p>
+      </section>
+
+      <section class="mb-10">
+        <h2 class="text-xl font-bold text-charcoal-dark mb-4">3. Account registration</h2>
+        <ul class="text-charcoal-light leading-relaxed list-disc pl-6">
+          <li>You must be at least 16 years old.</li>
+          <li>You must provide accurate and current information.</li>
+          <li>You are responsible for keeping your password confidential and for all
+              activity that occurs under your account.</li>
+          <li>One natural person should not maintain multiple accounts to circumvent
+              credit limits or rate-limiting.</li>
+        </ul>
+      </section>
+
+      <section class="mb-10">
+        <h2 class="text-xl font-bold text-charcoal-dark mb-4">4. Credits and billing</h2>
+        <p class="text-charcoal-light leading-relaxed">
+          The Service operates on a one-time credit pack model. There is no
+          subscription, no auto-renewal. Credits are purchased in packs via Stripe.
+        </p>
+        <ul class="text-charcoal-light leading-relaxed list-disc pl-6 mt-3">
+          <li>
+            <strong>Scan credits</strong> are consumed when you launch an AI scan
+            (1 credit per question). Credits are debited at launch.
+          </li>
+          <li>
+            <strong>Content credits</strong> are consumed when you generate content
+            artifacts (FAQ snippets, articles).
+          </li>
+          <li>
+            New accounts receive a one-time bonus of 50 free scan credits to try the
+            Service.
+          </li>
+          <li>
+            <strong>Refunds:</strong> if a scan fails (e.g. our worker crashes mid-execution),
+            the credits debited are automatically refunded. Credits are not refundable
+            once the scan has successfully completed and delivered results.
+          </li>
+          <li>
+            <strong>Expiration:</strong> credits do not expire as long as your account
+            remains active.
+          </li>
+          <li>
+            <strong>Pricing:</strong> the credit pack catalog and prices are listed on the
+            <a href="/pricing" class="text-coral hover:text-coral-dark">Pricing page</a>.
+            We may change prices for future purchases; previously-purchased credits
+            retain their value.
+          </li>
+        </ul>
+      </section>
+
+      <section class="mb-10">
+        <h2 class="text-xl font-bold text-charcoal-dark mb-4">5. Acceptable use</h2>
+        <p class="text-charcoal-light leading-relaxed">
+          You agree NOT to:
+        </p>
+        <ul class="text-charcoal-light leading-relaxed list-disc pl-6 mt-3">
+          <li>Use the Service to violate any law, regulation, or third-party right.</li>
+          <li>Submit content designed to extract personal data, harass, or defame.</li>
+          <li>Reverse engineer, scrape, or attempt to bypass rate limits or credit gates.</li>
+          <li>Resell or sublicense the Service to third parties without our written consent.</li>
+          <li>Submit prompts intended to produce illegal, hateful, or sexually explicit
+              content from the LLM providers we relay to.</li>
+          <li>Use the Service in a way that disrupts or degrades it for other users.</li>
+        </ul>
+        <p class="text-charcoal-light leading-relaxed mt-3">
+          We may suspend or terminate accounts that violate these rules, with or without
+          notice depending on severity.
+        </p>
+      </section>
+
+      <section class="mb-10">
+        <h2 class="text-xl font-bold text-charcoal-dark mb-4">6. AI-generated content disclaimer</h2>
+        <p class="text-charcoal-light leading-relaxed">
+          The Service relays your queries to third-party LLM providers and presents
+          their responses. These responses are statistical outputs from machine learning
+          models. They may be inaccurate, incomplete, biased, or hallucinated. They are
+          NOT legal, medical, financial, or professional advice. You are responsible
+          for verifying any information before acting on it. We make no warranty as to
+          the accuracy, completeness, or suitability of any AI-generated content.
+        </p>
+      </section>
+
+      <section class="mb-10">
+        <h2 class="text-xl font-bold text-charcoal-dark mb-4">7. Intellectual property</h2>
+        <p class="text-charcoal-light leading-relaxed">
+          The Service software, design, and brand identity are owned by us. You retain
+          ownership of the data you submit (target domains, brand information, custom
+          personas) and of any content artifacts generated for your account. By using
+          the Service, you grant us a limited license to process this data solely for
+          the purpose of providing the Service to you.
+        </p>
+      </section>
+
+      <section class="mb-10">
+        <h2 class="text-xl font-bold text-charcoal-dark mb-4">8. Termination</h2>
+        <p class="text-charcoal-light leading-relaxed">
+          You may terminate your account at any time from your settings or via
+          <code class="text-coral">DELETE /api/auth/me</code>. Termination wipes your
+          account, your solely-owned workspaces, and all the data they contain. Some
+          billing records are retained for legal compliance (see Privacy Policy §6).
+        </p>
+        <p class="text-charcoal-light leading-relaxed mt-3">
+          We may terminate or suspend your account for violation of these Terms or for
+          extended inactivity. Where reasonably possible we will notify you in advance.
+        </p>
+      </section>
+
+      <section class="mb-10">
+        <h2 class="text-xl font-bold text-charcoal-dark mb-4">9. Service availability</h2>
+        <p class="text-charcoal-light leading-relaxed">
+          We aim for high availability but do not guarantee uninterrupted service.
+          Maintenance, third-party outages (LLM providers, Stripe, HaloScan), and
+          unforeseen incidents can cause downtime. There is no SLA on the free or
+          pay-as-you-go tiers.
+        </p>
+      </section>
+
+      <section class="mb-10">
+        <h2 class="text-xl font-bold text-charcoal-dark mb-4">10. Disclaimer of warranties</h2>
+        <p class="text-charcoal-light leading-relaxed">
+          The Service is provided "as is" and "as available", without warranties of any
+          kind, express or implied, including merchantability, fitness for a particular
+          purpose, and non-infringement. We do not warrant that the Service will be
+          error-free or that defects will be corrected.
+        </p>
+      </section>
+
+      <section class="mb-10">
+        <h2 class="text-xl font-bold text-charcoal-dark mb-4">11. Limitation of liability</h2>
+        <p class="text-charcoal-light leading-relaxed">
+          To the maximum extent permitted by law, our total liability arising out of or
+          relating to the Service is limited to the amount you have paid to us in the
+          twelve months preceding the event giving rise to the claim. We are not liable
+          for indirect, incidental, special, consequential, or punitive damages, or for
+          loss of profits, revenue, data, or business opportunities.
+        </p>
+      </section>
+
+      <section class="mb-10">
+        <h2 class="text-xl font-bold text-charcoal-dark mb-4">12. Governing law</h2>
+        <p class="text-charcoal-light leading-relaxed">
+          These Terms are governed by French law. Any dispute that cannot be resolved
+          amicably will be submitted to the competent courts of France. If you are a
+          consumer, mandatory consumer protection rules of your country of residence
+          continue to apply.
+        </p>
+      </section>
+
+      <section class="mb-10">
+        <h2 class="text-xl font-bold text-charcoal-dark mb-4">13. Changes to these Terms</h2>
+        <p class="text-charcoal-light leading-relaxed">
+          We may update these Terms over time. Material changes will be announced in-app
+          and the "last updated" date will be revised. Continued use of the Service after
+          a change constitutes acceptance.
+        </p>
+      </section>
+
+      <section class="mb-10">
+        <h2 class="text-xl font-bold text-charcoal-dark mb-4">14. Contact</h2>
+        <p class="text-charcoal-light leading-relaxed">
+          For any question about these Terms:
+          <a href="mailto:contact@sen-ai.fr" class="text-coral hover:text-coral-dark">contact@sen-ai.fr</a>
+        </p>
+      </section>
+
+      <div class="mt-16">
+        <a href="/" class="inline-flex items-center gap-2 text-coral hover:text-coral-dark font-medium transition-colors">
+          <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7" />
+          </svg>
+          Back to home
+        </a>
+      </div>
+    </div>
+  </main>
+  <Footer />
+</BaseLayout>

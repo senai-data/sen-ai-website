@@ -1,0 +1,383 @@
+---
+/**
+ * Personas — Full persona profiles with rich data.
+ *
+ * "Who can't find me?" — Deep dive into each persona's profile, visibility,
+ * brand perception, competitors, and opportunities.
+ *
+ * Progressive Disclosure: collapsed cards → expand for full profile.
+ * Von Restorff: 0% personas have red ring.
+ * Miller's Law: grouped by topic.
+ */
+export const prerender = false;
+import ScanResultsLayout from '../../../../layouts/ScanResultsLayout.astro';
+import Tip from '../../../../components/Tip.astro';
+
+const token = Astro.cookies.get('token')?.value;
+if (!token) return Astro.redirect('/login');
+const { id: scanId } = Astro.params;
+
+const rangeParam = Astro.url.searchParams.get('range') || 'all';
+const runParam = Astro.url.searchParams.get('run') || '';
+const effectiveScanId = (rangeParam === 'latest' && runParam) ? runParam : scanId;
+const providerParam = Astro.url.searchParams.get('provider') || 'all';
+
+const headers = { Cookie: `token=${token}` };
+let personaInsights: any[] = [];
+try {
+  const res = await fetch(`http://api:8000/api/scans/${effectiveScanId}/persona-insights${providerParam !== 'all' ? '?provider=' + providerParam : ''}`, { headers });
+  if (res.ok) personaInsights = await res.json();
+} catch (_) {}
+
+function rc(rate: number) {
+  if (rate >= 30) return { text: 'text-emerald-600', badge: 'bg-emerald-50 text-emerald-700', label: 'Strong' };
+  if (rate > 0) return { text: 'text-amber-500', badge: 'bg-amber-50 text-amber-700', label: 'Weak' };
+  return { text: 'text-red-500', badge: 'bg-red-50 text-red-600', label: 'Absent' };
+}
+
+// Sort worst first
+const sorted = [...personaInsights].sort((a, b) => (a.visibility?.citation_rate || 0) - (b.visibility?.citation_rate || 0));
+
+// Chart data: persona comparison bars
+const personaBarLabels = sorted.map((p: any) => p.name?.length > 25 ? p.name.slice(0, 25) + '...' : p.name);
+const personaBarValues = sorted.map((p: any) => p.visibility?.citation_rate || 0);
+const personaBarColors = personaBarValues.map((r: number) => r >= 30 ? '#10b981' : r > 0 ? '#f59e0b' : '#ef4444');
+
+// Radar data per persona (for dynamic creation on expand)
+const radarDataPerPersona = sorted.map((p: any) => {
+  const bqt = p.visibility?.by_question_type || {};
+  const types = Object.keys(bqt);
+  const rates = types.map((t: string) => {
+    const s = bqt[t];
+    return s && s.total > 0 ? Math.round(s.cited / s.total * 100) : 0;
+  });
+  return { labels: types, data: rates };
+});
+---
+
+<ScanResultsLayout scanId={scanId} activeTab="personas">
+  <div x-data="{ expanded: null }">
+
+    <p class="text-sm text-charcoal-light mb-6">
+      Each persona represents a real audience segment asking AI about your brand.
+      Sorted by visibility (worst first) — the personas who <strong class="text-charcoal-dark">can't find you</strong> are where opportunities hide.
+    </p>
+
+    {/* Persona Comparison Chart */}
+    {sorted.length > 0 && (
+      <div class="bg-white rounded-xl shadow-sm p-6 mb-8">
+        <h3 class="text-sm font-semibold text-charcoal-dark mb-1">Persona Visibility Comparison</h3>
+        <p class="text-[11px] text-charcoal-light mb-4">Which personas need the most attention?</p>
+        <div class="relative" style={`height: ${Math.max(sorted.length * 40, 120)}px;`}>
+          <canvas id="personaBars"></canvas>
+        </div>
+      </div>
+    )}
+
+    {sorted.length === 0 && (
+      <div class="bg-white rounded-xl shadow-sm p-12 text-center text-charcoal-light">No persona insights available.</div>
+    )}
+
+    <div class="space-y-3">
+      {sorted.map((p: any, pi: number) => {
+        const vis = p.visibility;
+        const rate = vis?.citation_rate || 0;
+        const prc = rc(rate);
+        const profile = p.profile || {};
+        const weight = p.weight || {};
+        const topComp = p.competitors?.[0];
+        const critOpps = p.opportunities?.filter((o: any) => o.priority === 'critique')?.length || 0;
+        return (
+          <div class={`bg-white rounded-xl shadow-sm overflow-hidden transition-all ${rate === 0 ? 'ring-1 ring-red-200' : ''}`}>
+            {/* Collapsed header (Fitts: large clickable area) */}
+            <div class="px-6 py-4 cursor-pointer hover:bg-gray-50 transition-colors"
+                 @click={`expanded = expanded === ${pi} ? null : ${pi}`}>
+              <div class="flex items-center gap-4">
+                <img src={`https://api.dicebear.com/9.x/personas/svg?seed=${encodeURIComponent(p.name)}&backgroundColor=b6e3f4,c0aede,d1d4f9,ffd5dc,ffdfbf`}
+                     alt="" class="w-12 h-12 rounded-full shrink-0" />
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-center gap-2 mb-0.5">
+                    <h3 class="font-semibold text-charcoal-dark truncate">{p.name}</h3>
+                    <span class={`text-[10px] px-2 py-0.5 rounded-full font-medium ${prc.badge}`}>{prc.label}</span>
+                    {critOpps > 0 && <span class="text-[10px] px-2 py-0.5 rounded-full bg-red-50 text-red-600 font-bold">{critOpps} critical</span>}
+                    {weight.traffic_share > 0 && <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-charcoal-light font-medium">{weight.traffic_share}% traffic</span>}
+                    {weight.keyword_count > 0 && <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-charcoal-light font-medium">{weight.keyword_count} keywords</span>}
+                    {weight.total_searchvolume > 0 && <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-charcoal-light font-medium">{weight.total_searchvolume.toLocaleString()} vol.</span>}
+                  </div>
+                  <p class="text-xs text-charcoal-light">
+                    {p.topic_name}
+                    {profile.expertise && <span class="ml-2 capitalize">· {profile.expertise}</span>}
+                    {profile.profession && <span class="ml-1">· {profile.profession}</span>}
+                  </p>
+                  {profile.pain_points?.[0] && (
+                    <p class="text-xs text-charcoal-light mt-1 italic truncate">"{profile.pain_points[0]}"</p>
+                  )}
+                </div>
+                <div class="shrink-0 text-right">
+                  <p class={`text-2xl font-bold ${prc.text}`}>{rate}%</p>
+                  <p class="text-[10px] text-charcoal-light">{vis?.cited || 0}/{vis?.total_questions || 0} mentioned</p>
+                </div>
+                {topComp && (
+                  <div class="shrink-0 text-right pl-3 border-l border-gray-100">
+                    <p class="text-[10px] text-charcoal-light uppercase">Top competitor</p>
+                    <p class="text-xs font-medium text-orange-600 truncate max-w-[120px]">{topComp.name}</p>
+                  </div>
+                )}
+                <svg class="w-5 h-5 text-gray-400 shrink-0 transition-transform" :class={`expanded === ${pi} ? 'rotate-180' : ''`}
+                     fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                </svg>
+              </div>
+            </div>
+
+            {/* Expanded detail */}
+            <div x-show={`expanded === ${pi}`} x-transition class="border-t border-gray-100">
+              {/* Profile (Law of Common Region) */}
+              <div class="px-6 py-4 bg-gray-50/50 grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <h4 class="text-[10px] uppercase tracking-wide text-charcoal-light font-semibold mb-2">Profile</h4>
+                  <p class="text-xs text-charcoal-dark">
+                    {profile.age && <span>{profile.age}</span>}
+                    {profile.profession && <span> · {profile.profession}</span>}
+                    {profile.expertise && <span> · <span class="capitalize">{profile.expertise}</span></span>}
+                  </p>
+                </div>
+                {profile.customer_journey && (
+                  <div>
+                    <h4 class="text-[10px] uppercase tracking-wide text-charcoal-light font-semibold mb-2">Customer Journey</h4>
+                    <p class="text-xs text-charcoal-dark">{profile.customer_journey}</p>
+                  </div>
+                )}
+                {profile.pain_points?.length > 0 && (
+                  <div>
+                    <h4 class="text-[10px] uppercase tracking-wide text-charcoal-light font-semibold mb-2">Pain Points</h4>
+                    <ul class="space-y-1">
+                      {profile.pain_points.map((pp: string) => <li class="text-xs text-charcoal-dark flex items-start gap-1.5"><span class="text-red-400 mt-0.5 shrink-0">&#8226;</span>{pp}</li>)}
+                    </ul>
+                  </div>
+                )}
+                {profile.content_opportunities?.length > 0 && (
+                  <div>
+                    <h4 class="text-[10px] uppercase tracking-wide text-charcoal-light font-semibold mb-2">Content Opportunities</h4>
+                    <ul class="space-y-1">
+                      {profile.content_opportunities.map((co: string) => <li class="text-xs text-charcoal-dark flex items-start gap-1.5"><span class="text-coral shrink-0">&#10148;</span>{co}</li>)}
+                    </ul>
+                  </div>
+                )}
+                {profile.search_intents?.length > 0 && (
+                  <div>
+                    <h4 class="text-[10px] uppercase tracking-wide text-charcoal-light font-semibold mb-2">Search Intents</h4>
+                    <div class="flex flex-wrap gap-1.5">
+                      {profile.search_intents.map((si: string) => <span class="text-[10px] bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full">{si}</span>)}
+                    </div>
+                  </div>
+                )}
+                {profile.keywords?.length > 0 && (
+                  <div class="md:col-span-2">
+                    <h4 class="text-[10px] uppercase tracking-wide text-charcoal-light font-semibold mb-2">Associated Keywords</h4>
+                    <div class="flex flex-wrap gap-1.5">
+                      {profile.keywords.slice(0, 15).map((kw: string) => <span class="text-[10px] bg-gray-100 text-charcoal-dark px-2 py-0.5 rounded">{kw}</span>)}
+                      {profile.keywords.length > 15 && <span class="text-[10px] text-charcoal-light">+{profile.keywords.length - 15} more</span>}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Visibility by question type — radar + badges */}
+              {vis?.by_question_type && Object.keys(vis.by_question_type).length > 0 && (
+                <div class="px-6 py-4 border-t border-gray-100">
+                  <h4 class="text-[10px] uppercase tracking-wide text-charcoal-light font-semibold mb-3">Visibility by Question Type</h4>
+                  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {/* Radar chart */}
+                    <div class="relative flex items-center justify-center" style="height: 180px;">
+                      <canvas id={`radar-${pi}`}></canvas>
+                    </div>
+                    {/* Badge cards */}
+                    <div class="flex flex-wrap gap-2 content-start">
+                      {Object.entries(vis.by_question_type).map(([type, stats]: any) => {
+                        const typeRate = stats.total > 0 ? Math.round(stats.cited / stats.total * 100) : 0;
+                        const typeColor = typeRate === 0 ? 'bg-red-50 border-red-200 text-red-700' : typeRate < 30 ? 'bg-amber-50 border-amber-200 text-amber-700' : 'bg-emerald-50 border-emerald-200 text-emerald-700';
+                        return (
+                          <div class={`border rounded-lg px-3 py-2 ${typeColor}`}>
+                            <p class="text-[10px] uppercase font-medium">{type}</p>
+                            <p class="text-lg font-bold">{typeRate}%</p>
+                            <p class="text-[10px]">{stats.cited}/{stats.total}</p>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Brand perception */}
+              {p.brand_perception?.times_mentioned > 0 && (
+                <div class="px-6 py-4 border-t border-gray-100">
+                  <h4 class="text-[10px] uppercase tracking-wide text-charcoal-light font-semibold mb-3">Brand Perception</h4>
+                  <div class="flex items-center gap-4">
+                    {p.brand_perception.dominant_sentiment && (
+                      <div class="flex items-center gap-1.5">
+                        <span class={`w-2.5 h-2.5 rounded-full ${p.brand_perception.dominant_sentiment === 'positif' ? 'bg-emerald-400' : p.brand_perception.dominant_sentiment === 'negatif' ? 'bg-red-400' : 'bg-gray-400'}`}></span>
+                        <span class="text-xs text-charcoal-dark capitalize">{p.brand_perception.dominant_sentiment} sentiment</span>
+                      </div>
+                    )}
+                    {p.brand_perception.dominant_recommendation && (
+                      <span class="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full capitalize">{p.brand_perception.dominant_recommendation.replace('_', ' ')}</span>
+                    )}
+                    <span class="text-xs text-charcoal-light">{p.brand_perception.times_mentioned} mentions</span>
+                  </div>
+                </div>
+              )}
+              {p.brand_perception?.times_mentioned === 0 && (
+                <div class="px-6 py-3 border-t border-gray-100 bg-red-50/50">
+                  <p class="text-xs text-red-600 font-medium">Your brand is never mentioned by AI for this persona.</p>
+                </div>
+              )}
+
+              {/* Competitors */}
+              {p.competitors?.length > 0 && (
+                <div class="px-6 py-4 border-t border-gray-100">
+                  <h4 class="text-[10px] uppercase tracking-wide text-charcoal-light font-semibold mb-2">Who Beats You</h4>
+                  <div class="flex flex-wrap gap-2">
+                    {p.competitors.map((c: any, ci: number) => (
+                      <span class={`text-xs px-2.5 py-1 rounded-full border ${ci === 0 ? 'bg-orange-50 border-orange-200 text-orange-700 font-medium' : 'bg-gray-50 border-gray-200 text-charcoal-dark'}`}>
+                        {c.name} ({c.mentions})
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Questions tested */}
+              {p.questions?.length > 0 && (
+                <div class="px-6 py-4 border-t border-gray-100">
+                  <h4 class="text-[10px] uppercase tracking-wide text-charcoal-light font-semibold mb-3">Questions Tested</h4>
+                  <div class="space-y-1.5">
+                    {p.questions.map((q: any) => (
+                      <div class="flex items-start gap-2 py-1.5">
+                        {q.cited
+                          ? <span class="text-emerald-500 mt-0.5 shrink-0">&#10003;</span>
+                          : <span class="text-red-400 mt-0.5 shrink-0">&#10007;</span>
+                        }
+                        <div class="flex-1 min-w-0">
+                          <p class="text-xs text-charcoal-dark">{q.question}</p>
+                          {q.intention_cachee && <p class="text-[10px] text-charcoal-light italic mt-0.5">Intent: {q.intention_cachee}</p>}
+                          {!q.cited && q.competitors_cited?.length > 0 && (
+                            <p class="text-[10px] text-orange-600 mt-0.5">{q.competitors_cited.join(', ')} cited instead</p>
+                          )}
+                        </div>
+                        <span class={`text-[10px] shrink-0 mt-0.5 px-1.5 py-0.5 rounded ${
+                          q.type === 'basique' ? 'bg-blue-50 text-blue-600' :
+                          q.type === 'technique' ? 'bg-purple-50 text-purple-600' :
+                          q.type === 'urgente' ? 'bg-red-50 text-red-600' :
+                          q.type === 'comparative' ? 'bg-amber-50 text-amber-600' :
+                          'bg-emerald-50 text-emerald-600'
+                        }`}>{q.type}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Opportunities CTA */}
+              {p.opportunities?.length > 0 && (
+                <div class="px-6 py-4 border-t border-gray-100 bg-coral/5">
+                  <div class="flex items-center justify-between">
+                    <p class="text-sm font-semibold text-charcoal-dark">{p.opportunities.length} opportunities for this persona</p>
+                    <a href={`/app/scans/${scanId}/actions`} class="text-xs text-coral hover:underline font-medium">View in Actions</a>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  </div>
+
+  <script is:inline define:vars={{ personaBarLabels, personaBarValues, personaBarColors, radarDataPerPersona }}>
+    document.addEventListener('DOMContentLoaded', function() {
+      if (typeof Chart === 'undefined') return;
+
+      // Persona comparison bars
+      var barsEl = document.getElementById('personaBars');
+      if (barsEl && personaBarLabels.length > 0) {
+        new Chart(barsEl, {
+          type: 'bar',
+          data: {
+            labels: personaBarLabels,
+            datasets: [{ data: personaBarValues, backgroundColor: personaBarColors, barThickness: 22 }]
+          },
+          options: {
+            indexAxis: 'y',
+            scales: {
+              x: { display: true, max: 100, ticks: { callback: function(v) { return v + '%'; } } },
+              y: { ticks: { font: { size: 11 }, color: '#374151' } }
+            },
+            plugins: {
+              tooltip: { callbacks: { label: function(ctx) { return ctx.raw + '% mention rate'; } } }
+            }
+          }
+        });
+      }
+
+      // Radar charts per persona — created lazily when canvas becomes visible
+      var radarCharts = {};
+      function createRadar(index) {
+        if (radarCharts[index]) return;
+        var canvas = document.getElementById('radar-' + index);
+        if (!canvas) return;
+        var rd = radarDataPerPersona[index];
+        if (!rd || !rd.labels || rd.labels.length < 3) return;
+        radarCharts[index] = new Chart(canvas, {
+          type: 'radar',
+          data: {
+            labels: rd.labels,
+            datasets: [{
+              data: rd.data,
+              backgroundColor: 'rgba(232, 112, 122, 0.15)',
+              borderColor: '#e8707a',
+              borderWidth: 2,
+              pointBackgroundColor: '#e8707a',
+              pointBorderColor: '#fff',
+              pointBorderWidth: 2,
+              pointRadius: 4,
+            }]
+          },
+          options: {
+            scales: {
+              r: {
+                min: 0, max: 100,
+                ticks: { stepSize: 25, callback: function(v) { return v + '%'; }, font: { size: 9 }, backdropColor: 'transparent' },
+                pointLabels: { font: { size: 10 }, color: '#374151' },
+                grid: { display: true, color: '#e5e7eb' },
+                angleLines: { color: '#e5e7eb' }
+              }
+            },
+            plugins: {
+              tooltip: { callbacks: { label: function(ctx) { return ctx.label + ': ' + ctx.raw + '%'; } } }
+            },
+            animation: { duration: 300 }
+          }
+        });
+      }
+
+      // Observe expanded personas to lazily create radar charts
+      var observer = new MutationObserver(function() {
+        radarDataPerPersona.forEach(function(_, i) {
+          var canvas = document.getElementById('radar-' + i);
+          if (canvas && canvas.offsetParent !== null) createRadar(i);
+        });
+      });
+      observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['style'] });
+
+      // Also try creating on initial load (first persona might be expanded by default)
+      setTimeout(function() {
+        radarDataPerPersona.forEach(function(_, i) {
+          var canvas = document.getElementById('radar-' + i);
+          if (canvas && canvas.offsetParent !== null) createRadar(i);
+        });
+      }, 500);
+    });
+  </script>
+</ScanResultsLayout>

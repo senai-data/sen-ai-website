@@ -1,0 +1,198 @@
+---
+/**
+ * Dashboard Home — Global overview of all scans and activity.
+ *
+ * UX Laws:
+ * - Miller's Law: 4 KPI cards max
+ * - Von Restorff: inbox badge stands out
+ * - Goal-Gradient: score with "aim for B"
+ * - Peak-End: clear CTA at bottom
+ * - Cognitive Load: plain language, no jargon
+ */
+export const prerender = false;
+import DashboardLayout from '../../layouts/DashboardLayout.astro';
+import Tip from '../../components/Tip.astro';
+
+const token = Astro.cookies.get('token')?.value;
+if (!token) return Astro.redirect('/login');
+
+// Fetch scans and brands from API (server-side via Docker network)
+let scans = [];
+let scanCredits = 0;
+let error = null;
+
+try {
+  const clientsRes = await fetch('http://api:8000/api/clients/', {
+    headers: { Cookie: `token=${token}` },
+  });
+  const clients = clientsRes.ok ? await clientsRes.json() : [];
+  const clientId = clients[0]?.id;
+
+  if (clientId) {
+    const scansRes = await fetch(`http://api:8000/api/scans?client_id=${clientId}`, {
+      headers: { Cookie: `token=${token}` },
+    });
+    scans = scansRes.ok ? await scansRes.json() : [];
+
+    const creditsRes = await fetch(`http://api:8000/api/stripe/credits/${clientId}`, {
+      headers: { Cookie: `token=${token}` },
+    });
+    if (creditsRes.ok) {
+      const credits = await creditsRes.json();
+      scanCredits = credits.scan || 0;
+    }
+  }
+} catch (e) {
+  error = e.message;
+}
+
+// First-time user → redirect to onboarding
+if (scans.length === 0) {
+  return Astro.redirect('/welcome');
+}
+
+// Compute dashboard stats — only own-domain scans for the score (not competitive scans)
+const completedScans = scans.filter(s => s.status === 'completed');
+const ownScans = completedScans.filter(s => {
+  const targets = s.config?.target_domains || [s.domain];
+  return targets.includes(s.domain); // target = same as scanned domain = own scan
+});
+const competitiveScans = completedScans.filter(s => {
+  const targets = s.config?.target_domains || [s.domain];
+  return !targets.includes(s.domain);
+});
+const avgCitationRate = ownScans.length
+  ? Math.round(ownScans.reduce((sum, s) => sum + (s.summary?.brand_mention_rate ?? s.summary?.citation_rate ?? 0), 0) / ownScans.length)
+  : null;
+const totalOpportunities = completedScans.reduce((sum, s) => sum + (s.summary?.opportunities?.critique || 0), 0);
+
+function getGrade(rate) {
+  if (rate === null) return { letter: '?', color: 'gray', label: 'No scan yet' };
+  if (rate >= 50) return { letter: 'A', color: 'emerald', label: 'Excellent' };
+  if (rate >= 30) return { letter: 'B', color: 'blue', label: 'Good' };
+  if (rate >= 15) return { letter: 'C', color: 'amber', label: 'Average' };
+  return { letter: 'D', color: 'red', label: 'Low' };
+}
+const grade = getGrade(avgCitationRate);
+
+function statusLabel(status) {
+  const labels = {
+    draft: 'Draft', fetching_keywords: 'Fetching...', keywords_fetched: 'Keywords ready',
+    topics_ready: 'Topics ready', assigning_keywords: 'Assigning...', generating_personas: 'Generating...',
+    personas_ready: 'Ready to scan', scanning: 'Scanning...', completed: 'Completed', failed: 'Failed',
+  };
+  return labels[status] || status;
+}
+
+function statusColor(status) {
+  if (status === 'completed') return 'emerald';
+  if (status === 'failed') return 'red';
+  if (status === 'scanning') return 'blue';
+  return 'amber';
+}
+
+function timeAgo(dateStr) {
+  if (!dateStr) return '';
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+}
+---
+
+<DashboardLayout title="Dashboard" activeSection="dashboard">
+  <div class="p-8 max-w-6xl">
+
+    <!-- Greeting -->
+    <div class="mb-8">
+      <h1 class="text-2xl font-bold text-charcoal-dark">Dashboard</h1>
+      <p class="text-charcoal-light mt-1">Your AI visibility at a glance</p>
+    </div>
+
+    <!-- KPI Cards (Miller's Law: max 4) -->
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+      <!-- Score -->
+      <div class="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
+        <p class="text-xs text-charcoal-light uppercase tracking-wide mb-2">
+          <Tip id="visibility">AI Visibility</Tip>
+        </p>
+        <div class="flex items-end gap-3">
+          <span class={`text-4xl font-black text-${grade.color}-600`}>{grade.letter}</span>
+          <span class="text-sm text-charcoal-light mb-1">{avgCitationRate !== null ? `${avgCitationRate}%` : '—'}</span>
+        </div>
+        <p class={`text-xs text-${grade.color}-600 mt-1`}>{grade.label}</p>
+      </div>
+
+      <!-- Scans -->
+      <div class="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
+        <p class="text-xs text-charcoal-light uppercase tracking-wide mb-2">
+          <Tip id="scans">Scans</Tip>
+        </p>
+        <p class="text-4xl font-bold text-charcoal-dark">{scans.length}</p>
+        <p class="text-xs text-charcoal-light mt-1">{completedScans.length} completed</p>
+      </div>
+
+      <!-- Opportunities -->
+      <div class="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
+        <p class="text-xs text-charcoal-light uppercase tracking-wide mb-2">
+          <Tip id="opportunities">Opportunities</Tip>
+        </p>
+        <p class="text-4xl font-bold text-red-500">{totalOpportunities}</p>
+        <p class="text-xs text-red-400 mt-1">CRITICAL</p>
+      </div>
+
+      <!-- Credits -->
+      <div class="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
+        <p class="text-xs text-charcoal-light uppercase tracking-wide mb-2">Scan Credits</p>
+        <p class="text-4xl font-bold text-blue-600">{scanCredits}</p>
+        <a href="/app/settings" class="text-xs text-coral hover:underline mt-1 inline-block">Buy more</a>
+      </div>
+    </div>
+
+    <!-- Recent scans -->
+    <div class="bg-white rounded-xl shadow-sm border border-gray-100 mb-8">
+      <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+        <h2 class="font-semibold text-charcoal-dark">Recent Scans</h2>
+        <a href="/app/scans" class="text-sm text-coral hover:underline">View all</a>
+      </div>
+      {scans.length === 0 ? (
+        <div class="px-6 py-12 text-center">
+          <p class="text-charcoal-light mb-4">No scans yet</p>
+          <a href="/app/scans/new" class="inline-flex items-center gap-2 px-5 py-2.5 bg-coral text-white rounded-lg font-medium hover:bg-coral-dark hover:shadow-md hover:scale-[1.02] transition-colors">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+            Run my first scan
+          </a>
+        </div>
+      ) : (
+        <div class="divide-y divide-gray-100">
+          {scans.slice(0, 5).map(scan => (
+            <a href={scan.status === 'completed' ? `/app/scans/${scan.id}/results` : `/app/scans/${scan.id}`}
+               class="flex items-center gap-4 px-6 py-4 hover:bg-gray-50 transition-colors">
+              <div class={`w-2 h-2 rounded-full bg-${statusColor(scan.status)}-500 shrink-0`}></div>
+              <div class="flex-1 min-w-0">
+                <p class="text-sm font-medium text-charcoal-dark truncate">{scan.domain}</p>
+                <p class="text-xs text-charcoal-light">{statusLabel(scan.status)}</p>
+              </div>
+              {(scan.summary?.brand_mention_rate ?? scan.summary?.citation_rate) !== undefined && (
+                <span class="text-sm font-semibold text-charcoal-dark">{scan.summary.brand_mention_rate ?? scan.summary.citation_rate}%</span>
+              )}
+              <span class="text-xs text-charcoal-light">{timeAgo(scan.created_at)}</span>
+            </a>
+          ))}
+        </div>
+      )}
+    </div>
+
+    <!-- CTA (Peak-End Rule: clear action at the end) -->
+    {scans.length > 0 && (
+      <div class="text-center">
+        <a href="/app/scans/new" class="inline-flex items-center gap-2 px-6 py-3 bg-coral text-white rounded-lg font-medium hover:bg-coral-dark hover:shadow-md hover:scale-[1.02] transition-colors shadow-sm">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+          New Scan
+        </a>
+      </div>
+    )}
+  </div>
+</DashboardLayout>

@@ -1,0 +1,251 @@
+---
+/**
+ * Scan Results Layout — nested inside DashboardLayout.
+ * Provides: breadcrumb, sticky scan header (grade + brand + sparkline + run selector),
+ * horizontal tabs, and content slot.
+ *
+ * Every scan result sub-page (Overview, Topics, Personas, Questions, Actions)
+ * uses this layout instead of DashboardLayout directly.
+ *
+ * Laws of UX:
+ * - Jakob's Law: standard SaaS tab pattern (Semrush, Ahrefs)
+ * - Hick's Law: 5 tabs exactly
+ * - Von Restorff: grade badge + coral active tab
+ * - Recognition > Recall: breadcrumb + dates in run selector
+ * - Doherty Threshold: SSR fetch < 50ms on internal Docker network
+ */
+export const prerender = false;
+
+import DashboardLayout from './DashboardLayout.astro';
+import ScanBreadcrumb from '../components/ScanBreadcrumb.astro';
+import ScanTabs from '../components/ScanTabs.astro';
+import ScanDateRangePicker from '../components/ScanDateRangePicker.astro';
+import ScanProviderFilter from '../components/ScanProviderFilter.astro';
+import Tip from '../components/Tip.astro';
+import { fetchScanHeader } from '../lib/scan-header';
+
+interface Props {
+  scanId: string;
+  activeTab: 'overview' | 'topics' | 'personas' | 'questions' | 'citations' | 'actions';
+}
+
+const { scanId, activeTab } = Astro.props;
+
+// Auth guard
+const token = Astro.cookies.get('token')?.value;
+if (!token) return Astro.redirect('/login');
+
+// Read global filters from URL query params
+const rangeParam = Astro.url.searchParams.get('range') || 'all';
+const fromParam = Astro.url.searchParams.get('from') || undefined;
+const toParam = Astro.url.searchParams.get('to') || undefined;
+const runParam = Astro.url.searchParams.get('run') || undefined;
+const providerParam = Astro.url.searchParams.get('provider') || 'all';
+
+// If a specific run is selected, use it directly
+const effectiveScanId = (rangeParam === 'latest' && runParam) ? runParam : scanId;
+
+// Fetch shared header data (with range + provider for aggregation)
+const headerData = await fetchScanHeader(effectiveScanId, token, rangeParam, fromParam, toParam, providerParam);
+
+// Guards
+if (headerData.scan.status === 'not_found') return Astro.redirect('/app/scans');
+if (headerData.scan.status !== 'completed' && headerData.scan.status !== 'error') {
+  return Astro.redirect(`/app/scans/${scanId}`);
+}
+
+const { scan, grade, currentRate, delta, sparkSvg, runs, tabCounts, overview } = headerData;
+
+// Resolve root scan ID for URL consistency
+const rootScanId = runs.length > 0 ? (runs[0]?.id || scanId) : scanId;
+
+// Tab label mapping for breadcrumb
+const tabLabels: Record<string, string> = {
+  overview: 'Overview', topics: 'Topics', personas: 'Personas',
+  questions: 'Questions', citations: 'Citations', actions: 'Actions',
+};
+
+// Derive current tab path for date picker links
+const currentTabPath = activeTab === 'overview' ? 'results' : activeTab;
+
+// Critical count for Actions badge
+const criticalCount = tabCounts.actions > 0 ? tabCounts.actions : 0;
+
+// Preserve all query params across tab switches (UX coherence)
+const currentQuery = Astro.url.searchParams.toString();
+
+// Range label for breadcrumb context
+const rangeContext = rangeParam === 'all' && runs.length > 1 ? ` (${runs.length} runs)` : '';
+---
+
+<DashboardLayout title={`${scan.focus_brand || scan.name || scan.domain} — ${tabLabels[activeTab]}`} activeSection="scans">
+
+  {/* Breadcrumb (Recognition > Recall) */}
+  <ScanBreadcrumb
+    scanId={scanId}
+    scanName={scan.focus_brand || scan.name || scan.domain}
+    current={tabLabels[activeTab]}
+  />
+
+  {/* Sticky Scan Header (Von Restorff: grade badge stands out) */}
+  <div class="sticky top-0 z-20 bg-white/95 backdrop-blur-sm shadow-sm px-8 py-3">
+    <div class="max-w-5xl flex items-center justify-between gap-4">
+      <div class="flex items-center gap-4 min-w-0">
+        {/* Grade badge */}
+        <div class={`w-12 h-12 rounded-xl ${grade.bg} shadow-sm flex flex-col items-center justify-center shrink-0`}>
+          <span class={`text-lg font-black ${grade.text}`}>{grade.letter}</span>
+          <span class={`text-[8px] ${grade.sub}`}>{currentRate}%</span>
+        </div>
+        <div class="min-w-0">
+          <h1 class="text-base font-bold text-charcoal-dark truncate">
+            {scan.focus_brand || scan.name || scan.domain}
+            {scan.focus_brand && <span class="text-sm font-normal text-charcoal-light ml-2">({scan.domain})</span>}
+          </h1>
+          <div class="flex items-center gap-3 text-xs text-charcoal-light">
+            <Tip id="score_grade">{grade.label}</Tip>
+            {delta !== null && (
+              <span class={`font-semibold ${delta > 0 ? 'text-emerald-600' : delta < 0 ? 'text-red-500' : 'text-charcoal-light'}`}>
+                {delta > 0 ? '\u2191' : delta < 0 ? '\u2193' : '\u2192'}{Math.abs(delta).toFixed(1)}pts
+              </span>
+            )}
+            {sparkSvg && <Fragment set:html={sparkSvg} />}
+          </div>
+        </div>
+      </div>
+      <div class="flex items-center gap-3 shrink-0">
+        <ScanProviderFilter
+          currentProvider={providerParam}
+          availableProviders={overview?.providers || ['openai']}
+          currentTab={activeTab}
+          scanId={scanId}
+          otherParams={currentQuery}
+        />
+        <ScanDateRangePicker
+          runs={runs}
+          currentRange={rangeParam}
+          fromDate={fromParam}
+          toDate={toParam}
+          currentTab={activeTab}
+          rootScanId={rootScanId}
+        />
+        <button
+          id="rescanBtn"
+          class="px-4 py-2 bg-coral text-white rounded-lg text-sm font-medium hover:bg-coral-dark hover:shadow-md transition-all"
+        >
+          Rescan
+        </button>
+      </div>
+    </div>
+  </div>
+
+  {/* Horizontal Tabs (Hick's: 5 tabs, Serial Position: Overview first, Actions last) */}
+  <ScanTabs
+    scanId={scanId}
+    activeTab={activeTab}
+    counts={tabCounts}
+    criticalCount={criticalCount}
+    queryString={currentQuery}
+  />
+
+  {/* Page content */}
+  <div class="px-8 max-w-5xl pb-8 pt-6">
+    {headerData.error && (
+      <div class="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 text-sm mb-6">
+        {headerData.error}
+      </div>
+    )}
+    <slot />
+  </div>
+
+  {/* Chart.js CDN — loaded only on scan result pages */}
+  <script is:inline src="https://cdn.jsdelivr.net/npm/chart.js@4.4.9/dist/chart.umd.min.js"></script>
+
+  {/* Chart.js global defaults — storytellingwithdata: eliminate clutter */}
+  <script is:inline>
+    if (typeof Chart !== 'undefined') {
+      Chart.defaults.font.family = "system-ui, -apple-system, 'Segoe UI', sans-serif";
+      Chart.defaults.font.size = 12;
+      Chart.defaults.color = '#9ca3af';
+      Chart.defaults.plugins.legend.display = false;
+      Chart.defaults.plugins.tooltip.backgroundColor = '#1f2937';
+      Chart.defaults.plugins.tooltip.cornerRadius = 8;
+      Chart.defaults.plugins.tooltip.padding = { top: 8, bottom: 8, left: 12, right: 12 };
+      Chart.defaults.plugins.tooltip.titleFont = { size: 11, weight: 'normal' };
+      Chart.defaults.plugins.tooltip.bodyFont = { size: 13, weight: 'bold' };
+      Chart.defaults.animation.duration = 300;
+      Chart.defaults.elements.bar.borderRadius = 4;
+      Chart.defaults.elements.bar.borderSkipped = false;
+      Chart.defaults.elements.line.tension = 0.3;
+      Chart.defaults.elements.point.radius = 3;
+      Chart.defaults.elements.point.hoverRadius = 5;
+      Chart.defaults.scale.grid.display = false;
+      Chart.defaults.scale.border = { display: false };
+      Chart.defaults.responsive = true;
+      Chart.defaults.maintainAspectRatio = false;
+    }
+  </script>
+
+  {/* Global: highlight brand mentions in LLM response text
+      Von Restorff Effect (lawsofux): highlighted brands stand out from plain text.
+      Preattentive attribute (storytellingwithdata): color processed before conscious thought.
+      YOUR brand = emerald highlight, competitors = orange highlight. */}
+  <script is:inline>
+    window._escHtml = function(s) {
+      var d = document.createElement('div');
+      d.textContent = s;
+      return d.innerHTML;
+    };
+    window._escRx = function(s) {
+      return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    };
+    window.highlightResponse = function(text, brandMentions) {
+      if (!text) return '';
+      var html = window._escHtml(text);
+      if (!brandMentions || !brandMentions.length) return html;
+      var seen = {};
+      var sorted = brandMentions.slice().sort(function(a, b) {
+        return (b.brand_name || '').length - (a.brand_name || '').length;
+      });
+      for (var i = 0; i < sorted.length; i++) {
+        var bm = sorted[i];
+        var name = bm.brand_name;
+        if (!name || seen[name.toLowerCase()]) continue;
+        seen[name.toLowerCase()] = true;
+        var cls = bm.est_marque_cible
+          ? 'background:#d1fae5;color:#065f46;padding:1px 3px;border-radius:3px;font-weight:500'
+          : 'background:#ffedd5;color:#9a3412;padding:1px 3px;border-radius:3px;font-weight:500';
+        var rx = new RegExp('(' + window._escRx(name) + ')', 'gi');
+        html = html.replace(rx, '<mark style="' + cls + '">$1</mark>');
+      }
+      return html;
+    };
+  </script>
+
+  {/* Rescan script */}
+  <script is:inline define:vars={{ scanId }}>
+    document.getElementById('rescanBtn')?.addEventListener('click', async function() {
+      if (!confirm('Run a new scan with the same settings? This will consume scan credits.')) return;
+      this.disabled = true;
+      this.textContent = 'Creating...';
+      try {
+        const res = await fetch('/api/scans/' + scanId + '/rescan', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          window.location.href = '/app/scans/' + data.scan_id;
+        } else {
+          const err = await res.json().catch(() => ({}));
+          alert(err.detail || 'Rescan failed');
+          this.disabled = false;
+          this.textContent = 'Rescan';
+        }
+      } catch (e) {
+        alert('Network error: ' + e.message);
+        this.disabled = false;
+        this.textContent = 'Rescan';
+      }
+    });
+  </script>
+</DashboardLayout>

@@ -1,0 +1,392 @@
+---
+/**
+ * New Scan Wizard — Step-by-step guided scan creation.
+ *
+ * UX Laws:
+ * - Zeigarnik Effect: stepper shows progress, incomplete tasks stay in mind
+ * - Hick's Law: 1 action per step, smart defaults
+ * - Goal-Gradient: motivation increases as steps complete
+ * - Cognitive Load: minimal choices, plain language
+ * - Doherty Threshold: loading states, instant feedback
+ * - Paradox of Active User: no docs needed, self-explanatory
+ */
+export const prerender = false;
+import DashboardLayout from '../../../layouts/DashboardLayout.astro';
+import Tip from '../../../components/Tip.astro';
+
+const token = Astro.cookies.get('token')?.value;
+if (!token) return Astro.redirect('/login');
+
+// Get client ID
+let clientId = null;
+try {
+  const res = await fetch('http://api:8000/api/clients/', {
+    headers: { Cookie: `token=${token}` },
+  });
+  const clients = res.ok ? await res.json() : [];
+  clientId = clients[0]?.id;
+} catch {}
+---
+
+<DashboardLayout title="New Scan" activeSection="scan-new">
+  <div class="p-8 max-w-3xl mx-auto" x-data={`scanWizard('${clientId}', '${token}')`}>
+
+    <!-- Stepper (Zeigarnik: shows progress) -->
+    <div class="flex items-center gap-2 mb-8">
+      <template x-for="(step, i) in steps" :key="i">
+        <div class="flex items-center gap-2">
+          <div
+            class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-all"
+            :class="i < currentStep ? 'bg-emerald-500 text-white' : i === currentStep ? 'bg-coral text-white' : 'bg-gray-200 text-gray-400'"
+          >
+            <span x-show="i < currentStep">&#10003;</span>
+            <span x-show="i >= currentStep" x-text="i + 1"></span>
+          </div>
+          <span
+            class="text-sm hidden sm:inline"
+            :class="i === currentStep ? 'text-charcoal-dark font-medium' : 'text-charcoal-light'"
+            x-text="step"
+          ></span>
+          <div x-show="i < steps.length - 1" class="w-8 h-px bg-gray-200 hidden sm:block"></div>
+        </div>
+      </template>
+    </div>
+
+    <!-- Step 1: Domain -->
+    <div x-show="currentStep === 0" x-transition>
+      <h2 class="text-xl font-bold text-charcoal-dark mb-2">Which website do you want to analyze?</h2>
+      <p class="text-charcoal-light mb-6">Enter a domain to discover its topics, personas, and AI visibility.</p>
+
+      <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 space-y-5">
+        <div>
+          <label class="block text-sm font-medium text-charcoal-dark mb-1.5">
+            Scan name <span class="text-charcoal-light font-normal">— how you'll recognize it later</span>
+          </label>
+          <input
+            type="text" x-model="scanName" :placeholder="domain || 'e.g. Avène tracking Q2 2026'"
+            class="w-full px-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-coral/50 focus:border-coral text-lg"
+          />
+          <p class="text-[11px] text-charcoal-light mt-1">Defaults to the domain if left empty. Each scan tracks one brand over time via rescans.</p>
+        </div>
+
+        <div>
+          <label class="block text-sm font-medium text-charcoal-dark mb-1.5">
+            <Tip id="domain_input" position="bottom">Domain</Tip>
+          </label>
+          <input
+            type="text" x-model="domain" placeholder="e.g. eau-thermale-avene.fr"
+            class="w-full px-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-coral/50 focus:border-coral text-lg"
+          />
+        </div>
+
+        <div>
+          <label class="block text-sm font-medium text-charcoal-dark mb-1.5">This domain is</label>
+          <div class="flex gap-3">
+            <button
+              @click="scanType = 'own'"
+              :class="scanType === 'own' ? 'border-coral bg-coral/5 text-coral' : 'border-gray-200 text-charcoal-light hover:border-gray-300'"
+              class="flex-1 px-4 py-3 rounded-lg border-2 text-sm font-medium transition-all"
+            >
+              My own site
+            </button>
+            <button
+              @click="scanType = 'competitor'"
+              :class="scanType === 'competitor' ? 'border-coral bg-coral/5 text-coral' : 'border-gray-200 text-charcoal-light hover:border-gray-300'"
+              class="flex-1 px-4 py-3 rounded-lg border-2 text-sm font-medium transition-all"
+            >
+              A competitor's site
+            </button>
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-sm font-medium text-charcoal-dark mb-1.5">
+            <Tip id="country" position="bottom">Country</Tip>
+          </label>
+          <select x-model="country" class="w-full px-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-coral/50 text-sm">
+            <option value="fr">France</option>
+            <option value="us">United States</option>
+            <option value="uk">United Kingdom</option>
+            <option value="de">Germany</option>
+            <option value="es">Spain</option>
+            <option value="it">Italy</option>
+            <option value="nl">Netherlands</option>
+            <option value="be">Belgium</option>
+            <option value="ch">Switzerland</option>
+            <option value="ca">Canada</option>
+          </select>
+        </div>
+
+        <!-- Analysis depth — 3 presets (Hick's Law: 3 choices, not a free slider) -->
+        <div>
+          <label class="block text-sm font-medium text-charcoal-dark mb-1.5">
+            <Tip id="analysis_depth" position="bottom">Analysis depth</Tip>
+          </label>
+          <div class="flex gap-2">
+            <button @click="depth = 'light'"
+              :class="depth === 'light' ? 'border-coral bg-coral/5 text-coral' : 'border-gray-200 text-charcoal-light hover:border-gray-300'"
+              class="flex-1 px-3 py-3 rounded-lg border-2 text-sm font-medium transition-all text-center">
+              <span class="block font-semibold">Light</span>
+              <span class="text-[10px] opacity-70">1 persona/topic</span>
+            </button>
+            <button @click="depth = 'balanced'"
+              :class="depth === 'balanced' ? 'border-coral bg-coral/5 text-coral' : 'border-gray-200 text-charcoal-light hover:border-gray-300'"
+              class="flex-1 px-3 py-3 rounded-lg border-2 text-sm font-medium transition-all text-center">
+              <span class="block font-semibold">Balanced</span>
+              <span class="text-[10px] opacity-70">3 personas/topic</span>
+            </button>
+            <button @click="depth = 'deep'"
+              :class="depth === 'deep' ? 'border-coral bg-coral/5 text-coral' : 'border-gray-200 text-charcoal-light hover:border-gray-300'"
+              class="flex-1 px-3 py-3 rounded-lg border-2 text-sm font-medium transition-all text-center">
+              <span class="block font-semibold">Deep</span>
+              <span class="text-[10px] opacity-70">6 personas/topic</span>
+            </button>
+          </div>
+          <p class="text-[11px] text-charcoal-light mt-1.5">Each persona generates 15 questions (5 types x 3 each). More personas = broader coverage but higher cost.</p>
+        </div>
+
+        <!-- Advanced options (collapsed by default — Hick's Law) -->
+        <details class="text-sm">
+          <summary class="text-charcoal-light cursor-pointer hover:text-charcoal-dark">Advanced options</summary>
+          <div class="mt-3 space-y-3 pl-4 border-l-2 border-gray-100">
+            <div>
+              <label class="block text-xs font-medium text-charcoal-light mb-1">
+                <Tip id="ranking_filter" position="bottom">Google ranking filter</Tip>
+              </label>
+              <div class="flex gap-2">
+                <button @click="maxPosition = 10" :class="maxPosition === 10 ? 'bg-charcoal-dark text-white' : 'bg-gray-100 text-charcoal-light'" class="px-3 py-1.5 rounded text-xs font-medium transition-all">Top 10</button>
+                <button @click="maxPosition = 30" :class="maxPosition === 30 ? 'bg-charcoal-dark text-white' : 'bg-gray-100 text-charcoal-light'" class="px-3 py-1.5 rounded text-xs font-medium transition-all">Top 30</button>
+                <button @click="maxPosition = 50" :class="maxPosition === 50 ? 'bg-charcoal-dark text-white' : 'bg-gray-100 text-charcoal-light'" class="px-3 py-1.5 rounded text-xs font-medium transition-all">Top 50 <span class="text-[10px] opacity-60">recommended</span></button>
+              </div>
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-charcoal-light mb-1">
+                <Tip id="max_keywords" position="bottom">Max keywords</Tip>
+              </label>
+              <input type="number" x-model.number="maxUrls" min="100" max="5000" class="px-3 py-1.5 border border-gray-200 rounded text-xs w-24" />
+              <span class="text-[10px] text-charcoal-light ml-2">recommended: 2000</span>
+            </div>
+          </div>
+        </details>
+      </div>
+
+      <div class="mt-6 flex justify-end">
+        <button
+          @click="createScan()"
+          :disabled="!domain || loading"
+          class="px-6 py-3 bg-coral text-white rounded-lg font-medium hover:bg-coral-dark hover:shadow-md hover:scale-[1.02] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+        >
+          <span x-show="!loading">Analyze this site</span>
+          <span x-show="loading" class="flex items-center gap-2">
+            <svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+            Analyzing...
+          </span>
+          <svg x-show="!loading" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
+        </button>
+      </div>
+
+      <p class="text-xs text-charcoal-light mt-3 text-right">Takes about 1-2 minutes</p>
+    </div>
+
+    <!-- Step 2: Processing (fetching + classifying) -->
+    <div x-show="currentStep === 1" x-transition>
+      <h2 class="text-xl font-bold text-charcoal-dark mb-2">Analyzing <span x-text="domain" class="text-coral"></span></h2>
+
+      <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-8 text-center">
+        <div class="mb-6">
+          <svg class="w-12 h-12 mx-auto animate-spin text-coral/30" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+          </svg>
+        </div>
+        <p class="text-charcoal-dark font-medium mb-2" x-text="processingMessage">Fetching keyword data...</p>
+        <p class="text-sm text-charcoal-light">This usually takes 1-2 minutes. You can leave this page.</p>
+
+        <!-- Progress steps -->
+        <div class="mt-8 space-y-3 text-left max-w-sm mx-auto">
+          <div class="flex items-center gap-3 text-sm" :class="processingStep >= 1 ? 'text-emerald-600' : 'text-charcoal-light'">
+            <span x-show="processingStep >= 1">&#10003;</span>
+            <span x-show="processingStep < 1" class="text-charcoal-light">○</span>
+            Fetching keywords from HaloScan
+          </div>
+          <div class="flex items-center gap-3 text-sm" :class="processingStep >= 2 ? 'text-emerald-600' : 'text-charcoal-light'">
+            <span x-show="processingStep >= 2">&#10003;</span>
+            <span x-show="processingStep < 2" class="text-charcoal-light">○</span>
+            Classifying pages into topics
+          </div>
+          <div class="flex items-center gap-3 text-sm" :class="processingStep >= 3 ? 'text-emerald-600' : 'text-charcoal-light'">
+            <span x-show="processingStep >= 3">&#10003;</span>
+            <span x-show="processingStep < 3" class="text-charcoal-light">○</span>
+            Detecting brands & competitors
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 3: Topics ready -->
+    <div x-show="currentStep === 2" x-transition>
+      <h2 class="text-xl font-bold text-charcoal-dark mb-2">Topics found on <span x-text="domain" class="text-coral"></span></h2>
+      <p class="text-charcoal-light mb-6">Toggle off topics you don't want to analyze. Each active topic costs 1 scan credit.</p>
+
+      <div class="bg-white rounded-xl shadow-sm border border-gray-100 divide-y divide-gray-100">
+        <template x-for="topic in topics" :key="topic.id">
+          <div class="flex items-center gap-4 px-5 py-3.5 hover:bg-gray-50 transition-colors">
+            <button
+              @click="topic.active = !topic.active"
+              :class="topic.active ? 'bg-coral' : 'bg-gray-300'"
+              class="relative w-10 h-6 rounded-full transition-colors shrink-0"
+            >
+              <span
+                :class="topic.active ? 'translate-x-4' : 'translate-x-0'"
+                class="absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform"
+              ></span>
+            </button>
+            <div class="flex-1 min-w-0">
+              <p class="text-sm font-medium text-charcoal-dark" x-text="topic.name"></p>
+              <p class="text-xs text-charcoal-light"><span x-text="topic.keyword_count"></span> keywords</p>
+            </div>
+          </div>
+        </template>
+      </div>
+
+      <div class="mt-6 flex items-center justify-between">
+        <p class="text-sm text-charcoal-light">
+          <span x-text="topics.filter(t => t.active).length" class="font-medium text-charcoal-dark"></span> topics selected
+        </p>
+        <button
+          @click="validateTopics()"
+          :disabled="topics.filter(t => t.active).length === 0"
+          class="px-6 py-3 bg-coral text-white rounded-lg font-medium hover:bg-coral-dark hover:shadow-md hover:scale-[1.02] transition-all disabled:opacity-50"
+        >
+          Continue
+          <svg class="w-4 h-4 inline ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Error state -->
+    <div x-show="error" class="mt-4 bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 text-sm" x-text="error"></div>
+
+  </div>
+
+  <script is:inline>
+    document.addEventListener('alpine:init', () => {
+      Alpine.data('scanWizard', (clientId, token) => ({
+        steps: ['Domain', 'Processing', 'Topics', 'Brands', 'Personas', 'Scan'],
+        currentStep: 0,
+        domain: '',
+        scanName: '',
+        scanType: 'own',
+        depth: 'balanced',
+        country: 'fr',
+        maxPosition: 50,
+        maxUrls: 2000,
+        loading: false,
+        error: null,
+        scanId: null,
+        topics: [],
+        processingStep: 0,
+        processingMessage: 'Fetching keyword data...',
+
+        async createScan() {
+          this.loading = true;
+          this.error = null;
+          try {
+            // Create scan
+            const res = await fetch('/api/scans/', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                client_id: clientId,
+                domain: this.domain,
+                name: (this.scanName || '').trim() || null,
+                max_position: this.maxPosition,
+                max_urls: this.maxUrls,
+                target_domains: this.scanType === 'competitor' ? [] : [this.domain],
+                config: {
+                  country: this.country,
+                  personas_per_topic: this.depth === 'light' ? 1 : this.depth === 'deep' ? 6 : 3,
+                },
+              }),
+            });
+            console.log('[createScan] POST /api/scans/ →', res.status, res.headers.get('content-type'));
+            const rawText = await res.text();
+            console.log('[createScan] Response body (' + rawText.length + ' chars):', rawText.substring(0, 200));
+            let scan;
+            try {
+              scan = JSON.parse(rawText);
+            } catch (parseErr) {
+              console.error('[createScan] JSON parse failed:', parseErr.message, '\nFull body:', rawText);
+              throw parseErr;
+            }
+            if (!res.ok) throw new Error(scan.detail || 'Failed to create scan');
+            this.scanId = scan.id;
+
+            // Generate domain brief (parallel with keyword fetch — ~10s OpenAI web search)
+            fetch(`/api/scans/${this.scanId}/generate-brief`, { method: 'POST' });
+
+            // Fetch keywords
+            await fetch(`/api/scans/${this.scanId}/fetch-keywords`, { method: 'POST' });
+
+            // Redirect to scan detail page — it handles all processing states
+            // (spinner, auto-classify, topics, brands, personas) in one place.
+            // No need for the wizard's separate "Processing" step.
+            window.location.href = '/app/scans/' + this.scanId;
+          } catch (e) {
+            this.error = e.message;
+          }
+          this.loading = false;
+        },
+
+        async pollScanStatus() {
+          const poll = setInterval(async () => {
+            try {
+              const res = await fetch(`/api/scans/${this.scanId}`);
+              const scan = await res.json();
+
+              if (scan.status === 'keywords_fetched' || scan.status === 'topics_ready') {
+                if (this.processingStep < 1) {
+                  this.processingStep = 1;
+                  this.processingMessage = 'Keywords fetched. Classifying topics...';
+                  // Auto-trigger classification
+                  await fetch(`/api/scans/${this.scanId}/topics/auto-classify`, { method: 'POST' });
+                }
+              }
+
+              if (scan.status === 'topics_ready') {
+                this.processingStep = 3;
+                clearInterval(poll);
+                // Redirect to scan detail page which has the full Topics view
+                // (with drill-down keywords, pages, sort, filter, move, edit)
+                window.location.href = '/app/scans/' + this.scanId;
+              }
+
+              if (scan.status === 'failed') {
+                clearInterval(poll);
+                this.error = scan.error_message || 'Scan failed';
+                this.currentStep = 0;
+              }
+            } catch {}
+          }, 3000);
+        },
+
+        async validateTopics() {
+          // Disable inactive topics via API
+          for (const topic of this.topics) {
+            if (!topic.active && topic.is_active) {
+              await fetch(`/api/scans/${this.scanId}/topics/${topic.id}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ is_active: false }),
+              });
+            }
+          }
+          // Validate → triggers assign_keywords → generate_personas
+          await fetch(`/api/scans/${this.scanId}/topics/validate`, { method: 'POST' });
+          // Redirect to scan detail page for remaining steps
+          window.location.href = `/app/scans/${this.scanId}`;
+        },
+      }));
+    });
+  </script>
+</DashboardLayout>

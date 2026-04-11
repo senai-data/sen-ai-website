@@ -1,0 +1,645 @@
+---
+/**
+ * Scan Results — Overview (entry point)
+ *
+ * Single-page narrative summary answering: "How am I doing?"
+ * Deep dives are in sub-pages (Topics, Personas, Questions, Actions).
+ *
+ * Laws of UX:
+ * - Serial Position: KPIs first = most remembered
+ * - Von Restorff: grade badge, coral CTAs, red for critical
+ * - Progressive Disclosure: summary here, details in sub-pages
+ * - Fitts's Law: large clickable topic cards, prominent CTAs
+ */
+export const prerender = false;
+import ScanResultsLayout from '../../../../layouts/ScanResultsLayout.astro';
+import Tip from '../../../../components/Tip.astro';
+
+const token = Astro.cookies.get('token')?.value;
+if (!token) return Astro.redirect('/login');
+const { id: scanId } = Astro.params;
+
+// Read range from query params (GSC-style date range)
+const rangeParam = Astro.url.searchParams.get('range') || 'all';
+const fromParam = Astro.url.searchParams.get('from') || '';
+const toParam = Astro.url.searchParams.get('to') || '';
+const runParam = Astro.url.searchParams.get('run') || '';
+const effectiveScanId = (rangeParam === 'latest' && runParam) ? runParam : scanId;
+const providerParam = Astro.url.searchParams.get('provider') || 'all';
+
+// Build results URL (aggregated or single)
+const useAggregated = rangeParam !== 'latest';
+let resultsUrl = `http://api:8000/api/scans/${effectiveScanId}/results`;
+if (useAggregated) {
+  const aggParams = new URLSearchParams();
+  if (fromParam) aggParams.set('from_date', fromParam);
+  if (toParam) aggParams.set('to_date', toParam);
+  resultsUrl = `http://api:8000/api/scans/${effectiveScanId}/results/aggregated${aggParams.toString() ? '?' + aggParams.toString() : ''}`;
+}
+
+// Append provider filter to all API URLs
+const providerSuffix = providerParam !== 'all' ? `${resultsUrl.includes('?') ? '&' : '?'}provider=${providerParam}` : '';
+resultsUrl += providerSuffix;
+
+const headers = { Cookie: `token=${token}` };
+let data: any = null;
+let personaInsights: any[] = [];
+let opportunitiesData: any = null;
+
+try {
+  const [resR, resP, resO] = await Promise.all([
+    fetch(resultsUrl, { headers }),
+    fetch(`http://api:8000/api/scans/${effectiveScanId}/persona-insights${providerParam !== 'all' ? '?provider=' + providerParam : ''}`, { headers }),
+    fetch(`http://api:8000/api/scans/${effectiveScanId}/opportunities${providerParam !== 'all' ? '?provider=' + providerParam : ''}`, { headers }),
+  ]);
+  if (resR.ok) data = await resR.json();
+  if (resP.ok) personaInsights = await resP.json();
+  if (resO.ok) opportunitiesData = await resO.json();
+} catch (_) {}
+
+const o = data?.overview;
+const editorial = o?.editorial;
+const byPersona = data?.by_persona || [];
+const competitors = data?.competitors || [];
+const discoveredBrands = data?.discovered_brands || [];
+const details = data?.details || [];
+const oppsSummary = opportunitiesData?.summary || {};
+const oppsItems = opportunitiesData?.opportunities || [];
+
+// Rate color helper
+function rc(rate: number) {
+  if (rate >= 30) return { text: 'text-emerald-600', badge: 'bg-emerald-50 text-emerald-700', label: 'Strong' };
+  if (rate > 0) return { text: 'text-amber-500', badge: 'bg-amber-50 text-amber-700', label: 'Weak' };
+  return { text: 'text-red-500', badge: 'bg-red-50 text-red-600', label: 'Absent' };
+}
+
+// Trend data — use aggregated trend if available, else compute from overview
+const isAggregated = data?.mode === 'aggregated';
+const trendFromApi = o?.trend || [];
+const currentRate = o?.citation_rate ?? 0;
+const delta = o?.delta ?? null;
+const includedRuns = data?.included_runs || [];
+const hasLineage = includedRuns.length > 1 || trendFromApi.length > 1;
+
+// sparkline SVG for KPI card
+function spark(vals: number[], w = 80, h = 24): string {
+  if (!vals || vals.length < 2) return '';
+  const max = Math.max(...vals, 1); const min = Math.min(...vals, 0);
+  const rng = max - min || 1; const step = w / (vals.length - 1);
+  const pts = vals.map((v, i) => `${(i * step).toFixed(1)},${(h - ((v - min) / rng) * h).toFixed(1)}`).join(' ');
+  const last = vals[vals.length - 1];
+  const c = last >= 30 ? '#10b981' : last >= 15 ? '#f59e0b' : '#ef4444';
+  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" class="inline-block align-middle"><polyline points="${pts}" fill="none" stroke="${c}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="${((vals.length - 1) * step).toFixed(1)}" cy="${(h - ((last - min) / rng) * h).toFixed(1)}" r="2" fill="${c}"/></svg>`;
+}
+const sparkRates = trendFromApi.map((t: any) => t.citation_rate);
+const sparkSvg = spark(sparkRates);
+
+// By topic (from aggregated or computed from details)
+const byTopic = data?.by_topic || [];
+
+// Topics — use aggregated by_topic if available, else compute from details
+let topics: any[];
+if (byTopic.length > 0) {
+  topics = byTopic.map((t: any) => ({
+    name: t.topic, rate: t.citation_rate, avgRate: t.avg_citation_rate,
+    trend: t.trend || [], opps: oppsItems.filter((op: any) => op.topic_name === t.topic),
+  })).sort((a: any, b: any) => a.rate - b.rate);
+} else {
+  const topicMap: Record<string, any> = {};
+  details.forEach((d: any) => {
+    const dt = isAggregated ? d.topic_name : (byPersona.find((p: any) => p.persona === d.persona)?.topic || 'Other');
+    const mentioned = isAggregated ? d.latest?.brand_mentioned : d.brand_mentioned;
+    if (!topicMap[dt]) topicMap[dt] = { cited: 0, total: 0 };
+    topicMap[dt].total++;
+    if (mentioned) topicMap[dt].cited++;
+  });
+  topics = Object.entries(topicMap).map(([name, d]: any) => ({
+    name, rate: Math.round(d.cited / d.total * 100), cited: d.cited, total: d.total,
+    trend: [], opps: oppsItems.filter((op: any) => op.topic_name === name),
+  })).sort((a, b) => a.rate - b.rate);
+}
+
+// 3 worst personas for spotlight
+const worstPersonas = [...personaInsights]
+  .sort((a: any, b: any) => (a.visibility?.citation_rate || 0) - (b.visibility?.citation_rate || 0))
+  .slice(0, 3);
+
+const topCompetitor = competitors[0];
+const criticalCount = oppsSummary.critique || 0;
+const highCount = oppsSummary.haute || 0;
+const topActions = oppsItems.slice(0, 3);
+
+// ─── Brand insight KPIs (from brand_mentions + brand_analysis) ───
+let sentimentPos = 0, sentimentNeu = 0, sentimentNeg = 0;
+let positionDebut = 0, positionMilieu = 0, positionFin = 0;
+let recommendationCount = 0, totalBrandMentions = 0;
+// For aggregated data, use latest run per question; for single, use direct fields
+details.forEach((d: any) => {
+  const detail = isAggregated ? (d.latest || {}) : d;
+  const ba = detail.brand_analysis || {};
+  sentimentPos += ba.nb_positifs || 0;
+  sentimentNeg += ba.nb_negatifs || 0;
+  (detail.brand_mentions || []).forEach((bm: any) => {
+    if (bm.est_marque_cible) {
+      totalBrandMentions++;
+      if (bm.position_type === 'debut') positionDebut++;
+      else if (bm.position_type === 'milieu') positionMilieu++;
+      else if (bm.position_type === 'fin') positionFin++;
+      if (bm.est_recommandation) recommendationCount++;
+      if (!['positif', 'negatif'].includes(bm.sentiment)) sentimentNeu++;
+    }
+  });
+});
+const recommendationRate = totalBrandMentions > 0 ? Math.round(recommendationCount / totalBrandMentions * 100) : 0;
+const positionData = [positionDebut, positionMilieu, positionFin];
+const sentimentData = [sentimentPos, sentimentNeu, sentimentNeg];
+
+// ─── Chart data preparation ─────────────────────────────
+
+// Chart 1: Trend line data from aggregated API (or lineage summaries)
+const trendLabels = trendFromApi.map((t: any) => {
+  const d = t.completed_at ? new Date(t.completed_at) : null;
+  return d ? d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : `Run ${(t.run_index ?? 0) + 1}`;
+});
+const trendValues = trendFromApi.map((t: any) => t.citation_rate);
+
+// Chart 2: Topic visibility bars
+const topicChartLabels = topics.map(t => t.name);
+const topicChartValues = topics.map(t => t.rate);
+const topicChartColors = topics.map(t => t.rate >= 30 ? '#10b981' : t.rate > 0 ? '#f59e0b' : '#ef4444');
+
+// Chart 3: Visibility donut
+const mentionedCount = o?.target_cited ?? 0;
+const notMentionedCount = (o?.total_tests ?? 0) - mentionedCount;
+---
+
+<ScanResultsLayout scanId={scanId} activeTab="overview">
+
+  {o ? (
+    <>
+      {/* ═══════ TREND KPIs (4 cards) ═══════ */}
+      <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+        <div class="bg-white rounded-xl shadow-sm p-6 hover:shadow-md transition-shadow">
+          <p class="text-[11px] text-charcoal-light uppercase tracking-wide mb-2"><Tip id="citation_rate">Brand Mention Rate</Tip></p>
+          <div class="flex items-end gap-2">
+            <span class={`text-3xl font-bold ${rc(currentRate).text}`}>{currentRate}%</span>
+            {delta !== null && (
+              <span class={`text-sm font-semibold mb-1 ${delta > 0 ? 'text-emerald-600' : delta < 0 ? 'text-red-500' : 'text-charcoal-light'}`}>
+                {delta > 0 ? '+' : ''}{delta.toFixed(1)}
+              </span>
+            )}
+          </div>
+          {sparkSvg && <div class="mt-3" set:html={sparkSvg} />}
+        </div>
+
+        <div class="bg-white rounded-xl shadow-sm p-6 hover:shadow-md transition-shadow">
+          <p class="text-[11px] text-charcoal-light uppercase tracking-wide mb-2"><Tip id="competitor">Top Competitor</Tip></p>
+          <p class="text-xl font-bold text-orange-600 truncate">{topCompetitor?.name || 'None'}</p>
+          <p class="text-xs text-charcoal-light mt-1">{topCompetitor?.mentions || 0} mentions</p>
+        </div>
+
+        <div class="bg-white rounded-xl shadow-sm p-6 hover:shadow-md transition-shadow">
+          <p class="text-[11px] text-charcoal-light uppercase tracking-wide mb-2"><Tip id="opportunities">Critical Gaps</Tip></p>
+          <div class="flex items-end gap-2">
+            <span class={`text-3xl font-bold ${criticalCount > 0 ? 'text-red-500' : 'text-emerald-600'}`}>{criticalCount}</span>
+            {highCount > 0 && <span class="text-sm text-charcoal-light mb-1">+ {highCount} high</span>}
+          </div>
+          <p class="text-xs text-charcoal-light mt-1">{oppsItems.length} total</p>
+        </div>
+
+        <div class="bg-white rounded-xl shadow-sm p-6 hover:shadow-md transition-shadow">
+          <p class="text-[11px] text-charcoal-light uppercase tracking-wide mb-2">Tests Run</p>
+          <span class="text-3xl font-bold text-charcoal-dark">{o.total_tests}</span>
+          <p class="text-xs text-charcoal-light mt-1">{o.providers?.join(' + ')} · {o.scan_date?.split('T')[0]}</p>
+        </div>
+      </div>
+
+      {/* ═══════ BRAND INSIGHT KPIs (from brand_mentions data) ═══════ */}
+      {totalBrandMentions > 0 && (
+        <div class="grid grid-cols-3 gap-4 mb-8">
+          <div class="bg-white rounded-xl shadow-sm p-5">
+            <p class="text-[11px] text-charcoal-light uppercase tracking-wide mb-2">Recommendation Rate</p>
+            <span class={`text-2xl font-bold ${recommendationRate >= 30 ? 'text-emerald-600' : recommendationRate > 0 ? 'text-amber-500' : 'text-red-500'}`}>{recommendationRate}%</span>
+            <p class="text-xs text-charcoal-light mt-1">{recommendationCount} of {totalBrandMentions} mentions are recommendations</p>
+          </div>
+          <div class="bg-white rounded-xl shadow-sm p-5">
+            <p class="text-[11px] text-charcoal-light uppercase tracking-wide mb-2">Brand Sentiment</p>
+            <div class="flex items-center gap-3 mt-1">
+              {sentimentPos > 0 && <div class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-emerald-400"></span><span class="text-sm font-semibold text-emerald-600">{sentimentPos}</span><span class="text-[10px] text-charcoal-light">positive</span></div>}
+              {sentimentNeu > 0 && <div class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-gray-400"></span><span class="text-sm font-semibold text-charcoal-dark">{sentimentNeu}</span><span class="text-[10px] text-charcoal-light">neutral</span></div>}
+              {sentimentNeg > 0 && <div class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-red-400"></span><span class="text-sm font-semibold text-red-500">{sentimentNeg}</span><span class="text-[10px] text-charcoal-light">negative</span></div>}
+            </div>
+          </div>
+          <div class="bg-white rounded-xl shadow-sm p-5">
+            <p class="text-[11px] text-charcoal-light uppercase tracking-wide mb-2">Position in Response</p>
+            <div class="flex items-center gap-3 mt-1">
+              {positionDebut > 0 && <div class="text-center"><span class="text-sm font-bold text-emerald-600">{positionDebut}</span><p class="text-[9px] text-charcoal-light">start</p></div>}
+              {positionMilieu > 0 && <div class="text-center"><span class="text-sm font-bold text-amber-500">{positionMilieu}</span><p class="text-[9px] text-charcoal-light">middle</p></div>}
+              {positionFin > 0 && <div class="text-center"><span class="text-sm font-bold text-charcoal-dark">{positionFin}</span><p class="text-[9px] text-charcoal-light">end</p></div>}
+            </div>
+            <p class="text-[10px] text-charcoal-light mt-1">Where AIs place your brand in their answer</p>
+          </div>
+        </div>
+      )}
+
+      {/* ═══════ CHARTS ROW (storytellingwithdata: each answers ONE question) ═══════ */}
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-8">
+
+        {/* Chart 1: Visibility Donut — "What fraction of AI answers mention my brand?" */}
+        <div class="bg-white rounded-xl shadow-sm p-6">
+          <h3 class="text-sm font-semibold text-charcoal-dark mb-1">Overall Visibility</h3>
+          <p class="text-[11px] text-charcoal-light mb-4">Fraction of AI answers mentioning your brand</p>
+          <div class="relative flex items-center justify-center" style="height: 160px;">
+            <canvas id="visibilityDonut"></canvas>
+          </div>
+        </div>
+
+        {/* Chart 2: Topic Bars — "Where am I strong vs weak?" */}
+        <div class="bg-white rounded-xl shadow-sm p-6">
+          <h3 class="text-sm font-semibold text-charcoal-dark mb-1">Visibility by Topic</h3>
+          <p class="text-[11px] text-charcoal-light mb-4">Where your brand is strong vs weak</p>
+          <div class="relative" style={`height: ${Math.max(topics.length * 36, 100)}px;`}>
+            <canvas id="topicBars"></canvas>
+          </div>
+        </div>
+
+        {/* Chart 3: Trend Line — "Am I improving?" (only if rescans exist) */}
+        {hasLineage ? (
+          <div class="bg-white rounded-xl shadow-sm p-6">
+            <h3 class="text-sm font-semibold text-charcoal-dark mb-1">Mention Rate Trend</h3>
+            <p class="text-[11px] text-charcoal-light mb-4">How your AI visibility evolves over time</p>
+            <div class="relative" style="height: 160px;">
+              <canvas id="trendLine"></canvas>
+            </div>
+          </div>
+        ) : (
+          <div class="bg-white rounded-xl shadow-sm p-6 flex flex-col items-center justify-center text-center">
+            <h3 class="text-sm font-semibold text-charcoal-dark mb-1">Mention Rate Trend</h3>
+            <p class="text-[11px] text-charcoal-light mb-4">Run a rescan to track your evolution over time</p>
+            <div class="w-16 h-16 rounded-full bg-gray-50 flex items-center justify-center mb-3">
+              <svg class="w-8 h-8 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/></svg>
+            </div>
+            <p class="text-[10px] text-charcoal-light">Available after your first rescan</p>
+          </div>
+        )}
+      </div>
+
+      {/* ═══════ TOPIC MAP (click navigates to /topics) ═══════ */}
+      <div class="mb-8">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-sm font-semibold text-charcoal-dark"><Tip id="topics">Visibility by Topic</Tip></h2>
+          <a href={`/app/scans/${scanId}/topics`} class="text-[11px] text-coral hover:underline">View all topics</a>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+          {topics.map(topic => {
+            const trc = rc(topic.rate);
+            const topicCritical = topic.opps.filter((op: any) => op.priority === 'critique').length;
+            return (
+              <a href={`/app/scans/${scanId}/topics`} class="bg-white rounded-xl shadow-sm overflow-hidden hover:shadow-md transition-all block">
+                <div class="p-5">
+                  <div class="flex items-center justify-between mb-2">
+                    <h3 class="font-medium text-sm text-charcoal-dark truncate">{topic.name}</h3>
+                    <span class={`text-[10px] px-2 py-0.5 rounded-full font-medium ${trc.badge}`}>{trc.label}</span>
+                  </div>
+                  <div class="flex items-end justify-between">
+                    <span class={`text-2xl font-bold ${trc.text}`}>{topic.rate}%</span>
+                    <span class="text-[11px] text-charcoal-light">{topic.cited}/{topic.total} mentioned</span>
+                  </div>
+                  {topicCritical > 0 && (
+                    <p class="text-[10px] text-red-500 mt-2 font-medium">{topicCritical} critical</p>
+                  )}
+                </div>
+              </a>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ═══════ PERSONA SPOTLIGHT (3 worst) ═══════ */}
+      {worstPersonas.length > 0 && (
+        <div class="mb-8">
+          <div class="flex items-center justify-between mb-4">
+            <h2 class="text-sm font-semibold text-charcoal-dark"><Tip id="personas">Personas needing attention</Tip></h2>
+            <a href={`/app/scans/${scanId}/personas`} class="text-[11px] text-coral hover:underline">View all {personaInsights.length} personas</a>
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {worstPersonas.map((p: any) => {
+              const rate = p.visibility?.citation_rate || 0;
+              const prc = rc(rate);
+              const profile = p.profile || {};
+              return (
+                <a href={`/app/scans/${scanId}/personas`} class={`bg-white rounded-xl shadow-sm p-5 hover:shadow-md transition-shadow block ${rate === 0 ? 'ring-1 ring-red-200' : ''}`}>
+                  <div class="flex items-center gap-3 mb-3">
+                    <img src={`https://api.dicebear.com/9.x/personas/svg?seed=${encodeURIComponent(p.name)}&backgroundColor=b6e3f4,c0aede,d1d4f9,ffd5dc,ffdfbf`}
+                         alt="" class="w-10 h-10 rounded-full shrink-0" />
+                    <div class="min-w-0 flex-1">
+                      <p class="text-sm font-semibold text-charcoal-dark truncate">{p.name}</p>
+                      <p class="text-[11px] text-charcoal-light">{p.topic_name}</p>
+                    </div>
+                    <span class={`text-xl font-bold ${prc.text} shrink-0`}>{rate}%</span>
+                  </div>
+                  {profile.pain_points?.[0] && (
+                    <p class="text-xs text-charcoal-light italic mb-2 line-clamp-2">"{profile.pain_points[0]}"</p>
+                  )}
+                  {rate === 0 && <p class="text-[10px] text-red-600 font-medium">Invisible to this audience</p>}
+                </a>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ═══════ COMPETITOR LANDSCAPE (classified + discovered) ═══════ */}
+      {(competitors.length > 0 || discoveredBrands.length > 0) && (
+        <div class="bg-white rounded-xl shadow-sm p-6 mb-8" x-data="{ showDiscovered: false }">
+          <h2 class="text-sm font-semibold text-charcoal-dark mb-5"><Tip id="competitor">Competitor Landscape</Tip></h2>
+
+          {/* Classified competitors (orange bars) */}
+          {competitors.length > 0 ? (
+            <div class="space-y-3">
+              {competitors.slice(0, 6).map((c: any, i: number) => {
+                const maxMentions = Math.max(competitors[0]?.mentions || 1, 1);
+                const pct = Math.round(c.mentions / maxMentions * 100);
+                return (
+                  <div class="flex items-center gap-3">
+                    <span class="text-[11px] text-charcoal-light w-5 text-right shrink-0">{i + 1}</span>
+                    <span class="text-sm w-36 truncate text-charcoal-dark shrink-0">{c.name}</span>
+                    <div class="flex-1 bg-gray-100 rounded-full h-2.5 overflow-hidden">
+                      <div class="bg-orange-400 h-full rounded-full transition-all" style={`width: ${pct}%`}></div>
+                    </div>
+                    <span class="text-[11px] text-charcoal-light w-20 text-right shrink-0">{c.mentions} mentions</span>
+                  </div>
+                );
+              })}
+              {/* YOUR brand */}
+              <div class="border-t border-gray-100 pt-3 mt-1">
+                <div class="flex items-center gap-3">
+                  <span class="text-[11px] text-coral w-5 text-right shrink-0">&mdash;</span>
+                  <span class="text-sm w-36 truncate font-semibold text-coral shrink-0">{o.focus_brand || o.domain}</span>
+                  <div class="flex-1 bg-gray-100 rounded-full h-2.5 overflow-hidden">
+                    <div class="bg-coral h-full rounded-full" style={`width: ${Math.max(currentRate, 3)}%`}></div>
+                  </div>
+                  <span class="text-[11px] text-coral w-20 text-right font-medium shrink-0">{o.target_cited} mentions</span>
+                  <span class="text-[9px] text-coral font-bold bg-coral/10 px-2 py-0.5 rounded shrink-0">YOU</span>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <p class="text-xs text-charcoal-light mb-3">No classified competitors yet. Classify brands in the scan setup to see them here.</p>
+          )}
+
+          {/* Discovered by AI (collapsed, muted) */}
+          {discoveredBrands.length > 0 && (
+            <div class="mt-4 pt-4 border-t border-gray-100">
+              <button @click="showDiscovered = !showDiscovered" class="flex items-center gap-2 text-xs text-charcoal-light hover:text-charcoal-dark transition-colors">
+                <svg class="w-3.5 h-3.5 transition-transform" :class="showDiscovered ? 'rotate-90' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+                </svg>
+                <span>{discoveredBrands.length} brands discovered by AI</span>
+                <span class="text-[10px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-600">new</span>
+              </button>
+              <div x-show="showDiscovered" x-transition class="mt-3 space-y-2">
+                {discoveredBrands.map((d: any) => (
+                  <div class="flex items-center gap-3 opacity-70">
+                    <span class="text-sm w-36 truncate text-charcoal-light shrink-0">{d.name}</span>
+                    <div class="flex-1 bg-gray-50 rounded-full h-2 overflow-hidden">
+                      <div class="bg-gray-300 h-full rounded-full" style={`width: ${Math.round(d.mentions / (competitors[0]?.mentions || discoveredBrands[0]?.mentions || 1) * 100)}%`}></div>
+                    </div>
+                    <span class="text-[11px] text-charcoal-light w-20 text-right shrink-0">{d.mentions} mentions</span>
+                    <a href={`/app/scans/${scanId}?view=brands`} class="text-[9px] text-coral hover:underline shrink-0">Classify</a>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ═══════ ACTION CENTER (top 3 + link) ═══════ */}
+      {topActions.length > 0 && (
+        <div class="mb-8">
+          <div class="flex items-center justify-between mb-4">
+            <h2 class="text-sm font-semibold text-charcoal-dark">Top Opportunities</h2>
+            <a href={`/app/scans/${scanId}/actions`} class="text-[11px] text-coral hover:underline">View all {oppsItems.length} opportunities</a>
+          </div>
+          <div class="space-y-2">
+            {topActions.map((opp: any) => {
+              const isCrit = opp.priority === 'critique';
+              const isHigh = opp.priority === 'haute';
+              const borderClass = isCrit ? 'border-l-red-500' : isHigh ? 'border-l-orange-400' : 'border-l-yellow-400';
+              const badgeClass = isCrit ? 'bg-red-50 text-red-600' : isHigh ? 'bg-orange-50 text-orange-600' : 'bg-yellow-50 text-yellow-700';
+              return (
+                <div class={`bg-white rounded-xl shadow-sm px-6 py-4 border-l-4 ${borderClass}`}>
+                  <div class="flex items-start gap-3">
+                    <span class={`text-[10px] px-2 py-0.5 rounded font-bold shrink-0 mt-0.5 ${badgeClass}`}>{opp.priority}</span>
+                    <div class="flex-1 min-w-0">
+                      <p class="text-sm text-charcoal-dark">{opp.question || 'Question not available'}</p>
+                      <div class="flex items-center gap-3 mt-1.5">
+                        {opp.persona_name && <span class="text-[10px] text-charcoal-light">{opp.persona_name}</span>}
+                        {opp.topic_name && <span class="text-[10px] text-charcoal-light">· {opp.topic_name}</span>}
+                      </div>
+                    </div>
+                    {opp.recommended_action && (
+                      <span class="shrink-0 text-[11px] px-3 py-1.5 bg-coral/10 text-coral rounded-lg font-medium uppercase">
+                        {opp.recommended_action === 'faq' ? 'Create FAQ' : opp.recommended_action === 'netlinking' ? 'Netlinking' : 'Update'}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          {oppsItems.length > 3 && (
+            <div class="mt-4 bg-coral/5 rounded-xl p-5 flex items-center justify-between shadow-sm">
+              <div>
+                <p class="text-sm font-semibold text-charcoal-dark">{oppsItems.length} opportunities to improve your AI visibility</p>
+                <p class="text-xs text-charcoal-light">Generate FAQ and articles to make AIs recommend your brand</p>
+              </div>
+              <a href={`/app/scans/${scanId}/actions`} class="px-5 py-2.5 bg-coral text-white rounded-lg text-sm font-medium hover:bg-coral-dark hover:shadow-md transition-all shrink-0">
+                View all actions
+              </a>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ═══════ EDITORIAL ═══════ */}
+      {editorial && (
+        <div class="bg-white rounded-xl shadow-sm p-6 mb-8">
+          <h2 class="text-sm font-semibold text-charcoal-dark mb-4">Analysis Summary</h2>
+          {editorial.hook && <p class="text-sm text-charcoal-dark mb-3">{editorial.hook}</p>}
+          {editorial.interpretation && <p class="text-sm text-charcoal-dark mb-3">{editorial.interpretation}</p>}
+          {editorial.opportunities?.length > 0 && (
+            <div class="space-y-2 mb-4">
+              {editorial.opportunities.map((action: string, i: number) => (
+                <div class="flex items-start gap-3">
+                  <span class="bg-coral/10 text-coral rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold shrink-0">{i + 1}</span>
+                  <p class="text-sm text-charcoal-dark">{action}</p>
+                </div>
+              ))}
+            </div>
+          )}
+          {editorial.competitor_insight && (
+            <p class="text-xs text-charcoal-light italic border-l-2 border-gray-200 pl-3">{editorial.competitor_insight}</p>
+          )}
+        </div>
+      )}
+    </>
+  ) : (
+    <div class="text-center py-20 text-charcoal-light">
+      <p class="text-xl mb-2">No results yet</p>
+      <p>The scan is running or hasn't been launched.</p>
+      <a href={`/app/scans/${scanId}`} class="text-coral hover:underline mt-4 inline-block">Check scan status</a>
+    </div>
+  )}
+
+  {/* ═══════ Chart.js initialization ═══════ */}
+  <script is:inline define:vars={{ mentionedCount, notMentionedCount, currentRate, topicChartLabels, topicChartValues, topicChartColors, hasLineage, trendLabels, trendValues }}>
+    document.addEventListener('DOMContentLoaded', function() {
+      if (typeof Chart === 'undefined') return;
+
+      // Chart 1: Visibility Donut
+      var donutEl = document.getElementById('visibilityDonut');
+      if (donutEl) {
+        new Chart(donutEl, {
+          type: 'doughnut',
+          data: {
+            labels: ['Mentioned', 'Not mentioned'],
+            datasets: [{
+              data: [mentionedCount, notMentionedCount],
+              backgroundColor: ['#10b981', '#e5e7eb'],
+              borderWidth: 0,
+              hoverOffset: 4,
+            }]
+          },
+          options: {
+            cutout: '70%',
+            plugins: {
+              tooltip: {
+                callbacks: {
+                  label: function(ctx) {
+                    var total = mentionedCount + notMentionedCount;
+                    var pct = total > 0 ? Math.round(ctx.raw / total * 100) : 0;
+                    return ctx.label + ': ' + ctx.raw + ' (' + pct + '%)';
+                  }
+                }
+              }
+            }
+          },
+          plugins: [{
+            id: 'centerText',
+            afterDraw: function(chart) {
+              var ctx = chart.ctx;
+              var w = chart.width, h = chart.height;
+              ctx.save();
+              ctx.textAlign = 'center';
+              ctx.textBaseline = 'middle';
+              ctx.fillStyle = currentRate >= 30 ? '#10b981' : currentRate >= 15 ? '#f59e0b' : '#ef4444';
+              ctx.font = 'bold 28px system-ui';
+              ctx.fillText(currentRate + '%', w / 2, h / 2 - 6);
+              ctx.fillStyle = '#9ca3af';
+              ctx.font = '11px system-ui';
+              ctx.fillText('mention rate', w / 2, h / 2 + 16);
+              ctx.restore();
+            }
+          }]
+        });
+      }
+
+      // Chart 2: Topic Visibility Bars
+      var barsEl = document.getElementById('topicBars');
+      if (barsEl && topicChartLabels.length > 0) {
+        new Chart(barsEl, {
+          type: 'bar',
+          data: {
+            labels: topicChartLabels,
+            datasets: [{
+              data: topicChartValues,
+              backgroundColor: topicChartColors,
+              barThickness: 20,
+            }]
+          },
+          options: {
+            indexAxis: 'y',
+            scales: {
+              x: { display: true, max: 100, ticks: { callback: function(v) { return v + '%'; } } },
+              y: { ticks: { font: { size: 11 }, color: '#374151' } }
+            },
+            plugins: {
+              tooltip: {
+                callbacks: {
+                  label: function(ctx) { return ctx.raw + '% mention rate'; }
+                }
+              }
+            }
+          }
+        });
+      }
+
+      // Chart 3: Trend Line
+      if (hasLineage) {
+        var lineEl = document.getElementById('trendLine');
+        if (lineEl) {
+          new Chart(lineEl, {
+            type: 'line',
+            data: {
+              labels: trendLabels,
+              datasets: [{
+                data: trendValues,
+                borderColor: '#e8707a',
+                backgroundColor: 'rgba(232, 112, 122, 0.1)',
+                fill: true,
+                pointBackgroundColor: '#e8707a',
+                pointBorderColor: '#fff',
+                pointBorderWidth: 2,
+                pointRadius: 4,
+                pointHoverRadius: 6,
+              }]
+            },
+            options: {
+              scales: {
+                x: { ticks: { font: { size: 11 } } },
+                y: {
+                  min: 0,
+                  max: 100,
+                  ticks: { callback: function(v) { return v + '%'; }, stepSize: 25 }
+                }
+              },
+              plugins: {
+                tooltip: {
+                  callbacks: {
+                    label: function(ctx) { return 'Mention rate: ' + (ctx.raw !== null ? ctx.raw + '%' : 'N/A'); }
+                  }
+                },
+                annotation: undefined
+              }
+            },
+            plugins: [{
+              id: 'thresholdLine',
+              afterDraw: function(chart) {
+                var yScale = chart.scales.y;
+                var ctx = chart.ctx;
+                var y = yScale.getPixelForValue(30);
+                ctx.save();
+                ctx.setLineDash([4, 4]);
+                ctx.strokeStyle = '#d1d5db';
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.moveTo(chart.chartArea.left, y);
+                ctx.lineTo(chart.chartArea.right, y);
+                ctx.stroke();
+                ctx.fillStyle = '#d1d5db';
+                ctx.font = '10px system-ui';
+                ctx.textAlign = 'right';
+                ctx.fillText('30% threshold', chart.chartArea.right, y - 4);
+                ctx.restore();
+              }
+            }]
+          });
+        }
+      }
+    });
+  </script>
+
+</ScanResultsLayout>

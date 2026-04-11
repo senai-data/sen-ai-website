@@ -1,0 +1,56 @@
+---
+/**
+ * Global provider filter pills for scan results.
+ *
+ * lawsofux:
+ * - Hick's Law: max 3 choices (All / OpenAI / Gemini)
+ * - Von Restorff: active provider = coral pill
+ * - Jakob's Law: pill toggle pattern familiar from SaaS tools
+ * - Fitts's Law: large pill targets
+ */
+interface Props {
+  currentProvider: string;
+  availableProviders: string[];
+  currentTab: string;
+  scanId: string;
+  otherParams?: string;
+}
+
+const { currentProvider, availableProviders, currentTab, scanId, otherParams = '' } = Astro.props;
+
+const tabPath = currentTab === 'overview' ? 'results' : currentTab;
+
+function buildUrl(provider: string): string {
+  const params = new URLSearchParams(otherParams);
+  params.set('provider', provider);
+  return `/app/scans/${scanId}/${tabPath}?${params.toString()}`;
+}
+
+const providerLabels: Record<string, string> = {
+  openai: 'OpenAI',
+  gemini: 'Gemini',
+};
+
+const showFilter = availableProviders.length > 1 || currentProvider !== 'all';
+---
+
+{showFilter && (
+  <div class="flex items-center gap-0.5 bg-gray-100 rounded-lg p-0.5">
+    <a href={buildUrl('all')}
+       class:list={[
+         'px-2.5 py-1 rounded-md text-[11px] font-medium transition-all',
+         currentProvider === 'all' ? 'bg-white shadow-sm text-charcoal-dark' : 'text-charcoal-light hover:text-charcoal-dark',
+       ]}>
+      All
+    </a>
+    {availableProviders.map(p => (
+      <a href={buildUrl(p)}
+         class:list={[
+           'px-2.5 py-1 rounded-md text-[11px] font-medium transition-all',
+           currentProvider === p ? 'bg-white shadow-sm text-charcoal-dark' : 'text-charcoal-light hover:text-charcoal-dark',
+         ]}>
+        {providerLabels[p] || p}
+      </a>
+    ))}
+  </div>
+)}

@@ -1,0 +1,334 @@
+---
+/**
+ * My Scans — List of all scans with lineage grouping (Scan-as-Brand Phase 1).
+ *
+ * UX Laws:
+ * - Jakob's Law: data table pattern familiar from SaaS tools
+ * - Serial Position: CTA at top and bottom
+ * - Von Restorff: status badges stand out
+ * - Law of Proximity: child rescans grouped under root scan, expandable
+ */
+export const prerender = false;
+import DashboardLayout from '../../../layouts/DashboardLayout.astro';
+import Tip from '../../../components/Tip.astro';
+
+const token = Astro.cookies.get('token')?.value;
+if (!token) return Astro.redirect('/login');
+
+let scans = [];
+try {
+  const clientsRes = await fetch('http://api:8000/api/clients/', {
+    headers: { Cookie: `token=${token}` },
+  });
+  const clients = clientsRes.ok ? await clientsRes.json() : [];
+  const clientId = clients[0]?.id;
+
+  if (clientId) {
+    const scansRes = await fetch(`http://api:8000/api/scans?client_id=${clientId}`, {
+      headers: { Cookie: `token=${token}` },
+    });
+    scans = scansRes.ok ? await scansRes.json() : [];
+  }
+} catch {}
+
+function statusLabel(status) {
+  const labels = {
+    draft: 'Draft', fetching_keywords: 'Fetching...', keywords_fetched: 'Keywords ready',
+    topics_ready: 'Topics ready', brands_ready: 'Brands ready',
+    assigning_keywords: 'Assigning...', generating_personas: 'Generating...',
+    personas_ready: 'Ready to scan', scanning: 'Scanning...', completed: 'Completed', failed: 'Failed',
+  };
+  return labels[status] || status;
+}
+
+function statusColor(status) {
+  if (status === 'completed') return 'emerald';
+  if (status === 'failed') return 'red';
+  if (['scanning', 'fetching_keywords', 'generating_personas', 'assigning_keywords'].includes(status)) return 'blue';
+  // amber covers: draft, keywords_fetched, topics_ready, brands_ready, personas_ready
+  return 'amber';
+}
+
+function scanLink(scan) {
+  if (scan.status === 'completed') return `/app/scans/${scan.id}/results`;
+  return `/app/scans/${scan.id}`;
+}
+
+function isCompetitive(scan) {
+  const targets = scan.config?.target_domains || [scan.domain];
+  return !targets.includes(scan.domain);
+}
+
+function canRescan(status) {
+  return status === 'completed' || status === 'personas_ready';
+}
+
+// --- Lineage grouping -------------------------------------------------------
+// Build roots (parent_scan_id == null) + children (parent_scan_id == root.id).
+// Orphaned children (parent_scan_id points at a missing scan) are promoted to
+// roots so they stay visible instead of vanishing.
+const scanById = {};
+for (const s of scans) scanById[s.id] = s;
+
+const roots = [];
+const childrenByRoot = {};
+for (const s of scans) {
+  const parentId = s.parent_scan_id;
+  if (!parentId || !scanById[parentId]) {
+    roots.push(s);
+    childrenByRoot[s.id] = [];
+  }
+}
+for (const s of scans) {
+  const parentId = s.parent_scan_id;
+  if (parentId && scanById[parentId] && childrenByRoot[parentId]) {
+    childrenByRoot[parentId].push(s);
+  }
+}
+// Sort children by run_index ASC
+for (const rid in childrenByRoot) {
+  childrenByRoot[rid].sort((a, b) => (a.run_index || 1) - (b.run_index || 1));
+}
+// Sort roots by latest activity (max child created_at, fallback to root created_at) DESC
+function rootActivity(root) {
+  const kids = childrenByRoot[root.id] || [];
+  let latest = root.created_at || '';
+  for (const k of kids) {
+    if ((k.created_at || '') > latest) latest = k.created_at;
+  }
+  return latest;
+}
+roots.sort((a, b) => (rootActivity(b) > rootActivity(a) ? 1 : -1));
+
+const allScanIds = scans.map(s => s.id);
+---
+
+<DashboardLayout title="My Scans" activeSection="scans">
+  <div class="p-8 max-w-6xl">
+    <div class="flex items-center justify-between mb-6">
+      <div>
+        <h1 class="text-2xl font-bold text-charcoal-dark">My Scans</h1>
+        <p class="text-charcoal-light mt-1">{scans.length} scan{scans.length !== 1 ? 's' : ''} total</p>
+      </div>
+      <a href="/app/scans/new" class="px-5 py-2.5 bg-coral text-white rounded-lg font-medium hover:bg-coral-dark hover:shadow-md hover:scale-[1.02] transition-colors flex items-center gap-2">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+        New Scan
+      </a>
+    </div>
+
+    {scans.length === 0 ? (
+      <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center">
+        <svg class="w-16 h-16 mx-auto text-gray-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+        <p class="text-charcoal-light mb-4">No scans yet. Start by analyzing a website.</p>
+        <a href="/app/scans/new" class="inline-flex items-center gap-2 px-5 py-2.5 bg-coral text-white rounded-lg font-medium hover:bg-coral-dark hover:shadow-md hover:scale-[1.02]">
+          Run my first scan
+        </a>
+      </div>
+    ) : (
+      <div x-data={`{selected:[], get allSelected(){return this.selected.length===${allScanIds.length}}, toggleAll(){this.allSelected?this.selected=[]:this.selected=${JSON.stringify(allScanIds)}}, async deleteSelected(){if(!confirm('Delete '+this.selected.length+' scan(s)?'))return;for(const id of this.selected)await fetch('/api/scans/'+id,{method:'DELETE'});location.reload()}, async rescan(id,label){if(!confirm('Start a new rescan of '+label+'?'))return;const r=await fetch('/api/scans/'+id+'/rescan',{method:'POST'});if(r.ok)location.reload();else alert('Rescan failed')}}`}>
+        <!-- Bulk action bar -->
+        <div x-show="selected.length > 0" x-transition class="bg-charcoal-dark text-white rounded-xl px-5 py-3 mb-3 flex items-center justify-between">
+          <span class="text-sm"><strong x-text="selected.length"></strong> scan(s) selected</span>
+          <button @click="deleteSelected()" class="px-4 py-1.5 bg-red-500 text-white rounded-lg text-xs font-medium hover:bg-red-600 transition-colors">
+            Delete selected
+          </button>
+        </div>
+
+        <div class="bg-white rounded-xl shadow-sm border border-gray-100">
+          <table class="w-full text-sm">
+            <thead class="bg-gray-50 text-xs text-charcoal-light uppercase tracking-wide">
+              <tr>
+                <th class="px-3 py-3 w-10 rounded-tl-xl">
+                  <input type="checkbox" :checked="allSelected" @change="toggleAll()" class="rounded border-gray-300 text-coral focus:ring-coral" />
+                </th>
+                <th class="px-2 py-3 w-6"></th>
+                <th class="text-left px-3 py-3"><Tip id="scan_name" position="bottom">Scan</Tip></th>
+                <th class="text-left px-3 py-3"><Tip id="scan_type" position="bottom">Type</Tip></th>
+                <th class="text-left px-3 py-3"><Tip id="focus_brand" position="bottom">Focus brand</Tip></th>
+                <th class="text-center px-3 py-3"><Tip id="status" position="bottom">Status</Tip></th>
+                <th class="text-center px-3 py-3"><Tip id="citation_rate" position="bottom">Visibility</Tip></th>
+                <th class="text-center px-3 py-3"><Tip id="opportunities" position="bottom">Opportunities</Tip></th>
+                <th class="text-right px-3 py-3">Date</th>
+                <th class="text-right px-3 py-3 rounded-tr-xl">Actions</th>
+              </tr>
+            </thead>
+            {roots.map(root => {
+              const kids = childrenByRoot[root.id] || [];
+              const hasKids = kids.length > 0;
+              return (
+                <tbody class="divide-y divide-gray-100 border-t border-gray-100" x-data="{ expanded: false }">
+                  {/* Root row */}
+                  <tr class="hover:bg-gray-50 transition-colors" :class={`selected.includes('${root.id}') ? 'bg-coral/5' : ''`}>
+                    <td class="px-3 py-4">
+                      <input type="checkbox" value={root.id} x-model="selected" class="rounded border-gray-300 text-coral focus:ring-coral" />
+                    </td>
+                    <td class="px-2 py-4 text-center">
+                      {hasKids ? (
+                        <button
+                          type="button"
+                          @click="expanded = !expanded"
+                          class="text-charcoal-light hover:text-coral transition-colors w-5 h-5 flex items-center justify-center"
+                          :class="expanded ? 'rotate-90' : ''"
+                          style="transition: transform 0.15s"
+                          aria-label="Toggle rescans"
+                        >
+                          <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7"/></svg>
+                        </button>
+                      ) : null}
+                    </td>
+                    <td class="px-3 py-4">
+                      <a href={scanLink(root)} class="block group">
+                        <div class="font-medium text-charcoal-dark group-hover:text-coral transition-colors">
+                          {root.name || root.domain}
+                        </div>
+                        {root.name && root.domain && root.name !== root.domain ? (
+                          <div class="text-xs text-charcoal-light mt-0.5">{root.domain}</div>
+                        ) : null}
+                        {hasKids ? (
+                          <div class="text-xs text-charcoal-light mt-0.5">{kids.length} rescan{kids.length !== 1 ? 's' : ''}</div>
+                        ) : null}
+                      </a>
+                    </td>
+                    <td class="px-3 py-4">
+                      {isCompetitive(root)
+                        ? <span class="text-xs px-2 py-1 rounded-full bg-purple-100 text-purple-700">Competitive</span>
+                        : <span class="text-xs px-2 py-1 rounded-full bg-blue-100 text-blue-700">Own site</span>
+                      }
+                    </td>
+                    <td class="px-3 py-4">
+                      {root.focus_brand_name ? (
+                        <a
+                          href={`/app/scans/${root.id}?view=brands`}
+                          title="Edit focus brand and classifications"
+                          class="text-xs px-2 py-1 rounded-full bg-gray-100 text-charcoal-dark font-medium hover:bg-gray-200 transition-colors"
+                        >
+                          {root.focus_brand_name}
+                        </a>
+                      ) : (
+                        <a
+                          href={`/app/scans/${root.id}?view=brands`}
+                          class="text-xs px-2 py-1 rounded-full bg-amber-100 text-amber-700 font-medium hover:bg-amber-200 transition-colors inline-flex items-center gap-1"
+                        >
+                          ⚠️ Not set
+                        </a>
+                      )}
+                    </td>
+                    <td class="px-3 py-4 text-center">
+                      <span class={`text-xs px-2.5 py-1 rounded-full bg-${statusColor(root.status)}-100 text-${statusColor(root.status)}-700 font-medium`}>
+                        {statusLabel(root.status)}
+                      </span>
+                    </td>
+                    <td class="px-3 py-4 text-center">
+                      {root.summary?.brand_mention_rate ?? root.summary?.citation_rate !== undefined
+                        ? <span class="font-semibold">{root.summary.citation_rate}%</span>
+                        : <span class="text-charcoal-light">—</span>
+                      }
+                    </td>
+                    <td class="px-3 py-4 text-center">
+                      {root.summary?.opportunities?.critique
+                        ? <span class="text-red-500 font-semibold">{root.summary.opportunities.critique}</span>
+                        : <span class="text-charcoal-light">—</span>
+                      }
+                    </td>
+                    <td class="px-3 py-4 text-right text-charcoal-light whitespace-nowrap">
+                      {root.created_at?.split('T')[0]}
+                    </td>
+                    <td class="px-3 py-4 text-right whitespace-nowrap">
+                      <div class="inline-flex items-center gap-1.5">
+                        <a
+                          href={`/app/scans/${root.id}?view=brands`}
+                          title="Edit setup (brands, focus, personas)"
+                          class="inline-flex items-center justify-center w-8 h-8 rounded-lg text-charcoal-light hover:bg-gray-100 hover:text-charcoal-dark transition-colors"
+                        >
+                          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                          </svg>
+                        </a>
+                        {canRescan(root.status) ? (
+                          <button
+                            type="button"
+                            @click={`rescan('${root.id}', ${JSON.stringify(root.name || root.domain)})`}
+                            class="text-xs px-3 py-1.5 rounded-lg bg-coral/10 text-coral hover:bg-coral hover:text-white font-medium transition-colors"
+                          >
+                            Rescan now
+                          </button>
+                        ) : null}
+                      </div>
+                    </td>
+                  </tr>
+
+                  {/* Child rescan rows (collapsed by default) */}
+                  {kids.map(child => (
+                    <tr
+                      x-show="expanded"
+                      x-transition
+                      class="bg-gray-50/50 hover:bg-gray-100/60 transition-colors"
+                      :class={`selected.includes('${child.id}') ? 'bg-coral/5' : ''`}
+                    >
+                      <td class="px-3 py-3">
+                        <input type="checkbox" value={child.id} x-model="selected" class="rounded border-gray-300 text-coral focus:ring-coral" />
+                      </td>
+                      <td class="px-2 py-3"></td>
+                      <td class="px-3 py-3 pl-8">
+                        <div class="flex items-center gap-2">
+                          <span class="text-xs px-2 py-0.5 rounded-full bg-coral/10 text-coral font-medium whitespace-nowrap">
+                            ↳ Rescan #{child.run_index || '?'}
+                          </span>
+                          <a href={scanLink(child)} class="block group">
+                            <div class="font-medium text-charcoal-dark group-hover:text-coral transition-colors text-sm">
+                              {child.name || child.domain}
+                            </div>
+                            {child.name && child.domain && child.name !== child.domain ? (
+                              <div class="text-xs text-charcoal-light">{child.domain}</div>
+                            ) : null}
+                          </a>
+                        </div>
+                      </td>
+                      <td class="px-3 py-3">
+                        {isCompetitive(child)
+                          ? <span class="text-xs px-2 py-1 rounded-full bg-purple-100 text-purple-700">Competitive</span>
+                          : <span class="text-xs px-2 py-1 rounded-full bg-blue-100 text-blue-700">Own site</span>
+                        }
+                      </td>
+                      <td class="px-3 py-3">
+                        {child.focus_brand_name ? (
+                          <span class="text-xs px-2 py-1 rounded-full bg-gray-100 text-charcoal-dark font-medium">
+                            {child.focus_brand_name}
+                          </span>
+                        ) : (
+                          <span class="text-xs text-charcoal-light">—</span>
+                        )}
+                      </td>
+                      <td class="px-3 py-3 text-center">
+                        <span class={`text-xs px-2.5 py-1 rounded-full bg-${statusColor(child.status)}-100 text-${statusColor(child.status)}-700 font-medium`}>
+                          {statusLabel(child.status)}
+                        </span>
+                      </td>
+                      <td class="px-3 py-3 text-center">
+                        {child.summary?.brand_mention_rate ?? child.summary?.citation_rate !== undefined
+                          ? <span class="font-semibold">{child.summary.citation_rate}%</span>
+                          : <span class="text-charcoal-light">—</span>
+                        }
+                      </td>
+                      <td class="px-3 py-3 text-center">
+                        {child.summary?.opportunities?.critique
+                          ? <span class="text-red-500 font-semibold">{child.summary.opportunities.critique}</span>
+                          : <span class="text-charcoal-light">—</span>
+                        }
+                      </td>
+                      <td class="px-3 py-3 text-right text-charcoal-light whitespace-nowrap">
+                        {child.created_at?.split('T')[0]}
+                      </td>
+                      <td class="px-3 py-3 text-right"></td>
+                    </tr>
+                  ))}
+                </tbody>
+              );
+            })}
+          </table>
+        </div>
+      </div>
+    )}
+  </div>
+</DashboardLayout>

@@ -16,9 +16,9 @@ import Footer from '../components/Footer.astro';
         <h2 class="text-xl font-bold text-charcoal-dark mb-4">Éditeur du site</h2>
         <p class="text-charcoal-light leading-relaxed">
           sen-ai.fr<br />
-          [Nom de la société / Entrepreneur individuel]<br />
-          [Adresse postale]<br />
-          [Numéro SIRET]<br />
+          <span class="text-amber-700 font-mono text-sm">[À compléter — raison sociale / EI]</span><br />
+          <span class="text-amber-700 font-mono text-sm">[À compléter — adresse postale]</span><br />
+          <span class="text-amber-700 font-mono text-sm">[À compléter — numéro SIRET]</span><br />
           Email : <a href="mailto:contact@sen-ai.fr" class="text-coral hover:text-coral-dark transition-colors">contact@sen-ai.fr</a>
         </p>
       </section>
@@ -26,43 +26,60 @@ import Footer from '../components/Footer.astro';
       <section class="mb-10">
         <h2 class="text-xl font-bold text-charcoal-dark mb-4">Directeur de la publication</h2>
         <p class="text-charcoal-light leading-relaxed">
-          [Nom du directeur de la publication]
+          <span class="text-amber-700 font-mono text-sm">[À compléter — nom du directeur de publication]</span>
         </p>
       </section>
 
       <section class="mb-10">
         <h2 class="text-xl font-bold text-charcoal-dark mb-4">Hébergement</h2>
         <p class="text-charcoal-light leading-relaxed">
-          [Nom de l'hébergeur]<br />
-          [Adresse de l'hébergeur]<br />
-          [Numéro de téléphone]
+          Hetzner Online GmbH<br />
+          Industriestr. 25<br />
+          91710 Gunzenhausen — Allemagne<br />
+          Tél. : +49 (0)9831 505-0<br />
+          Web : <a href="https://www.hetzner.com" target="_blank" rel="noopener" class="text-coral hover:text-coral-dark transition-colors">hetzner.com</a>
+        </p>
+        <p class="text-charcoal-light leading-relaxed mt-3 text-sm">
+          Les serveurs sont localisés à Helsinki (Finlande, Union européenne).
         </p>
       </section>
 
       <section class="mb-10">
         <h2 class="text-xl font-bold text-charcoal-dark mb-4">Propriété intellectuelle</h2>
         <p class="text-charcoal-light leading-relaxed">
-          L'ensemble du contenu de ce site (textes, images, graphismes, logo, icônes, etc.) est la propriété exclusive de sen-ai.fr, sauf mention contraire. Toute reproduction, distribution, modification, adaptation, retransmission ou publication de ces éléments est strictement interdite sans l'accord écrit de sen-ai.fr.
+          L'ensemble du contenu de ce site (textes, images, graphismes, logo, icônes, code source) est la propriété exclusive de sen-ai.fr, sauf mention contraire. Toute reproduction, distribution, modification, adaptation, retransmission ou publication de ces éléments est strictement interdite sans accord écrit préalable.
         </p>
       </section>
 
       <section class="mb-10">
         <h2 class="text-xl font-bold text-charcoal-dark mb-4">Protection des données personnelles</h2>
         <p class="text-charcoal-light leading-relaxed">
-          Conformément au Règlement Général sur la Protection des Données (RGPD) et à la loi Informatique et Libertés du 6 janvier 1978 modifiée, vous disposez d'un droit d'accès, de rectification, de suppression et de portabilité de vos données personnelles.
+          Conformément au Règlement Général sur la Protection des Données (RGPD) et à la loi Informatique et Libertés du 6 janvier 1978 modifiée, vous disposez d'un droit d'accès, de rectification, d'effacement, de portabilité et d'opposition concernant vos données personnelles.
         </p>
         <p class="text-charcoal-light leading-relaxed mt-3">
-          Pour exercer ces droits, contactez-nous à : <a href="mailto:contact@sen-ai.fr" class="text-coral hover:text-coral-dark transition-colors">contact@sen-ai.fr</a>
+          Le détail du traitement, la liste des sous-traitants et les modalités d'exercice de vos droits sont décrits dans notre <a href="/privacy" class="text-coral hover:text-coral-dark transition-colors">Privacy Policy</a>.
         </p>
         <p class="text-charcoal-light leading-relaxed mt-3">
-          [Déclaration CNIL n° : à compléter le cas échéant]
+          Vous pouvez exercer vos droits :
         </p>
+        <ul class="text-charcoal-light leading-relaxed list-disc pl-6 mt-2">
+          <li>Directement depuis votre compte (export JSON + suppression de compte en libre-service)</li>
+          <li>Par email : <a href="mailto:contact@sen-ai.fr" class="text-coral hover:text-coral-dark transition-colors">contact@sen-ai.fr</a></li>
+          <li>Par réclamation auprès de la <a href="https://www.cnil.fr" target="_blank" rel="noopener" class="text-coral hover:text-coral-dark transition-colors">CNIL</a></li>
+        </ul>
       </section>
 
       <section class="mb-10">
         <h2 class="text-xl font-bold text-charcoal-dark mb-4">Cookies</h2>
         <p class="text-charcoal-light leading-relaxed">
-          Ce site n'utilise aucun cookie de suivi publicitaire. Seuls des cookies techniques strictement nécessaires au fonctionnement du site peuvent être utilisés.
+          Le site utilise un unique cookie strictement nécessaire (token de session HttpOnly + Secure), valide 24 heures, pour maintenir votre authentification. Aucun cookie de tracking, de publicité ou de mesure d'audience n'est déposé.
+        </p>
+      </section>
+
+      <section class="mb-10">
+        <h2 class="text-xl font-bold text-charcoal-dark mb-4">Conditions générales d'utilisation</h2>
+        <p class="text-charcoal-light leading-relaxed">
+          L'utilisation du Service est régie par nos <a href="/terms" class="text-coral hover:text-coral-dark transition-colors">Terms of Service</a>.
         </p>
       </section>
 

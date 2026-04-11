@@ -1,0 +1,342 @@
+---
+/**
+ * Topics — Full topic analysis with drill-down.
+ *
+ * "Where am I weak?" — Each topic expands to show personas, questions, AI responses.
+ * Hick's Law: 1 topic open at a time (accordion).
+ * Progressive Disclosure: click to expand.
+ * Zeigarnik: CTA at each topic dead-end.
+ */
+export const prerender = false;
+import ScanResultsLayout from '../../../../layouts/ScanResultsLayout.astro';
+import Tip from '../../../../components/Tip.astro';
+
+const token = Astro.cookies.get('token')?.value;
+if (!token) return Astro.redirect('/login');
+const { id: scanId } = Astro.params;
+
+const rangeParam = Astro.url.searchParams.get('range') || 'all';
+const fromParam = Astro.url.searchParams.get('from') || '';
+const toParam = Astro.url.searchParams.get('to') || '';
+const runParam = Astro.url.searchParams.get('run') || '';
+const effectiveScanId = (rangeParam === 'latest' && runParam) ? runParam : scanId;
+const providerParam = Astro.url.searchParams.get('provider') || 'all';
+
+const useAggregated = rangeParam !== 'latest';
+let resultsUrl = `http://api:8000/api/scans/${effectiveScanId}/results`;
+if (useAggregated) {
+  const p = new URLSearchParams();
+  if (fromParam) p.set('from_date', fromParam);
+  if (toParam) p.set('to_date', toParam);
+  resultsUrl = `http://api:8000/api/scans/${effectiveScanId}/results/aggregated${p.toString() ? '?' + p : ''}`;
+}
+
+// Append provider filter to all API URLs
+const providerSuffix = providerParam !== 'all' ? `${resultsUrl.includes('?') ? '&' : '?'}provider=${providerParam}` : '';
+resultsUrl += providerSuffix;
+
+const headers = { Cookie: `token=${token}` };
+let data: any = null;
+let oppsItems: any[] = [];
+try {
+  const [resR, resO] = await Promise.all([
+    fetch(resultsUrl, { headers }),
+    fetch(`http://api:8000/api/scans/${effectiveScanId}/opportunities${providerParam !== 'all' ? '?provider=' + providerParam : ''}`, { headers }),
+  ]);
+  if (resR.ok) data = await resR.json();
+  if (resO.ok) { const od = await resO.json(); oppsItems = od?.opportunities || []; }
+} catch (_) {}
+
+const isAggregated = data?.mode === 'aggregated';
+const o = data?.overview;
+const byPersona = data?.by_persona || [];
+const details = data?.details || [];
+
+// Server-side brand highlighting (Von Restorff: your brand = emerald, competitors = orange)
+function highlightResponse(text: string, brandMentions: any[]): string {
+  if (!text || !brandMentions?.length) return text || '';
+  let html = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const seen: Record<string, boolean> = {};
+  const sorted = [...brandMentions].sort((a, b) => (b.brand_name || '').length - (a.brand_name || '').length);
+  for (const bm of sorted) {
+    const name = bm.brand_name;
+    if (!name || seen[name.toLowerCase()]) continue;
+    seen[name.toLowerCase()] = true;
+    const style = bm.est_marque_cible
+      ? 'background:#d1fae5;color:#065f46;padding:1px 3px;border-radius:3px;font-weight:500'
+      : 'background:#ffedd5;color:#9a3412;padding:1px 3px;border-radius:3px;font-weight:500';
+    const rx = new RegExp(`(${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+    html = html.replace(rx, `<mark style="${style}">$1</mark>`);
+  }
+  return html;
+}
+
+function rc(rate: number) {
+  if (rate >= 30) return { text: 'text-emerald-600', badge: 'bg-emerald-50 text-emerald-700', label: 'Strong' };
+  if (rate > 0) return { text: 'text-amber-500', badge: 'bg-amber-50 text-amber-700', label: 'Weak' };
+  return { text: 'text-red-500', badge: 'bg-red-50 text-red-600', label: 'Absent' };
+}
+
+// Group by topic with personas and questions
+const topicMap: Record<string, any> = {};
+details.forEach((d: any) => {
+  const topic = isAggregated
+    ? (d.topic_name || 'Other')
+    : (byPersona.find((p: any) => p.persona === d.persona)?.topic || 'Other');
+  const brandMentioned = isAggregated ? d.latest?.brand_mentioned : d.brand_mentioned;
+  if (!topicMap[topic]) topicMap[topic] = { cited: 0, total: 0, personas: {}, questions: [] };
+  topicMap[topic].total++;
+  if (brandMentioned) topicMap[topic].cited++;
+  topicMap[topic].questions.push(d);
+  const persona = d.persona;
+  if (!topicMap[topic].personas[persona]) topicMap[topic].personas[persona] = { cited: 0, total: 0, questions: [] };
+  topicMap[topic].personas[persona].total++;
+  if (brandMentioned) topicMap[topic].personas[persona].cited++;
+  topicMap[topic].personas[persona].questions.push(d);
+});
+
+const topics = Object.entries(topicMap).map(([name, d]: any) => ({
+  name,
+  rate: Math.round(d.cited / d.total * 100),
+  cited: d.cited, total: d.total,
+  personas: Object.entries(d.personas).map(([pname, pd]: any) => ({
+    name: pname, rate: Math.round(pd.cited / pd.total * 100),
+    cited: pd.cited, total: pd.total, questions: pd.questions,
+  })),
+  opps: oppsItems.filter((op: any) => op.topic_name === name),
+})).sort((a, b) => a.rate - b.rate);
+
+// Chart data
+const topicBarLabels = topics.map(t => t.name);
+const topicBarValues = topics.map(t => t.rate);
+const topicBarColors = topics.map(t => t.rate >= 30 ? '#10b981' : t.rate > 0 ? '#f59e0b' : '#ef4444');
+const topicMentioned = topics.map(t => t.cited);
+const topicNotMentioned = topics.map(t => t.total - t.cited);
+---
+
+<ScanResultsLayout scanId={scanId} activeTab="topics">
+  <div x-data="{ openTopic: 0, openQ: null }">
+
+    <p class="text-sm text-charcoal-light mb-6">Click a topic to explore personas, questions, and AI responses. Sorted by visibility (worst first).</p>
+
+    {/* Charts */}
+    {topics.length > 0 && (
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-8">
+        {/* Topic Visibility Comparison */}
+        <div class="bg-white rounded-xl shadow-sm p-6">
+          <h3 class="text-sm font-semibold text-charcoal-dark mb-1">Topic Visibility</h3>
+          <p class="text-[11px] text-charcoal-light mb-4">Brand mention rate per topic</p>
+          <div class="relative" style={`height: ${Math.max(topics.length * 44, 120)}px;`}>
+            <canvas id="topicVisibilityBars"></canvas>
+          </div>
+        </div>
+
+        {/* Mentioned vs Not Mentioned per Topic */}
+        <div class="bg-white rounded-xl shadow-sm p-6">
+          <h3 class="text-sm font-semibold text-charcoal-dark mb-1">Mentioned vs Absent</h3>
+          <p class="text-[11px] text-charcoal-light mb-4">How many questions per topic mention your brand?</p>
+          <div class="relative" style={`height: ${Math.max(topics.length * 44, 120)}px;`}>
+            <canvas id="topicMentionedBars"></canvas>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {topics.length === 0 && (
+      <div class="bg-white rounded-xl shadow-sm p-12 text-center text-charcoal-light">No topics found.</div>
+    )}
+
+    <div class="space-y-3">
+      {topics.map((topic, ti) => {
+        const trc = rc(topic.rate);
+        const topicCritical = topic.opps.filter((op: any) => op.priority === 'critique').length;
+        return (
+          <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+            {/* Topic header — clickable */}
+            <div
+              class="px-6 py-4 cursor-pointer hover:bg-gray-50 transition-colors flex items-center gap-4"
+              @click={`openTopic = openTopic === ${ti} ? null : ${ti}; openQ = null`}
+            >
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-2 mb-1">
+                  <h3 class="font-semibold text-charcoal-dark">{topic.name}</h3>
+                  <span class={`text-[10px] px-2 py-0.5 rounded-full font-medium ${trc.badge}`}>{trc.label}</span>
+                  {topicCritical > 0 && <span class="text-[10px] px-2 py-0.5 rounded-full bg-red-50 text-red-600 font-bold">{topicCritical} critical</span>}
+                </div>
+                <p class="text-xs text-charcoal-light">{topic.total} questions · {topic.personas.length} personas · {topic.cited} mentioned</p>
+              </div>
+              <span class={`text-2xl font-bold ${trc.text} shrink-0`}>{topic.rate}%</span>
+              <svg class="w-5 h-5 text-gray-400 shrink-0 transition-transform" :class={`openTopic === ${ti} ? 'rotate-180' : ''`}
+                   fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+              </svg>
+            </div>
+
+            {/* Expanded: personas + questions */}
+            <div x-show={`openTopic === ${ti}`} x-transition class="border-t border-gray-100">
+              <div class="divide-y divide-gray-100">
+                {topic.personas.map((persona, pi) => (
+                  <div class="px-6 py-4">
+                    <div class="flex items-center gap-3 mb-3">
+                      <img src={`https://api.dicebear.com/9.x/personas/svg?seed=${encodeURIComponent(persona.name)}&backgroundColor=b6e3f4,c0aede,d1d4f9,ffd5dc,ffdfbf`}
+                           alt="" class="w-8 h-8 rounded-full shrink-0" />
+                      <div class="flex-1 min-w-0">
+                        <p class="text-sm font-medium text-charcoal-dark">{persona.name}</p>
+                        <p class="text-[11px] text-charcoal-light">{persona.total} questions · {persona.cited} mentioned</p>
+                      </div>
+                      <span class={`text-lg font-bold ${rc(persona.rate).text}`}>{persona.rate}%</span>
+                    </div>
+
+                    <div class="space-y-1 ml-11">
+                      {persona.questions.map((q: any, qi: number) => {
+                        const qKey = `t${ti}p${pi}q${qi}`;
+                        const qd = isAggregated ? (q.latest || q) : q;
+                        return (
+                          <div>
+                            <div class="flex items-start gap-2 py-1.5 px-2 -mx-2 rounded cursor-pointer hover:bg-gray-50 transition-colors"
+                                 @click.stop={`openQ = openQ === '${qKey}' ? null : '${qKey}'`}>
+                              {qd.brand_mentioned
+                                ? <span class="text-emerald-500 mt-0.5 shrink-0">&#10003;</span>
+                                : <span class="text-red-400 mt-0.5 shrink-0">&#10007;</span>
+                              }
+                              <div class="flex-1 min-w-0">
+                                <p class="text-xs text-charcoal-dark">{q.question}</p>
+                                {q.intention_cachee && <p class="text-[10px] text-charcoal-light italic mt-0.5">{q.intention_cachee}</p>}
+                                {!qd.brand_mentioned && qd.brand_mentions?.filter((bm: any) => !bm.est_marque_cible).length > 0 && (
+                                  <p class="text-[10px] text-orange-600 mt-0.5">
+                                    {qd.brand_mentions.filter((bm: any) => !bm.est_marque_cible).map((bm: any) => bm.brand_name).slice(0, 3).join(', ')} cited instead
+                                  </p>
+                                )}
+                              </div>
+                              <span class="text-[10px] text-charcoal-light shrink-0 mt-0.5">{q.type}</span>
+                            </div>
+
+                            {/* AI Response proof */}
+                            <div x-show={`openQ === '${qKey}'`} x-transition class="ml-5 mb-2 mt-1 rounded-lg shadow-sm overflow-hidden bg-gray-50">
+                              {qd.brand_mentions?.length > 0 && (
+                                <div class="px-3 py-2 border-b border-gray-100">
+                                  <p class="text-[10px] uppercase font-semibold text-charcoal-light mb-1.5">Brand Mentions</p>
+                                  <div class="flex flex-wrap gap-1.5">
+                                    {qd.brand_mentions.map((bm: any) => (
+                                      <span class={`text-[10px] px-2 py-0.5 rounded-full inline-flex items-center gap-1 ${bm.est_marque_cible ? 'bg-emerald-50 text-emerald-700' : 'bg-orange-50 text-orange-700'}`}>
+                                        <span class={bm.sentiment === 'positif' ? 'text-emerald-500' : bm.sentiment === 'negatif' ? 'text-red-500' : 'text-gray-400'}>&#9679;</span>
+                                        {bm.brand_name}
+                                        <span class="text-gray-400">({(bm.type_recommandation || 'mention').replace('_', ' ')})</span>
+                                      </span>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                              {qd.response_text && (
+                                <div class="px-3 py-2">
+                                  <div class="flex items-center gap-2 mb-1.5">
+                                    <span class="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 font-medium uppercase">{qd.provider}</span>
+                                    {qd.duration_ms && <span class="text-[10px] text-charcoal-light">{(qd.duration_ms / 1000).toFixed(1)}s</span>}
+                                  </div>
+                                  <div class="text-xs text-charcoal-dark leading-relaxed max-h-40 overflow-y-auto whitespace-pre-line" set:html={highlightResponse(qd.response_text, qd.brand_mentions)} />
+                                </div>
+                              )}
+                              {qd.citations?.length > 0 && (
+                                <div class="px-3 py-2 border-t border-gray-100">
+                                  <p class="text-[10px] font-medium text-charcoal-light uppercase mb-1">Sources</p>
+                                  {qd.citations.map((c: any, ci: number) => {
+                                    const citDomain = c.domaine || c.domain || (c.url ? new URL(c.url).hostname : '');
+                                    const isYou = o?.domain && citDomain?.includes(o.domain.replace('www.', ''));
+                                    return (
+                                      <div class={`text-[11px] py-0.5 flex items-center gap-1.5 ${isYou ? 'text-emerald-700 font-medium' : 'text-charcoal-dark'}`}>
+                                        <span class="text-charcoal-light">{ci + 1}.</span>
+                                        <span>{citDomain || c.url || '—'}</span>
+                                        {isYou && <span class="text-[9px] bg-emerald-100 text-emerald-600 px-1 rounded font-bold">YOU</span>}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Topic CTA */}
+              {topic.opps.length > 0 && (
+                <div class="px-6 py-4 bg-coral/5 border-t border-coral/10">
+                  <div class="flex items-center justify-between">
+                    <div>
+                      <p class="text-sm font-semibold text-charcoal-dark">{topic.opps.length} opportunities for {topic.name}</p>
+                      <p class="text-xs text-charcoal-light">
+                        {topic.opps.filter((op: any) => op.priority === 'critique').length} critical ·
+                        {topic.opps.filter((op: any) => op.recommended_action === 'faq').length} FAQ ·
+                        {topic.opps.filter((op: any) => op.recommended_action === 'netlinking').length} netlinking
+                      </p>
+                    </div>
+                    <a href={`/app/scans/${scanId}/actions`} class="px-4 py-2 bg-coral text-white rounded-lg text-sm font-medium hover:bg-coral-dark hover:shadow-md transition-all shrink-0">
+                      View actions
+                    </a>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  </div>
+
+  <script is:inline define:vars={{ topicBarLabels, topicBarValues, topicBarColors, topicMentioned, topicNotMentioned }}>
+    document.addEventListener('DOMContentLoaded', function() {
+      if (typeof Chart === 'undefined') return;
+
+      // Topic Visibility Bars
+      var barsEl = document.getElementById('topicVisibilityBars');
+      if (barsEl && topicBarLabels.length > 0) {
+        new Chart(barsEl, {
+          type: 'bar',
+          data: {
+            labels: topicBarLabels,
+            datasets: [{ data: topicBarValues, backgroundColor: topicBarColors, barThickness: 24 }]
+          },
+          options: {
+            indexAxis: 'y',
+            scales: {
+              x: { display: true, max: 100, ticks: { callback: function(v) { return v + '%'; } } },
+              y: { ticks: { font: { size: 11 }, color: '#374151' } }
+            },
+            plugins: {
+              tooltip: { callbacks: { label: function(ctx) { return ctx.raw + '% mention rate'; } } }
+            }
+          }
+        });
+      }
+
+      // Mentioned vs Not Mentioned (stacked horizontal bars)
+      var stackedEl = document.getElementById('topicMentionedBars');
+      if (stackedEl && topicBarLabels.length > 0) {
+        new Chart(stackedEl, {
+          type: 'bar',
+          data: {
+            labels: topicBarLabels,
+            datasets: [
+              { label: 'Mentioned', data: topicMentioned, backgroundColor: '#10b981', barThickness: 24 },
+              { label: 'Not mentioned', data: topicNotMentioned, backgroundColor: '#e5e7eb', barThickness: 24 },
+            ]
+          },
+          options: {
+            indexAxis: 'y',
+            scales: {
+              x: { stacked: true },
+              y: { stacked: true, ticks: { font: { size: 11 }, color: '#374151' } }
+            },
+            plugins: {
+              legend: { display: true, position: 'bottom', labels: { usePointStyle: true, pointStyle: 'circle', padding: 16, font: { size: 10 } } },
+              tooltip: { mode: 'index' }
+            }
+          }
+        });
+      }
+    });
+  </script>
+</ScanResultsLayout>

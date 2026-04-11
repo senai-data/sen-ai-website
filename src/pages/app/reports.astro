@@ -1,0 +1,75 @@
+---
+export const prerender = false;
+import DashboardLayout from '../../layouts/DashboardLayout.astro';
+
+const token = Astro.cookies.get('token')?.value;
+if (!token) return Astro.redirect('/login');
+
+let scans = [];
+try {
+  const clientsRes = await fetch('http://api:8000/api/clients/', {
+    headers: { Cookie: `token=${token}` },
+  });
+  const clients = clientsRes.ok ? await clientsRes.json() : [];
+  const clientId = clients[0]?.id;
+
+  if (clientId) {
+    const scansRes = await fetch(`http://api:8000/api/scans?client_id=${clientId}`, {
+      headers: { Cookie: `token=${token}` },
+    });
+    scans = scansRes.ok ? await scansRes.json() : [];
+  }
+} catch {}
+
+const completedScans = scans.filter(s => s.status === 'completed');
+---
+
+<DashboardLayout title="Reports" activeSection="reports">
+  <div class="p-8 max-w-4xl">
+
+    <div class="mb-8">
+      <h1 class="text-2xl font-bold text-charcoal-dark">Reports</h1>
+      <p class="text-charcoal-light mt-1">Export and share AI visibility reports</p>
+    </div>
+
+    {completedScans.length > 0 ? (
+      <div class="space-y-3">
+        {completedScans.map(scan => {
+          const isCompetitive = !(scan.config?.target_domains || [scan.domain]).includes(scan.domain);
+          return (
+            <div class="bg-white rounded-xl border border-gray-200 p-5 flex items-center justify-between hover:shadow-sm transition-all">
+              <div>
+                <div class="flex items-center gap-2 mb-1">
+                  <h3 class="font-semibold text-charcoal-dark">{scan.domain}</h3>
+                  {isCompetitive && <span class="text-[10px] px-1.5 py-0.5 rounded bg-purple-100 text-purple-700">competitive</span>}
+                </div>
+                <p class="text-xs text-charcoal-light">
+                  {scan.summary?.brand_mention_rate ?? scan.summary?.citation_rate}% visibility · {scan.summary?.total_tests} tests · {scan.completed_at?.split('T')[0]}
+                </p>
+              </div>
+              <div class="flex items-center gap-2">
+                <a href={`/app/scans/${scan.id}/results`} class="px-3 py-1.5 text-xs font-medium text-coral border border-coral rounded-lg hover:bg-coral/5 transition-colors">
+                  View results
+                </a>
+                <button class="px-3 py-1.5 text-xs font-medium text-charcoal-light border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors" title="Coming soon">
+                  Export HTML
+                </button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    ) : (
+      <div class="bg-white rounded-xl border border-gray-200 p-12 text-center">
+        <svg class="w-16 h-16 mx-auto text-gray-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+        </svg>
+        <p class="text-charcoal-light mb-2">No reports available</p>
+        <p class="text-sm text-charcoal-light mb-6">Complete a scan to generate your first report.</p>
+        <a href="/app/scans/new" class="inline-flex items-center gap-2 px-5 py-2.5 bg-coral text-white rounded-lg font-medium hover:bg-coral-dark hover:shadow-md hover:scale-[1.02]">
+          Run a scan
+        </a>
+      </div>
+    )}
+  </div>
+</DashboardLayout>

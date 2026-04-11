@@ -1,0 +1,198 @@
+---
+/**
+ * Dashboard Layout — Main application shell with sidebar navigation.
+ *
+ * UX Laws applied:
+ * - Jakob's Law: sidebar pattern familiar from SaaS tools (SEMrush, Ahrefs)
+ * - Serial Position: most-used items top, profile/credits bottom
+ * - Miller's Law: max 6 navigation items
+ * - Von Restorff: badge on inbox stands out
+ * - Aesthetic-Usability: clean, generous spacing, coral accent
+ * - Doherty Threshold: no layout shift, instant navigation feel
+ */
+import '../styles/global.css';
+
+interface Props {
+  title: string;
+  activeSection?: string;
+}
+
+const { title, activeSection = '' } = Astro.props;
+
+// Get user info from JWT cookie
+const token = Astro.cookies.get('token')?.value;
+if (!token) return Astro.redirect('/login');
+
+let user = { email: '', initial: '?' };
+try {
+  const payload = JSON.parse(atob(token.split('.')[1]));
+  user.email = payload.email || '';
+  user.initial = (payload.email?.[0] || '?').toUpperCase();
+} catch {
+  return Astro.redirect('/login');
+}
+
+// Fetch credit balance (server-side)
+let scanCredits = 0;
+let contentCredits = 0;
+try {
+  const clientsRes = await fetch('http://api:8000/api/clients/', {
+    headers: { Cookie: `token=${token}` },
+  });
+  if (clientsRes.ok) {
+    const clients = await clientsRes.json();
+    if (clients[0]?.id) {
+      const creditsRes = await fetch(`http://api:8000/api/stripe/credits/${clients[0].id}`, {
+        headers: { Cookie: `token=${token}` },
+      });
+      if (creditsRes.ok) {
+        const credits = await creditsRes.json();
+        scanCredits = credits.scan || 0;
+        contentCredits = credits.content || 0;
+      }
+    }
+  }
+} catch {}
+
+const nav = [
+  { id: 'dashboard', label: 'Dashboard', href: '/app/dashboard', icon: 'home' },
+  { id: 'scans', label: 'My Scans', href: '/app/scans', icon: 'search' },
+  { id: 'content', label: 'Content', href: '/app/content', icon: 'document' },
+  { id: 'reports', label: 'Reports', href: '/app/reports', icon: 'chart' },
+];
+
+const icons = {
+  home: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>',
+  search: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>',
+  plus: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 4v16m8-8H4"/>',
+  tag: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 7h.01M7 3h5a1.99 1.99 0 011.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.99 1.99 0 013 12V7a4 4 0 014-4z"/>',
+  document: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>',
+  chart: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>',
+  settings: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>',
+  logout: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>',
+};
+---
+
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="robots" content="noindex" />
+  <link rel="icon" href="/favicon.ico" sizes="48x48" />
+  <title>{title} — sen-ai.fr</title>
+  <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js" defer></script>
+  <style is:global>
+    [x-cloak] { display: none !important; }
+    .kpi-tooltip { position: relative; display: inline; }
+    .kpi-tooltip .kpi-tip {
+      visibility: hidden; opacity: 0;
+      text-transform: none; letter-spacing: normal; font-weight: normal;
+      position: absolute; z-index: 50; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%);
+      background: #1E293B; color: white; padding: 10px 14px; border-radius: 8px;
+      font-size: 12px; line-height: 1.5; width: 280px; text-align: left;
+      transition: opacity 0.15s; pointer-events: none;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    }
+    .kpi-tooltip:hover .kpi-tip { visibility: visible; opacity: 1; pointer-events: auto; }
+  </style>
+</head>
+<body class="bg-gray-50 text-charcoal font-sans antialiased min-h-screen">
+  <div class="flex min-h-screen">
+
+    <!-- Sidebar -->
+    <aside class="w-60 bg-charcoal-dark flex flex-col shrink-0 fixed h-screen z-10">
+
+      <!-- Logo -->
+      <div class="px-5 py-5 border-b border-white/10">
+        <a href="/app/dashboard">
+          <img src="/logo-sen-ai-fr.png" alt="sen-ai.fr" class="h-7 brightness-0 invert opacity-90" />
+        </a>
+      </div>
+
+      <!-- Navigation -->
+      <nav class="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
+        {nav.map(item => {
+          const isActive = activeSection === item.id;
+          return (
+            <a
+              href={item.href}
+              class:list={[
+                'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all duration-150',
+                isActive
+                  ? 'bg-coral/20 text-coral font-medium'
+                  : 'text-gray-400 hover:bg-white/5 hover:text-white',
+              ]}
+            >
+              <svg class="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <Fragment set:html={icons[item.icon]} />
+              </svg>
+              <span>{item.label}</span>
+              {item.badge && (
+                <span class="ml-auto bg-coral text-white text-[10px] font-bold rounded-full w-5 h-5 flex items-center justify-center">
+                  {item.badge}
+                </span>
+              )}
+            </a>
+          );
+        })}
+      </nav>
+
+      <!-- Credits (Serial Position: important info at bottom) -->
+      <div class="px-4 py-3 border-t border-white/10">
+        <div class="flex items-center justify-between text-xs text-gray-400 mb-2">
+          <span>My credits</span>
+          <a href="/app/settings" class="text-coral hover:underline">Buy</a>
+        </div>
+        <div class="flex gap-3 text-xs">
+          <div class="flex items-center gap-1.5">
+            <span class="w-2 h-2 rounded-full bg-blue-400"></span>
+            <span class="text-gray-300">{scanCredits} scans</span>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+            <span class="text-gray-300">{contentCredits} content</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- User + Settings (Serial Position: bottom) -->
+      <div class="px-3 py-3 border-t border-white/10 space-y-1">
+        <a href="/app/settings" class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-gray-400 hover:bg-white/5 hover:text-white transition-all">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <Fragment set:html={icons.settings} />
+          </svg>
+          <span>Settings</span>
+        </a>
+        <div class="flex items-center gap-3 px-3 py-2">
+          <div class="w-7 h-7 rounded-full bg-coral flex items-center justify-center text-white text-xs font-bold">
+            {user.initial}
+          </div>
+          <span class="text-xs text-gray-300 truncate flex-1">{user.email}</span>
+          <button id="logout-btn" class="text-gray-500 hover:text-white transition-colors" title="Déconnexion">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <Fragment set:html={icons.logout} />
+            </svg>
+          </button>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main content (offset by sidebar width) -->
+    <main class="flex-1 ml-60">
+      <slot />
+    </main>
+  </div>
+
+  <script type="module">
+    document.getElementById('logout-btn')?.addEventListener('click', async () => {
+      // Server-side cookie clear — required because the token cookie is HttpOnly
+      // (set by /login, /register, /google/callback) and cannot be deleted from JS.
+      try {
+        await fetch('/api/auth/logout', { method: 'POST' });
+      } catch (e) {}
+      window.location.href = '/login';
+    });
+  </script>
+</body>
+</html>

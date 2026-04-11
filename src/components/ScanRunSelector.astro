@@ -1,0 +1,93 @@
+---
+/**
+ * Date-based run selector for scan results.
+ *
+ * Recognition over Recall: shows dates, not "Run 2/Run 3".
+ * Hick's Law: 1 run = no dropdown. 2-3 runs = pills. 4+ = dropdown.
+ */
+interface Props {
+  runs: Array<{
+    id: string;
+    run_index: number;
+    completed_at: string | null;
+  }>;
+  currentScanId: string;
+  currentTab: string;
+}
+
+const { runs, currentScanId, currentTab } = Astro.props;
+
+function formatDate(iso: string | null): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+}
+
+function formatDateFull(iso: string | null): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+const usePills = runs.length <= 3;
+const useDropdown = runs.length > 3;
+const currentRun = runs.find(r => r.id === currentScanId);
+---
+
+{runs.length <= 1 && currentRun?.completed_at && (
+  <span class="text-[11px] text-charcoal-light">{formatDateFull(currentRun.completed_at)}</span>
+)}
+
+{usePills && runs.length > 1 && (
+  <div class="flex items-center gap-0.5 bg-gray-100 rounded-lg p-0.5">
+    {runs.map(r => (
+      <a
+        href={`/app/scans/${r.id}/${currentTab}`}
+        class:list={[
+          'px-2.5 py-1 rounded-md text-[11px] font-medium transition-all',
+          r.id === currentScanId
+            ? 'bg-white shadow-sm text-charcoal-dark'
+            : 'text-charcoal-light hover:text-charcoal-dark',
+        ]}
+        title={formatDateFull(r.completed_at)}
+      >
+        {formatDate(r.completed_at)}
+      </a>
+    ))}
+  </div>
+)}
+
+{useDropdown && (
+  <div class="relative" x-data="{ open: false }">
+    <button
+      @click="open = !open"
+      @click.outside="open = false"
+      class="flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 rounded-lg text-[11px] font-medium text-charcoal-dark hover:bg-gray-200 transition-colors"
+    >
+      {formatDateFull(currentRun?.completed_at || null)}
+      <svg class="w-3.5 h-3.5 text-charcoal-light" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+      </svg>
+    </button>
+    <div
+      x-show="open"
+      x-transition
+      class="absolute right-0 mt-1 bg-white rounded-lg shadow-lg border border-gray-100 py-1 min-w-[160px] z-30"
+    >
+      {[...runs].reverse().map(r => (
+        <a
+          href={`/app/scans/${r.id}/${currentTab}`}
+          class:list={[
+            'block px-3 py-2 text-xs transition-colors',
+            r.id === currentScanId
+              ? 'bg-coral/5 text-coral font-medium'
+              : 'text-charcoal-dark hover:bg-gray-50',
+          ]}
+        >
+          {formatDateFull(r.completed_at)}
+          {r.id === currentScanId && <span class="text-[10px] text-charcoal-light ml-1">(current)</span>}
+        </a>
+      ))}
+    </div>
+  </div>
+)}

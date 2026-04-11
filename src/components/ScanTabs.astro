@@ -1,0 +1,70 @@
+---
+/**
+ * Horizontal tab bar for scan result sub-pages.
+ *
+ * Laws of UX:
+ * - Hick's: exactly 5 tabs, no more
+ * - Serial Position: Overview first (most visited), Actions last (CTA)
+ * - Von Restorff: active tab = coral underline, Actions red badge
+ * - Fitts's: large touch targets (py-3)
+ * - Zeigarnik: badge count on Actions creates urgency
+ */
+interface Props {
+  scanId: string;
+  activeTab: 'overview' | 'topics' | 'personas' | 'questions' | 'citations' | 'actions';
+  counts?: {
+    topics?: number;
+    personas?: number;
+    questions?: number;
+    citations?: number;
+    actions?: number;
+  };
+  criticalCount?: number;
+  queryString?: string;
+}
+
+const { scanId, activeTab, counts = {}, criticalCount = 0, queryString = '' } = Astro.props;
+
+const tabs = [
+  { id: 'overview', label: 'Overview', href: 'results', badge: null },
+  { id: 'topics', label: 'Topics', href: 'topics', badge: counts.topics || null },
+  { id: 'personas', label: 'Personas', href: 'personas', badge: counts.personas || null },
+  { id: 'questions', label: 'Questions', href: 'questions', badge: counts.questions || null },
+  { id: 'citations', label: 'Citations', href: 'citations', badge: counts.citations || null },
+  { id: 'actions', label: 'Actions', href: 'actions', badge: criticalCount > 0 ? criticalCount : (counts.actions || null) },
+];
+---
+
+<div class="px-8 border-b border-gray-200 bg-white sticky top-[68px] z-10">
+  <nav class="flex gap-0 max-w-5xl -mb-px" aria-label="Results navigation">
+    {tabs.map(tab => {
+      const isActive = activeTab === tab.id;
+      const isActions = tab.id === 'actions';
+      return (
+        <a
+          href={`/app/scans/${scanId}/${tab.href}${queryString ? '?' + queryString : ''}`}
+          class:list={[
+            'px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap',
+            isActive
+              ? 'border-coral text-coral'
+              : 'border-transparent text-charcoal-light hover:text-charcoal-dark hover:border-gray-300',
+          ]}
+        >
+          {tab.label}
+          {tab.badge && (
+            <span
+              class:list={[
+                'ml-1.5 text-[10px] font-bold px-1.5 py-0.5 rounded-full',
+                isActions && criticalCount > 0
+                  ? 'bg-red-100 text-red-600'
+                  : 'bg-gray-100 text-charcoal-light',
+              ]}
+            >
+              {tab.badge}
+            </span>
+          )}
+        </a>
+      );
+    })}
+  </nav>
+</div>

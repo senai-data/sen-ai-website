@@ -1,0 +1,156 @@
+---
+/**
+ * Content Pipeline — Kanban board for FAQ and netlinking articles.
+ *
+ * UX Laws:
+ * - Zeigarnik Effect: incomplete tasks stay visible
+ * - Goal-Gradient: progress through columns (draft → published)
+ * - Law of Common Region: columns as visual groups
+ * - Von Restorff: CRITICAL badge stands out
+ */
+export const prerender = false;
+import DashboardLayout from '../../layouts/DashboardLayout.astro';
+import Tip from '../../components/Tip.astro';
+
+const token = Astro.cookies.get('token')?.value;
+if (!token) return Astro.redirect('/login');
+
+// Fetch content items from all completed scans
+let contentItems = [];
+let scans = [];
+try {
+  const clientsRes = await fetch('http://api:8000/api/clients/', {
+    headers: { Cookie: `token=${token}` },
+  });
+  const clients = clientsRes.ok ? await clientsRes.json() : [];
+  const clientId = clients[0]?.id;
+
+  if (clientId) {
+    const scansRes = await fetch(`http://api:8000/api/scans?client_id=${clientId}`, {
+      headers: { Cookie: `token=${token}` },
+    });
+    scans = scansRes.ok ? await scansRes.json() : [];
+
+    // Fetch opportunities from completed scans as content items
+    for (const scan of scans.filter(s => s.status === 'completed')) {
+      try {
+        const oppRes = await fetch(`http://api:8000/api/scans/${scan.id}/results`, {
+          headers: { Cookie: `token=${token}` },
+        });
+        if (oppRes.ok) {
+          const data = await oppRes.json();
+          // Map opportunities to content items
+          // For now, show scan summaries as content sources
+        }
+      } catch {}
+    }
+  }
+} catch {}
+
+// For now, show opportunities from scan summaries
+const completedScans = scans.filter(s => s.status === 'completed');
+const totalOpportunities = completedScans.reduce((sum, s) => sum + (s.summary?.opportunities?.critique || 0), 0);
+---
+
+<DashboardLayout title="Content" activeSection="content">
+  <div class="p-8 max-w-6xl">
+
+    <div class="flex items-center justify-between mb-8">
+      <div>
+        <h1 class="text-2xl font-bold text-charcoal-dark">Content Pipeline</h1>
+        <p class="text-charcoal-light mt-1">Track your FAQ and netlinking articles from creation to publication</p>
+      </div>
+    </div>
+
+    {totalOpportunities > 0 ? (
+      <!-- Kanban columns -->
+      <div class="grid grid-cols-4 gap-4">
+
+        <!-- TO CREATE -->
+        <div class="bg-white rounded-xl border border-gray-200 min-h-64">
+          <div class="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+            <h3 class="text-sm font-semibold text-charcoal-dark flex items-center gap-2">
+              To create
+              <span class="bg-red-100 text-red-600 text-[10px] font-bold rounded-full px-1.5 py-0.5">{totalOpportunities}</span>
+            </h3>
+          </div>
+          <div class="p-3 space-y-2">
+            {completedScans.map(scan => {
+              const critique = scan.summary?.opportunities?.critique || 0;
+              if (critique === 0) return null;
+              return (
+                <a href={`/app/scans/${scan.id}/results`} class="block p-3 bg-red-50 border border-red-100 rounded-lg hover:shadow-sm transition-all">
+                  <div class="flex items-center gap-2 mb-1">
+                    <span class="text-[10px] font-bold text-red-600 bg-red-100 px-1.5 py-0.5 rounded uppercase">Critical</span>
+                    <span class="text-[10px] text-charcoal-light">{scan.domain}</span>
+                  </div>
+                  <p class="text-xs text-charcoal-dark font-medium">{critique} opportunities to fix</p>
+                  <p class="text-[10px] text-charcoal-light mt-1">Brand absent, competitors cited</p>
+                </a>
+              );
+            })}
+          </div>
+        </div>
+
+        <!-- IN REVIEW -->
+        <div class="bg-white rounded-xl border border-gray-200 min-h-64">
+          <div class="px-4 py-3 border-b border-gray-100">
+            <h3 class="text-sm font-semibold text-charcoal-dark flex items-center gap-2">
+              In review
+              <span class="bg-amber-100 text-amber-600 text-[10px] font-bold rounded-full px-1.5 py-0.5">0</span>
+            </h3>
+          </div>
+          <div class="p-3">
+            <p class="text-xs text-gray-400 text-center py-8">Content being reviewed in Google Docs will appear here</p>
+          </div>
+        </div>
+
+        <!-- APPROVED -->
+        <div class="bg-white rounded-xl border border-gray-200 min-h-64">
+          <div class="px-4 py-3 border-b border-gray-100">
+            <h3 class="text-sm font-semibold text-charcoal-dark flex items-center gap-2">
+              Approved
+              <span class="bg-blue-100 text-blue-600 text-[10px] font-bold rounded-full px-1.5 py-0.5">0</span>
+            </h3>
+          </div>
+          <div class="p-3">
+            <p class="text-xs text-gray-400 text-center py-8">Approved content ready to publish</p>
+          </div>
+        </div>
+
+        <!-- PUBLISHED -->
+        <div class="bg-white rounded-xl border border-gray-200 min-h-64">
+          <div class="px-4 py-3 border-b border-gray-100">
+            <h3 class="text-sm font-semibold text-charcoal-dark flex items-center gap-2">
+              Published
+              <span class="bg-emerald-100 text-emerald-600 text-[10px] font-bold rounded-full px-1.5 py-0.5">0</span>
+            </h3>
+          </div>
+          <div class="p-3">
+            <p class="text-xs text-gray-400 text-center py-8">Published content with tracking</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Summary bar -->
+      <div class="mt-6 bg-gray-50 rounded-lg px-6 py-3 flex items-center gap-6 text-sm text-charcoal-light">
+        <span><strong class="text-red-500">{totalOpportunities}</strong> to create</span>
+        <span><strong class="text-amber-500">0</strong> in review</span>
+        <span><strong class="text-blue-500">0</strong> approved</span>
+        <span><strong class="text-emerald-500">0</strong> published</span>
+      </div>
+    ) : (
+      <!-- Empty state -->
+      <div class="bg-white rounded-xl border border-gray-200 p-12 text-center">
+        <svg class="w-16 h-16 mx-auto text-gray-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+        </svg>
+        <p class="text-charcoal-light mb-2">No content to manage yet</p>
+        <p class="text-sm text-charcoal-light mb-6">Run a scan to discover opportunities, then generate FAQ and articles.</p>
+        <a href="/app/scans/new" class="inline-flex items-center gap-2 px-5 py-2.5 bg-coral text-white rounded-lg font-medium hover:bg-coral-dark hover:shadow-md hover:scale-[1.02]">
+          Run a scan
+        </a>
+      </div>
+    )}
+  </div>
+</DashboardLayout>

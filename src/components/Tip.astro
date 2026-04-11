@@ -1,0 +1,84 @@
+---
+/**
+ * Centralized tooltip — single source of truth for ALL tooltip text in the app.
+ *
+ * Usage (slot-based — preferred):
+ *   <Tip id="status">Status</Tip>              → hover on "Status" shows the tooltip
+ *   <Tip id="status" position="bottom">Status</Tip>
+ *   <Tip text="Custom inline text">Label</Tip>
+ *
+ * No icon is rendered. The tooltip appears when the user hovers the slot content
+ * (e.g. the column header text). Wrap any label text inside <Tip>…</Tip> to
+ * make it hoverable.
+ *
+ * The TIPS dictionary below is the canonical vocabulary reference — add new
+ * entries here rather than writing inline `text="..."` in call sites, so the
+ * wording stays consistent across pages (see feedback_tooltips.md).
+ */
+interface Props {
+  id?: string;
+  text?: string;
+  position?: 'top' | 'bottom';
+}
+
+const { id, text, position = 'top' } = Astro.props;
+
+const TIPS: Record<string, string> = {
+  // KPIs (dashboard)
+  visibility: 'How often AIs mention your brand in answers.<br/><em>Ex: 16% = 1 in 6 answers cite you.</em>',
+  scans: 'Scans you\'ve run. Each tests your brand with real user questions.',
+  opportunities: 'Questions where AIs cite competitors but not you. Fix first.<br/><em>Ex: "acne advice" → AI recommends LRP, not you.</em>',
+  brands: 'Brands found in your keywords and AI replies. Classify them to tune the scan.',
+
+  // Scan table columns
+  scan_name: 'Your tracker name + domain. Each scan tracks one brand over time.',
+  scan_type: 'Own = your site. Competitive = a competitor.<br/><em>Both measure YOUR brand visibility.</em>',
+  focus_brand: 'The brand this scan tracks. Its product lines are counted as mentions too.<br/><em>Ex: focus=Ducray → Anaphase, Kelual DS, Keracnyl also count.</em>',
+  status: 'Where the scan is in the pipeline.<br/><em>"Completed" = results ready to view.</em>',
+  citation_rate: '% of AI answers that mention your brand.<br/><em>Higher = more visible in AI responses.</em>',
+
+  // Scan config (wizard)
+  analysis_depth: 'How many personas per topic. Each persona tests 15 questions (5 types x 3 each).<br/><em>Light = quick trial. Balanced = default. Deep = full coverage.</em>',
+  country: 'Language used for AI personas, questions, and content.<br/><em>Keyword data always comes from google.fr. Use the domain path for other countries.</em>',
+  ranking_filter: 'Only keep keywords ranking in the top N on Google.<br/><em>Top 50 = recommended (widest coverage, more topics).</em>',
+  max_keywords: 'Max keywords to fetch. 2000 covers most sites.<br/><em>Higher = longer wait, rarely more topics.</em>',
+  domain_input: 'Your website domain. Include the path for country subfolders.<br/><em>Ex: eau-thermale-avene.fr · ducray.com/fr-fr · fr.svr.com</em>',
+
+  // Score
+  score_grade: 'AI visibility grade based on citation rate.<br/><em>A ≥50% · B ≥30% · C ≥15% · D &lt;15%</em>',
+
+  // Data source
+  data_source: 'All keyword, traffic and position data comes from Google France (google.fr) via HaloScan.<br/><em>If pages from other country folders (e.g. /ca-fr/) appear, it means Google France ranks them — a sign of hreflang or content cannibalization.</em>',
+
+  // Topic detail
+  topics: 'Thematic groups found on the site from pages and keywords.<br/><em>Source: Google France via HaloScan.</em>',
+  keywords: 'What people search on Google France to land on pages in this topic.',
+  search_volume: 'Monthly Google searches for this keyword.<br/><em>Source: Google Ads API via HaloScan (google.fr).</em>',
+  traffic: 'Estimated monthly Google France visits.<br/><em>Source: HaloScan, based on position × volume.</em>',
+  position: 'Average Google France rank across keywords. 1 = first result.<br/><em>Lower is better.</em>',
+  pages: 'Your pages grouped in this topic.<br/><em>Click a page to see its keywords.</em>',
+  page_keywords: 'Number of keywords this page ranks for on Google.',
+  avg_position: 'Average Google rank for this page.<br/><em>Lower is better.</em>',
+
+  // Brands (Gate 2)
+  col_my_brands: 'Brands you want to track in AI answers.<br/><em>Ex: Avène + its product lines.</em>',
+  col_competitors: 'Rival brands. We track how often AIs cite them instead of you.<br/><em>Ex: La Roche-Posay, Bioderma.</em>',
+  col_ignored: 'Brands irrelevant to this scan. Skipped from analysis.',
+
+  // Results
+  competitor: 'Sites AIs cite instead of yours.<br/><em>These are the targets to outrank in AI visibility.</em>',
+  personas: 'Fictional user profiles asking questions about each topic.<br/><em>Ex: "Sophie, mom of a child with eczema".</em>',
+};
+
+const tipText = text || TIPS[id || ''] || '';
+const posStyle = position === 'bottom' ? 'bottom:auto;top:100%;margin-top:8px;' : '';
+---
+
+{tipText ? (
+  <span class="kpi-tooltip" style="display:inline;">
+    <slot />
+    <span class="kpi-tip" style={posStyle} set:html={tipText}></span>
+  </span>
+) : (
+  <slot />
+)}

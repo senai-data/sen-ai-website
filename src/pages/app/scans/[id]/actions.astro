@@ -1,0 +1,377 @@
+---
+/**
+ * Actions — Opportunity center with content generation CTAs.
+ *
+ * "What should I do?" — Full opportunity list sorted by priority.
+ * Peak-End Rule: end with clear action.
+ * Zeigarnik: incomplete tasks motivate action.
+ * Fitts's Law: large CTA buttons.
+ */
+export const prerender = false;
+import ScanResultsLayout from '../../../../layouts/ScanResultsLayout.astro';
+
+const token = Astro.cookies.get('token')?.value;
+if (!token) return Astro.redirect('/login');
+const { id: scanId } = Astro.params;
+
+const rangeParam = Astro.url.searchParams.get('range') || 'all';
+const runParam = Astro.url.searchParams.get('run') || '';
+const effectiveScanId = (rangeParam === 'latest' && runParam) ? runParam : scanId;
+const providerParam = Astro.url.searchParams.get('provider') || 'all';
+
+const headers = { Cookie: `token=${token}` };
+let opportunitiesData: any = null;
+let resultsData: any = null;
+try {
+  const [resO, resR] = await Promise.all([
+    fetch(`http://api:8000/api/scans/${effectiveScanId}/opportunities${providerParam !== 'all' ? '?provider=' + providerParam : ''}`, { headers }),
+    fetch(`http://api:8000/api/scans/${effectiveScanId}/results${providerParam !== 'all' ? '?provider=' + providerParam : ''}`, { headers }),
+  ]);
+  if (resO.ok) opportunitiesData = await resO.json();
+  if (resR.ok) resultsData = await resR.json();
+} catch (_) {}
+
+const oppsSummary = opportunitiesData?.summary || {};
+const oppsItems = opportunitiesData?.opportunities || [];
+const details = resultsData?.details || [];
+const domain = resultsData?.overview?.domain || '';
+
+// Build question→detail lookup for LLM responses
+const detailByQuestion: Record<string, any> = {};
+details.forEach((d: any) => {
+  if (d.question) detailByQuestion[d.question.trim().toLowerCase()] = d;
+});
+
+// Server-side brand highlighting
+function highlightResponse(text: string, brandMentions: any[]): string {
+  if (!text || !brandMentions?.length) return text || '';
+  let html = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const seen: Record<string, boolean> = {};
+  const sorted = [...brandMentions].sort((a, b) => (b.brand_name || '').length - (a.brand_name || '').length);
+  for (const bm of sorted) {
+    const name = bm.brand_name;
+    if (!name || seen[name.toLowerCase()]) continue;
+    seen[name.toLowerCase()] = true;
+    const style = bm.est_marque_cible
+      ? 'background:#d1fae5;color:#065f46;padding:1px 3px;border-radius:3px;font-weight:500'
+      : 'background:#ffedd5;color:#9a3412;padding:1px 3px;border-radius:3px;font-weight:500';
+    const rx = new RegExp(`(${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+    html = html.replace(rx, `<mark style="${style}">$1</mark>`);
+  }
+  return html;
+}
+const criticalCount = oppsSummary.critique || 0;
+const highCount = oppsSummary.haute || 0;
+const mediumCount = oppsSummary.moyenne || 0;
+
+// Extract unique values for filters
+const topicSet = new Set<string>();
+const actionSet = new Set<string>();
+oppsItems.forEach((op: any) => {
+  if (op.topic_name) topicSet.add(op.topic_name);
+  if (op.recommended_action) actionSet.add(op.recommended_action);
+});
+
+// Chart data: priority donut
+const priorityCounts = [criticalCount, highCount, mediumCount];
+const totalOpps = oppsItems.length;
+
+// Chart data: opportunities by topic (stacked by priority)
+const topicOppMap: Record<string, { critique: number; haute: number; moyenne: number }> = {};
+oppsItems.forEach((op: any) => {
+  const t = op.topic_name || 'Other';
+  if (!topicOppMap[t]) topicOppMap[t] = { critique: 0, haute: 0, moyenne: 0 };
+  if (op.priority === 'critique') topicOppMap[t].critique++;
+  else if (op.priority === 'haute') topicOppMap[t].haute++;
+  else topicOppMap[t].moyenne++;
+});
+const topicOppEntries = Object.entries(topicOppMap).sort((a, b) => {
+  const totalA = a[1].critique + a[1].haute + a[1].moyenne;
+  const totalB = b[1].critique + b[1].haute + b[1].moyenne;
+  return totalB - totalA;
+});
+const oppTopicLabels = topicOppEntries.map(e => e[0]);
+const oppTopicCritique = topicOppEntries.map(e => e[1].critique);
+const oppTopicHaute = topicOppEntries.map(e => e[1].haute);
+const oppTopicMoyenne = topicOppEntries.map(e => e[1].moyenne);
+---
+
+<ScanResultsLayout scanId={scanId} activeTab="actions">
+  <div x-data={`{
+    filterPriority: 'all',
+    filterTopic: 'all',
+    filterAction: 'all',
+    expandedOpp: null
+  }`}>
+
+    <p class="text-sm text-charcoal-light mb-6">Each opportunity is a question where your brand is weak or absent. Fix them with targeted content.</p>
+
+    {/* Charts row */}
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-8">
+      {/* Priority Donut — "How urgent?" */}
+      <div class="bg-white rounded-xl shadow-sm p-6">
+        <h3 class="text-sm font-semibold text-charcoal-dark mb-1">Priority Breakdown</h3>
+        <p class="text-[11px] text-charcoal-light mb-4">How urgent are your opportunities?</p>
+        <div class="relative flex items-center justify-center" style="height: 180px;">
+          <canvas id="priorityDonut"></canvas>
+        </div>
+      </div>
+
+      {/* Opportunities by Topic — "Which topics?" */}
+      {oppTopicLabels.length > 0 && (
+        <div class="bg-white rounded-xl shadow-sm p-6">
+          <h3 class="text-sm font-semibold text-charcoal-dark mb-1">Opportunities by Topic</h3>
+          <p class="text-[11px] text-charcoal-light mb-4">Which topics have the most gaps?</p>
+          <div class="relative" style={`height: ${Math.max(oppTopicLabels.length * 40, 120)}px;`}>
+            <canvas id="topicOppBars"></canvas>
+          </div>
+        </div>
+      )}
+    </div>
+
+    {/* Filters */}
+    <div class="flex flex-wrap items-center gap-3 mb-5 bg-white rounded-xl shadow-sm p-4">
+      <select x-model="filterPriority" class="text-sm border border-gray-200 rounded-lg px-3 py-2 outline-none focus:border-coral">
+        <option value="all">All priorities</option>
+        <option value="critique">Critical</option>
+        <option value="haute">High</option>
+        <option value="moyenne">Medium</option>
+      </select>
+      <select x-model="filterTopic" class="text-sm border border-gray-200 rounded-lg px-3 py-2 outline-none focus:border-coral">
+        <option value="all">All topics</option>
+        {[...topicSet].sort().map(t => <option value={t}>{t}</option>)}
+      </select>
+      <select x-model="filterAction" class="text-sm border border-gray-200 rounded-lg px-3 py-2 outline-none focus:border-coral">
+        <option value="all">All actions</option>
+        {[...actionSet].sort().map(a => (
+          <option value={a}>{a === 'faq' ? 'Create FAQ' : a === 'netlinking' ? 'Netlinking' : 'Content update'}</option>
+        ))}
+      </select>
+    </div>
+
+    {/* Opportunities list — each expandable to show AI response (Progressive Disclosure) */}
+    <div class="space-y-2">
+      {oppsItems.map((opp: any, oi: number) => {
+        const isCrit = opp.priority === 'critique';
+        const isHigh = opp.priority === 'haute';
+        const borderClass = isCrit ? 'border-l-red-500' : isHigh ? 'border-l-orange-400' : 'border-l-yellow-400';
+        const badgeClass = isCrit ? 'bg-red-50 text-red-600' : isHigh ? 'bg-orange-50 text-orange-600' : 'bg-yellow-50 text-yellow-700';
+        const detail = opp.question ? detailByQuestion[opp.question.trim().toLowerCase()] : null;
+        return (
+          <div
+            class={`bg-white rounded-xl shadow-sm border-l-4 ${borderClass} hover:shadow-md transition-shadow overflow-hidden`}
+            x-show={`(filterPriority === 'all' || '${opp.priority}' === filterPriority) && (filterTopic === 'all' || '${opp.topic_name || ''}' === filterTopic) && (filterAction === 'all' || '${opp.recommended_action || ''}' === filterAction)`}
+          >
+            {/* Clickable header */}
+            <div class="px-6 py-4 cursor-pointer" @click={`expandedOpp = expandedOpp === ${oi} ? null : ${oi}`}>
+              <div class="flex items-start gap-3">
+                <span class={`text-[10px] px-2 py-0.5 rounded font-bold shrink-0 mt-0.5 ${badgeClass}`}>{opp.priority}</span>
+                <div class="flex-1 min-w-0">
+                  <p class="text-sm text-charcoal-dark">{opp.question || 'Question not available'}</p>
+                  <div class="flex items-center gap-3 mt-1.5">
+                    {opp.persona_name && <span class="text-[10px] text-charcoal-light">{opp.persona_name}</span>}
+                    {opp.topic_name && <span class="text-[10px] text-charcoal-light">· {opp.topic_name}</span>}
+                    {opp.question_type && <span class={`text-[10px] px-1.5 py-0.5 rounded ${
+                      opp.question_type === 'basique' ? 'bg-blue-50 text-blue-600' :
+                      opp.question_type === 'technique' ? 'bg-purple-50 text-purple-600' :
+                      opp.question_type === 'urgente' ? 'bg-red-50 text-red-600' :
+                      opp.question_type === 'comparative' ? 'bg-amber-50 text-amber-600' :
+                      'bg-emerald-50 text-emerald-600'
+                    }`}>{opp.question_type}</span>}
+                  </div>
+                  <div class="flex items-center gap-4 mt-2">
+                    {!opp.brand_cited && <span class="text-[10px] text-red-600 font-medium">Brand absent</span>}
+                    {opp.brand_cited && opp.brand_position && <span class="text-[10px] text-amber-600 font-medium">Position {opp.brand_position}</span>}
+                    {opp.best_competitor_name && (
+                      <span class="text-[10px] text-orange-600">{opp.best_competitor_name}{opp.best_competitor_position ? ` (pos. ${opp.best_competitor_position})` : ''}</span>
+                    )}
+                    {(() => {
+                    const d = opp.question ? detailByQuestion[opp.question.trim().toLowerCase()] : null;
+                    const compNames = d?.brand_mentions?.filter((bm: any) => !bm.est_marque_cible).map((bm: any) => bm.brand_name) || [];
+                    const unique = [...new Set(compNames)];
+                    return unique.length > 0
+                      ? <span class="text-[10px] text-orange-600">{unique.slice(0, 3).join(', ')}{unique.length > 3 ? ` +${unique.length - 3}` : ''} cited</span>
+                      : opp.nb_competitors_cited > 0
+                        ? <span class="text-[10px] text-charcoal-light">{opp.nb_competitors_cited} competitors cited</span>
+                        : null;
+                  })()}
+                  </div>
+                  {(opp.target_url || opp.media_domain || opp.score) && (
+                    <div class="flex items-center gap-3 mt-1.5">
+                      {opp.score && <span class="text-[10px] text-charcoal-light">Score: {opp.score}</span>}
+                      {opp.target_url && <a href={opp.target_url} target="_blank" rel="noopener" class="text-[10px] text-blue-600 hover:underline truncate max-w-[200px]">{opp.target_url.replace(/^https?:\/\//, '').split('/').slice(0, 2).join('/')}</a>}
+                      {opp.media_domain && <span class="text-[10px] px-1.5 py-0.5 rounded bg-purple-50 text-purple-600">Publish on: {opp.media_domain}</span>}
+                    </div>
+                  )}
+                </div>
+                <div class="flex items-center gap-2 shrink-0">
+                  {opp.recommended_action && (
+                    <span class="text-xs px-3 py-1.5 bg-coral/10 text-coral rounded-lg font-medium uppercase">
+                      {opp.recommended_action === 'faq' ? 'Create FAQ' : opp.recommended_action === 'netlinking' ? 'Netlinking' : 'Update'}
+                    </span>
+                  )}
+                  <svg class="w-4 h-4 text-gray-400 transition-transform" :class={`expandedOpp === ${oi} ? 'rotate-180' : ''`}
+                       fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                  </svg>
+                </div>
+              </div>
+            </div>
+
+            {/* Expanded: AI response with brand highlighting (Von Restorff) */}
+            {detail && (
+              <div x-show={`expandedOpp === ${oi}`} x-transition class="border-t border-gray-100">
+                {/* Brand mentions */}
+                {detail.brand_mentions?.length > 0 && (
+                  <div class="px-6 py-3 border-b border-gray-100">
+                    <p class="text-[10px] uppercase font-semibold text-charcoal-light mb-1.5">Brand Mentions</p>
+                    <div class="flex flex-wrap gap-1.5">
+                      {detail.brand_mentions.map((bm: any) => (
+                        <span class={`text-[10px] px-2 py-0.5 rounded-full inline-flex items-center gap-1 ${bm.est_marque_cible ? 'bg-emerald-50 text-emerald-700' : 'bg-orange-50 text-orange-700'}`}>
+                          <span class={bm.sentiment === 'positif' ? 'text-emerald-500' : bm.sentiment === 'negatif' ? 'text-red-500' : 'text-gray-400'}>&#9679;</span>
+                          {bm.brand_name}
+                          <span class="text-gray-400">({(bm.type_recommandation || 'mention').replace('_', ' ')})</span>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {/* AI response with highlighting */}
+                {detail.response_text && (
+                  <div class="px-6 py-3">
+                    <div class="flex items-center gap-2 mb-1.5">
+                      <span class="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 font-medium uppercase">{detail.provider}</span>
+                      {detail.duration_ms && <span class="text-[10px] text-charcoal-light">{(detail.duration_ms / 1000).toFixed(1)}s</span>}
+                    </div>
+                    <div class="text-xs text-charcoal-dark leading-relaxed max-h-48 overflow-y-auto whitespace-pre-line bg-gray-50 rounded-lg p-3"
+                         set:html={highlightResponse(detail.response_text, detail.brand_mentions)} />
+                  </div>
+                )}
+                {/* Citations */}
+                {detail.citations?.length > 0 && (
+                  <div class="px-6 py-3 border-t border-gray-100">
+                    <p class="text-[10px] font-medium text-charcoal-light uppercase mb-1">Sources Cited</p>
+                    {detail.citations.map((c: any, ci: number) => {
+                      const citDomain = c.domaine || c.domain || (c.url ? (() => { try { return new URL(c.url).hostname; } catch { return ''; } })() : '');
+                      const isYou = domain && citDomain?.includes(domain.replace('www.', ''));
+                      return (
+                        <div class={`text-[11px] py-0.5 flex items-center gap-1.5 ${isYou ? 'text-emerald-700 font-medium' : 'text-charcoal-dark'}`}>
+                          <span class="text-charcoal-light">{ci + 1}.</span>
+                          <span>{citDomain || c.url || '—'}</span>
+                          {isYou && <span class="text-[9px] bg-emerald-100 text-emerald-600 px-1 rounded font-bold">YOU</span>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+                {!detail.brand_mentioned && (
+                  <div class="px-6 py-2 border-t border-red-100 bg-red-50/50">
+                    <p class="text-[10px] text-red-600 font-medium">Your brand is not mentioned in this AI response</p>
+                  </div>
+                )}
+              </div>
+            )}
+            {!detail && (
+              <div x-show={`expandedOpp === ${oi}`} x-transition class="px-6 py-3 border-t border-gray-100 bg-gray-50">
+                <p class="text-xs text-charcoal-light">AI response not available for this question.</p>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+
+    {oppsItems.length === 0 && (
+      <div class="bg-white rounded-xl shadow-sm p-12 text-center text-charcoal-light">
+        No opportunities found. Your brand is well positioned!
+      </div>
+    )}
+
+    {/* Master CTA (Fitts: large, prominent) */}
+    {oppsItems.length > 0 && (
+      <div class="mt-8 bg-coral/5 rounded-xl p-6 flex items-center justify-between shadow-sm">
+        <div>
+          <p class="text-sm font-semibold text-charcoal-dark">{oppsItems.length} opportunities to improve your AI visibility</p>
+          <p class="text-xs text-charcoal-light">Generate FAQ and articles to make AIs recommend your brand</p>
+        </div>
+        <a href="/app/content" class="px-5 py-2.5 bg-coral text-white rounded-lg text-sm font-medium hover:bg-coral-dark hover:shadow-md hover:scale-[1.02] transition-all shrink-0">
+          Generate content
+        </a>
+      </div>
+    )}
+  </div>
+
+  <script is:inline define:vars={{ priorityCounts, totalOpps, oppTopicLabels, oppTopicCritique, oppTopicHaute, oppTopicMoyenne }}>
+    document.addEventListener('DOMContentLoaded', function() {
+      if (typeof Chart === 'undefined') return;
+
+      // Priority Donut
+      var donutEl = document.getElementById('priorityDonut');
+      if (donutEl && totalOpps > 0) {
+        new Chart(donutEl, {
+          type: 'doughnut',
+          data: {
+            labels: ['Critical', 'High', 'Medium'],
+            datasets: [{
+              data: priorityCounts,
+              backgroundColor: ['#ef4444', '#f97316', '#eab308'],
+              borderWidth: 0,
+              hoverOffset: 4,
+            }]
+          },
+          options: {
+            cutout: '65%',
+            plugins: {
+              legend: { display: true, position: 'bottom', labels: { usePointStyle: true, pointStyle: 'circle', padding: 16, font: { size: 11 } } },
+              tooltip: { callbacks: { label: function(ctx) { return ctx.label + ': ' + ctx.raw; } } }
+            }
+          },
+          plugins: [{
+            id: 'centerText',
+            afterDraw: function(chart) {
+              var ctx = chart.ctx;
+              var w = chart.width, h = chart.chartArea.top + (chart.chartArea.bottom - chart.chartArea.top) / 2;
+              ctx.save();
+              ctx.textAlign = 'center';
+              ctx.textBaseline = 'middle';
+              ctx.fillStyle = '#1f2937';
+              ctx.font = 'bold 24px system-ui';
+              ctx.fillText(totalOpps.toString(), w / 2, h);
+              ctx.fillStyle = '#9ca3af';
+              ctx.font = '10px system-ui';
+              ctx.fillText('total', w / 2, h + 18);
+              ctx.restore();
+            }
+          }]
+        });
+      }
+
+      // Opportunities by Topic (stacked horizontal bars)
+      var barsEl = document.getElementById('topicOppBars');
+      if (barsEl && oppTopicLabels.length > 0) {
+        new Chart(barsEl, {
+          type: 'bar',
+          data: {
+            labels: oppTopicLabels,
+            datasets: [
+              { label: 'Critical', data: oppTopicCritique, backgroundColor: '#ef4444', barThickness: 22 },
+              { label: 'High', data: oppTopicHaute, backgroundColor: '#f97316', barThickness: 22 },
+              { label: 'Medium', data: oppTopicMoyenne, backgroundColor: '#eab308', barThickness: 22 },
+            ]
+          },
+          options: {
+            indexAxis: 'y',
+            scales: {
+              x: { stacked: true, ticks: { stepSize: 5 } },
+              y: { stacked: true, ticks: { font: { size: 11 }, color: '#374151' } }
+            },
+            plugins: {
+              legend: { display: true, position: 'bottom', labels: { usePointStyle: true, pointStyle: 'circle', padding: 16, font: { size: 10 } } },
+              tooltip: { mode: 'index' }
+            }
+          }
+        });
+      }
+    });
+  </script>
+</ScanResultsLayout>

@@ -16,6 +16,20 @@ pnpm-debug.log*
 # environment variables
 .env
 .env.production
+api/.env
+worker/.env
+
+# python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.venv/
+venv/
+
+# data files
+data/duckdb/
 
 # macOS-specific files
 .DS_Store

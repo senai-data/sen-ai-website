@@ -1,0 +1,335 @@
+---
+/**
+ * Questions — Full question explorer with filters.
+ *
+ * "Show me the evidence" — Every question tested, with AI response,
+ * brand mentions, and citations. Client-side filtering via Alpine.js.
+ *
+ * Miller's Law: grouped columns, max 7 visible.
+ * Hick's Law: filter dropdowns reduce choices.
+ * Fitts's Law: large expandable rows.
+ */
+export const prerender = false;
+import ScanResultsLayout from '../../../../layouts/ScanResultsLayout.astro';
+
+const token = Astro.cookies.get('token')?.value;
+if (!token) return Astro.redirect('/login');
+const { id: scanId } = Astro.params;
+const rangeParam = Astro.url.searchParams.get('range') || 'all';
+const fromParam = Astro.url.searchParams.get('from') || '';
+const toParam = Astro.url.searchParams.get('to') || '';
+const runParam = Astro.url.searchParams.get('run') || '';
+const effectiveScanId = (rangeParam === 'latest' && runParam) ? runParam : scanId;
+const providerParam = Astro.url.searchParams.get('provider') || 'all';
+
+const useAggregated = rangeParam !== 'latest';
+let resultsUrl = `http://api:8000/api/scans/${effectiveScanId}/results`;
+if (useAggregated) {
+  const p = new URLSearchParams();
+  if (fromParam) p.set('from_date', fromParam);
+  if (toParam) p.set('to_date', toParam);
+  resultsUrl = `http://api:8000/api/scans/${effectiveScanId}/results/aggregated${p.toString() ? '?' + p : ''}`;
+}
+
+// Append provider filter to all API URLs
+const providerSuffix = providerParam !== 'all' ? `${resultsUrl.includes('?') ? '&' : '?'}provider=${providerParam}` : '';
+resultsUrl += providerSuffix;
+
+const headers = { Cookie: `token=${token}` };
+let data: any = null;
+try {
+  const res = await fetch(resultsUrl, { headers });
+  if (res.ok) data = await res.json();
+} catch (_) {}
+
+const isAggregated = data?.mode === 'aggregated';
+const o = data?.overview;
+const details = data?.details || [];
+const byPersona = data?.by_persona || [];
+
+// Extract unique values for filter dropdowns
+const topicSet = new Set<string>();
+const personaSet = new Set<string>();
+const typeSet = new Set<string>();
+const providerSet = new Set<string>();
+details.forEach((d: any) => {
+  if (d.topic_name) topicSet.add(d.topic_name);
+  else {
+    const topic = byPersona.find((p: any) => p.persona === d.persona)?.topic;
+    if (topic) topicSet.add(topic);
+  }
+  if (d.persona) personaSet.add(d.persona);
+  if (d.type) typeSet.add(d.type);
+  if (d.provider) providerSet.add(d.provider);
+});
+
+// Enrich details with topic_name if missing, normalize aggregated data
+const enriched = details.map((d: any) => {
+  const src = isAggregated ? { ...d.latest, question: d.question, persona: d.persona, topic_name: d.topic_name, type: d.type } : d;
+  return {
+    ...src,
+    topic_name: src.topic_name || byPersona.find((p: any) => p.persona === src.persona)?.topic || 'Other',
+    ...(isAggregated ? { ever_mentioned: d.ever_mentioned, mention_count: d.mention_count, total_runs: d.total_runs, runs: d.runs } : {}),
+  };
+});
+
+// Chart data: question type breakdown + mention rate by type
+const typeColors: Record<string, string> = {
+  basique: '#3b82f6', technique: '#a855f7', urgente: '#ef4444',
+  comparative: '#f59e0b', validation: '#10b981',
+};
+const typeStats: Record<string, { total: number; cited: number }> = {};
+enriched.forEach((d: any) => {
+  const t = d.type || 'other';
+  if (!typeStats[t]) typeStats[t] = { total: 0, cited: 0 };
+  typeStats[t].total++;
+  if (d.brand_mentioned) typeStats[t].cited++;
+});
+const typeLabels = Object.keys(typeStats);
+const typeCounts = typeLabels.map(t => typeStats[t].total);
+const typeDonutColors = typeLabels.map(t => typeColors[t] || '#6b7280');
+const typeRates = typeLabels.map(t => typeStats[t].total > 0 ? Math.round(typeStats[t].cited / typeStats[t].total * 100) : 0);
+const typeRateColors = typeRates.map(r => r >= 30 ? '#10b981' : r > 0 ? '#f59e0b' : '#ef4444');
+---
+
+<ScanResultsLayout scanId={scanId} activeTab="questions">
+  <div x-data={`{
+    details: ${JSON.stringify(enriched)},
+    expandedQ: null,
+    filterText: '',
+    filterTopic: 'all',
+    filterPersona: 'all',
+    filterType: 'all',
+    filterMentioned: 'all',
+    filterProvider: 'all',
+    get filtered() {
+      return this.details.filter(d =>
+        (this.filterText === '' || d.question.toLowerCase().includes(this.filterText.toLowerCase())) &&
+        (this.filterTopic === 'all' || d.topic_name === this.filterTopic) &&
+        (this.filterPersona === 'all' || d.persona === this.filterPersona) &&
+        (this.filterType === 'all' || d.type === this.filterType) &&
+        (this.filterMentioned === 'all' || (this.filterMentioned === 'yes' && d.brand_mentioned) || (this.filterMentioned === 'no' && !d.brand_mentioned)) &&
+        (this.filterProvider === 'all' || d.provider === this.filterProvider)
+      );
+    }
+  }`}>
+
+    <p class="text-sm text-charcoal-light mb-6">Every question tested against AI, with full response and brand analysis. Click to expand.</p>
+
+    {/* Charts row */}
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-8">
+      <div class="bg-white rounded-xl shadow-sm p-6">
+        <h3 class="text-sm font-semibold text-charcoal-dark mb-1">Question Type Breakdown</h3>
+        <p class="text-[11px] text-charcoal-light mb-4">What types of questions were tested?</p>
+        <div class="relative flex items-center justify-center" style="height: 180px;">
+          <canvas id="typeDonut"></canvas>
+        </div>
+      </div>
+      <div class="bg-white rounded-xl shadow-sm p-6">
+        <h3 class="text-sm font-semibold text-charcoal-dark mb-1">Mention Rate by Type</h3>
+        <p class="text-[11px] text-charcoal-light mb-4">Which question types get your brand mentioned most?</p>
+        <div class="relative" style="height: 180px;">
+          <canvas id="typeRateBars"></canvas>
+        </div>
+      </div>
+    </div>
+
+    {/* Filters (Fitts: large, accessible) */}
+    <div class="flex flex-wrap items-center gap-3 mb-5 bg-white rounded-xl shadow-sm p-4">
+      <input type="text" placeholder="Search questions..." x-model="filterText"
+             class="text-sm border border-gray-200 rounded-lg px-3 py-2 w-56 outline-none focus:border-coral transition-colors" />
+      <select x-model="filterTopic" class="text-sm border border-gray-200 rounded-lg px-3 py-2 outline-none focus:border-coral">
+        <option value="all">All topics</option>
+        {[...topicSet].sort().map(t => <option value={t}>{t}</option>)}
+      </select>
+      <select x-model="filterPersona" class="text-sm border border-gray-200 rounded-lg px-3 py-2 outline-none focus:border-coral">
+        <option value="all">All personas</option>
+        {[...personaSet].sort().map(p => <option value={p}>{p}</option>)}
+      </select>
+      <select x-model="filterType" class="text-sm border border-gray-200 rounded-lg px-3 py-2 outline-none focus:border-coral">
+        <option value="all">All types</option>
+        {[...typeSet].sort().map(t => <option value={t}>{t}</option>)}
+      </select>
+      <select x-model="filterMentioned" class="text-sm border border-gray-200 rounded-lg px-3 py-2 outline-none focus:border-coral">
+        <option value="all">All results</option>
+        <option value="yes">Mentioned</option>
+        <option value="no">Not mentioned</option>
+      </select>
+      <select x-model="filterProvider" class="text-sm border border-gray-200 rounded-lg px-3 py-2 outline-none focus:border-coral">
+        <option value="all">All providers</option>
+        {[...providerSet].sort().map(p => <option value={p}>{p}</option>)}
+      </select>
+      <span class="text-[11px] text-charcoal-light ml-auto" x-text="`${filtered.length} / ${details.length} questions`"></span>
+    </div>
+
+    {/* Question list */}
+    <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+      <div class="divide-y divide-gray-100">
+        <template x-for="(q, qi) in filtered" :key="qi">
+          <div>
+            {/* Question row */}
+            <div class="px-5 py-3 flex items-center gap-3 cursor-pointer hover:bg-gray-50 transition-colors"
+                 @click="expandedQ = expandedQ === qi ? null : qi">
+              <span :class="q.brand_mentioned ? 'text-emerald-500' : 'text-red-400'" class="shrink-0"
+                    x-text="q.brand_mentioned ? '\u2713' : '\u2717'"></span>
+              <template x-if="q.total_runs > 1">
+                <span class="shrink-0 text-xs font-bold"
+                      :class="(q.runs && q.runs.length >= 2 && !q.runs[0].brand_mentioned && q.runs[q.runs.length - 1].brand_mentioned) ? 'text-emerald-500' : (q.runs && q.runs.length >= 2 && q.runs[0].brand_mentioned && !q.runs[q.runs.length - 1].brand_mentioned) ? 'text-red-500' : 'text-gray-300'"
+                      x-text="(q.runs && q.runs.length >= 2 && !q.runs[0].brand_mentioned && q.runs[q.runs.length - 1].brand_mentioned) ? '\u2191' : (q.runs && q.runs.length >= 2 && q.runs[0].brand_mentioned && !q.runs[q.runs.length - 1].brand_mentioned) ? '\u2193' : ''"></span>
+              </template>
+              <div class="flex-1 min-w-0">
+                <p class="text-sm text-charcoal-dark truncate" x-text="q.question"></p>
+                <div class="flex items-center gap-2 mt-0.5 flex-wrap">
+                  <span class="text-[10px] text-charcoal-light">
+                    <span x-text="q.persona"></span> · <span x-text="q.topic_name"></span>
+                  </span>
+                  {/* Brand insight badges (Von Restorff: highlight what matters) */}
+                  <template x-if="q.brand_analysis && q.brand_analysis.sentiment_marque_cible">
+                    <span class="text-[9px] px-1.5 py-0.5 rounded-full"
+                          :class="q.brand_analysis.sentiment_marque_cible === 'positif' ? 'bg-emerald-50 text-emerald-600' : q.brand_analysis.sentiment_marque_cible === 'negatif' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-500'"
+                          x-text="q.brand_analysis.sentiment_marque_cible"></span>
+                  </template>
+                  <template x-if="q.brand_analysis && q.brand_analysis.position_marque_cible">
+                    <span class="text-[9px] px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-600"
+                          x-text="'pos. ' + q.brand_analysis.position_marque_cible"></span>
+                  </template>
+                  <template x-if="q.brand_analysis && q.brand_analysis.recommandation_marque_cible">
+                    <span class="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-medium">recommended</span>
+                  </template>
+                </div>
+              </div>
+              <span class="text-[10px] px-1.5 py-0.5 rounded shrink-0"
+                    :class="{
+                      'bg-blue-50 text-blue-600': q.type === 'basique',
+                      'bg-purple-50 text-purple-600': q.type === 'technique',
+                      'bg-red-50 text-red-600': q.type === 'urgente',
+                      'bg-amber-50 text-amber-600': q.type === 'comparative',
+                      'bg-emerald-50 text-emerald-600': !['basique','technique','urgente','comparative'].includes(q.type)
+                    }" x-text="q.type"></span>
+              <span class="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-charcoal-light shrink-0" x-text="q.provider"></span>
+              <svg class="w-4 h-4 text-gray-400 shrink-0 transition-transform" :class="expandedQ === qi ? 'rotate-180' : ''"
+                   fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+              </svg>
+            </div>
+
+            {/* Expanded: full response + brand mentions + citations */}
+            <div x-show="expandedQ === qi" x-transition class="border-t border-gray-100 bg-gray-50/50">
+              {/* Hidden intent */}
+              <template x-if="q.intention_cachee">
+                <div class="px-5 py-2 bg-blue-50/50 border-b border-blue-100">
+                  <p class="text-[10px] text-blue-700"><strong>Hidden intent:</strong> <span x-text="q.intention_cachee"></span></p>
+                </div>
+              </template>
+
+              {/* Brand mentions */}
+              <template x-if="q.brand_mentions && q.brand_mentions.length > 0">
+                <div class="px-5 py-3 border-b border-gray-100">
+                  <p class="text-[10px] uppercase font-semibold text-charcoal-light mb-2">Brand Mentions</p>
+                  <div class="flex flex-wrap gap-2">
+                    <template x-for="bm in q.brand_mentions" :key="bm.brand_name">
+                      <span class="text-[10px] px-2 py-1 rounded-full border inline-flex items-center gap-1"
+                            :class="{
+                              'bg-emerald-50 border-emerald-200 text-emerald-700': bm.classification === 'my_brand' || bm.est_marque_cible,
+                              'bg-orange-50 border-orange-200 text-orange-700': bm.classification === 'competitor',
+                              'bg-gray-50 border-gray-200 text-gray-400': bm.classification === 'ignored',
+                              'bg-blue-50 border-blue-200 text-blue-700': bm.classification === 'discovered' || (!bm.classification && !bm.est_marque_cible)
+                            }">
+                        <span :class="bm.sentiment === 'positif' ? 'text-emerald-500' : bm.sentiment === 'negatif' ? 'text-red-500' : 'text-gray-400'">&#9679;</span>
+                        <span x-text="bm.brand_name_groupby || bm.brand_name"></span>
+                        <span class="text-gray-400" x-text="'(' + (bm.type_recommandation || 'mention').replace('_',' ') + ')'"></span>
+                        <template x-if="bm.classification === 'discovered'"><span class="text-[8px] bg-blue-100 text-blue-600 px-1 rounded">new</span></template>
+                      </span>
+                    </template>
+                  </div>
+                </div>
+              </template>
+
+              {/* Response text */}
+              <div class="px-5 py-3">
+                <div class="flex items-center gap-2 mb-2">
+                  <span class="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 font-medium uppercase" x-text="q.provider"></span>
+                  <span class="text-[10px] text-charcoal-light" x-text="q.model"></span>
+                  <template x-if="q.duration_ms">
+                    <span class="text-[10px] text-charcoal-light" x-text="(q.duration_ms / 1000).toFixed(1) + 's'"></span>
+                  </template>
+                </div>
+                <div class="text-xs text-charcoal-dark leading-relaxed max-h-60 overflow-y-auto whitespace-pre-line bg-white rounded-lg border border-gray-200 p-3"
+                     x-html="window.highlightResponse(q.response_text, q.brand_mentions)"></div>
+              </div>
+
+              {/* Citations */}
+              <template x-if="q.citations && q.citations.length > 0">
+                <div class="px-5 py-3 border-t border-gray-100">
+                  <p class="text-[10px] uppercase font-semibold text-charcoal-light mb-1">Sources Cited</p>
+                  <template x-for="(c, ci) in q.citations" :key="ci">
+                    <div class="text-[11px] py-0.5 flex items-center gap-1.5">
+                      <span class="text-charcoal-light" x-text="(ci + 1) + '.'"></span>
+                      <span x-text="c.domaine || c.domain"></span>
+                      <template x-if="c.est_site_cible">
+                        <span class="text-[9px] bg-emerald-100 text-emerald-600 px-1 rounded font-bold">YOU</span>
+                      </template>
+                    </div>
+                  </template>
+                </div>
+              </template>
+            </div>
+          </div>
+        </template>
+      </div>
+
+      {/* Empty state */}
+      <template x-if="filtered.length === 0">
+        <div class="p-12 text-center text-charcoal-light">
+          <p>No questions match your filters.</p>
+        </div>
+      </template>
+    </div>
+  </div>
+
+  <script is:inline define:vars={{ typeLabels, typeCounts, typeDonutColors, typeRates, typeRateColors }}>
+    document.addEventListener('DOMContentLoaded', function() {
+      if (typeof Chart === 'undefined') return;
+
+      // Type Donut
+      var donutEl = document.getElementById('typeDonut');
+      if (donutEl) {
+        new Chart(donutEl, {
+          type: 'doughnut',
+          data: {
+            labels: typeLabels,
+            datasets: [{ data: typeCounts, backgroundColor: typeDonutColors, borderWidth: 0, hoverOffset: 4 }]
+          },
+          options: {
+            cutout: '60%',
+            plugins: {
+              legend: { display: true, position: 'bottom', labels: { usePointStyle: true, pointStyle: 'circle', padding: 12, font: { size: 10 } } },
+              tooltip: { callbacks: { label: function(ctx) { var total = typeCounts.reduce(function(a,b){return a+b},0); return ctx.label + ': ' + ctx.raw + ' (' + Math.round(ctx.raw/total*100) + '%)'; } } }
+            }
+          }
+        });
+      }
+
+      // Mention Rate by Type (vertical bars)
+      var barsEl = document.getElementById('typeRateBars');
+      if (barsEl) {
+        new Chart(barsEl, {
+          type: 'bar',
+          data: {
+            labels: typeLabels,
+            datasets: [{ data: typeRates, backgroundColor: typeRateColors, barThickness: 32 }]
+          },
+          options: {
+            scales: {
+              y: { max: 100, ticks: { callback: function(v) { return v + '%'; }, stepSize: 25 } },
+              x: { ticks: { font: { size: 10 } } }
+            },
+            plugins: {
+              tooltip: { callbacks: { label: function(ctx) { return ctx.raw + '% mention rate'; } } }
+            }
+          }
+        });
+      }
+    });
+  </script>
+</ScanResultsLayout>

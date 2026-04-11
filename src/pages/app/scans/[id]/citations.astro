@@ -1,0 +1,409 @@
+---
+/**
+ * Citations — Web sources analysis.
+ *
+ * "Who's being cited by AI?" — Domain-level analysis of which websites
+ * AI chatbots reference in their responses, your site's position,
+ * and competitor domain presence.
+ *
+ * storytellingwithdata: each chart answers ONE question.
+ * Von Restorff: YOUR domain = emerald highlight.
+ * Progressive Disclosure: click domain to see which questions cite it.
+ */
+export const prerender = false;
+import ScanResultsLayout from '../../../../layouts/ScanResultsLayout.astro';
+import Tip from '../../../../components/Tip.astro';
+
+const token = Astro.cookies.get('token')?.value;
+if (!token) return Astro.redirect('/login');
+const { id: scanId } = Astro.params;
+
+const rangeParam = Astro.url.searchParams.get('range') || 'all';
+const runParam = Astro.url.searchParams.get('run') || '';
+const effectiveScanId = (rangeParam === 'latest' && runParam) ? runParam : scanId;
+const providerParam = Astro.url.searchParams.get('provider') || 'all';
+
+const headers = { Cookie: `token=${token}` };
+let data: any = null;
+try {
+  const res = await fetch(`http://api:8000/api/scans/${effectiveScanId}/results${providerParam !== 'all' ? '?provider=' + providerParam : ''}`, { headers });
+  if (res.ok) data = await res.json();
+} catch (_) {}
+
+const o = data?.overview;
+const details = data?.details || [];
+const byPersona = data?.by_persona || [];
+const scanDomain = o?.domain?.replace('www.', '') || '';
+const isAggregated = data?.mode === 'aggregated';
+
+// Aggregate citation data per domain
+interface DomainStats {
+  domain: string;
+  count: number;
+  isYou: boolean;
+  isPR: boolean;
+  sourceTypes: { grounding: number; text: number };
+  questions: Array<{ question: string; persona: string; topic: string; position: number; brand_mentioned: boolean; contexte: string; sourceType: string }>;
+}
+
+const domainMap: Record<string, DomainStats> = {};
+let totalCitations = 0;
+let questionsWithCitations = 0;
+let questionsWithYourSite = 0;
+let groundingCount = 0;
+let textMentionCount = 0;
+let prSourceCount = 0;
+const avgPositionByDomain: Record<string, number[]> = {};
+
+details.forEach((d: any) => {
+  const citations = isAggregated ? (d.latest?.citations || []) : (d.citations || []);
+  if (citations.length > 0) questionsWithCitations++;
+  let yourSiteCited = false;
+  const topic = d.topic_name || byPersona.find((p: any) => p.persona === d.persona)?.topic || 'Other';
+  const brandMentioned = isAggregated ? d.latest?.brand_mentioned : d.brand_mentioned;
+
+  citations.forEach((c: any, ci: number) => {
+    const dom = (c.domaine || c.domain || '').toLowerCase().replace('www.', '');
+    if (!dom) return;
+    totalCitations++;
+    const sourceType = c.source_type || 'unknown';
+    if (sourceType === 'grounding') groundingCount++;
+    else textMentionCount++;
+    if (c.is_pr_source) prSourceCount++;
+
+    if (!domainMap[dom]) {
+      domainMap[dom] = { domain: dom, count: 0, isYou: false, isPR: false, sourceTypes: { grounding: 0, text: 0 }, questions: [] };
+    }
+    domainMap[dom].count++;
+    if (sourceType === 'grounding') domainMap[dom].sourceTypes.grounding++;
+    else domainMap[dom].sourceTypes.text++;
+    if (c.is_pr_source) domainMap[dom].isPR = true;
+
+    if (!avgPositionByDomain[dom]) avgPositionByDomain[dom] = [];
+    avgPositionByDomain[dom].push(c.position_dans_reponse || ci + 1);
+
+    domainMap[dom].questions.push({
+      question: d.question,
+      persona: d.persona,
+      topic,
+      position: c.position_dans_reponse || ci + 1,
+      brand_mentioned: brandMentioned,
+      contexte: c.contexte || '',
+      sourceType,
+    });
+    if (scanDomain && dom.includes(scanDomain)) {
+      domainMap[dom].isYou = true;
+      yourSiteCited = true;
+    }
+  });
+  if (yourSiteCited) questionsWithYourSite++;
+});
+
+// Sort: your site first, then by count
+const domains = Object.values(domainMap).sort((a, b) => {
+  if (a.isYou && !b.isYou) return -1;
+  if (!a.isYou && b.isYou) return 1;
+  return b.count - a.count;
+});
+
+const yourDomains = domains.filter(d => d.isYou);
+const competitorDomains = domains.filter(d => !d.isYou);
+const topDomains = domains.slice(0, 15);
+const yourSiteTotalCitations = yourDomains.reduce((sum, d) => sum + d.count, 0);
+const yourSiteRate = totalCitations > 0 ? Math.round(yourSiteTotalCitations / totalCitations * 100) : 0;
+
+// Chart data
+const chartLabels = topDomains.slice(0, 10).map(d => d.domain.length > 25 ? d.domain.slice(0, 25) + '...' : d.domain);
+const chartValues = topDomains.slice(0, 10).map(d => d.count);
+const chartColors = topDomains.slice(0, 10).map(d => d.isYou ? '#10b981' : '#f97316');
+
+// Source type analysis
+const sourceTypes: Record<string, number> = {};
+details.forEach((d: any) => {
+  (isAggregated ? (d.latest?.citations || []) : (d.citations || [])).forEach((c: any) => {
+    const type = c.source_type || c.type_source || 'web';
+    sourceTypes[type] = (sourceTypes[type] || 0) + 1;
+  });
+});
+const sourceTypeLabels = Object.keys(sourceTypes);
+const sourceTypeValues = Object.values(sourceTypes);
+---
+
+<ScanResultsLayout scanId={scanId} activeTab="citations">
+  <div x-data="{ expandedDomain: null }">
+
+    <p class="text-sm text-charcoal-light mb-6">Which websites AI chatbots reference when answering questions about your topics. Your goal: be cited more often than competitors.</p>
+
+    {/* KPI cards — 2 rows */}
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+      <div class="bg-white rounded-xl shadow-sm p-6">
+        <p class="text-[11px] text-charcoal-light uppercase tracking-wide mb-2">Total Citations</p>
+        <span class="text-3xl font-bold text-charcoal-dark">{totalCitations}</span>
+        <p class="text-xs text-charcoal-light mt-1">across {details.length} questions</p>
+      </div>
+      <div class="bg-white rounded-xl shadow-sm p-6">
+        <p class="text-[11px] text-charcoal-light uppercase tracking-wide mb-2">Unique Domains</p>
+        <span class="text-3xl font-bold text-charcoal-dark">{domains.length}</span>
+        <p class="text-xs text-charcoal-light mt-1">{yourDomains.length > 0 ? `including your site` : 'your site not cited'}</p>
+      </div>
+      <div class="bg-white rounded-xl shadow-sm p-6">
+        <p class="text-[11px] text-charcoal-light uppercase tracking-wide mb-2">Your Site Share</p>
+        <span class={`text-3xl font-bold ${yourSiteRate > 0 ? 'text-emerald-600' : 'text-red-500'}`}>{yourSiteRate}%</span>
+        <p class="text-xs text-charcoal-light mt-1">{yourSiteTotalCitations} of {totalCitations} citations</p>
+      </div>
+      <div class="bg-white rounded-xl shadow-sm p-6">
+        <p class="text-[11px] text-charcoal-light uppercase tracking-wide mb-2">Questions Citing You</p>
+        <span class={`text-3xl font-bold ${questionsWithYourSite > 0 ? 'text-emerald-600' : 'text-red-500'}`}>{questionsWithYourSite}</span>
+        <p class="text-xs text-charcoal-light mt-1">of {questionsWithCitations} with citations</p>
+      </div>
+    </div>
+
+    {/* Row 2: Source insights */}
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+      <div class="bg-white rounded-xl shadow-sm p-6">
+        <p class="text-[11px] text-charcoal-light uppercase tracking-wide mb-2">Grounding Sources</p>
+        <span class="text-3xl font-bold text-blue-600">{groundingCount}</span>
+        <p class="text-xs text-charcoal-light mt-1">from AI search results</p>
+      </div>
+      <div class="bg-white rounded-xl shadow-sm p-6">
+        <p class="text-[11px] text-charcoal-light uppercase tracking-wide mb-2">Text Mentions</p>
+        <span class="text-3xl font-bold text-purple-600">{textMentionCount}</span>
+        <p class="text-xs text-charcoal-light mt-1">cited in AI response text</p>
+      </div>
+      <div class="bg-white rounded-xl shadow-sm p-6">
+        <p class="text-[11px] text-charcoal-light uppercase tracking-wide mb-2">PR Network Sources</p>
+        <span class={`text-3xl font-bold ${prSourceCount > 0 ? 'text-amber-500' : 'text-charcoal-dark'}`}>{prSourceCount}</span>
+        <p class="text-xs text-charcoal-light mt-1">{prSourceCount > 0 ? 'press release network detected' : 'none detected'}</p>
+      </div>
+      <div class="bg-white rounded-xl shadow-sm p-6">
+        <p class="text-[11px] text-charcoal-light uppercase tracking-wide mb-2">Avg Citations / Question</p>
+        <span class="text-3xl font-bold text-charcoal-dark">{questionsWithCitations > 0 ? (totalCitations / questionsWithCitations).toFixed(1) : '0'}</span>
+        <p class="text-xs text-charcoal-light mt-1">per question with sources</p>
+      </div>
+    </div>
+
+    {/* Charts */}
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-8">
+      {/* Top Cited Domains Bar Chart */}
+      <div class="bg-white rounded-xl shadow-sm p-6">
+        <h3 class="text-sm font-semibold text-charcoal-dark mb-1">Most Cited Domains</h3>
+        <p class="text-[11px] text-charcoal-light mb-4">Which websites do AIs reference most?</p>
+        <div class="relative" style={`height: ${Math.max(Math.min(topDomains.length, 10) * 36, 120)}px;`}>
+          <canvas id="domainBars"></canvas>
+        </div>
+      </div>
+
+      {/* Your Site vs Competitors Donut */}
+      <div class="bg-white rounded-xl shadow-sm p-6">
+        <h3 class="text-sm font-semibold text-charcoal-dark mb-1">Your Site vs Others</h3>
+        <p class="text-[11px] text-charcoal-light mb-4">What share of citations go to your domain?</p>
+        <div class="relative flex items-center justify-center" style="height: 200px;">
+          <canvas id="citationDonut"></canvas>
+        </div>
+      </div>
+
+      {/* Source Type Donut */}
+      <div class="bg-white rounded-xl shadow-sm p-6">
+        <h3 class="text-sm font-semibold text-charcoal-dark mb-1">Citation Source Type</h3>
+        <p class="text-[11px] text-charcoal-light mb-4">How AIs find and reference these sources</p>
+        <div class="relative flex items-center justify-center" style="height: 200px;">
+          <canvas id="sourceTypeDonut"></canvas>
+        </div>
+      </div>
+    </div>
+
+    {/* Domain list — expandable */}
+    <div class="mb-8">
+      <h2 class="text-sm font-semibold text-charcoal-dark mb-4">All Cited Domains</h2>
+
+      {/* Your site first */}
+      {yourDomains.length > 0 && (
+        <div class="mb-4">
+          <h3 class="text-[10px] uppercase tracking-wide text-charcoal-light font-semibold mb-2">Your Site</h3>
+          {yourDomains.map((d, di) => (
+            <div class="bg-white rounded-xl shadow-sm overflow-hidden mb-2 ring-1 ring-emerald-200">
+              <div class="px-6 py-3 cursor-pointer hover:bg-gray-50 transition-colors flex items-center gap-3"
+                   @click={`expandedDomain = expandedDomain === 'y${di}' ? null : 'y${di}'`}>
+                <span class="text-[9px] bg-emerald-100 text-emerald-600 px-2 py-0.5 rounded font-bold shrink-0">YOU</span>
+                <span class="text-sm font-medium text-emerald-700 flex-1">{d.domain}</span>
+                <span class="text-sm font-bold text-emerald-600">{d.count} citations</span>
+                <span class="text-[10px] text-charcoal-light">{d.questions.length} questions</span>
+                <svg class="w-4 h-4 text-gray-400 shrink-0 transition-transform" :class={`expandedDomain === 'y${di}' ? 'rotate-180' : ''`}
+                     fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                </svg>
+              </div>
+              <div x-show={`expandedDomain === 'y${di}'`} x-transition class="border-t border-gray-100 px-6 py-3">
+                <div class="space-y-1.5">
+                  {d.questions.map(q => (
+                    <div class="flex items-start gap-2 py-1">
+                      {q.brand_mentioned
+                        ? <span class="text-emerald-500 mt-0.5 shrink-0">&#10003;</span>
+                        : <span class="text-red-400 mt-0.5 shrink-0">&#10007;</span>
+                      }
+                      <div class="flex-1 min-w-0">
+                        <p class="text-xs text-charcoal-dark">{q.question}</p>
+                        <div class="flex items-center gap-2 mt-0.5">
+                          <span class="text-[10px] text-charcoal-light">{q.persona} · {q.topic} · pos. {q.position}</span>
+                          <span class={`text-[9px] px-1.5 py-0.5 rounded font-medium ${q.sourceType === 'grounding' ? 'bg-blue-50 text-blue-600' : 'bg-purple-50 text-purple-600'}`}>{q.sourceType === 'grounding' ? 'grounding' : 'text'}</span>
+                        </div>
+                        {q.contexte && <p class="text-[10px] text-charcoal-light italic mt-0.5 line-clamp-2">"{q.contexte}"</p>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Competitor domains */}
+      <h3 class="text-[10px] uppercase tracking-wide text-charcoal-light font-semibold mb-2">Other Domains ({competitorDomains.length})</h3>
+      <div class="space-y-2">
+        {competitorDomains.slice(0, 20).map((d, di) => (
+          <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+            <div class="px-6 py-3 cursor-pointer hover:bg-gray-50 transition-colors flex items-center gap-3"
+                 @click={`expandedDomain = expandedDomain === 'c${di}' ? null : 'c${di}'`}>
+              <span class="text-[11px] text-charcoal-light w-5 text-right shrink-0">{di + 1}</span>
+              <span class="text-sm text-charcoal-dark flex-1 truncate">{d.domain}</span>
+              {d.isPR && <span class="text-[9px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-600 font-medium shrink-0">PR</span>}
+              {d.sourceTypes.grounding > 0 && <span class="text-[9px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-600 shrink-0">{d.sourceTypes.grounding} grounding</span>}
+              {d.sourceTypes.text > 0 && <span class="text-[9px] px-1.5 py-0.5 rounded bg-purple-50 text-purple-600 shrink-0">{d.sourceTypes.text} text</span>}
+              <div class="flex-1 max-w-[200px] bg-gray-100 rounded-full h-2 overflow-hidden">
+                <div class="bg-orange-400 h-full rounded-full" style={`width: ${Math.round(d.count / (topDomains[0]?.count || 1) * 100)}%`}></div>
+              </div>
+              <span class="text-sm font-medium text-charcoal-dark shrink-0 w-20 text-right">{d.count} cit.</span>
+              <span class="text-[10px] text-charcoal-light shrink-0">{d.questions.length} q.</span>
+              <svg class="w-4 h-4 text-gray-400 shrink-0 transition-transform" :class={`expandedDomain === 'c${di}' ? 'rotate-180' : ''`}
+                   fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+              </svg>
+            </div>
+            <div x-show={`expandedDomain === 'c${di}'`} x-transition class="border-t border-gray-100 px-6 py-3">
+              <div class="space-y-1.5">
+                {d.questions.slice(0, 15).map(q => (
+                  <div class="flex items-start gap-2 py-1">
+                    {q.brand_mentioned
+                      ? <span class="text-emerald-500 mt-0.5 shrink-0">&#10003;</span>
+                      : <span class="text-red-400 mt-0.5 shrink-0">&#10007;</span>
+                    }
+                    <div class="flex-1 min-w-0">
+                      <p class="text-xs text-charcoal-dark">{q.question}</p>
+                      <p class="text-[10px] text-charcoal-light">{q.persona} · {q.topic} · position {q.position}</p>
+                    </div>
+                  </div>
+                ))}
+                {d.questions.length > 15 && <p class="text-[10px] text-charcoal-light">+{d.questions.length - 15} more questions</p>}
+              </div>
+            </div>
+          </div>
+        ))}
+        {competitorDomains.length > 20 && (
+          <p class="text-xs text-charcoal-light text-center py-2">+{competitorDomains.length - 20} more domains</p>
+        )}
+      </div>
+    </div>
+
+    {domains.length === 0 && (
+      <div class="bg-white rounded-xl shadow-sm p-12 text-center text-charcoal-light">
+        No citations found. AI responses did not include web source references.
+      </div>
+    )}
+  </div>
+
+  <script is:inline define:vars={{ chartLabels, chartValues, chartColors, yourSiteTotalCitations, totalCitations, yourSiteRate, groundingCount, textMentionCount }}>
+    document.addEventListener('DOMContentLoaded', function() {
+      if (typeof Chart === 'undefined') return;
+
+      // Domain bars
+      var barsEl = document.getElementById('domainBars');
+      if (barsEl && chartLabels.length > 0) {
+        new Chart(barsEl, {
+          type: 'bar',
+          data: {
+            labels: chartLabels,
+            datasets: [{ data: chartValues, backgroundColor: chartColors, barThickness: 20 }]
+          },
+          options: {
+            indexAxis: 'y',
+            scales: {
+              x: { ticks: { stepSize: 1 } },
+              y: { ticks: { font: { size: 10 }, color: '#374151' } }
+            },
+            plugins: {
+              tooltip: { callbacks: { label: function(ctx) { return ctx.raw + ' citations'; } } }
+            }
+          }
+        });
+      }
+
+      // Your site vs others donut
+      var donutEl = document.getElementById('citationDonut');
+      if (donutEl && totalCitations > 0) {
+        var otherCitations = totalCitations - yourSiteTotalCitations;
+        new Chart(donutEl, {
+          type: 'doughnut',
+          data: {
+            labels: ['Your site', 'Other domains'],
+            datasets: [{
+              data: [yourSiteTotalCitations, otherCitations],
+              backgroundColor: ['#10b981', '#e5e7eb'],
+              borderWidth: 0,
+              hoverOffset: 4,
+            }]
+          },
+          options: {
+            cutout: '70%',
+            plugins: {
+              legend: { display: true, position: 'bottom', labels: { usePointStyle: true, pointStyle: 'circle', padding: 16, font: { size: 11 } } },
+              tooltip: { callbacks: { label: function(ctx) { return ctx.label + ': ' + ctx.raw + ' citations (' + Math.round(ctx.raw / totalCitations * 100) + '%)'; } } }
+            }
+          },
+          plugins: [{
+            id: 'centerText',
+            afterDraw: function(chart) {
+              var ctx = chart.ctx;
+              var w = chart.width;
+              var h = chart.chartArea.top + (chart.chartArea.bottom - chart.chartArea.top) / 2;
+              ctx.save();
+              ctx.textAlign = 'center';
+              ctx.textBaseline = 'middle';
+              ctx.fillStyle = yourSiteRate > 0 ? '#10b981' : '#ef4444';
+              ctx.font = 'bold 28px system-ui';
+              ctx.fillText(yourSiteRate + '%', w / 2, h);
+              ctx.fillStyle = '#9ca3af';
+              ctx.font = '10px system-ui';
+              ctx.fillText('your share', w / 2, h + 18);
+              ctx.restore();
+            }
+          }]
+        });
+      }
+
+      // Source Type Donut
+      var stEl = document.getElementById('sourceTypeDonut');
+      if (stEl && (groundingCount + textMentionCount) > 0) {
+        new Chart(stEl, {
+          type: 'doughnut',
+          data: {
+            labels: ['Grounding (search)', 'Text mention'],
+            datasets: [{
+              data: [groundingCount, textMentionCount],
+              backgroundColor: ['#3b82f6', '#a855f7'],
+              borderWidth: 0,
+              hoverOffset: 4,
+            }]
+          },
+          options: {
+            cutout: '65%',
+            plugins: {
+              legend: { display: true, position: 'bottom', labels: { usePointStyle: true, pointStyle: 'circle', padding: 16, font: { size: 10 } } },
+              tooltip: { callbacks: { label: function(ctx) { var total = groundingCount + textMentionCount; return ctx.label + ': ' + ctx.raw + ' (' + Math.round(ctx.raw/total*100) + '%)'; } } }
+            }
+          }
+        });
+      }
+    });
+  </script>
+</ScanResultsLayout>

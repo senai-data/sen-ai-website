@@ -1,0 +1,2085 @@
+---
+/**
+ * Scan Detail — Shows current scan state and next actions.
+ * Redirects to results if completed.
+ */
+export const prerender = false;
+import DashboardLayout from '../../../../layouts/DashboardLayout.astro';
+import Tip from '../../../../components/Tip.astro';
+
+const token = Astro.cookies.get('token')?.value;
+if (!token) return Astro.redirect('/login');
+
+const { id } = Astro.params;
+const viewParam = Astro.url.searchParams.get('view'); // 'topics' | 'brands' | 'personas' | null
+
+let scan = null;
+let personasData: any = null;
+let topics = [];
+let brandsData = null;
+try {
+  const res = await fetch(`http://api:8000/api/scans/${id}`, {
+    headers: { Cookie: `token=${token}` },
+  });
+  if (res.ok) scan = await res.json();
+
+  if (scan?.status === 'completed' && !viewParam) {
+    return Astro.redirect(`/app/scans/${id}/results`);
+  }
+} catch {}
+
+if (!scan) return Astro.redirect('/app/scans');
+
+// Auto-trigger topic classification if keywords are fetched but classify hasn't started.
+// This handles the case where user leaves the /new wizard mid-process and returns via My Scans.
+// The POST is idempotent (worker skips if classify is already running).
+if (scan.status === 'keywords_fetched') {
+  try {
+    await fetch(`http://api:8000/api/scans/${id}/topics/auto-classify`, {
+      method: 'POST',
+      headers: { Cookie: `token=${token}` },
+    });
+  } catch {}
+}
+
+const steps = [
+  { key: 'domain', label: 'Domain' },
+  { key: 'topics', label: 'Topics' },
+  { key: 'brands', label: 'Brands' },
+  { key: 'personas', label: 'Personas' },
+  { key: 'scan', label: 'Scan' },
+  { key: 'results', label: 'Results' },
+];
+
+const statusToStep = {
+  draft: 0, fetching_keywords: 0, keywords_fetched: 1, topics_ready: 1,
+  assigning_keywords: 2, brands_ready: 2, generating_personas: 3, personas_ready: 3,
+  scanning: 4, completed: 5, failed: 0,
+};
+const currentStep = statusToStep[scan.status] ?? 0;
+
+// Fetch topics if user can see them (status reached topics_ready OR explicit ?view=topics)
+const canSeeTopics = currentStep >= 1 || viewParam === 'topics';
+if (canSeeTopics) {
+  try {
+    const tRes = await fetch(`http://api:8000/api/scans/${id}/topics`, {
+      headers: { Cookie: `token=${token}` },
+    });
+    if (tRes.ok) {
+      const tData = await tRes.json();
+      topics = tData.topics || tData || [];
+    }
+  } catch {}
+}
+
+// Fetch brands if user can see them (status reached brands_ready OR explicit ?view=brands)
+const canSeeBrands = currentStep >= 2 || viewParam === 'brands';
+if (canSeeBrands) {
+  try {
+    const bRes = await fetch(`http://api:8000/api/scans/${id}/brands`, {
+      headers: { Cookie: `token=${token}` },
+    });
+    if (bRes.ok) brandsData = await bRes.json();
+  } catch {}
+}
+
+// Fetch personas if user can see them (status reached personas_ready OR explicit ?view=personas)
+const canSeePersonas = currentStep >= 3 || viewParam === 'personas';
+if (canSeePersonas) {
+  try {
+    const pRes = await fetch(`http://api:8000/api/scans/${id}/personas`, {
+      headers: { Cookie: `token=${token}` },
+    });
+    if (pRes.ok) personasData = await pRes.json();
+  } catch {}
+}
+const hasPersonas = personasData && (personasData.totals?.total_personas || 0) > 0;
+
+// Fetch domain brief
+let briefData: any = null;
+try {
+  const bRes = await fetch(`http://api:8000/api/scans/${id}/brief`, {
+    headers: { Cookie: `token=${token}` },
+  });
+  if (bRes.ok) briefData = await bRes.json();
+} catch {}
+const domainBrief = briefData?.domain_brief || null;
+const briefStatus = briefData?.generation_status || null;
+
+// Determine which view to render
+// - If ?view= param set, show that view (back navigation)
+// - Otherwise, show based on scan.status
+const effectiveView =
+  viewParam === 'topics' && topics.length > 0 ? 'topics' :
+  viewParam === 'brands' && brandsData ? 'brands' :
+  viewParam === 'personas' && hasPersonas ? 'personas' :
+  null;  // null = render based on status as before
+
+// Is the user reviewing a past step? (viewing something they've already validated)
+const isReviewing = effectiveView !== null && (
+  (effectiveView === 'topics' && currentStep > 1) ||
+  (effectiveView === 'brands' && currentStep > 2) ||
+  (effectiveView === 'personas' && currentStep > 3)
+);
+---
+
+<DashboardLayout title={`Scan — ${scan.domain}`} activeSection="scans">
+  <div class="p-8 max-w-3xl mx-auto">
+
+    <!-- Stepper — completed steps AND the current step are clickable
+         (current step clickable so user can return from a review view) -->
+    <div class="flex items-center gap-2 mb-8">
+      {steps.map((step, i) => {
+        const done = i < currentStep;
+        const current = i === currentStep;
+        // URLs for navigation:
+        // - `done` steps → go to their review view (?view=xxx)
+        // - `current` step → go to the live page without ?view (shows current status naturally)
+        // - future steps → not clickable
+        const stepHref =
+          step.key === 'topics' && done ? `/app/scans/${id}?view=topics` :
+          step.key === 'brands' && done ? `/app/scans/${id}?view=brands` :
+          step.key === 'personas' && done ? `/app/scans/${id}?view=personas` :
+          current ? `/app/scans/${id}` :
+          null;
+        const clickable = stepHref !== null;
+        const StepTag = clickable ? 'a' : 'div';
+        return (
+          <div class="flex items-center gap-2">
+            <StepTag
+              href={stepHref}
+              title={clickable
+                ? (done ? `Go back to ${step.label}` : `Go to ${step.label} (current step)`)
+                : undefined}
+              class:list={[
+                'flex items-center gap-2',
+                clickable ? 'cursor-pointer hover:opacity-80 transition-opacity group' : ''
+              ]}
+            >
+              <div class:list={[
+                'w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-all',
+                done ? 'bg-emerald-500 text-white' :
+                current ? 'bg-coral text-white' :
+                'bg-gray-200 text-gray-400',
+                clickable && done ? 'group-hover:ring-2 group-hover:ring-emerald-300 group-hover:ring-offset-2' : '',
+                clickable && current ? 'group-hover:ring-2 group-hover:ring-coral/40 group-hover:ring-offset-2' : ''
+              ]}>
+                {done ? '✓' : i + 1}
+              </div>
+              <span class:list={[
+                'text-sm hidden sm:inline',
+                current ? 'text-charcoal-dark font-medium' :
+                clickable ? 'text-charcoal-light group-hover:text-charcoal-dark' :
+                'text-charcoal-light'
+              ]}>{step.label}</span>
+            </StepTag>
+            {i < steps.length - 1 && <div class="w-8 h-px bg-gray-200 hidden sm:block"></div>}
+          </div>
+        );
+      })}
+
+    </div>
+
+    {/* Domain Brief — collapsible panel, always accessible */}
+    <details class="mb-6 bg-white rounded-xl shadow-sm overflow-hidden group" open={!domainBrief && briefStatus === 'completed'}>
+      <summary class="px-5 py-3 cursor-pointer hover:bg-gray-50 transition-colors flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <svg class="w-4 h-4 text-charcoal-light transition-transform group-open:rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+          <span class="text-sm font-medium text-charcoal-dark">Domain Brief</span>
+          {domainBrief && <span class="text-[9px] px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-600 font-medium">Ready</span>}
+          {briefStatus === 'pending' || briefStatus === 'running' ? <span class="text-[9px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-600 font-medium animate-pulse">Generating...</span> : null}
+          {!domainBrief && !briefStatus && <span class="text-[9px] px-1.5 py-0.5 rounded bg-gray-100 text-charcoal-light">Not generated</span>}
+        </div>
+        <span class="text-[10px] text-charcoal-light">Business context for AI analysis</span>
+      </summary>
+      <div class="px-5 py-4 border-t border-gray-100" x-data={`{
+        brief: ${JSON.stringify(domainBrief || {})},
+        saving: false,
+        generating: ${briefStatus === 'pending' || briefStatus === 'running' ? 'true' : 'false'},
+        async generateBrief() {
+          this.generating = true;
+          await fetch('/api/scans/${id}/generate-brief', { method: 'POST' });
+          const poll = setInterval(async () => {
+            const res = await fetch('/api/scans/${id}/brief');
+            if (res.ok) {
+              const data = await res.json();
+              if (data.domain_brief) {
+                this.brief = data.domain_brief;
+                this.generating = false;
+                clearInterval(poll);
+              }
+            }
+          }, 2000);
+        },
+        async saveBrief() {
+          this.saving = true;
+          await fetch('/api/scans/${id}/brief', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ domain_brief: this.brief }),
+          });
+          this.saving = false;
+        }
+      }`}>
+        {/* Generating state */}
+        <template x-if="generating">
+          <div class="text-center py-8">
+            <div class="inline-block w-6 h-6 border-2 border-coral border-t-transparent rounded-full animate-spin mb-3"></div>
+            <p class="text-sm text-charcoal-light">Researching {scan.domain} via web search...</p>
+            <p class="text-[10px] text-charcoal-light mt-1">This takes about 10 seconds</p>
+          </div>
+        </template>
+
+        {/* No brief yet */}
+        <template x-if="!generating && !brief.company">
+          <div class="text-center py-6">
+            <p class="text-sm text-charcoal-light mb-3">Generate a business brief to improve AI analysis quality</p>
+            <button @click="generateBrief()" class="px-4 py-2 bg-coral text-white rounded-lg text-sm font-medium hover:bg-coral-dark transition-all">
+              Generate Domain Brief
+            </button>
+            <p class="text-[10px] text-charcoal-light mt-2">Or fill in manually below</p>
+          </div>
+        </template>
+
+        {/* Brief editor */}
+        <template x-if="!generating && (brief.company || brief.description)">
+          <div class="space-y-3">
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="text-[10px] uppercase tracking-wide text-charcoal-light font-semibold">Company</label>
+                <input type="text" x-model="brief.company" @blur="saveBrief()" class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 mt-1 outline-none focus:border-coral" />
+              </div>
+              <div>
+                <label class="text-[10px] uppercase tracking-wide text-charcoal-light font-semibold">Industry</label>
+                <input type="text" x-model="brief.industry" @blur="saveBrief()" class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 mt-1 outline-none focus:border-coral" />
+              </div>
+            </div>
+            <div>
+              <label class="text-[10px] uppercase tracking-wide text-charcoal-light font-semibold">Description</label>
+              <textarea x-model="brief.description" @blur="saveBrief()" rows="2" class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 mt-1 outline-none focus:border-coral resize-y"></textarea>
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="text-[10px] uppercase tracking-wide text-charcoal-light font-semibold">Own Brands (comma-separated)</label>
+                <input type="text" :value="(brief.brands || []).join(', ')" @blur="brief.brands = $event.target.value.split(',').map(s => s.trim()).filter(Boolean); saveBrief()" class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 mt-1 outline-none focus:border-coral" />
+              </div>
+              <div>
+                <label class="text-[10px] uppercase tracking-wide text-charcoal-light font-semibold">Product Lines (comma-separated)</label>
+                <input type="text" :value="(brief.product_lines || []).join(', ')" @blur="brief.product_lines = $event.target.value.split(',').map(s => s.trim()).filter(Boolean); saveBrief()" class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 mt-1 outline-none focus:border-coral" />
+              </div>
+            </div>
+            <div>
+              <label class="text-[10px] uppercase tracking-wide text-charcoal-light font-semibold">Competitors (one per line: Name — Products)</label>
+              <textarea :value="(brief.competitors || []).map(c => c.name + (c.products?.length ? ' — ' + c.products.join(', ') : '')).join('\n')"
+                        @blur="brief.competitors = $event.target.value.split('\n').map(line => { const parts = line.split(' — '); return { name: parts[0]?.trim(), products: parts[1] ? parts[1].split(',').map(s => s.trim()) : [] }; }).filter(c => c.name); saveBrief()"
+                        rows="4" class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 mt-1 outline-none focus:border-coral resize-y font-mono text-xs"></textarea>
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="text-[10px] uppercase tracking-wide text-charcoal-light font-semibold">Key Topics (comma-separated)</label>
+                <input type="text" :value="(brief.topics || []).join(', ')" @blur="brief.topics = $event.target.value.split(',').map(s => s.trim()).filter(Boolean); saveBrief()" class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 mt-1 outline-none focus:border-coral" />
+              </div>
+              <div>
+                <label class="text-[10px] uppercase tracking-wide text-charcoal-light font-semibold">Target Audience</label>
+                <input type="text" x-model="brief.target_audience" @blur="saveBrief()" class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 mt-1 outline-none focus:border-coral" />
+              </div>
+            </div>
+            <div class="flex items-center justify-between pt-2">
+              <span x-show="saving" class="text-[10px] text-charcoal-light animate-pulse">Saving...</span>
+              <span x-show="!saving" class="text-[10px] text-emerald-600">Auto-saved on edit</span>
+              <button @click="generateBrief()" class="text-[10px] text-charcoal-light hover:text-coral transition-colors">Regenerate from web</button>
+            </div>
+          </div>
+        </template>
+      </div>
+    </details>
+
+    {isReviewing && scan.status !== 'completed' && (
+      <div class="mb-6 bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 flex items-start gap-3">
+        <svg class="w-5 h-5 text-blue-500 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        <div class="flex-1">
+          <p class="text-sm font-medium text-blue-900">You're reviewing a previous step</p>
+          <p class="text-xs text-blue-700 mt-0.5">This step was already validated. Use the stepper to navigate back to your current progress.</p>
+        </div>
+        <a href={`/app/scans/${id}`} class="text-xs font-medium text-blue-700 hover:text-blue-900 shrink-0 underline">Back to current step →</a>
+      </div>
+    )}
+
+    {isReviewing && scan.status === 'completed' && (
+      <div class="mb-6 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 flex items-start gap-3">
+        <svg class="w-5 h-5 text-amber-500 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+        <div class="flex-1">
+          <p class="text-sm font-medium text-amber-900">You're editing a completed scan</p>
+          <p class="text-xs text-amber-800 mt-0.5">Changes to setup (brands, focus, topics, personas) are saved immediately, but the results below reflect the scan that already ran. To get fresh metrics under the new setup, run a rescan.</p>
+        </div>
+        <div class="flex items-center gap-2 shrink-0">
+          <a href={`/app/scans/${id}/results`} class="text-xs font-medium text-amber-700 hover:text-amber-900 underline whitespace-nowrap">View results</a>
+          <button type="button"
+                  onclick={`if(confirm('Start a new rescan of this tracker?')){fetch('/api/scans/${id}/rescan',{method:'POST'}).then(r=>r.ok?location.href='/app/scans':alert('Rescan failed'))}`}
+                  class="text-xs font-medium px-3 py-1.5 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition-colors whitespace-nowrap">
+            Rescan now →
+          </button>
+        </div>
+      </div>
+    )}
+
+    <!-- Processing states — integrated into Topics section context (no separate "Processing" step) -->
+    {!effectiveView && ['fetching_keywords', 'keywords_fetched', 'assigning_keywords', 'generating_personas'].includes(scan.status) && (
+      <div>
+        <h2 class="text-xl font-bold text-charcoal-dark mb-1">Analyzing <span class="text-coral">{scan.domain}</span></h2>
+        {scan.status !== 'completed' && (
+          <button
+            type="button"
+            onclick={`if(confirm('Delete this scan and start over with a different domain?')){fetch('/api/scans/${id}',{method:'DELETE'}).then(r=>r.ok?location.href='/app/scans/new':alert('Delete failed'))}`}
+            class="text-[11px] text-charcoal-light/50 hover:text-coral transition-colors mb-4 inline-block"
+          >Wrong domain? Start over</button>
+        )}
+        <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-8 text-center">
+          <svg class="w-12 h-12 mx-auto animate-spin text-coral/20 mb-4" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+          </svg>
+          {['fetching_keywords', 'keywords_fetched'].includes(scan.status) ? (
+            <Fragment>
+              <p class="text-charcoal-dark font-medium mb-1">{scan.progress_message || 'Fetching keyword data...'}</p>
+              <p class="text-sm text-charcoal-light mb-6">This usually takes 1-2 minutes. You can leave this page.</p>
+              <div class="space-y-3 text-left max-w-xs mx-auto">
+                <div class:list={['flex items-center gap-3 text-sm', scan.status === 'fetching_keywords' ? 'text-charcoal-light' : 'text-emerald-600']}>
+                  <span>{scan.status === 'fetching_keywords' ? '○' : '✓'}</span>
+                  Fetching keywords from HaloScan
+                </div>
+                <div class="flex items-center gap-3 text-sm text-charcoal-light">
+                  <span>○</span>
+                  Classifying pages into topics
+                </div>
+                <div class="flex items-center gap-3 text-sm text-charcoal-light">
+                  <span>○</span>
+                  Detecting brands & competitors
+                </div>
+              </div>
+            </Fragment>
+          ) : (
+            <Fragment>
+              <p class="text-charcoal-dark font-medium mb-1">{scan.progress_message || 'Processing...'}</p>
+              <p class="text-sm text-charcoal-light">This usually takes 30 seconds. You can leave this page.</p>
+            </Fragment>
+          )}
+          <meta http-equiv="refresh" content="3" />
+        </div>
+      </div>
+    )}
+
+    <!-- Topics ready (Gate 1) — or reviewing topics via ?view=topics -->
+    {(effectiveView === 'topics' || (!effectiveView && scan.status === 'topics_ready')) && topics.length > 0 && (
+      <div x-data={`topicsWizard(${JSON.stringify(topics.map(t => ({
+          id: t.id, name: t.name, description: t.description,
+          keyword_count: t.keyword_count, active: t.is_active,
+          top_keywords: t.top_keywords || [], top_urls: t.top_urls || [],
+          total_urls: t.total_urls || 0, editing: false,
+          allUrls: null, allKeywords: null
+        })))}, '${id}')`}>
+        <h2 class="text-xl font-bold text-charcoal-dark mb-1">Topics found on <span class="text-coral">{scan.domain}</span></h2>
+        {scan.status !== 'completed' && (
+          <button
+            type="button"
+            onclick={`if(confirm('Delete this scan and start over with a different domain?')){fetch('/api/scans/${id}',{method:'DELETE'}).then(r=>r.ok?location.href='/app/scans/new':alert('Delete failed'))}`}
+            class="text-[11px] text-charcoal-light/50 hover:text-coral transition-colors mb-4 inline-block"
+          >Wrong domain? Start over</button>
+        )}
+        <p class="text-charcoal-light mb-2">We grouped your keywords into themes. Each topic will get its own AI visibility analysis with tailored personas and questions.</p>
+        <p class="text-sm text-charcoal-light mb-6"><span class="font-medium text-charcoal-dark">Review and fix misclassifications</span> before we generate personas. Toggle off topics you don't need.</p>
+
+        <div class="space-y-2 mb-6">
+          <template x-for="(topic, idx) in topics" :key="topic.id">
+            <div class="bg-white rounded-xl shadow-sm border border-gray-100 transition-all"
+                 :class="!topic.active ? 'opacity-50' : ''">
+
+              <!-- Header (always visible) -->
+              <div class="flex items-center gap-4 px-5 py-3.5 cursor-pointer hover:bg-gray-50 transition-colors"
+                   @click="expanded = expanded === idx ? null : idx">
+                <!-- Toggle -->
+                <button @click.stop="toggleTopic(topic)"
+                  :class="topic.active ? 'bg-coral' : 'bg-gray-300'"
+                  class="relative w-10 h-6 rounded-full transition-colors shrink-0">
+                  <span :class="topic.active ? 'translate-x-4' : 'translate-x-0'"
+                    class="absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform"></span>
+                </button>
+
+                <!-- Name + description -->
+                <div class="flex-1 min-w-0">
+                  <template x-if="!topic.editing">
+                    <div class="group/name">
+                      <div class="flex items-center gap-1.5">
+                        <p class="text-sm font-medium text-charcoal-dark" x-text="topic.name"></p>
+                        <button @click.stop="topic.editing = true" class="text-gray-300 hover:text-coral opacity-0 group-hover/name:opacity-100 transition-opacity">
+                          <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
+                        </button>
+                      </div>
+                      <p class="text-xs text-charcoal-light" x-text="topic.description || topic.keyword_count + ' keywords'"></p>
+                    </div>
+                  </template>
+                  <template x-if="topic.editing">
+                    <input type="text" x-model="topic.name" @click.stop x-ref="editInput"
+                           @keydown.enter="topic.editing = false; fetch(`/api/scans/${id}/topics/${topic.id}`, {method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({name:topic.name})})"
+                           @blur="topic.editing = false; fetch(`/api/scans/${id}/topics/` + topic.id, {method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({name:topic.name})})"
+                           class="text-sm font-medium px-2 py-1 border border-coral rounded w-full" />
+                  </template>
+                </div>
+
+                <!-- Stats -->
+                <div class="text-right shrink-0">
+                  <p class="text-xs font-medium text-charcoal-dark" x-text="topic.keyword_count + ' keywords'"></p>
+                  <p class="text-[10px] text-charcoal-light" x-text="topic.total_urls + ' pages'"></p>
+                </div>
+
+                <!-- Expand arrow -->
+                <svg class="w-4 h-4 text-gray-400 transition-transform shrink-0" :class="expanded === idx ? 'rotate-180' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                </svg>
+              </div>
+
+              <!-- Expanded content (Progressive Disclosure) -->
+              <div x-show="expanded === idx" x-transition class="border-t border-gray-100 px-5 py-4"
+                   x-data="{ showPages: false, showKeywords: false, pageSort: '', pageSortDir: 1, pageSearch: '', kwSort: '', kwSortDir: 1, kwSearch: '',
+                     sortPages(arr) {
+                       let filtered = this.pageSearch ? arr.filter(p => (typeof p === 'string' ? p : p.url).toLowerCase().includes(this.pageSearch.toLowerCase())) : arr;
+                       if (!this.pageSort) return filtered;
+                       return [...filtered].sort((a, b) => ((typeof a === 'object' ? a[this.pageSort] : 0) - (typeof b === 'object' ? b[this.pageSort] : 0)) * this.pageSortDir);
+                     },
+                     sortKw(arr) {
+                       let filtered = this.kwSearch ? arr.filter(k => k.keyword.toLowerCase().includes(this.kwSearch.toLowerCase())) : arr;
+                       if (!this.kwSort) return filtered;
+                       return [...filtered].sort((a, b) => ((a[this.kwSort] || 0) - (b[this.kwSort] || 0)) * this.kwSortDir);
+                     },
+                     sortPageKw(arr) {
+                       if (!arr || !this.pageSort) return arr;
+                       const map = { search_volume: 'volume', avg_position: 'position', traffic: 'traffic' };
+                       const k = map[this.pageSort];
+                       if (!k) return arr;
+                       return [...arr].sort((a, b) => ((a[k] || 0) - (b[k] || 0)) * this.pageSortDir);
+                     },
+                     toggleSort(type, col) {
+                       if (type === 'page') { if (this.pageSort === col) { this.pageSortDir *= -1; } else { this.pageSort = col; this.pageSortDir = -1; } }
+                       else { if (this.kwSort === col) { this.kwSortDir *= -1; } else { this.kwSort = col; this.kwSortDir = -1; } }
+                     }
+                   }">
+
+                <!-- SECTION 1: Keywords used for personas (primary — drives downstream pipeline) -->
+                <div class="mb-4">
+                  <button @click.stop="showKeywords = !showKeywords" class="flex items-center gap-2 text-sm text-charcoal-dark hover:text-coral transition-colors mb-3 font-medium">
+                    <svg class="w-3.5 h-3.5 transition-transform" :class="showKeywords ? 'rotate-90' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                    <span x-text="'Keywords used for personas (' + topic.keyword_count + ')'"></span>
+                  </button>
+
+                  <div x-show="showKeywords" x-transition class="mt-2">
+                    <!-- Search -->
+                    <div class="mb-2">
+                      <div class="relative" style="max-width:250px;">
+                        <svg class="w-3.5 h-3.5 absolute left-2 top-1/2 -translate-y-1/2 text-charcoal-light" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+                        <input type="text" x-model="kwSearch" placeholder="Filter keywords..." class="w-full pl-7 pr-3 py-1 text-[11px] border border-gray-200 rounded focus:outline-none focus:border-coral/50" />
+                      </div>
+                    </div>
+                    <!-- Column headers (sortable, aligned with Pages) -->
+                    <div class="flex items-center gap-2 mb-1.5 text-[10px] text-charcoal-light font-medium select-none" style="padding-right: 15px;">
+                      <span class="flex-1">Keyword</span>
+                      <span class="w-12 text-right cursor-pointer hover:text-charcoal-dark" @click="toggleSort('kw','pages_count')">
+                        Pages <span x-show="kwSort==='pages_count'" x-text="kwSortDir===1?'▲':'▼'" class="text-coral"></span>
+                      </span>
+                      <span class="w-16 text-right cursor-pointer hover:text-charcoal-dark" @click="toggleSort('kw','volume')">
+                        # Searches <span x-show="kwSort==='volume'" x-text="kwSortDir===1?'▲':'▼'" class="text-coral"></span>
+                      </span>
+                      <span class="w-14 text-right cursor-pointer hover:text-charcoal-dark" @click="toggleSort('kw','traffic')">
+                        Traffic <span x-show="kwSort==='traffic'" x-text="kwSortDir===1?'▲':'▼'" class="text-coral"></span>
+                      </span>
+                      <span class="w-12 text-right cursor-pointer hover:text-charcoal-dark" @click="toggleSort('kw','position')">
+                        Position <span x-show="kwSort==='position'" x-text="kwSortDir===1?'▲':'▼'" class="text-coral"></span>
+                      </span>
+                      <span class="w-14"></span>
+                    </div>
+                    <div class="space-y-0.5 max-h-96 overflow-y-auto" style="scrollbar-gutter: stable;">
+                      <template x-for="(kw, ki) in sortKw(topic.top_keywords)" :key="ki">
+                        <div class="group/kw flex items-center gap-2 text-xs py-0.5 hover:bg-gray-50 rounded px-1 -mx-1 relative min-w-0">
+                          <span class="text-charcoal-dark truncate flex-1 min-w-0" x-text="kw.keyword"></span>
+                          <span class="text-[10px] w-12 text-right shrink-0" :class="(kw.pages_count || 0) > 1 ? 'text-coral font-medium' : 'text-charcoal-light'" x-text="kw.pages_count || '—'"></span>
+                          <span class="text-charcoal-dark text-[10px] w-16 text-right shrink-0" x-text="kw.volume ? kw.volume.toLocaleString() : '—'"></span>
+                          <span class="text-charcoal-dark text-[10px] w-14 text-right shrink-0" x-text="kw.traffic ? kw.traffic.toLocaleString() : '—'"></span>
+                          <span class="text-charcoal-dark text-[10px] w-12 text-right shrink-0" x-text="kw.position || '—'"></span>
+                          <div class="w-14 text-right shrink-0">
+                            <button @click.stop="openMove('keyword', kw, topic)"
+                                    class="text-[10px] text-charcoal-light hover:text-coral opacity-0 group-hover/kw:opacity-100 transition-opacity px-1">
+                              Move →
+                            </button>
+                          </div>
+                        </div>
+                      </template>
+                    </div>
+                    <button x-show="topic.keyword_count > 5 && !topic.allKeywords"
+                            @click.stop={`fetch('/api/scans/${id}/topics/' + topic.id + '/keywords?limit=500').then(r=>r.json()).then(data => { topic.allKeywords = data.keywords; topic.top_keywords = data.keywords; }).catch(e => console.error('Load keywords failed:', e))`}
+                            class="text-[10px] text-coral hover:underline cursor-pointer mt-1"
+                            x-text="'+ ' + (topic.keyword_count - topic.top_keywords.length) + ' more keywords'">
+                    </button>
+                    <button x-show="topic.allKeywords"
+                            @click.stop="topic.top_keywords = topic.allKeywords.slice(0, 5); topic.allKeywords = null;"
+                            class="text-[10px] text-charcoal-light hover:text-coral hover:underline cursor-pointer mt-1 transition-colors">
+                      Show less
+                    </button>
+                  </div>
+                </div>
+
+                <!-- SECTION 2: Pages ranking for these keywords (drill-down / secondary) -->
+                <div>
+                  <button @click.stop="showPages = !showPages" class="flex items-center gap-2 text-sm text-charcoal-dark hover:text-coral transition-colors mb-3 font-medium">
+                    <svg class="w-3.5 h-3.5 transition-transform" :class="showPages ? 'rotate-90' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                    <span x-text="'Pages ranking for these keywords (' + topic.total_urls + ')'"></span>
+                  </button>
+
+                  <div x-show="showPages" x-transition>
+                  <!-- Search input -->
+                  <div class="flex items-center gap-2 mb-2">
+                    <div class="relative flex-1">
+                      <svg class="w-3.5 h-3.5 absolute left-2 top-1/2 -translate-y-1/2 text-charcoal-light" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+                      <input type="text" x-model="pageSearch" placeholder="Filter pages..." class="w-full pl-7 pr-3 py-1 text-[11px] border border-gray-200 rounded focus:outline-none focus:border-coral/50" />
+                    </div>
+                  </div>
+
+                  <!-- Column headers (sortable) -->
+                  <div class="flex items-center gap-2 mb-2 text-[10px] text-charcoal-light font-medium select-none" style="padding-right: 15px;">
+                    <span class="flex-1"><Tip id="pages" position="bottom">Pages</Tip></span>
+                    <span class="w-12 text-right cursor-pointer hover:text-charcoal-dark" @click="toggleSort('page','keywords_count')">
+                      Keywords <span x-show="pageSort==='keywords_count'" x-text="pageSortDir===1?'▲':'▼'" class="text-coral"></span>
+                    </span>
+                    <span class="w-16 text-right cursor-pointer hover:text-charcoal-dark" @click="toggleSort('page','search_volume')">
+                      # Searches <span x-show="pageSort==='search_volume'" x-text="pageSortDir===1?'▲':'▼'" class="text-coral"></span>
+                    </span>
+                    <span class="w-14 text-right cursor-pointer hover:text-charcoal-dark" @click="toggleSort('page','traffic')">
+                      Traffic <span x-show="pageSort==='traffic'" x-text="pageSortDir===1?'▲':'▼'" class="text-coral"></span>
+                    </span>
+                    <span class="w-12 text-right cursor-pointer hover:text-charcoal-dark" @click="toggleSort('page','avg_position')">
+                      Position <span x-show="pageSort==='avg_position'" x-text="pageSortDir===1?'▲':'▼'" class="text-coral"></span>
+                    </span>
+                    <span class="w-14"></span>
+                  </div>
+
+                  <div class="space-y-0 max-h-64 overflow-y-auto overflow-x-hidden" style="scrollbar-gutter: stable;">
+                    <template x-for="page in sortPages(topic.allUrls || topic.top_urls)" :key="typeof page === 'string' ? page : page.url">
+                      <div>
+                        <!-- Page row (columns aligned with headers) -->
+                        <div class="group/url flex items-center gap-2 py-1.5 hover:bg-gray-50 rounded px-1 -mx-1 relative min-w-0">
+                          <!-- Short path -->
+                          <a :href="typeof page === 'string' ? page : page.url" target="_blank" rel="noopener"
+                             class="text-xs text-blue-600 hover:text-blue-800 hover:underline truncate flex-1 min-w-0 transition-colors"
+                             x-text="(() => { const u = typeof page === 'string' ? page : page.url; try { return new URL(u.startsWith('http') ? u : 'https://' + u).pathname; } catch { return u; } })()"></a>
+
+                          <!-- Keywords count (clickable with ▶) -->
+                          <button @click.stop="page._expanded = !page._expanded"
+                                  x-show="typeof page === 'object' && page.keywords_count"
+                                  class="text-[10px] text-coral hover:underline w-12 text-right shrink-0 cursor-pointer flex items-center justify-end gap-0.5">
+                            <svg class="w-2.5 h-2.5 transition-transform" :class="page._expanded ? 'rotate-90' : ''" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                            <span x-text="page.keywords_count"></span>
+                          </button>
+
+                          <!-- Search Volume (sum) -->
+                          <span class="text-[10px] text-charcoal-dark w-16 text-right shrink-0"
+                                x-text="typeof page === 'object' && page.search_volume ? page.search_volume.toLocaleString() : '—'"></span>
+
+                          <!-- Traffic (sum) -->
+                          <span class="text-[10px] text-charcoal-dark w-14 text-right shrink-0"
+                                x-text="typeof page === 'object' && page.traffic ? page.traffic.toLocaleString() : '—'"></span>
+
+                          <!-- Avg Position -->
+                          <span class="text-[10px] w-12 text-right shrink-0 text-charcoal-dark"
+                                x-text="typeof page === 'object' && page.avg_position ? page.avg_position : '—'"></span>
+
+                          <!-- Move button -->
+                          <div class="w-14 text-right shrink-0">
+                            <button @click.stop="openMove('page', page, topic)"
+                                    class="text-[10px] text-charcoal-light hover:text-coral opacity-0 group-hover/url:opacity-100 transition-opacity px-1">
+                              Move →
+                            </button>
+                          </div>
+                        </div>
+
+                        <!-- Keywords for this page — SAME columns as parent, no extra headers -->
+                        <div x-show="page._expanded" x-transition class="mb-1">
+                          <template x-for="kw in sortPageKw(page.top_keywords || [])" :key="kw.keyword">
+                            <div class="flex items-center gap-2 text-[11px] py-0.5 pl-6 text-charcoal-light">
+                              <span class="truncate flex-1" x-text="kw.keyword"></span>
+                              <span class="w-12 text-right"></span>
+                              <span class="w-16 text-right" x-text="kw.volume ? kw.volume.toLocaleString() : '—'"></span>
+                              <span class="w-14 text-right" x-text="kw.traffic ? kw.traffic.toLocaleString() : '—'"></span>
+                              <span class="w-12 text-right" x-text="kw.position || '—'"></span>
+                              <span class="w-14"></span>
+                            </div>
+                          </template>
+                        </div>
+                      </div>
+                    </template>
+                  </div>
+                  <button x-show="topic.total_urls > 5 && !topic.allUrls"
+                          @click.stop={`fetch('/api/scans/${id}/topics/' + topic.id + '/urls').then(r=>r.json()).then(data => { topic.allUrls = data.urls; topic.top_urls = data.urls; })`}
+                          class="text-[10px] text-coral hover:underline cursor-pointer mt-1"
+                          x-text="'+ ' + (topic.total_urls - 5) + ' more pages'">
+                  </button>
+                  <button x-show="topic.allUrls"
+                          @click.stop="topic.top_urls = topic.allUrls.slice(0, 5); topic.allUrls = null;"
+                          class="text-[10px] text-charcoal-light hover:text-coral hover:underline cursor-pointer mt-1 transition-colors">
+                    Show less
+                  </button>
+                </div>
+                </div>
+
+              </div>
+            </div>
+          </template>
+        </div>
+
+        <!-- Footer -->
+        <div class="flex items-center justify-between">
+          <p class="text-sm text-charcoal-light">
+            <span x-text="topics.filter(t => t.active).length" class="font-medium text-charcoal-dark"></span> topics selected
+          </p>
+          {isReviewing ? (
+            <a href={`/app/scans/${id}?view=brands`} class="px-6 py-3 bg-coral text-white rounded-lg font-medium hover:bg-coral-dark hover:shadow-md hover:scale-[1.02] transition-all flex items-center gap-2">
+              Continue to Brands
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
+            </a>
+          ) : (
+            <button
+              @click="validateTopics()"
+              class="px-6 py-3 bg-coral text-white rounded-lg font-medium hover:bg-coral-dark hover:shadow-md hover:scale-[1.02] transition-all flex items-center gap-2"
+            >
+              Continue to Brands
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
+            </button>
+          )}
+        </div>
+
+        <!-- Move Modal (shared for page + keyword moves) -->
+        <div x-show="moveModal.open"
+             x-transition.opacity
+             @keydown.escape.window="closeMove()"
+             style="display:none;"
+             class="fixed inset-0 z-[100] flex items-start justify-center pt-24 px-4">
+          <div @click="closeMove()" class="absolute inset-0 bg-charcoal-dark/40 backdrop-blur-sm"></div>
+          <div class="relative bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[70vh] flex flex-col overflow-hidden">
+            <!-- Header -->
+            <div class="px-5 py-4 border-b border-gray-100">
+              <div class="flex items-start justify-between gap-4">
+                <div class="flex-1 min-w-0">
+                  <p class="text-[10px] text-charcoal-light uppercase tracking-wide font-medium mb-0.5">
+                    Move <span x-text="moveModal.type === 'keyword' ? 'keyword' : 'page'"></span> from <span class="text-charcoal-dark font-semibold" x-text="moveModal.sourceTopic ? moveModal.sourceTopic.name : ''"></span>
+                  </p>
+                  <h3 class="text-base font-semibold text-charcoal-dark truncate" x-text="moveModal.type === 'keyword' ? (moveModal.item ? moveModal.item.keyword : '') : (moveModal.item ? moveMdlPath(moveModal.item) : '')"></h3>
+                  <p class="text-xs text-charcoal-light mt-1" x-text="moveModal.open ? moveMdlMeta() : ''"></p>
+                </div>
+                <button @click="closeMove()" class="text-charcoal-light hover:text-charcoal-dark text-2xl leading-none px-1 -mt-1">&times;</button>
+              </div>
+            </div>
+            <!-- Search -->
+            <div class="px-5 py-3 border-b border-gray-100">
+              <div class="relative">
+                <svg class="w-4 h-4 absolute left-2.5 top-1/2 -translate-y-1/2 text-charcoal-light" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+                <input type="text"
+                       x-ref="moveSearch"
+                       x-model="moveModal.search"
+                       @keydown.arrow-down.prevent="moveModal.selectedIdx = Math.min(moveModal.selectedIdx + 1, moveFilteredTopics().length - 1)"
+                       @keydown.arrow-up.prevent="moveModal.selectedIdx = Math.max(moveModal.selectedIdx - 1, 0)"
+                       @keydown.enter.prevent="(() => { const t = moveFilteredTopics()[moveModal.selectedIdx]; if(t) executeMove(t); })()"
+                       placeholder="Search topics..."
+                       class="w-full pl-8 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-coral focus:ring-2 focus:ring-coral/20 transition-all" />
+              </div>
+            </div>
+            <!-- Topic list -->
+            <div class="overflow-y-auto flex-1" style="scrollbar-gutter: stable;">
+              <template x-for="(t, idx) in moveFilteredTopics()" :key="t.id">
+                <button @click="executeMove(t)"
+                        @mouseenter="moveModal.selectedIdx = idx"
+                        :class="idx === moveModal.selectedIdx ? 'bg-coral/10 border-l-2 border-coral' : 'border-l-2 border-transparent'"
+                        class="w-full px-5 py-3 flex items-center justify-between gap-3 text-left hover:bg-gray-50 transition-colors">
+                  <div class="flex-1 min-w-0">
+                    <p class="text-sm font-medium text-charcoal-dark truncate" x-text="t.name"></p>
+                    <p class="text-xs text-charcoal-light truncate mt-0.5" x-text="t.description || ''"></p>
+                  </div>
+                  <div class="text-right shrink-0">
+                    <p class="text-xs font-medium text-charcoal-dark" x-text="t.keyword_count + ' keywords'"></p>
+                    <p class="text-[10px] text-charcoal-light" x-text="t.total_urls + ' pages'"></p>
+                  </div>
+                </button>
+              </template>
+              <div x-show="moveFilteredTopics().length === 0" class="px-5 py-10 text-center text-sm text-charcoal-light">
+                No matching topics
+              </div>
+            </div>
+            <!-- Footer hints -->
+            <div class="px-5 py-2.5 border-t border-gray-100 bg-gray-50 text-[10px] text-charcoal-light flex items-center gap-4">
+              <span><kbd class="px-1.5 py-0.5 bg-white border border-gray-200 rounded text-charcoal-dark">↑↓</kbd> Navigate</span>
+              <span><kbd class="px-1.5 py-0.5 bg-white border border-gray-200 rounded text-charcoal-dark">⏎</kbd> Move</span>
+              <span><kbd class="px-1.5 py-0.5 bg-white border border-gray-200 rounded text-charcoal-dark">Esc</kbd> Cancel</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    )}
+
+    <!-- Brands ready (Gate 2) — or reviewing brands via ?view=brands -->
+    {(effectiveView === 'brands' || (!effectiveView && scan.status === 'brands_ready')) && brandsData && (
+      <div x-data={`scanBrands(${JSON.stringify(brandsData)}, '${id}')`}>
+        <h2 class="text-xl font-bold text-charcoal-dark mb-2">Classify brands for <span class="text-coral">{brandsData.scan_domain}</span></h2>
+        <p class="text-charcoal-light mb-2">We detected brands from your keywords and SEO competitors. Classify each so we know which brands to track in the AI scan.</p>
+        <p class="text-sm text-charcoal-light mb-6"><span class="font-medium text-charcoal-dark">Pick ONE focus brand</span> — it's the single brand whose visibility we'll measure. You can classify others as competitors or ignored.</p>
+
+        <!-- Focus brand missing banner -->
+        <div x-show="!hasFocus" class="mb-6 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 flex items-start gap-3">
+          <svg class="w-5 h-5 text-amber-500 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+          <div class="flex-1">
+            <p class="text-sm font-medium text-amber-900">No focus brand selected yet</p>
+            <p class="text-xs text-amber-800 mt-0.5">In the <span class="font-medium">My Brands</span> column, click the star (☆) next to one brand to make it the focus. This is the single brand whose AI visibility we'll measure.</p>
+          </div>
+        </div>
+
+        <!-- Unclassified inbox (flattened — parents + children rendered as pills) -->
+        <template x-if="flatUnclassified.length > 0">
+          <div class="bg-amber-50 border border-amber-200 rounded-xl p-5 mb-6"
+               @dragover.prevent="dragOver = 'unclassified'"
+               @dragleave="dragOver = null"
+               @drop.prevent="onDrop('unclassified')"
+               :class="dragOver === 'unclassified' ? 'ring-2 ring-amber-400' : ''">
+            <p class="text-sm font-medium text-amber-800 mb-3">
+              <span x-text="flatUnclassified.length"></span> new brands to classify — drag them below
+            </p>
+            <div class="flex flex-wrap gap-2">
+              <template x-for="brand in flatUnclassified" :key="brand.brand_id">
+                <div draggable="true"
+                     @dragstart="onDragStart($event, brand, 'unclassified')"
+                     class="group inline-flex items-center gap-2 bg-white border border-amber-300 rounded-full px-3 py-1.5 text-xs font-medium text-charcoal-dark cursor-move hover:border-amber-400 hover:shadow-sm transition-all">
+                  <svg class="w-3 h-3 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8h16M4 16h16"/></svg>
+                  <span x-text="brand.name"></span>
+                </div>
+              </template>
+            </div>
+          </div>
+        </template>
+
+        <!-- 3 column drag & drop -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-5 mb-6">
+
+          <!-- My Brands column (hierarchical: parents + nested children) -->
+          <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4 min-h-[240px] transition-all"
+               @dragover.prevent="dragOver = 'my_brand'"
+               @dragleave="dragOver = null"
+               @drop.prevent="onDrop('my_brand')"
+               :class="dragOver === 'my_brand' ? 'ring-2 ring-emerald-400 border-emerald-200' : ''">
+            <div class="flex items-center justify-between mb-3 pb-2 border-b border-gray-100">
+              <div class="flex items-center gap-2">
+                <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+                <h3 class="text-sm font-semibold text-charcoal-dark">My Brands</h3>
+              </div>
+              <span class="text-xs text-charcoal-light" x-text="myBrandsCount"></span>
+            </div>
+            <div class="space-y-2">
+              <template x-for="brand in buckets.my_brand" :key="brand.brand_id">
+                <div>
+                  <!-- Parent brand row (can be focus) -->
+                  <div draggable="true"
+                       @dragstart="onDragStart($event, brand, 'my_brand')"
+                       class="group flex items-center gap-2 bg-emerald-50/40 border border-emerald-100 rounded-lg px-3 py-2 cursor-move hover:border-emerald-300 hover:shadow-sm transition-all">
+                    <!-- Focus star toggle (roots only) -->
+                    <button @click.stop="toggleFocus(brand)"
+                            :title="brand.is_focus ? 'This is the focus brand (its product lines are auto-included)' : 'Make this the focus brand — its product lines below will count as mentions too'"
+                            class="shrink-0 text-lg leading-none transition-colors"
+                            :class="brand.is_focus ? 'text-yellow-400 hover:text-yellow-500' : 'text-gray-300 hover:text-yellow-400'">
+                      <span x-text="brand.is_focus ? '★' : '☆'"></span>
+                    </button>
+                    <div class="flex-1 min-w-0">
+                      <p class="text-sm font-medium text-charcoal-dark truncate" x-text="brand.name"></p>
+                      <p x-show="brand.domain" class="text-[10px] text-charcoal-light truncate" x-text="brand.domain"></p>
+                      <p x-show="brand.children && brand.children.length > 0"
+                         class="text-[10px] text-emerald-700 mt-0.5"
+                         x-text="brand.children.length + ' product line' + (brand.children.length > 1 ? 's' : '') + ' auto-included'"></p>
+                    </div>
+                    <button @click.stop="removeBrand(brand, 'my_brand')"
+                            title="Move to ignored"
+                            class="shrink-0 text-xs text-charcoal-light hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity px-1">
+                      &times;
+                    </button>
+                  </div>
+
+                  <!-- Children (product lines, indented, NOT focus-able) -->
+                  <template x-if="brand.children && brand.children.length > 0">
+                    <div class="ml-4 mt-1 space-y-1 border-l-2 border-emerald-200 pl-3">
+                      <template x-for="child in brand.children" :key="child.brand_id">
+                        <div draggable="true"
+                             @dragstart="onDragStart($event, child, 'my_brand')"
+                             class="group flex items-center gap-2 bg-emerald-50/20 border border-emerald-50 rounded-md px-2 py-1 cursor-move hover:border-emerald-200 transition-all">
+                          <span class="text-[10px] text-emerald-600 shrink-0">↳</span>
+                          <div class="flex-1 min-w-0">
+                            <p class="text-xs text-charcoal-dark truncate" x-text="child.name"></p>
+                          </div>
+                          <button @click.stop="removeBrand(child, 'my_brand')"
+                                  title="Move to ignored (will detach from parent)"
+                                  class="shrink-0 text-[10px] text-charcoal-light hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
+                            &times;
+                          </button>
+                        </div>
+                      </template>
+                    </div>
+                  </template>
+                </div>
+              </template>
+              <p x-show="buckets.my_brand.length === 0" class="text-xs text-charcoal-light italic text-center py-6">Drag brands here</p>
+            </div>
+          </div>
+
+          <!-- Competitors column (hierarchical) -->
+          <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4 min-h-[240px] transition-all"
+               @dragover.prevent="dragOver = 'competitor'"
+               @dragleave="dragOver = null"
+               @drop.prevent="onDrop('competitor')"
+               :class="dragOver === 'competitor' ? 'ring-2 ring-red-400 border-red-200' : ''">
+            <div class="flex items-center justify-between mb-3 pb-2 border-b border-gray-100">
+              <div class="flex items-center gap-2">
+                <span class="w-2 h-2 rounded-full bg-red-500"></span>
+                <h3 class="text-sm font-semibold text-charcoal-dark">Competitors</h3>
+              </div>
+              <span class="text-xs text-charcoal-light" x-text="bucketCount('competitor')"></span>
+            </div>
+            <div class="space-y-2">
+              <template x-for="brand in buckets.competitor" :key="brand.brand_id">
+                <div>
+                  <!-- Parent -->
+                  <div draggable="true"
+                       @dragstart="onDragStart($event, brand, 'competitor')"
+                       class="group flex items-center gap-2 bg-red-50/30 border border-red-100 rounded-lg px-3 py-2 cursor-move hover:border-red-300 hover:shadow-sm transition-all">
+                    <div class="flex-1 min-w-0">
+                      <p class="text-sm font-medium text-charcoal-dark truncate" x-text="brand.name"></p>
+                      <p x-show="brand.domain" class="text-[10px] text-charcoal-light truncate" x-text="brand.domain"></p>
+                      <p x-show="brand.children && brand.children.length > 0"
+                         class="text-[10px] text-red-700 mt-0.5"
+                         x-text="brand.children.length + ' product line' + (brand.children.length > 1 ? 's' : '')"></p>
+                    </div>
+                    <button @click.stop="removeBrand(brand, 'competitor')"
+                            title="Move to ignored"
+                            class="shrink-0 text-xs text-charcoal-light hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity px-1">
+                      &times;
+                    </button>
+                  </div>
+                  <!-- Children (gammes) -->
+                  <template x-if="brand.children && brand.children.length > 0">
+                    <div class="ml-4 mt-1 space-y-1 border-l-2 border-red-200 pl-3">
+                      <template x-for="child in brand.children" :key="child.brand_id">
+                        <div draggable="true"
+                             @dragstart="onDragStart($event, child, 'competitor')"
+                             class="group flex items-center gap-2 bg-red-50/10 border border-red-50 rounded-md px-2 py-1 cursor-move hover:border-red-200 transition-all">
+                          <span class="text-[10px] text-red-600 shrink-0">↳</span>
+                          <div class="flex-1 min-w-0">
+                            <p class="text-xs text-charcoal-dark truncate" x-text="child.name"></p>
+                          </div>
+                          <button @click.stop="removeBrand(child, 'competitor')"
+                                  title="Move to ignored"
+                                  class="shrink-0 text-[10px] text-charcoal-light hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
+                            &times;
+                          </button>
+                        </div>
+                      </template>
+                    </div>
+                  </template>
+                </div>
+              </template>
+              <p x-show="buckets.competitor.length === 0" class="text-xs text-charcoal-light italic text-center py-6">Drag brands here</p>
+            </div>
+          </div>
+
+          <!-- Ignored column (hierarchical) -->
+          <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4 min-h-[240px] transition-all"
+               @dragover.prevent="dragOver = 'ignored'"
+               @dragleave="dragOver = null"
+               @drop.prevent="onDrop('ignored')"
+               :class="dragOver === 'ignored' ? 'ring-2 ring-gray-400 border-gray-300' : ''">
+            <div class="flex items-center justify-between mb-3 pb-2 border-b border-gray-100">
+              <div class="flex items-center gap-2">
+                <span class="w-2 h-2 rounded-full bg-gray-400"></span>
+                <h3 class="text-sm font-semibold text-charcoal-dark">Ignored</h3>
+              </div>
+              <span class="text-xs text-charcoal-light" x-text="bucketCount('ignored')"></span>
+            </div>
+            <div class="space-y-2">
+              <template x-for="brand in buckets.ignored" :key="brand.brand_id">
+                <div>
+                  <div draggable="true"
+                       @dragstart="onDragStart($event, brand, 'ignored')"
+                       class="group flex items-center gap-2 bg-gray-50 border border-gray-100 rounded-lg px-3 py-2 cursor-move hover:border-gray-300 hover:shadow-sm transition-all opacity-70">
+                    <div class="flex-1 min-w-0">
+                      <p class="text-sm font-medium text-charcoal-dark truncate" x-text="brand.name"></p>
+                      <p x-show="brand.domain" class="text-[10px] text-charcoal-light truncate" x-text="brand.domain"></p>
+                      <p x-show="brand.children && brand.children.length > 0"
+                         class="text-[10px] text-gray-500 mt-0.5"
+                         x-text="brand.children.length + ' product line' + (brand.children.length > 1 ? 's' : '')"></p>
+                    </div>
+                  </div>
+                  <template x-if="brand.children && brand.children.length > 0">
+                    <div class="ml-4 mt-1 space-y-1 border-l-2 border-gray-200 pl-3">
+                      <template x-for="child in brand.children" :key="child.brand_id">
+                        <div draggable="true"
+                             @dragstart="onDragStart($event, child, 'ignored')"
+                             class="group flex items-center gap-2 bg-gray-50/60 border border-gray-100 rounded-md px-2 py-1 cursor-move hover:border-gray-200 transition-all opacity-70">
+                          <span class="text-[10px] text-gray-500 shrink-0">↳</span>
+                          <div class="flex-1 min-w-0">
+                            <p class="text-xs text-charcoal-light truncate" x-text="child.name"></p>
+                          </div>
+                        </div>
+                      </template>
+                    </div>
+                  </template>
+                </div>
+              </template>
+              <p x-show="buckets.ignored.length === 0" class="text-xs text-charcoal-light italic text-center py-6">Drag brands here</p>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Footer with Continue button -->
+        <div class="flex items-center justify-between mt-6">
+          <p class="text-sm text-charcoal-light">
+            Focus: <span class="font-medium text-charcoal-dark" x-text="getFocusName()"></span>
+          </p>
+          {isReviewing ? (
+            <a href={`/app/scans/${id}`} class="px-6 py-3 bg-coral text-white rounded-lg font-medium hover:bg-coral-dark hover:shadow-md hover:scale-[1.02] transition-all flex items-center gap-2">
+              Back to current step
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
+            </a>
+          ) : (
+            <button @click="validateBrands()"
+                    :disabled="!hasFocus || myBrandsCount === 0 || flatUnclassified.length > 0"
+                    class="px-6 py-3 bg-coral text-white rounded-lg font-medium hover:bg-coral-dark hover:shadow-md hover:scale-[1.02] transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 disabled:hover:shadow-none">
+              Continue to Personas
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
+            </button>
+          )}
+        </div>
+      </div>
+    )}
+
+    <!-- Scanning in progress -->
+    {!effectiveView && scan.status === 'scanning' && (
+      <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-8 text-center">
+        <h2 class="text-xl font-bold text-charcoal-dark mb-4">Scanning {scan.domain}</h2>
+        <div class="w-full bg-gray-200 rounded-full h-3 mb-4 max-w-md mx-auto">
+          <div class="bg-coral h-3 rounded-full transition-all" style={`width: ${scan.progress_pct || 0}%`}></div>
+        </div>
+        <p class="text-charcoal-dark font-medium mb-1">{scan.progress_pct || 0}%</p>
+        <p class="text-sm text-charcoal-light mb-4">{scan.progress_message || 'Running AI tests...'}</p>
+        <p class="text-xs text-charcoal-light">You can leave this page. We'll keep scanning.</p>
+        <meta http-equiv="refresh" content="3" />
+      </div>
+    )}
+
+    <!-- Personas ready (Gate 3) — or reviewing personas via ?view=personas -->
+    {(effectiveView === 'personas' || (!effectiveView && scan.status === 'personas_ready')) && personasData && (
+      <div x-data={`personasWizard(${JSON.stringify(personasData)}, '${id}', ${JSON.stringify((scan.config || {}).providers || ['openai'])})`}>
+        <h2 class="text-xl font-bold text-charcoal-dark mb-2">Personas & Questions on <span class="text-coral">{scan.domain}</span></h2>
+        <p class="text-charcoal-light mb-2">For each topic, we generated personas — real people who'd ask questions about it — and the typical questions they'd ask an AI.</p>
+        <p class="text-sm text-charcoal-light mb-6"><span class="font-medium text-charcoal-dark">Review and toggle off</span> what you don't need. Each active question counts as 1 scan credit when you launch.</p>
+
+        <!-- Topic cards (same UX as Gate 1 Topics screen) -->
+        <div class="space-y-2 mb-6">
+          <template x-for="(topic, idx) in topics" :key="topic.topic_id">
+            <div class="bg-white rounded-xl shadow-sm border border-gray-100 transition-all"
+                 :class="(topic.stats.active_personas === 0 || topic.stats.active_questions === 0) ? 'opacity-60' : ''">
+
+              <!-- Topic header (clickable, toggle expanded) -->
+              <div class="flex items-center gap-4 px-5 py-3.5 cursor-pointer hover:bg-gray-50 transition-colors rounded-xl"
+                   @click="expandedTopic = expandedTopic === idx ? null : idx">
+
+                <!-- Bulk toggle (cascade to all personas in topic) -->
+                <button @click.stop="bulkToggleTopic(topic)"
+                  :class="topic.stats.active_personas > 0 ? 'bg-coral' : 'bg-gray-300'"
+                  class="relative w-10 h-6 rounded-full transition-colors shrink-0"
+                  :title="topic.stats.active_personas > 0 ? 'Disable all personas in this topic' : 'Enable all personas in this topic'">
+                  <span :class="topic.stats.active_personas > 0 ? 'translate-x-4' : 'translate-x-0'"
+                    class="absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform"></span>
+                </button>
+
+                <!-- Topic name + stats -->
+                <div class="flex-1 min-w-0">
+                  <p class="text-sm font-medium text-charcoal-dark truncate" x-text="topic.topic_name"></p>
+                  <p class="text-xs text-charcoal-light">
+                    <span x-text="topic.stats.active_personas + '/' + topic.stats.total_personas"></span> personas ·
+                    <span x-text="topic.stats.active_questions + '/' + topic.stats.total_questions"></span> questions
+                  </p>
+                </div>
+
+                <!-- Warning icon when topic has nothing active -->
+                <span x-show="topic.stats.active_personas === 0 || topic.stats.active_questions === 0"
+                      class="shrink-0 text-amber-500" title="This topic won't be scanned">
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+                </span>
+
+                <!-- Expand chevron -->
+                <svg class="w-4 h-4 text-gray-400 transition-transform shrink-0"
+                     :class="expandedTopic === idx ? 'rotate-180' : ''"
+                     fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                </svg>
+              </div>
+
+              <!-- Expanded content: persona list -->
+              <div x-show="expandedTopic === idx" x-transition class="border-t border-gray-100 px-5 py-4 space-y-2">
+                <template x-for="persona in topic.personas" :key="persona.id">
+                  <div class="border border-gray-100 rounded-lg transition-all"
+                       :class="!persona.is_active ? 'opacity-50 bg-gray-50' : 'bg-white'">
+
+                    <!-- Persona row (clickable, toggle expanded) -->
+                    <div class="group flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-gray-50 transition-colors rounded-lg"
+                         @click="expandedPersona[persona.id] = !expandedPersona[persona.id]">
+
+                      <!-- Toggle -->
+                      <button @click.stop="togglePersona(topic, persona)"
+                        :class="persona.is_active ? 'bg-coral' : 'bg-gray-300'"
+                        class="relative w-9 h-5 rounded-full transition-colors shrink-0">
+                        <span :class="persona.is_active ? 'translate-x-4' : 'translate-x-0'"
+                          class="absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform"></span>
+                      </button>
+
+                      <!-- Avatar (dicebear) -->
+                      <img :src="'https://api.dicebear.com/9.x/personas/svg?seed=' + encodeURIComponent(persona.name) + '&backgroundColor=b6e3f4,c0aede,d1d4f9,ffd5dc,ffdfbf'"
+                           alt="" class="w-9 h-9 rounded-full border border-gray-200 shrink-0" />
+
+                      <!-- Name (inline edit on click) -->
+                      <div class="flex-1 min-w-0">
+                        <template x-if="editingPersonaId !== persona.id">
+                          <div class="flex items-center gap-1">
+                            <p class="text-sm font-medium text-charcoal-dark truncate" x-text="persona.name"></p>
+                            <button @click.stop="startEditPersona(persona)"
+                                    class="text-gray-400 hover:text-coral opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+                                    title="Rename persona">
+                              <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
+                            </button>
+                          </div>
+                        </template>
+                        <template x-if="editingPersonaId === persona.id">
+                          <input type="text" x-model="editingPersonaName"
+                                 @click.stop
+                                 @keydown.enter="savePersonaName(topic, persona)"
+                                 @keydown.escape="editingPersonaId = null"
+                                 @blur="savePersonaName(topic, persona)"
+                                 x-init="$nextTick(() => $el.focus())"
+                                 class="text-sm font-medium text-charcoal-dark w-full border border-coral rounded px-1.5 py-0.5 outline-none" />
+                        </template>
+                        <p class="text-xs text-charcoal-light truncate">
+                          <span x-text="(persona.data && (persona.data.segment_principal || persona.data.profession || persona.data.contexte)) || ''"></span>
+                        </p>
+                      </div>
+
+                      <!-- Active questions count -->
+                      <div class="shrink-0 text-right">
+                        <p class="text-xs font-medium"
+                           :class="persona.stats.active_questions === 0 ? 'text-red-500' : (persona.stats.active_questions < persona.stats.total_questions ? 'text-coral' : 'text-charcoal-dark')">
+                          <span x-text="persona.stats.active_questions + '/' + persona.stats.total_questions"></span>
+                        </p>
+                        <p class="text-[10px] text-charcoal-light">questions</p>
+                      </div>
+
+                      <!-- Delete persona -->
+                      <button @click.stop="deletePersona(topic, persona)"
+                              class="text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+                              title="Delete persona">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                      </button>
+
+                      <!-- Expand chevron -->
+                      <svg class="w-4 h-4 text-gray-400 transition-transform shrink-0"
+                           :class="expandedPersona[persona.id] ? 'rotate-180' : ''"
+                           fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                      </svg>
+                    </div>
+
+                    <!-- Expanded: questions grouped by type (Miller's Law: ~4 groups vs 15 flat items) -->
+                    <div x-show="expandedPersona[persona.id]" x-transition class="border-t border-gray-100 px-3 py-3 space-y-2">
+                      <!-- Generating spinner -->
+                      <div x-show="generatingPersonaId === persona.id" class="flex items-center gap-2 py-3 justify-center">
+                        <svg class="animate-spin h-4 w-4 text-coral" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                        <span class="text-xs text-charcoal-light">Generating 15 questions...</span>
+                      </div>
+                      <!-- Law of Common Region: each type group in its own container -->
+                      <template x-for="group in groupQuestionsByType(persona.questions)" :key="group.type">
+                        <div class="rounded-lg border border-gray-100 overflow-hidden">
+                          <!-- Type group header (collapsible) -->
+                          <button @click.stop="toggleTypeGroup(persona.id, group.type)"
+                                  class="w-full flex items-center gap-2 px-2.5 py-2 text-left hover:bg-gray-50 transition-colors">
+                            <svg class="w-3 h-3 text-gray-400 transition-transform shrink-0"
+                                 :class="isTypeGroupOpen(persona.id, group.type) ? 'rotate-90' : ''"
+                                 fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7"/>
+                            </svg>
+                            <span class="text-[10px] font-medium px-1.5 py-0.5 rounded shrink-0 uppercase tracking-wide"
+                                  :class="{
+                                    'bg-blue-50 text-blue-600': group.type === 'basique',
+                                    'bg-purple-50 text-purple-600': group.type === 'technique',
+                                    'bg-red-50 text-red-600': group.type === 'urgente',
+                                    'bg-amber-50 text-amber-600': group.type === 'comparative',
+                                    'bg-emerald-50 text-emerald-600': !['basique','technique','urgente','comparative'].includes(group.type)
+                                  }"
+                                  x-text="group.type"></span>
+                            <span class="text-[11px] text-charcoal-light flex-1"
+                                  x-text="group.activeCount + '/' + group.questions.length + ' active'"></span>
+                            <!-- Bulk toggle type group -->
+                            <button @click.stop="bulkToggleTypeGroup(persona, group)"
+                                    :class="group.activeCount > 0 ? 'bg-coral' : 'bg-gray-300'"
+                                    class="relative w-7 h-3.5 rounded-full transition-colors shrink-0"
+                                    :title="group.activeCount > 0 ? 'Disable all ' + group.type : 'Enable all ' + group.type">
+                              <span :class="group.activeCount > 0 ? 'translate-x-3.5' : 'translate-x-0'"
+                                    class="absolute top-0.5 left-0.5 w-2.5 h-2.5 bg-white rounded-full shadow transition-transform"></span>
+                            </button>
+                          </button>
+                          <!-- Questions in group -->
+                          <div x-show="isTypeGroupOpen(persona.id, group.type)" x-transition
+                               class="border-t border-gray-50 px-2.5 py-1.5 space-y-0.5 bg-gray-50/30">
+                            <template x-for="q in group.questions" :key="q.id">
+                              <div class="group/q flex items-start gap-2 py-1 hover:bg-white rounded px-1.5 -mx-1 transition-colors">
+                                <!-- Toggle -->
+                                <button @click.stop="toggleQuestion(persona, q)"
+                                  :class="q.is_active ? 'bg-coral' : 'bg-gray-300'"
+                                  class="relative w-8 h-4 rounded-full transition-colors shrink-0 mt-0.5">
+                                  <span :class="q.is_active ? 'translate-x-4' : 'translate-x-0'"
+                                    class="absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full shadow transition-transform"></span>
+                                </button>
+                                <!-- Question text (inline edit on double-click) -->
+                                <template x-if="editingQuestionId !== q.id">
+                                  <span class="text-xs text-charcoal-dark flex-1 min-w-0 cursor-text"
+                                        :class="!q.is_active ? 'line-through text-charcoal-light' : ''"
+                                        @dblclick.stop="startEditQuestion(q)"
+                                        x-text="q.question"></span>
+                                </template>
+                                <template x-if="editingQuestionId === q.id">
+                                  <input type="text" x-model="editingQuestionText"
+                                         @click.stop
+                                         @keydown.enter="saveQuestionText(persona, q)"
+                                         @keydown.escape="editingQuestionId = null"
+                                         @blur="saveQuestionText(persona, q)"
+                                         x-init="$nextTick(() => $el.focus())"
+                                         class="text-xs text-charcoal-dark flex-1 min-w-0 border border-coral rounded px-1.5 py-0.5 outline-none" />
+                                </template>
+                                <!-- Delete question -->
+                                <button @click.stop="deleteQuestion(persona, q)"
+                                        class="text-gray-400 hover:text-red-500 opacity-0 group-hover/q:opacity-100 transition-opacity shrink-0 mt-0.5"
+                                        title="Delete question">
+                                  <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                                </button>
+                              </div>
+                            </template>
+                          </div>
+                        </div>
+                      </template>
+                      <p x-show="persona.questions.length === 0 && generatingPersonaId !== persona.id" class="text-xs text-charcoal-light italic text-center py-4">
+                        No questions for this persona
+                      </p>
+                      <!-- Add question button -->
+                      <button @click.stop="addQuestion(persona)"
+                              class="flex items-center gap-1 text-xs text-charcoal-light hover:text-coral transition-colors mt-1 px-1">
+                        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                        Add question
+                      </button>
+                    </div>
+                  </div>
+                </template>
+
+                <p x-show="topic.personas.length === 0" class="text-xs text-charcoal-light italic text-center py-4">
+                  No personas generated for this topic
+                </p>
+                <!-- Add persona button -->
+                <button @click.stop="addPersona(topic)"
+                        class="flex items-center gap-1.5 text-xs text-charcoal-light hover:text-coral transition-colors px-1 py-2">
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                  Add persona
+                </button>
+              </div>
+            </div>
+          </template>
+
+          <p x-show="topics.length === 0 && orphanPersonas.length === 0" class="text-sm text-charcoal-light text-center py-8">
+            No topics with personas yet. Go back to Topics to validate some.
+          </p>
+
+          <!-- Orphan personas (not linked to any topic — segment_principal didn't match) -->
+          <template x-if="orphanPersonas.length > 0">
+            <div class="bg-white rounded-xl shadow-sm border border-amber-200 transition-all">
+              <div class="flex items-center gap-4 px-5 py-3.5 cursor-pointer hover:bg-gray-50 transition-colors rounded-xl"
+                   @click="expandedTopic = expandedTopic === 'orphans' ? null : 'orphans'">
+                <div class="flex-1 min-w-0">
+                  <p class="text-sm font-medium text-charcoal-dark">Unassigned personas</p>
+                  <p class="text-xs text-amber-700">
+                    <span x-text="orphanPersonas.length"></span> personas not linked to a specific topic
+                  </p>
+                </div>
+                <svg class="w-4 h-4 text-gray-400 transition-transform shrink-0"
+                     :class="expandedTopic === 'orphans' ? 'rotate-180' : ''"
+                     fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                </svg>
+              </div>
+              <div x-show="expandedTopic === 'orphans'" x-transition class="border-t border-gray-100 px-5 py-4 space-y-2">
+                <template x-for="persona in orphanPersonas" :key="persona.id">
+                  <div class="border border-gray-100 rounded-lg transition-all"
+                       :class="!persona.is_active ? 'opacity-50 bg-gray-50' : 'bg-white'">
+                    <div class="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-gray-50 transition-colors rounded-lg"
+                         @click="expandedPersona[persona.id] = !expandedPersona[persona.id]">
+                      <button @click.stop="togglePersona({personas: orphanPersonas}, persona)"
+                        :class="persona.is_active ? 'bg-coral' : 'bg-gray-300'"
+                        class="relative w-9 h-5 rounded-full transition-colors shrink-0">
+                        <span :class="persona.is_active ? 'translate-x-4' : 'translate-x-0'"
+                          class="absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform"></span>
+                      </button>
+                      <img :src="'https://api.dicebear.com/9.x/personas/svg?seed=' + encodeURIComponent(persona.name) + '&backgroundColor=b6e3f4,c0aede,d1d4f9,ffd5dc,ffdfbf'"
+                           alt="" class="w-9 h-9 rounded-full border border-gray-200 shrink-0" />
+                      <div class="flex-1 min-w-0">
+                        <p class="text-sm font-medium text-charcoal-dark truncate" x-text="persona.name"></p>
+                        <p class="text-xs text-charcoal-light truncate"
+                           x-text="(persona.data && (persona.data.segment_principal || persona.data.profession || persona.data.contexte)) || ''"></p>
+                      </div>
+                      <div class="shrink-0 text-right">
+                        <p class="text-xs font-medium"
+                           :class="persona.stats.active_questions === 0 ? 'text-red-500' : 'text-charcoal-dark'">
+                          <span x-text="persona.stats.active_questions + '/' + persona.stats.total_questions"></span>
+                        </p>
+                        <p class="text-[10px] text-charcoal-light">questions</p>
+                      </div>
+                      <svg class="w-4 h-4 text-gray-400 transition-transform shrink-0"
+                           :class="expandedPersona[persona.id] ? 'rotate-180' : ''"
+                           fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                      </svg>
+                    </div>
+                    <div x-show="expandedPersona[persona.id]" x-transition class="border-t border-gray-100 px-3 py-3 space-y-1.5">
+                      <template x-for="q in persona.questions" :key="q.id">
+                        <div class="flex items-start gap-2 py-1 hover:bg-gray-50 rounded px-1 -mx-1 transition-colors">
+                          <button @click.stop="toggleQuestion(persona, q)"
+                            :class="q.is_active ? 'bg-coral' : 'bg-gray-300'"
+                            class="relative w-8 h-4 rounded-full transition-colors shrink-0 mt-0.5">
+                            <span :class="q.is_active ? 'translate-x-4' : 'translate-x-0'"
+                              class="absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full shadow transition-transform"></span>
+                          </button>
+                          <span class="text-[10px] font-medium px-1.5 py-0.5 rounded mt-0.5 shrink-0 uppercase tracking-wide"
+                                :class="{
+                                  'bg-blue-50 text-blue-600': q.type_question === 'basique',
+                                  'bg-purple-50 text-purple-600': q.type_question === 'technique',
+                                  'bg-red-50 text-red-600': q.type_question === 'urgente',
+                                  'bg-amber-50 text-amber-600': q.type_question === 'comparative',
+                                  'bg-emerald-50 text-emerald-600': !['basique','technique','urgente','comparative'].includes(q.type_question)
+                                }"
+                                x-text="q.type_question || 'validation'"></span>
+                          <span class="text-xs text-charcoal-dark flex-1 min-w-0" :class="!q.is_active ? 'line-through text-charcoal-light' : ''" x-text="q.question"></span>
+                        </div>
+                      </template>
+                    </div>
+                  </div>
+                </template>
+              </div>
+            </div>
+          </template>
+        </div>
+
+        <!-- AI Providers selection (Hick's Law: 2 clear choices, Von Restorff: active = coral) -->
+        <div class="bg-white rounded-xl border border-gray-100 p-5 mb-4">
+          <h3 class="text-sm font-semibold text-charcoal-dark mb-1">AI Providers</h3>
+          <p class="text-xs text-charcoal-light mb-4">Choose which AI models to test. Each question is tested against every selected provider.</p>
+          <div class="flex items-center gap-3 mb-3">
+            <!-- OpenAI pill -->
+            <button @click="toggleProvider('openai')"
+                    :class="selectedProviders.includes('openai')
+                      ? 'bg-coral text-white shadow-sm'
+                      : 'bg-gray-100 text-charcoal-light hover:bg-gray-200'"
+                    class="px-4 py-2.5 rounded-lg text-sm font-medium transition-all flex items-center gap-2">
+              <span class="w-2 h-2 rounded-full" :class="selectedProviders.includes('openai') ? 'bg-white' : 'bg-gray-300'"></span>
+              OpenAI <span class="text-[10px] opacity-75">(GPT-4.1-mini)</span>
+            </button>
+            <!-- Gemini pill -->
+            <button @click="toggleProvider('gemini')"
+                    :class="selectedProviders.includes('gemini')
+                      ? 'bg-coral text-white shadow-sm'
+                      : 'bg-gray-100 text-charcoal-light hover:bg-gray-200'"
+                    class="px-4 py-2.5 rounded-lg text-sm font-medium transition-all flex items-center gap-2">
+              <span class="w-2 h-2 rounded-full" :class="selectedProviders.includes('gemini') ? 'bg-white' : 'bg-gray-300'"></span>
+              Gemini <span class="text-[10px] opacity-75">(2.5 Flash)</span>
+            </button>
+            <span x-show="savingProviders" class="text-[10px] text-charcoal-light">Saving...</span>
+          </div>
+          <p class="text-xs text-charcoal-light">
+            <span x-text="totals.active_questions"></span> questions &times;
+            <span x-text="selectedProviders.length"></span> provider<span x-show="selectedProviders.length > 1">s</span>
+            = <span class="font-medium text-charcoal-dark" x-text="totals.active_questions * selectedProviders.length"></span> API calls
+            (<span x-text="totals.active_questions"></span> credit<span x-show="totals.active_questions !== 1">s</span>)
+          </p>
+        </div>
+
+        <!-- Footer with live count, cost estimate, Launch button -->
+        <div class="bg-white rounded-xl border border-gray-100 p-5 flex items-center justify-between gap-4">
+          <div class="flex-1 min-w-0">
+            <p class="text-sm text-charcoal-dark font-medium">
+              <span x-text="totals.active_personas"></span> personas ·
+              <span x-text="totals.active_questions"></span> questions ·
+              <span x-text="selectedProviders.length"></span> provider<span x-show="selectedProviders.length > 1">s</span>
+            </p>
+            <p class="text-xs text-charcoal-light mt-0.5">
+              <span class="font-medium text-charcoal-dark" x-text="totals.active_questions * selectedProviders.length"></span> API calls ·
+              <span class="font-medium text-charcoal-dark" x-text="totals.active_questions"></span> credit<span x-show="totals.active_questions !== 1">s</span>
+            </p>
+          </div>
+          {isReviewing ? (
+            <a href={`/app/scans/${id}`} class="px-6 py-3 bg-coral text-white rounded-lg font-medium hover:bg-coral-dark hover:shadow-md hover:scale-[1.02] transition-all flex items-center gap-2 shrink-0">
+              Back to current step
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
+            </a>
+          ) : (
+            <button @click="launchScan()"
+                    :disabled="!canLaunch"
+                    :title="canLaunch ? 'Launch AI Scan with the current setup' : 'Need at least 1 active persona and 1 active question'"
+                    class="px-6 py-3 bg-coral text-white rounded-lg font-medium hover:bg-coral-dark hover:shadow-md hover:scale-[1.02] transition-all flex items-center gap-2 shrink-0 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 disabled:hover:shadow-none">
+              Launch AI Scan
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
+            </button>
+          )}
+        </div>
+      </div>
+    )}
+
+    <!-- Failed -->
+    {scan.status === 'failed' && (
+      <div class="bg-red-50 border border-red-200 rounded-xl p-6">
+        <h2 class="text-lg font-bold text-red-700 mb-2">Scan failed</h2>
+        <p class="text-sm text-red-600">{scan.error_message || 'An unexpected error occurred.'}</p>
+        <a href="/app/scans/new" class="inline-block mt-4 px-4 py-2 bg-coral text-white rounded-lg text-sm font-medium hover:bg-coral-dark hover:shadow-md hover:scale-[1.02]">
+          Try again
+        </a>
+      </div>
+    )}
+  </div>
+
+  <script is:inline>
+    document.addEventListener('alpine:init', () => {
+      window.Alpine.data('topicsWizard', (initialTopics, scanId) => ({
+        topics: initialTopics,
+        expanded: null,
+        scanId: scanId,
+        moveModal: { open: false, type: '', item: null, sourceTopic: null, search: '', selectedIdx: 0 },
+
+        openMove(type, item, sourceTopic) {
+          this.moveModal.open = true;
+          this.moveModal.type = type;
+          this.moveModal.item = item;
+          this.moveModal.sourceTopic = sourceTopic;
+          this.moveModal.search = '';
+          this.moveModal.selectedIdx = 0;
+          this.$nextTick(() => {
+            if (this.$refs.moveSearch) this.$refs.moveSearch.focus();
+          });
+        },
+
+        closeMove() {
+          this.moveModal.open = false;
+        },
+
+        moveFilteredTopics() {
+          if (!this.moveModal.sourceTopic) return [];
+          const q = (this.moveModal.search || '').toLowerCase();
+          const srcId = this.moveModal.sourceTopic.id;
+          return this.topics
+            .filter(t => t.id !== srcId && t.active)
+            .filter(t => !q || (t.name || '').toLowerCase().includes(q) || (t.description || '').toLowerCase().includes(q));
+        },
+
+        moveMdlPath(page) {
+          const u = typeof page === 'string' ? page : page.url;
+          try {
+            return new URL(u.startsWith('http') ? u : 'https://' + u).pathname;
+          } catch (e) {
+            return u;
+          }
+        },
+
+        moveMdlMeta() {
+          const m = this.moveModal;
+          if (!m.item) return '';
+          if (m.type === 'keyword') {
+            const pages = m.item.pages_count || 0;
+            const traffic = (m.item.traffic || 0).toLocaleString();
+            const pos = m.item.position || '—';
+            return pages + ' page' + (pages > 1 ? 's' : '') + ' · ' + traffic + ' traffic · position ' + pos;
+          } else {
+            const kwC = m.item.keywords_count || 0;
+            const traffic = (m.item.traffic || 0).toLocaleString();
+            return kwC + ' keywords · ' + traffic + ' traffic';
+          }
+        },
+
+        executeMove(targetTopic) {
+          const { type, item, sourceTopic } = this.moveModal;
+          if (!targetTopic || !sourceTopic) return;
+          const src = sourceTopic;
+          const tgt = targetTopic;
+          const sid = this.scanId;
+
+          if (type === 'keyword') {
+            const k = item.keyword;
+            const kwObj = { ...item };
+            fetch('/api/scans/' + sid + '/topics/' + tgt.id + '/move-keyword', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ keyword: k, source_topic_id: src.id }),
+            })
+              .then(r => r.json())
+              .then(data => {
+                src.top_keywords = src.top_keywords.filter(x => x.keyword !== k);
+                if (src.allKeywords) src.allKeywords = src.allKeywords.filter(x => x.keyword !== k);
+                src.keyword_count = data.source_count;
+                tgt.keyword_count = data.target_count;
+                src.total_urls = data.source_total_urls;
+                tgt.total_urls = data.target_total_urls;
+                tgt.top_keywords = [...tgt.top_keywords, kwObj];
+                if (tgt.allKeywords) tgt.allKeywords = [...tgt.allKeywords, kwObj];
+                return Promise.all([
+                  fetch('/api/scans/' + sid + '/topics/' + src.id + '/urls').then(r => r.json()),
+                  fetch('/api/scans/' + sid + '/topics/' + tgt.id + '/urls').then(r => r.json()),
+                ]);
+              })
+              .then(([srcData, tgtData]) => {
+                src.top_urls = (srcData.urls || []).slice(0, 5);
+                src.allUrls = src.allUrls ? srcData.urls : null;
+                tgt.top_urls = (tgtData.urls || []).slice(0, 5);
+                tgt.allUrls = tgt.allUrls ? tgtData.urls : null;
+              })
+              .catch(e => console.error('Move keyword failed:', e));
+          } else if (type === 'page') {
+            const u = typeof item === 'string' ? item : item.url;
+            const moved = typeof item === 'object' ? { ...item } : item;
+            fetch('/api/scans/' + sid + '/topics/' + tgt.id + '/move-url', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ url: u }),
+            })
+              .then(r => r.json())
+              .then(data => {
+                src.top_urls = src.top_urls.filter(p => (typeof p === 'string' ? p : p.url) !== u);
+                if (src.allUrls) src.allUrls = src.allUrls.filter(p => (typeof p === 'string' ? p : p.url) !== u);
+                src.total_urls--;
+                if (data.source_counts && data.source_counts[src.id] !== undefined) {
+                  src.keyword_count = data.source_counts[src.id];
+                }
+                tgt.top_urls = [...tgt.top_urls, moved];
+                if (tgt.allUrls) tgt.allUrls = [...tgt.allUrls, moved];
+                tgt.total_urls++;
+                tgt.keyword_count = data.target_count;
+              })
+              .catch(e => console.error('Move page failed:', e));
+          }
+          this.closeMove();
+        },
+
+        async toggleTopic(topic) {
+          topic.active = !topic.active;
+          try {
+            const res = await fetch('/api/scans/' + this.scanId + '/topics/' + topic.id, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ is_active: topic.active }),
+            });
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+          } catch (e) {
+            topic.active = !topic.active; // revert
+            console.error('Toggle topic failed:', e);
+          }
+        },
+
+        async validateTopics() {
+          const inactive = this.topics.filter(t => !t.active);
+          console.log('[topicsWizard] Deactivating ' + inactive.length + '/' + this.topics.length + ' topics');
+          for (const t of inactive) {
+            console.log('[topicsWizard] PATCH topic ' + t.id + ' → is_active=false');
+            await fetch('/api/scans/' + this.scanId + '/topics/' + t.id, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ is_active: false }),
+            });
+          }
+          console.log('[topicsWizard] POST validate');
+          const res = await fetch('/api/scans/' + this.scanId + '/topics/validate', { method: 'POST' });
+          if (res.ok) {
+            location.href = '/app/scans/' + this.scanId;
+          } else {
+            alert('Validation failed: ' + res.status);
+          }
+        },
+      }));
+
+      window.Alpine.data('scanBrands', (initialData, scanId) => ({
+        scanId: scanId,
+        buckets: {
+          my_brand: (initialData.buckets && initialData.buckets.my_brand) || [],
+          competitor: (initialData.buckets && initialData.buckets.competitor) || [],
+          ignored: (initialData.buckets && initialData.buckets.ignored) || [],
+          unclassified: (initialData.buckets && initialData.buckets.unclassified) || [],
+        },
+        focusBrandId: initialData.focus_brand_id || null,
+        dragOver: null,
+        dragged: null,
+        draggedFrom: null,
+
+        // Count items (parents + nested children) in a given bucket
+        bucketCount(name) {
+          return (this.buckets[name] || []).reduce(
+            (sum, b) => sum + 1 + ((b.children && b.children.length) || 0),
+            0
+          );
+        },
+
+        get myBrandsCount() {
+          return this.bucketCount('my_brand');
+        },
+
+        // Flattened view of unclassified for the inbox pill layout
+        get flatUnclassified() {
+          const out = [];
+          for (const p of (this.buckets.unclassified || [])) {
+            out.push(p);
+            if (p.children && p.children.length) {
+              for (const c of p.children) out.push(c);
+            }
+          }
+          return out;
+        },
+
+        get hasFocus() {
+          return this.focusBrandId !== null && this.focusBrandId !== undefined;
+        },
+
+        // Focus is always on a parent in my_brand (never a child — backend enforces this)
+        getFocusName() {
+          if (!this.hasFocus) return 'none selected';
+          const b = this.buckets.my_brand.find(x => x.brand_id === this.focusBrandId);
+          return b ? b.name : 'none selected';
+        },
+
+        // Remove a brand from ANY bucket (parent or child). Returns the removed item
+        // (with children attached if it was a parent) or null if not found.
+        _removeFromBucket(bucketName, brandId) {
+          const arr = this.buckets[bucketName];
+          if (!arr) return null;
+          const parentIdx = arr.findIndex(b => b.brand_id === brandId);
+          if (parentIdx >= 0) {
+            return arr.splice(parentIdx, 1)[0];
+          }
+          for (const parent of arr) {
+            if (!parent.children) continue;
+            const childIdx = parent.children.findIndex(c => c.brand_id === brandId);
+            if (childIdx >= 0) {
+              return parent.children.splice(childIdx, 1)[0];
+            }
+          }
+          return null;
+        },
+
+        // Insert an item into a target bucket, nesting it under its parent if that
+        // parent is already present as a root in the same bucket; otherwise add as
+        // a flat root. Mirrors the server-side nesting logic in GET /brands.
+        _insertIntoBucket(bucketName, item) {
+          const arr = this.buckets[bucketName];
+          if (!arr) return;
+          const pid = item.parent_id;
+          if (pid) {
+            const parent = arr.find(b => b.brand_id === pid);
+            if (parent) {
+              parent.children = [...(parent.children || []), item];
+              return;
+            }
+          }
+          // Add as root — ensure children array exists
+          if (!item.children) item.children = [];
+          // If this newly-arrived ROOT has orphan children already sitting flat in the
+          // bucket (children whose parent_id matches this item's brand_id), absorb them.
+          const orphans = arr.filter(b => b.parent_id === item.brand_id);
+          if (orphans.length > 0) {
+            for (const o of orphans) {
+              const idx = arr.findIndex(x => x.brand_id === o.brand_id);
+              if (idx >= 0) arr.splice(idx, 1);
+            }
+            item.children = [...item.children, ...orphans];
+          }
+          this.buckets[bucketName] = [...arr, item];
+        },
+
+        onDragStart(event, brand, fromBucket) {
+          this.dragged = brand;
+          this.draggedFrom = fromBucket;
+          if (event.dataTransfer) {
+            event.dataTransfer.effectAllowed = 'move';
+            try { event.dataTransfer.setData('text/plain', brand.brand_id); } catch (e) {}
+          }
+        },
+
+        onDrop(targetBucket) {
+          this.dragOver = null;
+          const brand = this.dragged;
+          const fromBucket = this.draggedFrom;
+          this.dragged = null;
+          this.draggedFrom = null;
+          if (!brand || !fromBucket || fromBucket === targetBucket) return;
+
+          // Optimistic local move — remove from source, re-nest into target
+          const moved = this._removeFromBucket(fromBucket, brand.brand_id) || { ...brand };
+
+          // If this brand was a root WITH children and it's being reclassified, its
+          // children stay attached to it (they move WITH the parent into the target bucket).
+          // If it was a child being moved alone, moved.children is empty/undefined (as expected).
+
+          // Clear focus state if moving out of my_brand
+          if (moved.is_focus && targetBucket !== 'my_brand') {
+            moved.is_focus = false;
+            if (this.focusBrandId === moved.brand_id) this.focusBrandId = null;
+          }
+          if (targetBucket !== 'my_brand') moved.is_focus = false;
+
+          this._insertIntoBucket(targetBucket, moved);
+
+          // Persist — note: if moved had children, they don't get individual classify calls
+          // because their SBC rows are unchanged. The parent's classify is enough.
+          // If user wants children to move WITH parent, we'd need a cascade endpoint.
+          // For now, children SBC rows stay as-is on the server → on next page reload,
+          // the orphaned children re-nest under parent in the new bucket if their SBC
+          // classification matches. Else they become orphans in their own classification.
+          fetch('/api/scans/' + this.scanId + '/brands/classify', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ brand_id: brand.brand_id, classification: targetBucket }),
+          }).catch(e => console.error('Classify failed:', e));
+        },
+
+        toggleFocus(brand) {
+          // Already focus → no-op (user must star a different brand to unset)
+          if (brand.is_focus) return;
+          // Clear is_focus on all my_brand parents (children are never focus-eligible)
+          this.buckets.my_brand = this.buckets.my_brand.map(b => ({
+            ...b,
+            is_focus: b.brand_id === brand.brand_id,
+          }));
+          this.focusBrandId = brand.brand_id;
+
+          fetch('/api/scans/' + this.scanId + '/brands/classify', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ brand_id: brand.brand_id, classification: 'my_brand', is_focus: true }),
+          }).catch(e => {
+            console.error('Set focus failed:', e);
+            alert('Failed to set focus brand. Refresh the page.');
+          });
+        },
+
+        removeBrand(brand, fromBucket) {
+          if (fromBucket === 'ignored') return;
+          const moved = this._removeFromBucket(fromBucket, brand.brand_id) || { ...brand };
+          moved.is_focus = false;
+          if (this.focusBrandId === brand.brand_id) {
+            this.focusBrandId = null;
+          }
+          this._insertIntoBucket('ignored', moved);
+
+          fetch('/api/scans/' + this.scanId + '/brands/classify', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ brand_id: brand.brand_id, classification: 'ignored' }),
+          }).catch(e => console.error('Remove brand failed:', e));
+        },
+
+        validateBrands() {
+          if (!this.hasFocus || this.myBrandsCount === 0) {
+            alert('Pick at least one My Brand and set a focus brand before continuing.');
+            return;
+          }
+          if (this.flatUnclassified.length > 0) {
+            alert('Please classify all brands in the amber inbox before continuing.');
+            return;
+          }
+          fetch('/api/scans/' + this.scanId + '/brands/validate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+          }).then(res => {
+            if (res.ok) {
+              location.href = '/app/scans/' + this.scanId;
+            } else {
+              return res.text().then(t => { alert('Validation failed: ' + res.status + ' ' + t); });
+            }
+          }).catch(e => {
+            console.error('Validate brands failed:', e);
+            alert('Validation failed: ' + e.message);
+          });
+        },
+      }));
+
+      window.Alpine.data('personasWizard', (initialData, scanId, initialProviders) => ({
+        scanId: scanId,
+        topics: (initialData && initialData.topics) || [],
+        orphanPersonas: (initialData && initialData.orphan_personas) || [],
+        totals: (initialData && initialData.totals) || { total_personas: 0, active_personas: 0, total_questions: 0, active_questions: 0 },
+        selectedProviders: initialProviders || ['openai'],
+        savingProviders: false,
+        expandedTopic: null,
+        expandedPersona: {},
+        editingPersonaId: null,
+        editingPersonaName: '',
+        editingQuestionId: null,
+        editingQuestionText: '',
+        generatingPersonaId: null,
+        expandedTypeGroups: {},  // { 'personaId:type': true }
+
+        get canLaunch() {
+          return this.totals.active_personas > 0 && this.totals.active_questions > 0 && this.selectedProviders.length > 0;
+        },
+
+        // Recompute totals + per-topic stats from the current nested state
+        // A question is "effectively active" only when BOTH its persona AND itself
+        // are active — run_llm_tests.py filters on ScanPersona.is_active AND
+        // ScanQuestion.is_active. Counting q.is_active alone would inflate the
+        // total when personas are toggled off.
+        _recomputeStats() {
+          let totalP = 0, activeP = 0, totalQ = 0, activeQ = 0;
+          for (const t of this.topics) {
+            let tTotalP = 0, tActiveP = 0, tTotalQ = 0, tActiveQ = 0;
+            for (const p of t.personas) {
+              tTotalP += 1;
+              const pActive = !!p.is_active;
+              if (pActive) tActiveP += 1;
+              let pTotalQ = 0, pActiveQ = 0;
+              for (const q of p.questions) {
+                pTotalQ += 1;
+                // Only count as active if BOTH persona AND question are ON
+                if (q.is_active && pActive) pActiveQ += 1;
+              }
+              p.stats = { total_questions: pTotalQ, active_questions: pActiveQ };
+              tTotalQ += pTotalQ;
+              tActiveQ += pActiveQ;
+            }
+            t.stats = {
+              total_personas: tTotalP,
+              active_personas: tActiveP,
+              total_questions: tTotalQ,
+              active_questions: tActiveQ,
+            };
+            totalP += tTotalP; activeP += tActiveP;
+            totalQ += tTotalQ; activeQ += tActiveQ;
+          }
+          for (const p of this.orphanPersonas) {
+            totalP += 1;
+            const pActive = !!p.is_active;
+            if (pActive) activeP += 1;
+            for (const q of p.questions) {
+              totalQ += 1;
+              if (q.is_active && pActive) activeQ += 1;
+            }
+          }
+          this.totals = { total_personas: totalP, active_personas: activeP, total_questions: totalQ, active_questions: activeQ };
+        },
+
+        async togglePersona(topic, persona) {
+          // Optimistic flip
+          persona.is_active = !persona.is_active;
+          this._recomputeStats();
+          try {
+            const res = await fetch('/api/scans/' + this.scanId + '/personas/' + persona.id, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ is_active: persona.is_active }),
+            });
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+          } catch (e) {
+            // Revert on failure
+            persona.is_active = !persona.is_active;
+            this._recomputeStats();
+            console.error('Toggle persona failed:', e);
+            alert('Failed to toggle persona. Please refresh.');
+          }
+        },
+
+        async toggleQuestion(persona, question) {
+          question.is_active = !question.is_active;
+          this._recomputeStats();
+          try {
+            const res = await fetch('/api/scans/' + this.scanId + '/questions/' + question.id, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ is_active: question.is_active }),
+            });
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+          } catch (e) {
+            question.is_active = !question.is_active;
+            this._recomputeStats();
+            console.error('Toggle question failed:', e);
+            alert('Failed to toggle question. Please refresh.');
+          }
+        },
+
+        async bulkToggleTopic(topic) {
+          // If any persona is active, turn all off. Otherwise turn all on.
+          const targetState = topic.stats.active_personas === 0;
+          const updates = [];
+          for (const p of topic.personas) {
+            if (p.is_active !== targetState) {
+              p.is_active = targetState;
+              updates.push(
+                fetch('/api/scans/' + this.scanId + '/personas/' + p.id, {
+                  method: 'PATCH',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ is_active: targetState }),
+                })
+              );
+            }
+          }
+          this._recomputeStats();
+          try {
+            const results = await Promise.all(updates);
+            const bad = results.find(r => !r.ok);
+            if (bad) throw new Error('HTTP ' + bad.status);
+          } catch (e) {
+            console.error('Bulk toggle topic failed:', e);
+            alert('Some updates failed. Please refresh.');
+          }
+        },
+
+        // --- Inline edit persona name ---
+        startEditPersona(persona) {
+          this.editingPersonaId = persona.id;
+          this.editingPersonaName = persona.name;
+        },
+        async savePersonaName(topic, persona) {
+          const name = (this.editingPersonaName || '').trim();
+          this.editingPersonaId = null;
+          if (!name || name === persona.name) return;
+          const oldName = persona.name;
+          persona.name = name;
+          try {
+            const res = await fetch('/api/scans/' + this.scanId + '/personas/' + persona.id, {
+              method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ name }),
+            });
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+          } catch (e) {
+            persona.name = oldName;
+            alert('Failed to rename: ' + e.message);
+          }
+        },
+
+        // --- Inline edit question text ---
+        startEditQuestion(q) {
+          this.editingQuestionId = q.id;
+          this.editingQuestionText = q.question;
+        },
+        async saveQuestionText(persona, q) {
+          const text = (this.editingQuestionText || '').trim();
+          this.editingQuestionId = null;
+          if (!text || text === q.question) return;
+          const oldText = q.question;
+          q.question = text;
+          try {
+            const res = await fetch('/api/scans/' + this.scanId + '/questions/' + q.id, {
+              method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ question: text }),
+            });
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+          } catch (e) {
+            q.question = oldText;
+            alert('Failed to edit: ' + e.message);
+          }
+        },
+
+        // --- Question type grouping (Miller's Law + Common Region) ---
+        groupQuestionsByType(questions) {
+          const typeOrder = ['basique', 'technique', 'comparative', 'urgente'];
+          const groups = {};
+          for (const q of questions) {
+            const t = q.type_question || 'other';
+            if (!groups[t]) groups[t] = { type: t, questions: [], activeCount: 0 };
+            groups[t].questions.push(q);
+            if (q.is_active) groups[t].activeCount++;
+          }
+          // Sort: known types first in order, then unknowns alphabetically
+          return Object.values(groups).sort((a, b) => {
+            const ai = typeOrder.indexOf(a.type), bi = typeOrder.indexOf(b.type);
+            if (ai !== -1 && bi !== -1) return ai - bi;
+            if (ai !== -1) return -1;
+            if (bi !== -1) return 1;
+            return a.type.localeCompare(b.type);
+          });
+        },
+
+        toggleTypeGroup(personaId, type) {
+          const key = personaId + ':' + type;
+          this.expandedTypeGroups[key] = !this.expandedTypeGroups[key];
+        },
+
+        isTypeGroupOpen(personaId, type) {
+          return !!this.expandedTypeGroups[personaId + ':' + type];
+        },
+
+        async bulkToggleTypeGroup(persona, group) {
+          const targetState = group.activeCount === 0;
+          const updates = [];
+          for (const q of group.questions) {
+            if (q.is_active !== targetState) {
+              q.is_active = targetState;
+              updates.push(
+                fetch('/api/scans/' + this.scanId + '/questions/' + q.id, {
+                  method: 'PATCH',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ is_active: targetState }),
+                })
+              );
+            }
+          }
+          this._recomputeStats();
+          try {
+            const results = await Promise.all(updates);
+            const bad = results.find(r => !r.ok);
+            if (bad) throw new Error('HTTP ' + bad.status);
+          } catch (e) {
+            console.error('Bulk toggle type failed:', e);
+            alert('Some updates failed. Please refresh.');
+          }
+        },
+
+        // --- Delete persona ---
+        async deletePersona(topic, persona) {
+          if (!confirm('Delete "' + persona.name + '" and all its questions?')) return;
+          try {
+            const res = await fetch('/api/scans/' + this.scanId + '/personas/' + persona.id, { method: 'DELETE' });
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            const idx = topic.personas.indexOf(persona);
+            if (idx !== -1) topic.personas.splice(idx, 1);
+            this._recomputeStats();
+          } catch (e) { alert('Delete failed: ' + e.message); }
+        },
+
+        // --- Delete question ---
+        async deleteQuestion(persona, q) {
+          try {
+            const res = await fetch('/api/scans/' + this.scanId + '/questions/' + q.id, { method: 'DELETE' });
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            const idx = persona.questions.indexOf(q);
+            if (idx !== -1) persona.questions.splice(idx, 1);
+            this._recomputeStats();
+          } catch (e) { alert('Delete failed: ' + e.message); }
+        },
+
+        // --- Add persona (with auto-gen 15 questions) ---
+        async addPersona(topic) {
+          const name = prompt('Persona name:');
+          if (!name || !name.trim()) return;
+          try {
+            const res = await fetch('/api/scans/' + this.scanId + '/personas', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                topic_id: topic.topic_id,
+                name: name.trim(),
+                data: { nom: name.trim(), segment_principal: topic.topic_name },
+              }),
+            });
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            const data = await res.json();
+            const newPersona = {
+              id: data.id, name: data.name, topic_id: topic.topic_id,
+              is_active: true,
+              data: { nom: name.trim(), segment_principal: topic.topic_name },
+              questions: [], stats: { total_questions: 0, active_questions: 0 },
+            };
+            topic.personas.push(newPersona);
+            this._recomputeStats();
+            this.expandedPersona[data.id] = true;
+            // Auto-generate 15 questions via worker
+            this.generatingPersonaId = data.id;
+            fetch('/api/scans/' + this.scanId + '/personas/' + data.id + '/generate-questions', { method: 'POST' })
+              .then(() => this._pollQuestions(data.id, newPersona))
+              .catch(e => { this.generatingPersonaId = null; console.error(e); });
+          } catch (e) { alert('Add failed: ' + e.message); }
+        },
+
+        _pollQuestions(personaId, personaObj) {
+          const poll = async () => {
+            try {
+              const res = await fetch('/api/scans/' + this.scanId + '/personas');
+              if (!res.ok) return;
+              const data = await res.json();
+              for (const t of (data.topics || [])) {
+                const p = t.personas.find(p => p.id === personaId);
+                if (p && p.questions && p.questions.length > 0) {
+                  personaObj.questions = p.questions;
+                  personaObj.stats = p.stats;
+                  this.generatingPersonaId = null;
+                  this._recomputeStats();
+                  return;
+                }
+              }
+            } catch {}
+            if (this.generatingPersonaId === personaId) setTimeout(poll, 3000);
+          };
+          setTimeout(poll, 3000);
+        },
+
+        // --- Add question (manual) ---
+        async addQuestion(persona) {
+          const text = prompt('Question text:');
+          if (!text || !text.trim()) return;
+          try {
+            const res = await fetch('/api/scans/' + this.scanId + '/questions', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ persona_id: persona.id, question: text.trim(), type_question: 'basique' }),
+            });
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            const data = await res.json();
+            persona.questions.push({ id: data.id, question: data.question, type_question: 'basique', is_active: true });
+            this._recomputeStats();
+          } catch (e) { alert('Add failed: ' + e.message); }
+        },
+
+        async toggleProvider(provider) {
+          const idx = this.selectedProviders.indexOf(provider);
+          if (idx >= 0) {
+            if (this.selectedProviders.length <= 1) return; // must keep at least 1
+            this.selectedProviders.splice(idx, 1);
+          } else {
+            this.selectedProviders.push(provider);
+          }
+          this.savingProviders = true;
+          try {
+            await fetch('/api/scans/' + this.scanId + '/config', {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ providers: [...this.selectedProviders] }),
+            });
+          } catch (e) { console.error('Save providers failed:', e); }
+          this.savingProviders = false;
+        },
+
+        launchScan() {
+          if (!this.canLaunch) return;
+          const providerNames = this.selectedProviders.join(' + ');
+          const apiCalls = this.totals.active_questions * this.selectedProviders.length;
+          if (!confirm('Launch AI Scan?\n\n' + this.totals.active_personas + ' personas · ' + this.totals.active_questions + ' questions · ' + providerNames + '\n' + apiCalls + ' API calls · ' + this.totals.active_questions + ' scan credits')) return;
+          fetch('/api/scans/' + this.scanId + '/launch', { method: 'POST' })
+            .then(async res => {
+              if (res.ok) {
+                location.reload();
+              } else if (res.status === 402) {
+                const err = await res.json().catch(() => ({}));
+                const detail = err.detail || {};
+                alert('Not enough scan credits.\nNeed: ' + (detail.need || '?') + '\nHave: ' + (detail.have || '?') + '\n\nGo to Settings → Buy credits.');
+              } else {
+                return res.text().then(t => { alert('Launch failed: ' + res.status + ' ' + t); });
+              }
+            })
+            .catch(e => {
+              console.error('Launch failed:', e);
+              alert('Launch failed: ' + e.message);
+            });
+        },
+      }));
+    });
+  </script>
+</DashboardLayout>

@@ -1,0 +1,384 @@
+---
+/**
+ * Onboarding Wizard — First-time user experience.
+ *
+ * UX Laws:
+ * - Paradox of Active User: no docs, just do
+ * - Goal-Gradient: 3 simple steps, motivation increases
+ * - Hick's Law: ONE input (domain), everything else auto-detected
+ * - Aesthetic-Usability: clean, welcoming, professional
+ * - Peak-End Rule: ends with first scan launching = immediate value
+ * - Doherty Threshold: fast feedback, loading states
+ */
+export const prerender = false;
+import '../styles/global.css';
+import Tip from '../components/Tip.astro';
+
+const token = Astro.cookies.get('token')?.value;
+if (!token) return Astro.redirect('/login');
+
+// Check if user already has scans → skip onboarding
+let hasScans = false;
+let clientId = null;
+try {
+  const res = await fetch('http://api:8000/api/clients/', {
+    headers: { Cookie: `token=${token}` },
+  });
+  const clients = res.ok ? await res.json() : [];
+  clientId = clients[0]?.id;
+
+  if (clientId) {
+    const scansRes = await fetch(`http://api:8000/api/scans/?client_id=${clientId}`, {
+      headers: { Cookie: `token=${token}` },
+    });
+    const scans = scansRes.ok ? await scansRes.json() : [];
+    hasScans = scans.length > 0;
+  }
+} catch {}
+
+if (hasScans) return Astro.redirect('/app/dashboard');
+
+let user = { email: '', name: '' };
+try {
+  const payload = JSON.parse(atob(token.split('.')[1]));
+  user.email = payload.email || '';
+  user.name = payload.email?.split('@')[0] || '';
+} catch {}
+---
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="robots" content="noindex" />
+  <link rel="icon" href="/favicon.ico" />
+  <title>Welcome — sen-ai.fr</title>
+  <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js" defer></script>
+  <style is:global>
+    [x-cloak] { display: none !important; }
+    .welcome-bg { background: linear-gradient(135deg, #f8f9fa 0%, #fff5f5 50%, #f0f9ff 100%); }
+    .kpi-tooltip { position: relative; display: inline; }
+    .kpi-tooltip .kpi-tip {
+      visibility: hidden; opacity: 0;
+      text-transform: none; letter-spacing: normal; font-weight: normal;
+      position: absolute; z-index: 50; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%);
+      background: #1E293B; color: white; padding: 10px 14px; border-radius: 8px;
+      font-size: 12px; line-height: 1.5; width: 280px; text-align: left;
+      transition: opacity 0.15s; pointer-events: none;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    }
+    .kpi-tooltip:hover .kpi-tip { visibility: visible; opacity: 1; pointer-events: auto; }
+  </style>
+</head>
+<body class="welcome-bg min-h-screen flex items-center justify-center p-4" x-data={`onboarding('${clientId}', '${token}')`} x-cloak>
+
+  <div class="w-full max-w-lg">
+
+    <!-- Logo -->
+    <div class="text-center mb-8">
+      <a href="/">
+        <img src="/logo-sen-ai-fr.png" alt="sen-ai.fr" class="h-8 mx-auto mb-4" />
+      </a>
+    </div>
+
+    <!-- Step 1: Enter domain -->
+    <div x-show="step === 1" x-transition>
+      <div class="bg-white rounded-2xl shadow-lg p-8">
+        <h1 class="text-2xl font-bold text-charcoal-dark mb-2">Welcome to sen-ai.fr</h1>
+        <p class="text-charcoal-light mb-4">Let's measure your brand's visibility in AI responses. It takes 2 minutes.</p>
+        <div class="bg-emerald-50 border border-emerald-200 rounded-lg px-4 py-2.5 mb-6 flex items-center gap-2">
+          <span class="text-emerald-600 text-lg">🎁</span>
+          <span class="text-sm text-emerald-700">You have <strong>50 free scan credits</strong> to get started.</span>
+        </div>
+
+        <div class="space-y-5">
+          <div>
+            <label class="block text-sm font-medium text-charcoal-dark mb-1.5">
+              <Tip id="domain_input" position="bottom">Your website</Tip>
+            </label>
+            <input
+              type="text" x-model="domain" placeholder="e.g. eau-thermale-avene.fr"
+              @keydown.enter="!loading && domain && startAnalysis()"
+              class="w-full px-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-coral/50 focus:border-coral text-lg"
+            />
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium text-charcoal-dark mb-1.5">
+              <Tip id="country" position="bottom">Country</Tip>
+            </label>
+            <select x-model="country" class="w-full px-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-coral/50 text-sm">
+              <option value="fr">France</option>
+              <option value="us">United States</option>
+              <option value="uk">United Kingdom</option>
+              <option value="de">Germany</option>
+              <option value="es">Spain</option>
+              <option value="it">Italy</option>
+              <option value="nl">Netherlands</option>
+              <option value="be">Belgium</option>
+              <option value="ch">Switzerland</option>
+              <option value="ca">Canada</option>
+            </select>
+          </div>
+
+          <!-- Advanced options (same as New Scan — Hick's Law: collapsed by default) -->
+          <details class="text-sm">
+            <summary class="text-charcoal-light cursor-pointer hover:text-charcoal-dark">Advanced options</summary>
+            <div class="mt-3 space-y-3 pl-4 border-l-2 border-gray-100">
+              <div>
+                <label class="block text-xs font-medium text-charcoal-light mb-1">
+                  <Tip id="ranking_filter" position="bottom">Google ranking filter</Tip>
+                </label>
+                <div class="flex gap-2">
+                  <button type="button" @click="maxPosition = 10" :class="maxPosition === 10 ? 'bg-charcoal-dark text-white' : 'bg-gray-100 text-charcoal-light'" class="px-3 py-1.5 rounded text-xs font-medium transition-all">Top 10</button>
+                  <button type="button" @click="maxPosition = 30" :class="maxPosition === 30 ? 'bg-charcoal-dark text-white' : 'bg-gray-100 text-charcoal-light'" class="px-3 py-1.5 rounded text-xs font-medium transition-all">Top 30</button>
+                  <button type="button" @click="maxPosition = 50" :class="maxPosition === 50 ? 'bg-charcoal-dark text-white' : 'bg-gray-100 text-charcoal-light'" class="px-3 py-1.5 rounded text-xs font-medium transition-all">Top 50 <span class="text-[10px] opacity-60">recommended</span></button>
+                </div>
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-charcoal-light mb-1">
+                  <Tip id="max_keywords" position="bottom">Max keywords</Tip>
+                </label>
+                <input type="number" x-model.number="maxUrls" min="100" max="5000" class="px-3 py-1.5 border border-gray-200 rounded text-xs w-24" />
+                <span class="text-[10px] text-charcoal-light ml-2">recommended: 2000</span>
+              </div>
+            </div>
+          </details>
+        </div>
+
+        <button
+          @click="startAnalysis()"
+          :disabled="!domain || loading"
+          class="w-full mt-6 px-6 py-3.5 bg-coral text-white rounded-lg font-medium hover:bg-coral-dark hover:shadow-md hover:scale-[1.02] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+        >
+          <span x-show="!loading">Analyze my site</span>
+          <span x-show="loading" class="flex items-center gap-2">
+            <svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+            Setting up...
+          </span>
+        </button>
+      </div>
+
+      <p class="text-center text-xs text-charcoal-light mt-4">
+        We'll detect your brand, topics, and competitors automatically.
+      </p>
+    </div>
+
+    <!-- Step 2: Processing -->
+    <div x-show="step === 2" x-transition>
+      <div class="bg-white rounded-2xl shadow-lg p-8 text-center">
+        <div class="mb-6">
+          <svg class="w-16 h-16 mx-auto animate-spin text-coral/20" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+          </svg>
+        </div>
+
+        <h2 class="text-xl font-bold text-charcoal-dark mb-2">Analyzing <span x-text="domain" class="text-coral"></span></h2>
+        <p class="text-charcoal-light mb-8">This takes about 1-2 minutes. Sit back.</p>
+
+        <div class="space-y-4 text-left max-w-xs mx-auto">
+          <div class="flex items-center gap-3" :class="progress >= 1 ? 'text-emerald-600' : 'text-charcoal-light'">
+            <div class="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold" :class="progress >= 1 ? 'bg-emerald-100' : 'bg-gray-100'">
+              <span x-show="progress >= 1">✓</span>
+              <span x-show="progress < 1">1</span>
+            </div>
+            <span class="text-sm">Fetching keywords</span>
+          </div>
+          <div class="flex items-center gap-3" :class="progress >= 2 ? 'text-emerald-600' : 'text-charcoal-light'">
+            <div class="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold" :class="progress >= 2 ? 'bg-emerald-100' : 'bg-gray-100'">
+              <span x-show="progress >= 2">✓</span>
+              <span x-show="progress < 2">2</span>
+            </div>
+            <span class="text-sm">Discovering topics</span>
+          </div>
+          <div class="flex items-center gap-3" :class="progress >= 3 ? 'text-emerald-600' : 'text-charcoal-light'">
+            <div class="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold" :class="progress >= 3 ? 'bg-emerald-100' : 'bg-gray-100'">
+              <span x-show="progress >= 3">✓</span>
+              <span x-show="progress < 3">3</span>
+            </div>
+            <span class="text-sm">Detecting brands & competitors</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 3: Ready -->
+    <div x-show="step === 3" x-transition>
+      <div class="bg-white rounded-2xl shadow-lg p-8 text-center">
+        <div class="w-16 h-16 mx-auto bg-emerald-100 rounded-full flex items-center justify-center mb-6">
+          <svg class="w-8 h-8 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+        </div>
+
+        <h2 class="text-xl font-bold text-charcoal-dark mb-2">Your workspace is ready!</h2>
+        <p class="text-charcoal-light mb-6">
+          We found <strong x-text="topicsCount"></strong> topics and <strong x-text="brandsCount"></strong> brands on <span x-text="domain" class="text-coral"></span>.
+        </p>
+
+        <div class="space-y-3 text-left bg-gray-50 rounded-lg p-4 mb-6">
+          <div class="flex items-center justify-between text-sm">
+            <span class="text-charcoal-light">Keywords analyzed</span>
+            <span class="font-medium text-charcoal-dark" x-text="keywordsCount"></span>
+          </div>
+          <div class="flex items-center justify-between text-sm">
+            <span class="text-charcoal-light">Topics discovered</span>
+            <span class="font-medium text-charcoal-dark" x-text="topicsCount"></span>
+          </div>
+          <div class="flex items-center justify-between text-sm">
+            <span class="text-charcoal-light">Brands detected</span>
+            <span class="font-medium text-charcoal-dark" x-text="brandsCount"></span>
+          </div>
+        </div>
+
+        <!-- What's next roadmap -->
+        <div class="text-left mb-6">
+          <p class="text-xs font-semibold text-charcoal-dark uppercase tracking-wide mb-3">Next steps</p>
+          <div class="space-y-2">
+            <div class="flex items-center gap-2 text-sm text-charcoal-light">
+              <span class="w-5 h-5 bg-coral/10 text-coral rounded-full flex items-center justify-center text-[10px] font-bold shrink-0">1</span>
+              Review & refine your topics
+            </div>
+            <div class="flex items-center gap-2 text-sm text-charcoal-light">
+              <span class="w-5 h-5 bg-coral/10 text-coral rounded-full flex items-center justify-center text-[10px] font-bold shrink-0">2</span>
+              Classify brands (yours vs competitors)
+            </div>
+            <div class="flex items-center gap-2 text-sm text-charcoal-light">
+              <span class="w-5 h-5 bg-coral/10 text-coral rounded-full flex items-center justify-center text-[10px] font-bold shrink-0">3</span>
+              Review AI personas & questions
+            </div>
+            <div class="flex items-center gap-2 text-sm text-charcoal-light">
+              <span class="w-5 h-5 bg-coral/10 text-coral rounded-full flex items-center justify-center text-[10px] font-bold shrink-0">4</span>
+              Launch your AI visibility scan
+            </div>
+          </div>
+        </div>
+
+        <a
+          :href="'/app/scans/' + scanId"
+          class="w-full inline-flex items-center justify-center gap-2 px-6 py-3.5 bg-coral text-white rounded-lg font-medium hover:bg-coral-dark hover:shadow-md hover:scale-[1.02] transition-colors"
+        >
+          Continue setup
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
+        </a>
+
+        <a href="/app/dashboard" class="block text-center text-xs text-charcoal-light hover:text-charcoal-dark mt-3">
+          Skip — go to dashboard
+        </a>
+      </div>
+    </div>
+
+    <!-- Error -->
+    <div x-show="error" class="mt-4 bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 text-sm" x-text="error"></div>
+  </div>
+
+  <script is:inline>
+    document.addEventListener('alpine:init', () => {
+      Alpine.data('onboarding', (clientId, token) => ({
+        step: 1,
+        domain: '',
+        country: 'fr',
+        maxPosition: 50,
+        maxUrls: 2000,
+        loading: false,
+        error: null,
+        scanId: null,
+        progress: 0,
+        topicsCount: 0,
+        brandsCount: 0,
+        keywordsCount: 0,
+
+        async startAnalysis() {
+          this.loading = true;
+          this.error = null;
+
+          try {
+            // Auto-create client if none exists
+            if (!clientId || clientId === 'null' || clientId === 'undefined') {
+              const clientRes = await fetch('/api/clients/', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: this.domain.split('/')[0].split('.').slice(-2, -1)[0] || 'My Brand' }),
+              });
+              if (clientRes.ok) {
+                const newClient = await clientRes.json();
+                clientId = newClient.id;
+              }
+            }
+
+            if (!clientId || clientId === 'null' || clientId === 'undefined') throw new Error('Could not create workspace. Please try again.');
+
+            // Create scan
+            const res = await fetch('/api/scans/', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                client_id: clientId,
+                domain: this.domain,
+                max_position: this.maxPosition,
+                max_urls: this.maxUrls,
+                target_domains: [this.domain],
+                config: { country: this.country },
+              }),
+            });
+            const scan = await res.json();
+            if (!res.ok) throw new Error(scan.detail || 'Failed');
+            this.scanId = scan.id;
+
+            // Fetch keywords
+            await fetch(`/api/scans/${this.scanId}/fetch-keywords`, { method: 'POST' });
+            this.step = 2;
+            this.pollStatus();
+          } catch (e) {
+            this.error = e.message;
+            this.loading = false;
+          }
+        },
+
+        pollStatus() {
+          const poll = setInterval(async () => {
+            try {
+              const res = await fetch(`/api/scans/${this.scanId}`);
+              const scan = await res.json();
+
+              if (scan.status === 'keywords_fetched' && this.progress < 1) {
+                this.progress = 1;
+                // Auto-trigger classification
+                await fetch(`/api/scans/${this.scanId}/topics/auto-classify`, { method: 'POST' });
+              }
+
+              if (scan.status === 'topics_ready') {
+                this.progress = 3;
+                clearInterval(poll);
+
+                // Get counts
+                const topicsRes = await fetch(`/api/scans/${this.scanId}/topics`);
+                const topicsData = await topicsRes.ok ? topicsRes.json() : {};
+                this.topicsCount = (topicsData.topics || topicsData || []).length;
+
+                const kwRes = await fetch(`/api/scans/${this.scanId}/keywords?limit=1`);
+                const kwData = kwRes.ok ? await kwRes.json() : {};
+                this.keywordsCount = kwData.total || 0;
+
+                const brandsRes = await fetch(`/api/scans/${this.scanId}/brands`);
+                const brandsData = brandsRes.ok ? await brandsRes.json() : {};
+                const buckets = brandsData.buckets || {};
+                this.brandsCount = (buckets.my_brand || []).length + (buckets.competitor || []).length + (buckets.unclassified || []).length;
+
+                this.step = 3;
+              }
+
+              if (scan.status === 'failed') {
+                clearInterval(poll);
+                this.error = scan.error_message || 'Analysis failed. Please try again.';
+                this.step = 1;
+                this.loading = false;
+              }
+            } catch {}
+          }, 3000);
+        },
+      }));
+    });
+  </script>
+</body>
+</html>

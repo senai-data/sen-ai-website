@@ -1,17 +1,21 @@
 """
 Generate OAuth2 refresh token for sen-ai-data Google Cloud project.
-Connect with data@sen-ai.fr to authorize all Google APIs.
+The user (e.g. activation.france@pierre-fabre.com) authorizes sen-ai.fr
+to access their Google APIs on their behalf.
 
 Usage:
-    pip install google-auth-oauthlib
+    pip install google-auth-oauthlib python-dotenv
     python scripts/generate_oauth_token.py
 """
 
+import os
+from dotenv import load_dotenv
 from google_auth_oauthlib.flow import InstalledAppFlow
 
-# Replace with your OAuth credentials from Google Cloud Console (sen-ai-data project)
-CLIENT_ID = "REPLACE_WITH_YOUR_CLIENT_ID"
-CLIENT_SECRET = "REPLACE_WITH_YOUR_CLIENT_SECRET"
+load_dotenv()
+
+CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
+CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
 
 SCOPES = [
     "https://www.googleapis.com/auth/adwords",              # Google Ads

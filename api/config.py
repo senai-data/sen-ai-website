@@ -19,6 +19,10 @@ class Settings(BaseSettings):
     stripe_api_key: str = ""
     stripe_webhook_secret: str = ""
 
+    # OAuth delegation (Phase 0)
+    oauth_fernet_key: str = ""  # Fernet symmetric key for encrypting tokens at rest
+    oauth_google_redirect_uri: str = "https://sen-ai.fr/api/oauth/google/callback"
+
     # Frontend
     frontend_url: str = "https://sen-ai.fr"
 

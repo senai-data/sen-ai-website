@@ -1,0 +1,125 @@
+---
+/**
+ * Admin: All OAuth Connections — superadmin view across all clients.
+ */
+export const prerender = false;
+import DashboardLayout from '../../../layouts/DashboardLayout.astro';
+
+const token = Astro.cookies.get('token')?.value;
+if (!token) return Astro.redirect('/login');
+
+// Check superadmin
+let isSuperadmin = false;
+try {
+  const res = await fetch('http://api:8000/api/admin/me', {
+    headers: { Cookie: `token=${token}` },
+  });
+  isSuperadmin = res.ok;
+} catch {}
+if (!isSuperadmin) return Astro.redirect('/app/dashboard');
+
+// Fetch all connections (superadmin)
+let connections = [];
+try {
+  const res = await fetch('http://api:8000/api/oauth/admin/connections', {
+    headers: { Cookie: `token=${token}` },
+  });
+  if (res.ok) connections = await res.json();
+} catch {}
+
+// Fetch all clients for name mapping
+let clients = [];
+try {
+  const res = await fetch('http://api:8000/api/admin/clients', {
+    headers: { Cookie: `token=${token}` },
+  });
+  if (res.ok) clients = await res.json();
+} catch {}
+const clientMap = Object.fromEntries(clients.map((c: any) => [c.id, c.name]));
+---
+
+<DashboardLayout title="Admin: Connections" activeSection="admin">
+  <div class="p-8 max-w-5xl">
+
+    <div class="flex items-center gap-2 text-sm text-charcoal-light mb-6">
+      <a href="/app/dashboard" class="hover:text-charcoal-dark">Dashboard</a>
+      <span>/</span>
+      <span class="text-charcoal-dark font-medium">Admin: Connections</span>
+    </div>
+
+    <h1 class="text-2xl font-bold text-charcoal-dark mb-2">OAuth Connections</h1>
+    <p class="text-sm text-charcoal-light mb-6">All client connections across the platform ({connections.length} total).</p>
+
+    {connections.length === 0 ? (
+      <div class="bg-white rounded-xl border border-gray-200 p-12 text-center">
+        <p class="text-sm text-charcoal-light">No OAuth connections yet.</p>
+      </div>
+    ) : (
+      <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="border-b border-gray-100 bg-gray-50/50">
+              <th class="text-left px-4 py-3 text-xs font-semibold text-charcoal-light uppercase tracking-wide">Client</th>
+              <th class="text-left px-4 py-3 text-xs font-semibold text-charcoal-light uppercase tracking-wide">Provider</th>
+              <th class="text-left px-4 py-3 text-xs font-semibold text-charcoal-light uppercase tracking-wide">Product</th>
+              <th class="text-left px-4 py-3 text-xs font-semibold text-charcoal-light uppercase tracking-wide">Account</th>
+              <th class="text-left px-4 py-3 text-xs font-semibold text-charcoal-light uppercase tracking-wide">Status</th>
+              <th class="text-left px-4 py-3 text-xs font-semibold text-charcoal-light uppercase tracking-wide">Connected</th>
+              <th class="px-4 py-3"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {connections.map((conn: any) => (
+              <tr class="border-b border-gray-50 hover:bg-gray-50/50">
+                <td class="px-4 py-3 text-charcoal-dark font-medium">{clientMap[conn.client_id] || conn.client_id.slice(0, 8)}</td>
+                <td class="px-4 py-3 capitalize">{conn.provider}</td>
+                <td class="px-4 py-3">{conn.product.replace('_', ' ')}</td>
+                <td class="px-4 py-3 text-charcoal-light">{conn.account_email || conn.account_id || '—'}</td>
+                <td class="px-4 py-3">
+                  <span class:list={[
+                    "px-2 py-0.5 rounded-full text-[10px] font-medium",
+                    conn.status === 'active' ? 'bg-emerald-100 text-emerald-700' :
+                    conn.status === 'expired' ? 'bg-amber-100 text-amber-700' :
+                    'bg-red-100 text-red-700'
+                  ]}>
+                    {conn.status}
+                  </span>
+                </td>
+                <td class="px-4 py-3 text-charcoal-light text-xs">
+                  {conn.authorized_at ? new Date(conn.authorized_at).toLocaleDateString() : '—'}
+                </td>
+                <td class="px-4 py-3 text-right">
+                  <button
+                    class="admin-revoke-btn text-xs text-red-500 hover:text-red-700"
+                    data-id={conn.id}
+                    data-product={conn.product}
+                  >
+                    Revoke
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    )}
+  </div>
+
+  <script type="module">
+    document.querySelectorAll('.admin-revoke-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const id = btn.dataset.id;
+        const product = btn.dataset.product;
+        if (!confirm(`Revoke ${product.replace('_', ' ')} connection?`)) return;
+        try {
+          const res = await fetch(`/api/oauth/connections/${id}`, { method: 'DELETE' });
+          if (res.ok) window.location.reload();
+          else {
+            const err = await res.json().catch(() => ({}));
+            alert(err.detail || 'Failed to revoke');
+          }
+        } catch (e) { alert('Network error: ' + e.message); }
+      });
+    });
+  </script>
+</DashboardLayout>

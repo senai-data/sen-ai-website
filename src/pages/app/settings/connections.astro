@@ -1,0 +1,306 @@
+---
+/**
+ * Connected Accounts — OAuth delegation management.
+ *
+ * Users connect their Google, Microsoft, or Notion accounts here.
+ * Each connection links a specific product (Google Ads, GA4, GBP, etc.)
+ * to the client workspace.
+ *
+ * UX Laws:
+ * - Cognitive Load: one card per connection, clear status
+ * - Von Restorff: active = green badge, expired = amber, revoked = red
+ * - Hick's Law: "Add connection" narrows choices step-by-step (provider → product)
+ */
+export const prerender = false;
+import DashboardLayout from '../../../layouts/DashboardLayout.astro';
+
+const token = Astro.cookies.get('token')?.value;
+if (!token) return Astro.redirect('/login');
+
+let user = { email: '' };
+try {
+  const payload = JSON.parse(atob(token.split('.')[1]));
+  user.email = payload.email || '';
+} catch {}
+
+// Get client_id
+let clientId = null;
+try {
+  const res = await fetch('http://api:8000/api/clients/', {
+    headers: { Cookie: `token=${token}` },
+  });
+  const clients = res.ok ? await res.json() : [];
+  clientId = clients[0]?.id;
+} catch {}
+
+// Fetch existing connections
+let connections = [];
+if (clientId) {
+  try {
+    const res = await fetch(`http://api:8000/api/oauth/connections?client_id=${clientId}`, {
+      headers: { Cookie: `token=${token}` },
+    });
+    if (res.ok) connections = await res.json();
+  } catch {}
+}
+
+const status = Astro.url.searchParams.get('status');
+const product = Astro.url.searchParams.get('product');
+---
+
+<DashboardLayout title="Connected Accounts" activeSection="settings">
+  <div class="p-8 max-w-3xl">
+
+    <!-- Breadcrumb -->
+    <div class="flex items-center gap-2 text-sm text-charcoal-light mb-6">
+      <a href="/app/settings" class="hover:text-charcoal-dark">Settings</a>
+      <span>/</span>
+      <span class="text-charcoal-dark font-medium">Connected Accounts</span>
+    </div>
+
+    <div class="flex items-center justify-between mb-6">
+      <div>
+        <h1 class="text-2xl font-bold text-charcoal-dark">Connected Accounts</h1>
+        <p class="text-sm text-charcoal-light mt-1">Link your external accounts to enable data sync.</p>
+      </div>
+    </div>
+
+    <!-- Status messages -->
+    {status === 'connected' && (
+      <div class="bg-emerald-50 border border-emerald-200 rounded-lg p-4 mb-6 text-sm text-emerald-700">
+        Successfully connected{product ? ` ${product.replace('_', ' ')}` : ''}! Data sync will begin shortly.
+      </div>
+    )}
+    {status === 'error' && (
+      <div class="bg-red-50 border border-red-200 rounded-lg p-4 mb-6 text-sm text-red-700">
+        Connection failed. Please try again or contact support.
+      </div>
+    )}
+
+    <!-- Add connection -->
+    <div x-data={`connectionsManager('${clientId}')`} x-cloak>
+
+      <!-- Add button -->
+      <button
+        @click="showModal = true"
+        class="mb-6 flex items-center gap-2 px-4 py-2.5 bg-coral text-white rounded-lg text-sm font-medium hover:bg-coral/90 transition-colors"
+      >
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+        </svg>
+        Add Connection
+      </button>
+
+      <!-- Existing connections -->
+      {connections.length === 0 && (
+        <div class="bg-white rounded-xl border border-gray-200 p-12 text-center">
+          <svg class="w-12 h-12 mx-auto text-gray-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/>
+          </svg>
+          <p class="text-sm text-charcoal-light">No connected accounts yet.</p>
+          <p class="text-xs text-charcoal-light mt-1">Connect your Google, Microsoft, or Notion accounts to get started.</p>
+        </div>
+      )}
+
+      <div class="space-y-3">
+        {connections.map((conn: any) => (
+          <div class="bg-white rounded-xl border border-gray-200 p-5 flex items-center justify-between">
+            <div class="flex items-center gap-4">
+              <!-- Provider icon -->
+              <div class:list={[
+                "w-10 h-10 rounded-lg flex items-center justify-center text-white text-sm font-bold",
+                conn.provider === 'google' ? 'bg-blue-500' : conn.provider === 'microsoft' ? 'bg-[#00a4ef]' : 'bg-gray-800'
+              ]}>
+                {conn.provider === 'google' ? 'G' : conn.provider === 'microsoft' ? 'M' : 'N'}
+              </div>
+              <div>
+                <div class="flex items-center gap-2">
+                  <span class="text-sm font-medium text-charcoal-dark">
+                    {conn.product.replace('_', ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())}
+                  </span>
+                  <span class:list={[
+                    "px-2 py-0.5 rounded-full text-[10px] font-medium",
+                    conn.status === 'active' ? 'bg-emerald-100 text-emerald-700' :
+                    conn.status === 'expired' ? 'bg-amber-100 text-amber-700' :
+                    'bg-red-100 text-red-700'
+                  ]}>
+                    {conn.status}
+                  </span>
+                </div>
+                <p class="text-xs text-charcoal-light mt-0.5">
+                  {conn.account_email || conn.account_name || conn.account_id || 'Unknown account'}
+                </p>
+                {conn.authorized_at && (
+                  <p class="text-[10px] text-gray-400 mt-0.5">
+                    Connected {new Date(conn.authorized_at).toLocaleDateString()}
+                  </p>
+                )}
+              </div>
+            </div>
+            <div class="flex items-center gap-2">
+              {conn.status === 'active' && (
+                <button
+                  @click={`refreshConnection('${conn.id}')`}
+                  class="p-2 text-gray-400 hover:text-charcoal-dark rounded-lg hover:bg-gray-100 transition-colors"
+                  title="Refresh token"
+                >
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                  </svg>
+                </button>
+              )}
+              <button
+                @click={`deleteConnection('${conn.id}', '${conn.product}')`}
+                class="p-2 text-gray-400 hover:text-red-600 rounded-lg hover:bg-red-50 transition-colors"
+                title="Disconnect"
+              >
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                </svg>
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <!-- Add Connection Modal -->
+      <div
+        x-show="showModal"
+        x-transition:enter="transition ease-out duration-200"
+        x-transition:enter-start="opacity-0"
+        x-transition:enter-end="opacity-100"
+        x-transition:leave="transition ease-in duration-150"
+        x-transition:leave-start="opacity-100"
+        x-transition:leave-end="opacity-0"
+        class="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+        @click.self="showModal = false; step = 'provider'"
+      >
+        <div class="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 p-6" @click.stop>
+
+          <!-- Step 1: Choose provider -->
+          <template x-if="step === 'provider'">
+            <div>
+              <h2 class="text-lg font-bold text-charcoal-dark mb-1">Add Connection</h2>
+              <p class="text-sm text-charcoal-light mb-6">Choose a provider to connect.</p>
+
+              <div class="space-y-2">
+                <button @click="selectedProvider = 'google'; step = 'product'" class="w-full flex items-center gap-4 p-4 rounded-xl border border-gray-200 hover:border-coral hover:bg-coral/5 transition-all text-left">
+                  <div class="w-10 h-10 rounded-lg bg-blue-500 flex items-center justify-center text-white font-bold">G</div>
+                  <div>
+                    <p class="text-sm font-medium text-charcoal-dark">Google</p>
+                    <p class="text-xs text-charcoal-light">Ads, Analytics, Business Profile, Sheets, Drive</p>
+                  </div>
+                </button>
+                <button disabled class="w-full flex items-center gap-4 p-4 rounded-xl border border-gray-200 opacity-50 cursor-not-allowed text-left">
+                  <div class="w-10 h-10 rounded-lg bg-[#00a4ef] flex items-center justify-center text-white font-bold">M</div>
+                  <div>
+                    <p class="text-sm font-medium text-charcoal-dark">Microsoft</p>
+                    <p class="text-xs text-charcoal-light">SharePoint, OneDrive — coming soon</p>
+                  </div>
+                </button>
+                <button disabled class="w-full flex items-center gap-4 p-4 rounded-xl border border-gray-200 opacity-50 cursor-not-allowed text-left">
+                  <div class="w-10 h-10 rounded-lg bg-gray-800 flex items-center justify-center text-white font-bold">N</div>
+                  <div>
+                    <p class="text-sm font-medium text-charcoal-dark">Notion</p>
+                    <p class="text-xs text-charcoal-light">Workspace pages — coming soon</p>
+                  </div>
+                </button>
+              </div>
+
+              <button @click="showModal = false; step = 'provider'" class="mt-4 text-sm text-charcoal-light hover:text-charcoal-dark">Cancel</button>
+            </div>
+          </template>
+
+          <!-- Step 2: Choose product -->
+          <template x-if="step === 'product'">
+            <div>
+              <button @click="step = 'provider'" class="text-sm text-charcoal-light hover:text-charcoal-dark mb-4 flex items-center gap-1">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+                Back
+              </button>
+              <h2 class="text-lg font-bold text-charcoal-dark mb-1">Connect <span x-text="selectedProvider" class="capitalize"></span></h2>
+              <p class="text-sm text-charcoal-light mb-6">Choose which service to connect.</p>
+
+              <div class="space-y-2">
+                <template x-for="p in products[selectedProvider]" :key="p.id">
+                  <button
+                    @click="connect(selectedProvider, p.id)"
+                    class="w-full flex items-center gap-4 p-4 rounded-xl border border-gray-200 hover:border-coral hover:bg-coral/5 transition-all text-left"
+                  >
+                    <div class="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center text-xs font-bold text-charcoal-dark" x-text="p.icon"></div>
+                    <div>
+                      <p class="text-sm font-medium text-charcoal-dark" x-text="p.label"></p>
+                      <p class="text-xs text-charcoal-light" x-text="p.desc"></p>
+                    </div>
+                  </button>
+                </template>
+              </div>
+
+              <button @click="showModal = false; step = 'provider'" class="mt-4 text-sm text-charcoal-light hover:text-charcoal-dark">Cancel</button>
+            </div>
+          </template>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Link back to settings -->
+    <div class="mt-8">
+      <a href="/app/settings" class="text-sm text-charcoal-light hover:text-coral">
+        &larr; Back to Settings
+      </a>
+    </div>
+  </div>
+
+  <script is:inline>
+    document.addEventListener('alpine:init', () => {
+      Alpine.data('connectionsManager', (clientId) => ({
+        clientId,
+        showModal: false,
+        step: 'provider',
+        selectedProvider: '',
+        products: {
+          google: [
+            { id: 'google_ads', icon: 'Ads', label: 'Google Ads', desc: 'Campaign performance, keywords, search terms' },
+            { id: 'ga4', icon: 'GA4', label: 'Google Analytics 4', desc: 'Traffic, conversions, cross-channel attribution' },
+            { id: 'gbp', icon: 'GBP', label: 'Google Business Profile', desc: 'Locations, reviews, posts, performance' },
+            { id: 'sheets', icon: 'SH', label: 'Google Sheets', desc: 'Read/write spreadsheet data' },
+            { id: 'drive', icon: 'DR', label: 'Google Drive', desc: 'Export reports and documents' },
+          ],
+          microsoft: [],
+          notion: [],
+        },
+
+        connect(provider, product) {
+          if (!this.clientId) { alert('No workspace found. Please contact support.'); return; }
+          window.location.href = `/api/oauth/${provider}/authorize?product=${product}&client_id=${this.clientId}`;
+        },
+
+        async refreshConnection(id) {
+          try {
+            const res = await fetch(`/api/oauth/connections/${id}/refresh`, { method: 'POST' });
+            if (res.ok) {
+              window.location.reload();
+            } else {
+              const err = await res.json().catch(() => ({}));
+              alert(err.detail || 'Refresh failed');
+            }
+          } catch (e) { alert('Network error: ' + e.message); }
+        },
+
+        async deleteConnection(id, product) {
+          if (!confirm(`Disconnect ${product.replace('_', ' ')}? This will revoke access.`)) return;
+          try {
+            const res = await fetch(`/api/oauth/connections/${id}`, { method: 'DELETE' });
+            if (res.ok) {
+              window.location.reload();
+            } else {
+              const err = await res.json().catch(() => ({}));
+              alert(err.detail || 'Failed to disconnect');
+            }
+          } catch (e) { alert('Network error: ' + e.message); }
+        },
+      }));
+    });
+  </script>
+</DashboardLayout>

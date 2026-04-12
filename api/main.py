@@ -6,7 +6,7 @@ from slowapi.middleware import SlowAPIMiddleware
 
 from config import settings
 from models import Base, engine
-from routers import admin, auth, clients, stripe, scans, brands
+from routers import admin, auth, clients, oauth, stripe, scans, brands
 from services.rate_limit import limiter
 from services.request_context import current_request_method
 
@@ -50,6 +50,7 @@ app.include_router(clients.router, prefix="/api/clients", tags=["clients"])
 app.include_router(stripe.router, prefix="/api/stripe", tags=["stripe"])
 app.include_router(scans.router, prefix="/api/scans", tags=["scans"])
 app.include_router(brands.router, prefix="/api/clients", tags=["brands"])
+app.include_router(oauth.router, prefix="/api/oauth", tags=["oauth"])
 app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
 
 

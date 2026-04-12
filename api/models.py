@@ -80,6 +80,44 @@ class ClientCredit(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
+class OAuthConnection(Base):
+    """OAuth delegation: external accounts a client has connected (Phase 0).
+
+    Tokens are Fernet-encrypted at the application layer (OAUTH_FERNET_KEY).
+    Never store or log plaintext tokens.
+    """
+    __tablename__ = "oauth_connections"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    client_id = Column(UUID(as_uuid=True), ForeignKey("clients.id", ondelete="CASCADE"), nullable=False)
+
+    provider = Column(String(50), nullable=False)   # google, microsoft, notion
+    product = Column(String(50), nullable=False)     # google_ads, ga4, gbp, sheets, drive, sharepoint, notion
+
+    account_id = Column(String(255))
+    account_email = Column(String(255))
+    account_name = Column(String(255))
+
+    access_token_encrypted = Column(Text)
+    refresh_token_encrypted = Column(Text)
+    token_expires_at = Column(DateTime)
+    scopes = Column(ARRAY(String))
+
+    config = Column(JSONB, default={})
+
+    status = Column(String(20), nullable=False, default="active")  # active, expired, revoked
+    authorized_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    authorized_at = Column(DateTime, default=datetime.utcnow)
+    last_used_at = Column(DateTime)
+    revoked_at = Column(DateTime)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    client = relationship("Client")
+    authorized_by = relationship("User")
+
+
 class ClientApiKey(Base):
     __tablename__ = "client_api_keys"
 

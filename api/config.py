@@ -23,6 +23,10 @@ class Settings(BaseSettings):
     oauth_fernet_key: str = ""  # Fernet symmetric key for encrypting tokens at rest
     oauth_google_redirect_uri: str = "https://sen-ai.fr/api/oauth/google/callback"
 
+    # Email (Resend) — optional, logs reset URL if not configured
+    resend_api_key: str = ""
+    resend_from_email: str = "sen-ai.fr <noreply@sen-ai.fr>"
+
     # Frontend
     frontend_url: str = "https://sen-ai.fr"
 

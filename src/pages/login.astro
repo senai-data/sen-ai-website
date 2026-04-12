@@ -52,7 +52,10 @@ const error = Astro.url.searchParams.get('error');
             />
           </div>
           <div>
-            <label for="password" class="block text-sm font-medium text-charcoal mb-1">Password</label>
+            <div class="flex items-center justify-between mb-1">
+              <label for="password" class="block text-sm font-medium text-charcoal">Password</label>
+              <a href="/forgot-password" class="text-xs text-coral hover:text-coral-dark">Forgot password?</a>
+            </div>
             <input
               type="password" id="password" name="password" required
               class="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-coral/50 focus:border-coral"

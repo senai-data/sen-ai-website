@@ -341,6 +341,89 @@ async def export_account_data(
     }
 
 
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    password: str
+
+
+def _create_reset_token(user_id: str, email: str) -> str:
+    """Short-lived JWT for password reset (15 min)."""
+    payload = {
+        "sub": user_id,
+        "email": email,
+        "purpose": "password_reset",
+        "exp": datetime.utcnow() + timedelta(minutes=15),
+    }
+    return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
+
+
+def _send_reset_email(email: str, reset_url: str) -> bool:
+    """Send reset email via Resend. Returns False if Resend is not configured."""
+    if not settings.resend_api_key:
+        logger.warning(f"RESEND_API_KEY not set — reset URL for {email}: {reset_url}")
+        return False
+    try:
+        import resend
+        resend.api_key = settings.resend_api_key
+        resend.Emails.send({
+            "from": settings.resend_from_email,
+            "to": [email],
+            "subject": "Reset your sen-ai.fr password",
+            "html": (
+                f"<p>You requested a password reset for your sen-ai.fr account.</p>"
+                f'<p><a href="{reset_url}" style="display:inline-block;padding:12px 24px;'
+                f'background:#E8604C;color:white;border-radius:8px;text-decoration:none;'
+                f'font-weight:bold;">Reset Password</a></p>'
+                f"<p>This link expires in 15 minutes. If you didn't request this, ignore this email.</p>"
+                f"<p>— sen-ai.fr</p>"
+            ),
+        })
+        return True
+    except Exception:
+        logger.exception(f"Failed to send reset email to {email}")
+        return False
+
+
+@router.post("/forgot-password")
+@limiter.limit("5/minute")
+async def forgot_password(request: Request, req: ForgotPasswordRequest, db: Session = Depends(get_db)):
+    """Request a password reset link. Always returns 200 (no account enumeration)."""
+    user = db.query(User).filter(User.email == req.email).first()
+    if user and user.password_hash:
+        token = _create_reset_token(str(user.id), user.email)
+        reset_url = f"{settings.frontend_url}/reset-password?token={token}"
+        _send_reset_email(user.email, reset_url)
+    # Always return success to prevent account enumeration
+    return {"ok": True, "message": "If this email exists, a reset link has been sent."}
+
+
+@router.post("/reset-password")
+@limiter.limit("5/minute")
+async def reset_password(request: Request, req: ResetPasswordRequest, db: Session = Depends(get_db)):
+    """Verify reset token and set new password."""
+    try:
+        payload = jwt.decode(req.token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
+        if payload.get("purpose") != "password_reset":
+            raise HTTPException(400, "Invalid reset token")
+        user_id = payload.get("sub")
+    except JWTError:
+        raise HTTPException(400, "Invalid or expired reset token")
+
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(400, "Invalid reset token")
+
+    _validate_password(req.password)
+    user.password_hash = pwd_context.hash(req.password)
+    db.commit()
+
+    return {"ok": True, "message": "Password updated. You can now log in."}
+
+
 @router.post("/login", response_model=TokenResponse)
 @limiter.limit("10/minute")
 async def login(request: Request, req: LoginRequest, response: Response, db: Session = Depends(get_db)):

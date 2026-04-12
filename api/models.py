@@ -34,6 +34,7 @@ class Client(Base):
     name = Column(String(255), nullable=False)
     brand = Column(String(255))
     stripe_customer_id = Column(String(255))
+    apps = Column(JSONB, nullable=False, default={"ai_scan": {"enabled": True}})
     created_at = Column(DateTime, default=datetime.utcnow)
 
     user_links = relationship("UserClient", back_populates="client")

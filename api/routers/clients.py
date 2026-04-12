@@ -12,6 +12,7 @@ class ClientResponse(BaseModel):
     id: str
     name: str
     brand: str | None
+    apps: dict | None = None
 
     model_config = {"from_attributes": True}
 
@@ -26,7 +27,7 @@ async def list_clients(user=Depends(get_current_user), db: Session = Depends(get
     links = db.query(UserClient).filter(UserClient.user_id == user.id).all()
     client_ids = [link.client_id for link in links]
     clients = db.query(Client).filter(Client.id.in_(client_ids)).all()
-    return [ClientResponse(id=str(c.id), name=c.name, brand=c.brand) for c in clients]
+    return [ClientResponse(id=str(c.id), name=c.name, brand=c.brand, apps=c.apps) for c in clients]
 
 
 @router.post("/")
@@ -35,7 +36,7 @@ async def create_client(req: ClientCreate, user=Depends(get_current_user), db: S
     existing = db.query(UserClient).filter(UserClient.user_id == user.id).first()
     if existing:
         client = db.query(Client).filter(Client.id == existing.client_id).first()
-        return ClientResponse(id=str(client.id), name=client.name, brand=client.brand)
+        return ClientResponse(id=str(client.id), name=client.name, brand=client.brand, apps=client.apps)
 
     # Create new client + link user as owner + welcome credits
     client = Client(name=req.name, brand=req.brand)
@@ -56,4 +57,4 @@ async def create_client(req: ClientCreate, user=Depends(get_current_user), db: S
     db.commit()
     db.refresh(client)
 
-    return ClientResponse(id=str(client.id), name=client.name, brand=client.brand)
+    return ClientResponse(id=str(client.id), name=client.name, brand=client.brand, apps=client.apps)

@@ -1,0 +1,131 @@
+---
+/**
+ * Admin: Client Management — toggle app modules per client.
+ */
+export const prerender = false;
+import DashboardLayout from '../../../layouts/DashboardLayout.astro';
+
+const token = Astro.cookies.get('token')?.value;
+if (!token) return Astro.redirect('/login');
+
+// Check superadmin
+let isSuperadmin = false;
+try {
+  const res = await fetch('http://api:8000/api/admin/me', {
+    headers: { Cookie: `token=${token}` },
+  });
+  isSuperadmin = res.ok;
+} catch {}
+if (!isSuperadmin) return Astro.redirect('/app/dashboard');
+
+// Fetch all clients
+let clients: any[] = [];
+try {
+  const res = await fetch('http://api:8000/api/admin/clients', {
+    headers: { Cookie: `token=${token}` },
+  });
+  if (res.ok) clients = await res.json();
+} catch {}
+
+const appModules = [
+  { key: 'ai_scan', label: 'AI Scan', desc: 'LLM visibility analysis' },
+  { key: 'google_ads', label: 'Google Ads', desc: 'Campaign dashboards + GA4' },
+  { key: 'local_business', label: 'Local Business', desc: 'GBP locations + reviews' },
+];
+---
+
+<DashboardLayout title="Admin: Clients" activeSection="admin">
+  <div class="p-8 max-w-5xl">
+
+    <div class="flex items-center gap-2 text-sm text-charcoal-light mb-6">
+      <a href="/app/dashboard" class="hover:text-charcoal-dark">Dashboard</a>
+      <span>/</span>
+      <span class="text-charcoal-dark font-medium">Admin: Clients</span>
+    </div>
+
+    <div class="flex items-center justify-between mb-6">
+      <div>
+        <h1 class="text-2xl font-bold text-charcoal-dark">Clients</h1>
+        <p class="text-sm text-charcoal-light mt-1">{clients.length} clients on the platform. Toggle app modules per client.</p>
+      </div>
+      <div class="flex gap-2">
+        <a href="/app/admin/connections" class="text-sm text-charcoal-light hover:text-coral">OAuth Connections</a>
+      </div>
+    </div>
+
+    <div class="space-y-4" x-data="adminClients()">
+      {clients.map((client: any) => (
+        <div class="bg-white rounded-xl border border-gray-200 p-5">
+          <div class="flex items-center justify-between mb-4">
+            <div>
+              <h3 class="text-sm font-bold text-charcoal-dark">{client.name}</h3>
+              <p class="text-xs text-charcoal-light mt-0.5">
+                {client.brand || 'No brand'} · {client.member_count} member{client.member_count !== 1 ? 's' : ''} · {client.scan_count} scans
+              </p>
+            </div>
+            <span class="text-[10px] text-gray-400 font-mono">{client.id.slice(0, 8)}</span>
+          </div>
+
+          <div class="flex gap-3">
+            {appModules.map((mod: any) => {
+              const isEnabled = client.apps?.[mod.key]?.enabled || false;
+              return (
+                <button
+                  class:list={[
+                    "flex-1 p-3 rounded-lg border text-left transition-all text-xs",
+                    isEnabled
+                      ? "border-coral bg-coral/5"
+                      : "border-gray-200 hover:border-gray-300"
+                  ]}
+                  data-client-id={client.id}
+                  data-app-key={mod.key}
+                  data-enabled={isEnabled ? "true" : "false"}
+                  @click="toggleApp($event)"
+                >
+                  <div class="flex items-center justify-between mb-1">
+                    <span class:list={["font-medium", isEnabled ? "text-coral" : "text-charcoal-dark"]}>
+                      {mod.label}
+                    </span>
+                    <span class:list={[
+                      "w-3 h-3 rounded-full",
+                      isEnabled ? "bg-coral" : "bg-gray-300"
+                    ]}></span>
+                  </div>
+                  <p class="text-charcoal-light">{mod.desc}</p>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+    </div>
+  </div>
+
+  <script is:inline>
+    document.addEventListener('alpine:init', () => {
+      Alpine.data('adminClients', () => ({
+        async toggleApp(event) {
+          const btn = event.currentTarget;
+          const clientId = btn.dataset.clientId;
+          const appKey = btn.dataset.appKey;
+          const currentlyEnabled = btn.dataset.enabled === 'true';
+          const newEnabled = !currentlyEnabled;
+
+          try {
+            const res = await fetch(`/api/admin/clients/${clientId}/apps`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ app_key: appKey, enabled: newEnabled }),
+            });
+            if (res.ok) {
+              window.location.reload();
+            } else {
+              const err = await res.json().catch(() => ({}));
+              alert(err.detail || 'Failed to toggle app');
+            }
+          } catch (e) { alert('Network error: ' + e.message); }
+        },
+      }));
+    });
+  </script>
+</DashboardLayout>

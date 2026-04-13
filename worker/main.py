@@ -39,7 +39,7 @@ def load_handlers():
                           generate_personas, generate_persona_questions,
                           run_llm_tests, generate_editorial,
                           detect_competitors, generate_opportunities, cleanup_brands,
-                          generate_domain_brief)  # noqa: F401
+                          generate_domain_brief, sync_google_ads)  # noqa: F401
     HANDLERS["fetch_keywords"] = fetch_keywords.execute
     HANDLERS["classify_topics"] = classify_topics.execute
     HANDLERS["assign_keywords"] = assign_keywords.execute
@@ -51,6 +51,7 @@ def load_handlers():
     HANDLERS["generate_editorial"] = generate_editorial.execute
     HANDLERS["cleanup_brands"] = cleanup_brands.execute
     HANDLERS["generate_domain_brief"] = generate_domain_brief.execute
+    HANDLERS["sync_google_ads"] = sync_google_ads.execute
 
 
 def _refund_scan_credits(scan_id, db: Session) -> None:
@@ -235,12 +236,12 @@ def poll_and_execute():
             logger.error(f"Unknown job type: {job_obj.job_type}")
             return True
 
-        logger.info(f"Executing job {job_obj.id} type={job_obj.job_type} scan={job_obj.scan_id}")
+        logger.info(f"Executing job {job_obj.id} type={job_obj.job_type} scan={job_obj.scan_id} client={job_obj.client_id}")
 
         try:
             result = handler(
                 job_payload=job_obj.payload or {},
-                scan_id=str(job_obj.scan_id),
+                scan_id=str(job_obj.scan_id) if job_obj.scan_id else None,
                 db=db,
             )
             job_obj.status = "completed"

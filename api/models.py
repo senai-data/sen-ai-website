@@ -307,7 +307,8 @@ class Job(Base):
     __tablename__ = "jobs"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    scan_id = Column(UUID(as_uuid=True), ForeignKey("scans.id"), nullable=False)
+    scan_id = Column(UUID(as_uuid=True), ForeignKey("scans.id"), nullable=True)  # nullable for non-scan jobs (sync)
+    client_id = Column(UUID(as_uuid=True), ForeignKey("clients.id", ondelete="CASCADE"), nullable=True)
     job_type = Column(String(50), nullable=False)
     status = Column(String(30), default="pending")
     payload = Column(JSONB, default={})
@@ -427,6 +428,167 @@ class ScanOpportunity(Base):
     media_domain = Column(String(255))
 
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+# ── Google Ads Intelligence models ──────────────────────────────────────
+
+class SyncRun(Base):
+    """Tracks each data sync operation (audit trail + stats)."""
+    __tablename__ = "sync_runs"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    client_id = Column(UUID(as_uuid=True), ForeignKey("clients.id", ondelete="CASCADE"), nullable=False)
+    connection_id = Column(UUID(as_uuid=True), ForeignKey("oauth_connections.id", ondelete="CASCADE"), nullable=False)
+    sync_type = Column(String(50), nullable=False)
+    status = Column(String(20), nullable=False, default="pending")
+    date_from = Column(DateTime)
+    date_to = Column(DateTime)
+    config = Column(JSONB, default={})
+    stats = Column(JSONB, default={})
+    started_at = Column(DateTime)
+    completed_at = Column(DateTime)
+    error_message = Column(Text)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class GadsCampaign(Base):
+    """Google Ads campaign performance — daily granularity."""
+    __tablename__ = "gads_campaigns"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    client_id = Column(UUID(as_uuid=True), ForeignKey("clients.id", ondelete="CASCADE"), nullable=False)
+    customer_id = Column(String(20), nullable=False)
+    campaign_id = Column(Integer, nullable=False)  # BigInt in SQL, Int in Python is fine
+    campaign_name = Column(String(500))
+    channel_type = Column(String(50))
+    status = Column(String(20))
+    date = Column(DateTime, nullable=False)
+    impressions = Column(Integer, default=0)
+    clicks = Column(Integer, default=0)
+    cost_micros = Column(Integer, default=0)
+    conversions = Column(Float, default=0)
+    conversions_value = Column(Float, default=0)
+    all_conversions = Column(Float, default=0)
+    all_conversions_value = Column(Float, default=0)
+    ctr = Column(Float)
+    avg_cpc = Column(Float)
+    avg_cpm = Column(Float)
+    abs_top_impr_pct = Column(Float)
+    top_impr_pct = Column(Float)
+    optimization_score = Column(Float)
+    bidding_strategy = Column(String(50))
+    budget_micros = Column(Integer)
+    raw_data = Column(JSONB, default={})
+    sync_run_id = Column(UUID(as_uuid=True), ForeignKey("sync_runs.id", ondelete="SET NULL"))
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class GadsKeyword(Base):
+    """Google Ads keyword performance — daily granularity."""
+    __tablename__ = "gads_keywords"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    client_id = Column(UUID(as_uuid=True), ForeignKey("clients.id", ondelete="CASCADE"), nullable=False)
+    customer_id = Column(String(20), nullable=False)
+    campaign_id = Column(Integer, nullable=False)
+    campaign_name = Column(String(500))
+    ad_group_id = Column(Integer)
+    ad_group_name = Column(String(500))
+    keyword_text = Column(String(500))
+    match_type = Column(String(20))
+    criterion_id = Column(Integer)
+    date = Column(DateTime, nullable=False)
+    impressions = Column(Integer, default=0)
+    clicks = Column(Integer, default=0)
+    cost_micros = Column(Integer, default=0)
+    conversions = Column(Float, default=0)
+    conversions_value = Column(Float, default=0)
+    ctr = Column(Float)
+    avg_cpc = Column(Float)
+    quality_score = Column(Integer)
+    search_impr_share = Column(Float)
+    search_abs_top_impr_share = Column(Float)
+    search_top_impr_share = Column(Float)
+    search_click_share = Column(Float)
+    raw_data = Column(JSONB, default={})
+    sync_run_id = Column(UUID(as_uuid=True), ForeignKey("sync_runs.id", ondelete="SET NULL"))
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class GadsSearchTerm(Base):
+    """Google Ads search term performance — daily granularity."""
+    __tablename__ = "gads_search_terms"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    client_id = Column(UUID(as_uuid=True), ForeignKey("clients.id", ondelete="CASCADE"), nullable=False)
+    customer_id = Column(String(20), nullable=False)
+    campaign_id = Column(Integer)
+    campaign_name = Column(String(500))
+    search_term = Column(String(1000))
+    keyword_text = Column(String(500))
+    keyword_match_type = Column(String(20))
+    search_term_match_type = Column(String(30))
+    date = Column(DateTime, nullable=False)
+    impressions = Column(Integer, default=0)
+    clicks = Column(Integer, default=0)
+    cost_micros = Column(Integer, default=0)
+    conversions = Column(Float, default=0)
+    conversions_value = Column(Float, default=0)
+    ctr = Column(Float)
+    avg_cpc = Column(Float)
+    raw_data = Column(JSONB, default={})
+    sync_run_id = Column(UUID(as_uuid=True), ForeignKey("sync_runs.id", ondelete="SET NULL"))
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class GadsStorePerformance(Base):
+    """Google Ads per-store performance — daily granularity (per_store_view)."""
+    __tablename__ = "gads_store_performance"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    client_id = Column(UUID(as_uuid=True), ForeignKey("clients.id", ondelete="CASCADE"), nullable=False)
+    customer_id = Column(String(20), nullable=False)
+    campaign_id = Column(Integer)
+    campaign_name = Column(String(500))
+    channel_type = Column(String(50))
+    place_id = Column(String(100), nullable=False)
+    business_name = Column(String(500))
+    address = Column(String(500))
+    city = Column(String(255))
+    postal_code = Column(String(20))
+    date = Column(DateTime, nullable=False)
+    eligible_impressions = Column(Float, default=0)
+    store_visits = Column(Float, default=0)
+    click_to_call = Column(Float, default=0)
+    directions = Column(Float, default=0)
+    website_clicks = Column(Float, default=0)
+    other_engagement = Column(Float, default=0)
+    orders = Column(Float, default=0)
+    menu_clicks = Column(Float, default=0)
+    vtc_store_visits = Column(Float, default=0)
+    vtc_click_to_call = Column(Float, default=0)
+    vtc_directions = Column(Float, default=0)
+    vtc_website = Column(Float, default=0)
+    raw_data = Column(JSONB, default={})
+    sync_run_id = Column(UUID(as_uuid=True), ForeignKey("sync_runs.id", ondelete="SET NULL"))
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class SyncSchedule(Base):
+    """Cron-like recurring sync schedules."""
+    __tablename__ = "sync_schedules"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    client_id = Column(UUID(as_uuid=True), ForeignKey("clients.id", ondelete="CASCADE"), nullable=False)
+    connection_id = Column(UUID(as_uuid=True), ForeignKey("oauth_connections.id", ondelete="CASCADE"), nullable=False)
+    sync_type = Column(String(50), nullable=False)
+    cron_expression = Column(String(50), nullable=False)
+    is_active = Column(Boolean, default=True)
+    last_run_at = Column(DateTime)
+    next_run_at = Column(DateTime)
+    config = Column(JSONB, default={})
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 engine = create_engine(settings.database_url)

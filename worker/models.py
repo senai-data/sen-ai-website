@@ -268,7 +268,8 @@ class Job(Base):
     __tablename__ = "jobs"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    scan_id = Column(UUID(as_uuid=True), ForeignKey("scans.id"), nullable=False)
+    scan_id = Column(UUID(as_uuid=True), ForeignKey("scans.id"), nullable=True)
+    client_id = Column(UUID(as_uuid=True), ForeignKey("clients.id", ondelete="CASCADE"), nullable=True)
     job_type = Column(String(50), nullable=False)
     status = Column(String(30), default="pending")
     payload = Column(JSONB, default={})
@@ -387,6 +388,48 @@ class ScanOpportunity(Base):
     target_url = Column(Text)
     media_domain = Column(String(255))
 
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class OAuthConnection(Base):
+    """OAuth delegation — needed by worker to read tokens for sync jobs."""
+    __tablename__ = "oauth_connections"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    client_id = Column(UUID(as_uuid=True), ForeignKey("clients.id", ondelete="CASCADE"), nullable=False)
+    provider = Column(String(50), nullable=False)
+    product = Column(String(50), nullable=False)
+    account_id = Column(String(255))
+    account_email = Column(String(255))
+    access_token_encrypted = Column(Text)
+    refresh_token_encrypted = Column(Text)
+    token_expires_at = Column(DateTime)
+    scopes = Column(ARRAY(String))
+    config = Column(JSONB, default={})
+    status = Column(String(20), nullable=False, default="active")
+    authorized_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    authorized_at = Column(DateTime, default=datetime.utcnow)
+    last_used_at = Column(DateTime)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class SyncRun(Base):
+    """Tracks each data sync operation."""
+    __tablename__ = "sync_runs"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    client_id = Column(UUID(as_uuid=True), ForeignKey("clients.id", ondelete="CASCADE"), nullable=False)
+    connection_id = Column(UUID(as_uuid=True), ForeignKey("oauth_connections.id", ondelete="CASCADE"), nullable=False)
+    sync_type = Column(String(50), nullable=False)
+    status = Column(String(20), nullable=False, default="pending")
+    date_from = Column(DateTime)
+    date_to = Column(DateTime)
+    config = Column(JSONB, default={})
+    stats = Column(JSONB, default={})
+    started_at = Column(DateTime)
+    completed_at = Column(DateTime)
+    error_message = Column(Text)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 

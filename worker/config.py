@@ -13,6 +13,13 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     openai_api_key: str = ""
 
+    # OAuth (worker needs to decrypt tokens for sync jobs)
+    oauth_fernet_key: str = ""
+
+    # Google Ads API
+    google_ads_developer_token: str = ""
+    google_ads_api_version: str = "v19"
+
     # Worker
     worker_id: str = "worker-1"
     poll_interval: int = 2

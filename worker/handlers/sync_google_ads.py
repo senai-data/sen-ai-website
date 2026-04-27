@@ -27,7 +27,7 @@ from adapters.google_ads_client import (
     parse_per_store_row,
     parse_search_term_row,
 )
-from adapters.token_manager import decrypt_token
+from adapters.token_manager import get_valid_access_token
 from config import settings
 
 logger = logging.getLogger(__name__)
@@ -57,7 +57,7 @@ def execute(job_payload: dict, scan_id: str | None, db: Session) -> dict:
     if conn.status != "active":
         raise ValueError(f"OAuthConnection {connection_id} is {conn.status}")
 
-    access_token = decrypt_token(conn.access_token_encrypted)
+    access_token = get_valid_access_token(conn, db)
     config = conn.config or {}
     developer_token = config.get("developer_token") or settings.google_ads_developer_token
     login_customer_id = config.get("login_customer_id", "")
@@ -116,8 +116,9 @@ def execute(job_payload: dict, scan_id: str | None, db: Session) -> dict:
 
                 total_stats["accounts_synced"] += 1
             except Exception as e:
+                db.rollback()
                 logger.exception(f"Error syncing customer {cid_clean}: {e}")
-                total_stats["errors"].append({"customer_id": cid_clean, "error": str(e)})
+                total_stats["errors"].append({"customer_id": cid_clean, "error": str(e)[:500]})
 
         # Update sync run
         sync_run.status = "completed"

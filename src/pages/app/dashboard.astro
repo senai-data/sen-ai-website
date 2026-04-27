@@ -24,6 +24,7 @@ let error = null;
 try {
   const clientsRes = await fetch('http://api:8000/api/clients/', {
     headers: { Cookie: `token=${token}` },
+    signal: AbortSignal.timeout(3000),
   });
   const clients = clientsRes.ok ? await clientsRes.json() : [];
   const clientId = clients[0]?.id;
@@ -31,11 +32,13 @@ try {
   if (clientId) {
     const scansRes = await fetch(`http://api:8000/api/scans?client_id=${clientId}`, {
       headers: { Cookie: `token=${token}` },
+      signal: AbortSignal.timeout(3000),
     });
     scans = scansRes.ok ? await scansRes.json() : [];
 
     const creditsRes = await fetch(`http://api:8000/api/stripe/credits/${clientId}`, {
       headers: { Cookie: `token=${token}` },
+      signal: AbortSignal.timeout(3000),
     });
     if (creditsRes.ok) {
       const credits = await creditsRes.json();
@@ -45,6 +48,19 @@ try {
 } catch (e) {
   error = e.message;
 }
+
+// Check email verification for banner
+let isEmailVerified = true;
+try {
+  const meRes = await fetch('http://api:8000/api/auth/me', {
+    headers: { Cookie: `token=${token}` },
+    signal: AbortSignal.timeout(3000),
+  });
+  if (meRes.ok) {
+    const me = await meRes.json();
+    isEmailVerified = me.is_email_verified;
+  }
+} catch {}
 
 // First-time user → redirect to onboarding
 if (scans.length === 0) {
@@ -104,6 +120,19 @@ function timeAgo(dateStr) {
 
 <DashboardLayout title="Dashboard" activeSection="dashboard">
   <div class="p-8 max-w-6xl">
+
+    {!isEmailVerified && (
+      <div class="bg-amber-50 border border-amber-200 rounded-xl px-5 py-3 mb-6 flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <svg class="w-5 h-5 text-amber-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+          <div>
+            <p class="text-sm font-medium text-amber-800">Verify your email to get 50 free scan credits</p>
+            <p class="text-xs text-amber-700">Check your inbox for the verification link.</p>
+          </div>
+        </div>
+        <button onclick="fetch('/api/auth/resend-verification',{method:'POST'}).then(()=>this.textContent='Sent!')" class="text-xs text-amber-700 underline hover:text-amber-900 shrink-0">Resend</button>
+      </div>
+    )}
 
     <!-- Greeting -->
     <div class="mb-8">

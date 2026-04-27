@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import (
-    Column, String, Integer, Float, Text, DateTime, ForeignKey, Enum, Boolean, create_engine
+    Column, String, Integer, BigInteger, Float, Text, DateTime, ForeignKey, Enum, Boolean, create_engine
 )
 from sqlalchemy.dialects.postgresql import JSONB, ARRAY
 from sqlalchemy.dialects.postgresql import UUID
@@ -22,6 +22,7 @@ class User(Base):
     password_hash = Column(String(255))  # null if Google OAuth only
     google_id = Column(String(255), unique=True)
     is_superadmin = Column(Boolean, nullable=False, default=False)
+    is_email_verified = Column(Boolean, nullable=False, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     client_links = relationship("UserClient", back_populates="user")
@@ -458,14 +459,14 @@ class GadsCampaign(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     client_id = Column(UUID(as_uuid=True), ForeignKey("clients.id", ondelete="CASCADE"), nullable=False)
     customer_id = Column(String(20), nullable=False)
-    campaign_id = Column(Integer, nullable=False)  # BigInt in SQL, Int in Python is fine
+    campaign_id = Column(BigInteger, nullable=False)
     campaign_name = Column(String(500))
     channel_type = Column(String(50))
     status = Column(String(20))
     date = Column(DateTime, nullable=False)
-    impressions = Column(Integer, default=0)
-    clicks = Column(Integer, default=0)
-    cost_micros = Column(Integer, default=0)
+    impressions = Column(BigInteger, default=0)
+    clicks = Column(BigInteger, default=0)
+    cost_micros = Column(BigInteger, default=0)
     conversions = Column(Float, default=0)
     conversions_value = Column(Float, default=0)
     all_conversions = Column(Float, default=0)
@@ -477,7 +478,7 @@ class GadsCampaign(Base):
     top_impr_pct = Column(Float)
     optimization_score = Column(Float)
     bidding_strategy = Column(String(50))
-    budget_micros = Column(Integer)
+    budget_micros = Column(BigInteger)
     raw_data = Column(JSONB, default={})
     sync_run_id = Column(UUID(as_uuid=True), ForeignKey("sync_runs.id", ondelete="SET NULL"))
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -490,17 +491,17 @@ class GadsKeyword(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     client_id = Column(UUID(as_uuid=True), ForeignKey("clients.id", ondelete="CASCADE"), nullable=False)
     customer_id = Column(String(20), nullable=False)
-    campaign_id = Column(Integer, nullable=False)
+    campaign_id = Column(BigInteger, nullable=False)
     campaign_name = Column(String(500))
-    ad_group_id = Column(Integer)
+    ad_group_id = Column(BigInteger)
     ad_group_name = Column(String(500))
     keyword_text = Column(String(500))
     match_type = Column(String(20))
-    criterion_id = Column(Integer)
+    criterion_id = Column(BigInteger)
     date = Column(DateTime, nullable=False)
-    impressions = Column(Integer, default=0)
-    clicks = Column(Integer, default=0)
-    cost_micros = Column(Integer, default=0)
+    impressions = Column(BigInteger, default=0)
+    clicks = Column(BigInteger, default=0)
+    cost_micros = Column(BigInteger, default=0)
     conversions = Column(Float, default=0)
     conversions_value = Column(Float, default=0)
     ctr = Column(Float)
@@ -522,16 +523,16 @@ class GadsSearchTerm(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     client_id = Column(UUID(as_uuid=True), ForeignKey("clients.id", ondelete="CASCADE"), nullable=False)
     customer_id = Column(String(20), nullable=False)
-    campaign_id = Column(Integer)
+    campaign_id = Column(BigInteger)
     campaign_name = Column(String(500))
     search_term = Column(String(1000))
     keyword_text = Column(String(500))
     keyword_match_type = Column(String(20))
     search_term_match_type = Column(String(30))
     date = Column(DateTime, nullable=False)
-    impressions = Column(Integer, default=0)
-    clicks = Column(Integer, default=0)
-    cost_micros = Column(Integer, default=0)
+    impressions = Column(BigInteger, default=0)
+    clicks = Column(BigInteger, default=0)
+    cost_micros = Column(BigInteger, default=0)
     conversions = Column(Float, default=0)
     conversions_value = Column(Float, default=0)
     ctr = Column(Float)
@@ -589,6 +590,121 @@ class SyncSchedule(Base):
     config = Column(JSONB, default={})
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+# ── Google Search Console models ───────────────────────────────────────
+
+class GscQuery(Base):
+    """GSC query performance — daily granularity (dimensions: date + query)."""
+    __tablename__ = "gsc_queries"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    client_id = Column(UUID(as_uuid=True), ForeignKey("clients.id", ondelete="CASCADE"), nullable=False)
+    domain = Column(String(500), nullable=False)
+    date = Column(DateTime, nullable=False)
+    query = Column(String(1000), nullable=False)
+    clicks = Column(Integer, default=0)
+    impressions = Column(Integer, default=0)
+    ctr = Column(Float)
+    position = Column(Float)
+    sync_run_id = Column(UUID(as_uuid=True), ForeignKey("sync_runs.id", ondelete="SET NULL"))
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class GscPage(Base):
+    """GSC page performance — daily granularity (dimensions: date + query + page)."""
+    __tablename__ = "gsc_pages"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    client_id = Column(UUID(as_uuid=True), ForeignKey("clients.id", ondelete="CASCADE"), nullable=False)
+    domain = Column(String(500), nullable=False)
+    date = Column(DateTime, nullable=False)
+    query = Column(String(1000), nullable=False)
+    page = Column(Text, nullable=False)
+    page_hash = Column(String(32), nullable=False)
+    clicks = Column(Integer, default=0)
+    impressions = Column(Integer, default=0)
+    ctr = Column(Float)
+    position = Column(Float)
+    sync_run_id = Column(UUID(as_uuid=True), ForeignKey("sync_runs.id", ondelete="SET NULL"))
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class GscTopic(Base):
+    """GSC topic clustering — groups pages by semantic topic."""
+    __tablename__ = "gsc_topics"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    client_id = Column(UUID(as_uuid=True), ForeignKey("clients.id", ondelete="CASCADE"), nullable=False)
+    domain = Column(String(500), nullable=False)
+    name = Column(String(255), nullable=False)
+    description = Column(Text)
+    example_urls = Column(ARRAY(String))
+    is_active = Column(Boolean, default=True)
+    page_count = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class GscPageTopic(Base):
+    """GSC page-topic mapping — URL → topic assignment."""
+    __tablename__ = "gsc_page_topics"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    client_id = Column(UUID(as_uuid=True), ForeignKey("clients.id", ondelete="CASCADE"), nullable=False)
+    domain = Column(String(500), nullable=False)
+    page_url = Column(Text, nullable=False)
+    topic_id = Column(UUID(as_uuid=True), ForeignKey("gsc_topics.id", ondelete="CASCADE"), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class GscNewsletter(Base):
+    """GSC newsletter — generated HTML reports per domain per month."""
+    __tablename__ = "gsc_newsletters"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    client_id = Column(UUID(as_uuid=True), ForeignKey("clients.id", ondelete="CASCADE"), nullable=False)
+    domain = Column(String(500), nullable=False)
+    month = Column(String(7), nullable=False)
+    html_content = Column(Text)
+    status = Column(String(20), default="pending")
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class LlmUsageLog(Base):
+    """Platform-wide LLM API usage tracking for cost monitoring.
+
+    Logs every LLM call (Anthropic, OpenAI, Gemini) across all operations:
+    topic classification, persona generation, scan tests, editorial, etc.
+    Queried by superadmin dashboard for spend analytics.
+    """
+    __tablename__ = "llm_usage_log"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    provider = Column(String(30), nullable=False)   # anthropic, openai, gemini
+    model = Column(String(100), nullable=False)
+    operation = Column(String(50), nullable=False)   # classify_topics, generate_personas, scan_test, etc.
+    input_tokens = Column(Integer, nullable=False, default=0)
+    output_tokens = Column(Integer, nullable=False, default=0)
+    cost_usd = Column(Float, nullable=False, default=0)
+    duration_ms = Column(Integer)
+    scan_id = Column(UUID(as_uuid=True), ForeignKey("scans.id", ondelete="SET NULL"))
+    client_id = Column(UUID(as_uuid=True), ForeignKey("clients.id", ondelete="SET NULL"))
+    error = Column(Boolean, nullable=False, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class AuditLog(Base):
+    """M3: Audit log for compliance and security monitoring."""
+    __tablename__ = "audit_log"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    action = Column(String(100), nullable=False)
+    target_type = Column(String(50))
+    target_id = Column(String(255))
+    details = Column(JSONB, default={})
+    ip_address = Column(String(45))
+    created_at = Column(DateTime, default=datetime.utcnow)
 
 
 engine = create_engine(settings.database_url)

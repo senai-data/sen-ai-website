@@ -16,9 +16,13 @@ class Settings(BaseSettings):
     # OAuth (worker needs to decrypt tokens for sync jobs)
     oauth_fernet_key: str = ""
 
+    # Google OAuth (for token refresh in worker)
+    google_client_id: str = ""
+    google_client_secret: str = ""
+
     # Google Ads API
     google_ads_developer_token: str = ""
-    google_ads_api_version: str = "v19"
+    google_ads_api_version: str = "v23"
 
     # Worker
     worker_id: str = "worker-1"

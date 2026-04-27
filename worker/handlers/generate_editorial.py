@@ -125,7 +125,21 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
     )
 
     # Call Claude
+    import time as _time
+    _t0 = _time.time()
     editorial = asyncio.run(_call_claude(prompt, settings.anthropic_api_key))
+    _dur = int((_time.time() - _t0) * 1000)
+
+    # Log LLM usage
+    from adapters.llm_logger import log_llm_usage
+    _usage = editorial.pop("_usage", {})
+    log_llm_usage(
+        db, provider="anthropic", model="claude-sonnet-4-6",
+        operation="generate_editorial", duration_ms=_dur,
+        scan_id=scan_id, client_id=str(scan.client_id),
+        input_tokens=_usage.get("input_tokens", 0),
+        output_tokens=_usage.get("output_tokens", 0),
+    )
 
     # Store editorial in scan summary (must reassign for JSONB change detection)
     from sqlalchemy.orm.attributes import flag_modified
@@ -160,9 +174,12 @@ async def _call_claude(prompt: str, api_key: str) -> dict:
         data = resp.json()
 
     text = data["content"][0]["text"].strip()
+    usage = data.get("usage", {})
     if text.startswith("```"):
         text = "\n".join(text.split("\n")[1:])
     if text.endswith("```"):
         text = text.rsplit("```", 1)[0].strip()
 
-    return json.loads(text)
+    result = json.loads(text)
+    result["_usage"] = usage
+    return result

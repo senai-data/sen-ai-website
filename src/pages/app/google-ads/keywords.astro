@@ -1,0 +1,275 @@
+---
+/**
+ * Google Ads Intelligence — Keywords & Search Terms
+ *
+ * Sortable tables with quality score indicators and search term discovery.
+ *
+ * UX Laws:
+ * - Hick's Law: tabs to split keywords vs search terms
+ * - Von Restorff: quality score color-coded
+ * - Jakob's Law: table pattern like Google Ads UI
+ */
+export const prerender = false;
+import DashboardLayout from '../../../layouts/DashboardLayout.astro';
+
+const token = Astro.cookies.get('token')?.value;
+if (!token) return Astro.redirect('/login');
+
+let clientId = '';
+let accounts: Record<string, { customer_id: string; label: string }> = {};
+
+try {
+  const clientsRes = await fetch('http://api:8000/api/clients/', {
+    headers: { Cookie: `token=${token}` },
+    signal: AbortSignal.timeout(3000),
+  });
+  if (clientsRes.ok) {
+    const clients = await clientsRes.json();
+    if (clients[0]?.id) {
+      clientId = clients[0].id;
+      accounts = clients[0].apps?.google_ads?.accounts || {};
+    }
+  }
+} catch {}
+
+const accountList = Object.entries(accounts).map(([key, val]) => ({
+  key,
+  customer_id: val.customer_id,
+  label: val.label || key,
+}));
+---
+
+<DashboardLayout title="Keywords — Google Ads" activeSection="google-ads">
+  <div class="p-8 max-w-7xl" x-data={`{
+    clientId: '${clientId}',
+    dateFrom: new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10),
+    dateTo: new Date(Date.now() - 86400000).toISOString().slice(0, 10),
+    customerId: '',
+    tab: 'keywords',
+    loading: true,
+    keywords: [],
+    searchTerms: [],
+    sortBy: 'cost',
+    sortDir: 'desc',
+    search: '',
+
+    async fetchAll() {
+      if (!this.clientId) return;
+      this.loading = true;
+      const base = '/api/google-ads/' + this.clientId;
+      const qs = 'date_from=' + this.dateFrom + '&date_to=' + this.dateTo + (this.customerId ? '&customer_id=' + this.customerId : '') + '&limit=200';
+      try {
+        const [kRes, stRes] = await Promise.all([
+          fetch(base + '/keywords/top?' + qs),
+          fetch(base + '/search-terms/top?' + qs),
+        ]);
+        if (kRes.ok) this.keywords = await kRes.json();
+        if (stRes.ok) this.searchTerms = await stRes.json();
+      } catch (e) {
+        console.error('Keywords fetch error:', e);
+      }
+      this.loading = false;
+    },
+
+    get filteredKeywords() {
+      const q = this.search.toLowerCase();
+      const key = this.sortBy;
+      const dir = this.sortDir === 'desc' ? -1 : 1;
+      return [...this.keywords]
+        .filter(k => !q || (k.keyword || '').toLowerCase().includes(q) || (k.campaign_name || '').toLowerCase().includes(q))
+        .sort((a, b) => ((a[key] || 0) - (b[key] || 0)) * dir);
+    },
+
+    get filteredSearchTerms() {
+      const q = this.search.toLowerCase();
+      const key = this.sortBy;
+      const dir = this.sortDir === 'desc' ? -1 : 1;
+      return [...this.searchTerms]
+        .filter(s => !q || (s.search_term || '').toLowerCase().includes(q))
+        .sort((a, b) => ((a[key] || 0) - (b[key] || 0)) * dir);
+    },
+
+    toggleSort(col) {
+      if (this.sortBy === col) {
+        this.sortDir = this.sortDir === 'desc' ? 'asc' : 'desc';
+      } else {
+        this.sortBy = col;
+        this.sortDir = 'desc';
+      }
+    },
+
+    fmt(n) { return n != null ? n.toLocaleString() : '—'; },
+    fmtCur(n) { return n != null ? '€' + n.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 }) : '—'; },
+    fmtDec(n) { return n != null ? n.toFixed(1) : '—'; },
+
+    qsColor(score) {
+      if (score == null) return 'text-gray-400';
+      if (score >= 7) return 'text-emerald-600';
+      if (score >= 5) return 'text-amber-500';
+      return 'text-red-500';
+    },
+
+    qsBg(score) {
+      if (score == null) return 'bg-gray-100';
+      if (score >= 7) return 'bg-emerald-50';
+      if (score >= 5) return 'bg-amber-50';
+      return 'bg-red-50';
+    },
+  }`} x-init="fetchAll()">
+
+    <!-- Header + filters -->
+    <div class="flex flex-wrap items-end gap-4 mb-6">
+      <div class="flex-1 min-w-0">
+        <div class="flex items-center gap-3 mb-1">
+          <a href="/app/google-ads" class="text-charcoal-light hover:text-gads transition-colors">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+          </a>
+          <h1 class="text-2xl font-bold text-charcoal-dark">Keywords</h1>
+        </div>
+        <p class="text-charcoal-light mt-1 ml-8">Keyword and search term performance</p>
+      </div>
+      <div class="flex items-center gap-3">
+        <input type="date" x-model="dateFrom" @change="fetchAll()"
+               class="text-sm border border-gray-200 rounded-lg px-3 py-2 outline-none focus:border-gads" />
+        <span class="text-charcoal-light text-sm">to</span>
+        <input type="date" x-model="dateTo" @change="fetchAll()"
+               class="text-sm border border-gray-200 rounded-lg px-3 py-2 outline-none focus:border-gads" />
+        {accountList.length > 1 && (
+          <select x-model="customerId" @change="fetchAll()"
+                  class="text-sm border border-gray-200 rounded-lg px-3 py-2 outline-none focus:border-gads">
+            <option value="">All accounts</option>
+            {accountList.map(a => (
+              <option value={a.customer_id}>{a.label}</option>
+            ))}
+          </select>
+        )}
+      </div>
+    </div>
+
+    <!-- Tabs + search -->
+    <div class="flex items-center gap-4 mb-5">
+      <div class="flex bg-white rounded-lg shadow-sm border border-gray-100 p-1">
+        <button @click="tab = 'keywords'; sortBy = 'cost'; search = ''"
+                :class="tab === 'keywords' ? 'bg-gads text-white' : 'text-charcoal-light hover:text-charcoal-dark'"
+                class="px-4 py-2 text-sm font-medium rounded-md transition-colors">
+          Keywords <span class="ml-1 opacity-70" x-text="'(' + keywords.length + ')'"></span>
+        </button>
+        <button @click="tab = 'search_terms'; sortBy = 'cost'; search = ''"
+                :class="tab === 'search_terms' ? 'bg-gads text-white' : 'text-charcoal-light hover:text-charcoal-dark'"
+                class="px-4 py-2 text-sm font-medium rounded-md transition-colors">
+          Search Terms <span class="ml-1 opacity-70" x-text="'(' + searchTerms.length + ')'"></span>
+        </button>
+      </div>
+      <input type="text" x-model="search" placeholder="Search..."
+             class="text-sm border border-gray-200 rounded-lg px-3 py-2 outline-none focus:border-gads w-64" />
+    </div>
+
+    <!-- Loading -->
+    <template x-if="loading">
+      <div class="flex items-center justify-center py-20">
+        <div class="w-8 h-8 border-3 border-gads border-t-transparent rounded-full animate-spin"></div>
+        <span class="ml-3 text-charcoal-light text-sm">Loading keywords...</span>
+      </div>
+    </template>
+
+    <!-- Keywords table -->
+    <template x-if="!loading && tab === 'keywords'">
+      <div class="bg-white rounded-xl shadow-sm border border-gray-100">
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="border-b border-gray-100 text-left">
+                <th class="px-6 py-3 text-xs text-charcoal-light uppercase tracking-wide font-medium">Keyword</th>
+                <th class="px-3 py-3 text-xs text-charcoal-light uppercase tracking-wide font-medium">Match</th>
+                <th class="px-3 py-3 text-xs text-charcoal-light uppercase tracking-wide font-medium">Campaign</th>
+                <th class="px-3 py-3 text-xs text-charcoal-light uppercase tracking-wide font-medium text-right cursor-pointer select-none" @click="toggleSort('impressions')">
+                  Impr. <span x-show="sortBy === 'impressions'" x-text="sortDir === 'desc' ? '↓' : '↑'"></span>
+                </th>
+                <th class="px-3 py-3 text-xs text-charcoal-light uppercase tracking-wide font-medium text-right cursor-pointer select-none" @click="toggleSort('clicks')">
+                  Clicks <span x-show="sortBy === 'clicks'" x-text="sortDir === 'desc' ? '↓' : '↑'"></span>
+                </th>
+                <th class="px-3 py-3 text-xs text-charcoal-light uppercase tracking-wide font-medium text-right cursor-pointer select-none" @click="toggleSort('cost')">
+                  Cost <span x-show="sortBy === 'cost'" x-text="sortDir === 'desc' ? '↓' : '↑'"></span>
+                </th>
+                <th class="px-3 py-3 text-xs text-charcoal-light uppercase tracking-wide font-medium text-right cursor-pointer select-none" @click="toggleSort('conversions')">
+                  Conv. <span x-show="sortBy === 'conversions'" x-text="sortDir === 'desc' ? '↓' : '↑'"></span>
+                </th>
+                <th class="px-3 py-3 text-xs text-charcoal-light uppercase tracking-wide font-medium text-center cursor-pointer select-none" @click="toggleSort('quality_score')">
+                  QS <span x-show="sortBy === 'quality_score'" x-text="sortDir === 'desc' ? '↓' : '↑'"></span>
+                </th>
+                <th class="px-3 py-3 text-xs text-charcoal-light uppercase tracking-wide font-medium text-right cursor-pointer select-none" @click="toggleSort('search_impr_share')">
+                  IS% <span x-show="sortBy === 'search_impr_share'" x-text="sortDir === 'desc' ? '↓' : '↑'"></span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="k in filteredKeywords" :key="k.keyword + k.campaign_name">
+                <tr class="border-b border-gray-50 hover:bg-gray-50/50 transition-colors">
+                  <td class="px-6 py-3 font-medium text-charcoal-dark max-w-[250px] truncate" x-text="k.keyword"></td>
+                  <td class="px-3 py-3">
+                    <span class="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-charcoal-light uppercase" x-text="k.match_type"></span>
+                  </td>
+                  <td class="px-3 py-3 text-charcoal-light text-xs max-w-[180px] truncate" x-text="k.campaign_name"></td>
+                  <td class="px-3 py-3 text-right text-charcoal-dark" x-text="fmt(k.impressions)"></td>
+                  <td class="px-3 py-3 text-right text-charcoal-dark" x-text="fmt(k.clicks)"></td>
+                  <td class="px-3 py-3 text-right font-medium text-charcoal-dark" x-text="fmtCur(k.cost)"></td>
+                  <td class="px-3 py-3 text-right text-emerald-600 font-medium" x-text="fmtDec(k.conversions)"></td>
+                  <td class="px-3 py-3 text-center">
+                    <span class="inline-flex items-center justify-center w-7 h-7 rounded-full text-xs font-bold"
+                          :class="qsBg(k.quality_score) + ' ' + qsColor(k.quality_score)"
+                          x-text="k.quality_score != null ? k.quality_score.toFixed(0) : '—'"></span>
+                  </td>
+                  <td class="px-3 py-3 text-right text-charcoal-light" x-text="k.search_impr_share != null ? k.search_impr_share.toFixed(0) + '%' : '—'"></td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+        <template x-if="filteredKeywords.length === 0">
+          <div class="px-6 py-8 text-center text-sm text-charcoal-light">No keywords found</div>
+        </template>
+      </div>
+    </template>
+
+    <!-- Search Terms table -->
+    <template x-if="!loading && tab === 'search_terms'">
+      <div class="bg-white rounded-xl shadow-sm border border-gray-100">
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="border-b border-gray-100 text-left">
+                <th class="px-6 py-3 text-xs text-charcoal-light uppercase tracking-wide font-medium">Search Term</th>
+                <th class="px-4 py-3 text-xs text-charcoal-light uppercase tracking-wide font-medium text-right cursor-pointer select-none" @click="toggleSort('impressions')">
+                  Impressions <span x-show="sortBy === 'impressions'" x-text="sortDir === 'desc' ? '↓' : '↑'"></span>
+                </th>
+                <th class="px-4 py-3 text-xs text-charcoal-light uppercase tracking-wide font-medium text-right cursor-pointer select-none" @click="toggleSort('clicks')">
+                  Clicks <span x-show="sortBy === 'clicks'" x-text="sortDir === 'desc' ? '↓' : '↑'"></span>
+                </th>
+                <th class="px-4 py-3 text-xs text-charcoal-light uppercase tracking-wide font-medium text-right cursor-pointer select-none" @click="toggleSort('cost')">
+                  Cost <span x-show="sortBy === 'cost'" x-text="sortDir === 'desc' ? '↓' : '↑'"></span>
+                </th>
+                <th class="px-4 py-3 text-xs text-charcoal-light uppercase tracking-wide font-medium text-right cursor-pointer select-none" @click="toggleSort('conversions')">
+                  Conv. <span x-show="sortBy === 'conversions'" x-text="sortDir === 'desc' ? '↓' : '↑'"></span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="s in filteredSearchTerms" :key="s.search_term + s.customer_id">
+                <tr class="border-b border-gray-50 hover:bg-gray-50/50 transition-colors">
+                  <td class="px-6 py-3 font-medium text-charcoal-dark" x-text="s.search_term"></td>
+                  <td class="px-4 py-3 text-right text-charcoal-dark" x-text="fmt(s.impressions)"></td>
+                  <td class="px-4 py-3 text-right text-charcoal-dark" x-text="fmt(s.clicks)"></td>
+                  <td class="px-4 py-3 text-right font-medium text-charcoal-dark" x-text="fmtCur(s.cost)"></td>
+                  <td class="px-4 py-3 text-right text-emerald-600 font-medium" x-text="fmtDec(s.conversions)"></td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+        <template x-if="filteredSearchTerms.length === 0">
+          <div class="px-6 py-8 text-center text-sm text-charcoal-light">No search terms found</div>
+        </template>
+      </div>
+    </template>
+  </div>
+</DashboardLayout>

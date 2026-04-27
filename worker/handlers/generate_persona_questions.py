@@ -88,7 +88,9 @@ async def _call_claude(prompt: str, api_key: str) -> dict:
                 if depth == 0:
                     end = i
                     break
-        return json.loads(text[start:end + 1])
+        parsed = json.loads(text[start:end + 1])
+        parsed["_usage"] = data.get("usage", {})
+        return parsed
 
 
 def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
@@ -136,6 +138,17 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
     start = time.time()
     result = asyncio.run(_call_claude(prompt, settings.anthropic_api_key))
     duration_ms = int((time.time() - start) * 1000)
+
+    # Log LLM usage
+    from adapters.llm_logger import log_llm_usage
+    _usage = result.pop("_usage", {})
+    log_llm_usage(
+        db, provider="anthropic", model="claude-haiku-4-5-20251001",
+        operation="generate_questions", duration_ms=duration_ms,
+        input_tokens=_usage.get("input_tokens", 0),
+        output_tokens=_usage.get("output_tokens", 0),
+        scan_id=scan_id, client_id=str(scan.client_id),
+    )
 
     questions = result.get("questions", [])
     created = 0

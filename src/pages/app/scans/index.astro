@@ -19,6 +19,7 @@ let scans = [];
 try {
   const clientsRes = await fetch('http://api:8000/api/clients/', {
     headers: { Cookie: `token=${token}` },
+    signal: AbortSignal.timeout(3000),
   });
   const clients = clientsRes.ok ? await clientsRes.json() : [];
   const clientId = clients[0]?.id;
@@ -26,6 +27,7 @@ try {
   if (clientId) {
     const scansRes = await fetch(`http://api:8000/api/scans?client_id=${clientId}`, {
       headers: { Cookie: `token=${token}` },
+      signal: AbortSignal.timeout(3000),
     });
     scans = scansRes.ok ? await scansRes.json() : [];
   }
@@ -248,7 +250,9 @@ const allScanIds = scans.map(s => s.id);
                         {canRescan(root.status) ? (
                           <button
                             type="button"
-                            @click={`rescan('${root.id}', ${JSON.stringify(root.name || root.domain)})`}
+                            data-scan-id={root.id}
+                            data-scan-label={root.name || root.domain}
+                            @click="rescan($el.dataset.scanId, $el.dataset.scanLabel)"
                             class="text-xs px-3 py-1.5 rounded-lg bg-coral/10 text-coral hover:bg-coral hover:text-white font-medium transition-colors"
                           >
                             Rescan now

@@ -75,6 +75,27 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
         domain_context=format_brief_context(scan.config),
     ))
 
+    # Log LLM usage for cost monitoring (aggregate across all topic calls)
+    from adapters.llm_logger import log_llm_usage
+    for topic_result in result.get("topics", []):
+        if topic_result.get("error"):
+            log_llm_usage(
+                db, provider="anthropic",
+                model=topic_result.get("model", "claude-haiku-4-5-20251001"),
+                operation="generate_personas", error=True,
+                scan_id=scan_id, client_id=str(scan.client_id),
+            )
+        else:
+            log_llm_usage(
+                db, provider="anthropic",
+                model=topic_result.get("model", "claude-haiku-4-5-20251001"),
+                operation="generate_personas",
+                input_tokens=topic_result.get("input_tokens", 0),
+                output_tokens=topic_result.get("output_tokens", 0),
+                duration_ms=topic_result.get("duration_ms"),
+                scan_id=scan_id, client_id=str(scan.client_id),
+            )
+
     # --- Store in DB ---
     scan.progress_message = "Saving personas and questions..."
     scan.progress_pct = 80

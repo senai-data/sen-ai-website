@@ -21,6 +21,7 @@ let scans = [];
 try {
   const clientsRes = await fetch('http://api:8000/api/clients/', {
     headers: { Cookie: `token=${token}` },
+    signal: AbortSignal.timeout(3000),
   });
   const clients = clientsRes.ok ? await clientsRes.json() : [];
   const clientId = clients[0]?.id;
@@ -28,14 +29,16 @@ try {
   if (clientId) {
     const scansRes = await fetch(`http://api:8000/api/scans?client_id=${clientId}`, {
       headers: { Cookie: `token=${token}` },
+      signal: AbortSignal.timeout(3000),
     });
     scans = scansRes.ok ? await scansRes.json() : [];
 
-    // Fetch opportunities from completed scans as content items
-    for (const scan of scans.filter(s => s.status === 'completed')) {
+    // Fetch opportunities from completed scans as content items (parallelized)
+    await Promise.all(scans.filter(s => s.status === 'completed').map(async (scan) => {
       try {
         const oppRes = await fetch(`http://api:8000/api/scans/${scan.id}/results`, {
           headers: { Cookie: `token=${token}` },
+          signal: AbortSignal.timeout(3000),
         });
         if (oppRes.ok) {
           const data = await oppRes.json();
@@ -43,7 +46,7 @@ try {
           // For now, show scan summaries as content sources
         }
       } catch {}
-    }
+    }));
   }
 } catch {}
 

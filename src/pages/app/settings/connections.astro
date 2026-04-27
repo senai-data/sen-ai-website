@@ -28,6 +28,7 @@ let clientId = null;
 try {
   const res = await fetch('http://api:8000/api/clients/', {
     headers: { Cookie: `token=${token}` },
+    signal: AbortSignal.timeout(3000),
   });
   const clients = res.ok ? await res.json() : [];
   clientId = clients[0]?.id;
@@ -39,6 +40,7 @@ if (clientId) {
   try {
     const res = await fetch(`http://api:8000/api/oauth/connections?client_id=${clientId}`, {
       headers: { Cookie: `token=${token}` },
+      signal: AbortSignal.timeout(3000),
     });
     if (res.ok) connections = await res.json();
   } catch {}
@@ -266,6 +268,7 @@ const product = Astro.url.searchParams.get('product');
             { id: 'gbp', icon: 'GBP', label: 'Google Business Profile', desc: 'Locations, reviews, posts, performance' },
             { id: 'sheets', icon: 'SH', label: 'Google Sheets', desc: 'Read/write spreadsheet data' },
             { id: 'drive', icon: 'DR', label: 'Google Drive', desc: 'Export reports and documents' },
+            { id: 'search_console', icon: 'GSC', label: 'Search Console', desc: 'Organic search queries, pages, positions' },
           ],
           microsoft: [],
           notion: [],

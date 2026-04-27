@@ -1,0 +1,564 @@
+---
+/**
+ * Admin Monitoring Dashboard — Platform-wide analytics for superadmins.
+ *
+ * UX Laws applied:
+ * - Jakob's Law: analytics dashboard layout familiar from Stripe/Vercel/Mixpanel
+ * - Miller's Law: max 4 KPI cards per row, chunked sections
+ * - Von Restorff: color-coded provider cards (Anthropic=amber, OpenAI=emerald, Gemini=blue)
+ * - Serial Position: key platform health metrics first, details below
+ * - Hick's Law: single period selector, no overwhelming controls
+ * - Aesthetic-Usability: generous spacing, subtle borders, no visual noise
+ * - Proximity: related metrics grouped in cards with clear section headers
+ * - Doherty Threshold: SSR renders instantly, charts load client-side
+ */
+export const prerender = false;
+import DashboardLayout from '../../../layouts/DashboardLayout.astro';
+
+const token = Astro.cookies.get('token')?.value;
+if (!token) return Astro.redirect('/login');
+
+// Gate: superadmin only
+let isSuperadmin = false;
+try {
+  const res = await fetch('http://api:8000/api/admin/me', {
+    headers: { Cookie: `token=${token}` },
+  });
+  isSuperadmin = res.ok;
+} catch {}
+if (!isSuperadmin) return Astro.redirect('/app/dashboard');
+
+// Fetch all dashboard data in parallel (Doherty Threshold: fast SSR)
+const headers = { Cookie: `token=${token}` };
+let dashboard: any = {};
+let llmUsage: any = {};
+let usersActivity: any[] = [];
+let creditsOverview: any = {};
+
+try {
+  const [dashRes, llmRes, activityRes, creditsRes] = await Promise.all([
+    fetch('http://api:8000/api/admin/dashboard', { headers }),
+    fetch('http://api:8000/api/admin/llm-usage?days=30', { headers }),
+    fetch('http://api:8000/api/admin/users/activity?days=90', { headers }),
+    fetch('http://api:8000/api/admin/credits/overview', { headers }),
+  ]);
+  if (dashRes.ok) dashboard = await dashRes.json();
+  if (llmRes.ok) llmUsage = await llmRes.json();
+  if (activityRes.ok) usersActivity = await activityRes.json();
+  if (creditsRes.ok) creditsOverview = await creditsRes.json();
+} catch {}
+
+const u = dashboard.users || {};
+const c = dashboard.clients || {};
+const s = dashboard.scans || {};
+const cr = dashboard.credits || {};
+const llm = dashboard.llm_usage || {};
+const modules = c.modules || {};
+
+// Provider colors (Von Restorff: each provider = distinct color)
+const providerColor = {
+  anthropic: 'amber',
+  openai: 'emerald',
+  gemini: 'blue',
+} as any;
+const providerLabel = {
+  anthropic: 'Anthropic (Claude)',
+  openai: 'OpenAI (GPT)',
+  gemini: 'Google (Gemini)',
+} as any;
+
+// Format helpers
+function fmtNum(n: number) {
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M';
+  if (n >= 1_000) return (n / 1_000).toFixed(1) + 'K';
+  return String(n);
+}
+function fmtUsd(n: number) {
+  return '$' + n.toFixed(2);
+}
+
+// Time ago for recent events
+function timeAgo(iso: string) {
+  const d = new Date(iso);
+  const now = new Date();
+  const diff = Math.floor((now.getTime() - d.getTime()) / 1000);
+  if (diff < 60) return `${diff}s ago`;
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  return `${Math.floor(diff / 86400)}d ago`;
+}
+---
+
+<DashboardLayout title="Admin: Monitoring" activeSection="admin">
+  <div class="p-8 max-w-7xl">
+
+    <!-- Breadcrumb -->
+    <div class="flex items-center gap-2 text-sm text-charcoal-light mb-6">
+      <a href="/app/dashboard" class="hover:text-charcoal-dark">Dashboard</a>
+      <span>/</span>
+      <span class="text-charcoal-dark font-medium">Admin: Monitoring</span>
+    </div>
+
+    <!-- Header + Sub-nav (Hick's Law: simple tabs, not dropdowns) -->
+    <div class="flex items-center justify-between mb-8">
+      <div>
+        <h1 class="text-2xl font-bold text-charcoal-dark">Platform Monitoring</h1>
+        <p class="text-sm text-charcoal-light mt-1">Real-time overview of users, projects, credits, and API costs</p>
+      </div>
+      <div class="flex gap-2 text-sm">
+        <a href="/app/admin/clients" class="px-3 py-1.5 rounded-lg border border-gray-200 text-charcoal-light hover:border-coral hover:text-coral transition-all">Clients</a>
+        <a href="/app/admin/connections" class="px-3 py-1.5 rounded-lg border border-gray-200 text-charcoal-light hover:border-coral hover:text-coral transition-all">OAuth</a>
+      </div>
+    </div>
+
+
+    <!-- ═══════════════════════════════════════════════════════════════ -->
+    <!-- SECTION 1: Platform Health KPIs (Serial Position: first = most important) -->
+    <!-- Miller's Law: 4 cards per row max -->
+    <!-- ═══════════════════════════════════════════════════════════════ -->
+
+    <div class="grid grid-cols-4 gap-4 mb-8">
+
+      <!-- Users -->
+      <div class="bg-white rounded-xl border border-gray-200 p-5">
+        <div class="flex items-center justify-between mb-3">
+          <span class="text-xs font-medium text-charcoal-light uppercase tracking-wider">Users</span>
+          <svg class="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/>
+          </svg>
+        </div>
+        <div class="text-3xl font-bold text-charcoal-dark">{u.total || 0}</div>
+        <div class="flex items-center gap-3 mt-2 text-xs text-charcoal-light">
+          <span>{u.verified || 0} verified</span>
+          <span class="text-emerald-500">+{u.registered_this_week || 0} this week</span>
+        </div>
+      </div>
+
+      <!-- Clients / Projects -->
+      <div class="bg-white rounded-xl border border-gray-200 p-5">
+        <div class="flex items-center justify-between mb-3">
+          <span class="text-xs font-medium text-charcoal-light uppercase tracking-wider">Projects</span>
+          <svg class="w-4 h-4 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/>
+          </svg>
+        </div>
+        <div class="text-3xl font-bold text-charcoal-dark">{c.total || 0}</div>
+        <div class="flex items-center gap-3 mt-2 text-xs text-charcoal-light">
+          <span>{c.with_scans || 0} with scans</span>
+        </div>
+      </div>
+
+      <!-- Scans -->
+      <div class="bg-white rounded-xl border border-gray-200 p-5">
+        <div class="flex items-center justify-between mb-3">
+          <span class="text-xs font-medium text-charcoal-light uppercase tracking-wider">Scans</span>
+          <svg class="w-4 h-4 text-coral" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+          </svg>
+        </div>
+        <div class="text-3xl font-bold text-charcoal-dark">{s.total || 0}</div>
+        <div class="flex items-center gap-3 mt-2 text-xs text-charcoal-light">
+          <span class="text-emerald-500">{s.completed || 0} completed</span>
+          {s.failed > 0 && <span class="text-red-500">{s.failed} failed</span>}
+          {s.in_progress > 0 && <span class="text-blue-500">{s.in_progress} running</span>}
+        </div>
+      </div>
+
+      <!-- Credits -->
+      <div class="bg-white rounded-xl border border-gray-200 p-5">
+        <div class="flex items-center justify-between mb-3">
+          <span class="text-xs font-medium text-charcoal-light uppercase tracking-wider">Credits</span>
+          <svg class="w-4 h-4 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+          </svg>
+        </div>
+        <div class="text-3xl font-bold text-charcoal-dark">{fmtNum(cr.total_balance || 0)}</div>
+        <div class="flex items-center gap-3 mt-2 text-xs text-charcoal-light">
+          <span>{fmtNum(cr.total_purchased || 0)} purchased</span>
+          <span>{fmtNum(cr.total_consumed || 0)} used</span>
+        </div>
+      </div>
+    </div>
+
+
+    <!-- ═══════════════════════════════════════════════════════════════ -->
+    <!-- SECTION 2: Module Activation + User Registration (Proximity: related data grouped) -->
+    <!-- ═══════════════════════════════════════════════════════════════ -->
+
+    <div class="grid grid-cols-3 gap-6 mb-8">
+
+      <!-- Module Activation (which modules are active) -->
+      <div class="bg-white rounded-xl border border-gray-200 p-5">
+        <h3 class="text-sm font-bold text-charcoal-dark mb-4">Active Modules</h3>
+        <div class="space-y-3">
+          {[
+            { key: 'ai_scan', label: 'AI Scan', icon: 'search' },
+            { key: 'google_ads', label: 'Google Ads', icon: 'chart' },
+            { key: 'search_console', label: 'Search Console', icon: 'globe' },
+            { key: 'local_business', label: 'Local Business', icon: 'tag' },
+          ].map(mod => {
+            const count = modules[mod.key] || 0;
+            const pct = c.total ? Math.round(count / c.total * 100) : 0;
+            return (
+              <div class="flex items-center justify-between">
+                <span class="text-sm text-charcoal-dark">{mod.label}</span>
+                <div class="flex items-center gap-2">
+                  <div class="w-24 h-2 bg-gray-100 rounded-full overflow-hidden">
+                    <div class="h-full bg-coral rounded-full" style={`width: ${pct}%`}></div>
+                  </div>
+                  <span class="text-xs text-charcoal-light w-16 text-right">{count} ({pct}%)</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <!-- User Registration Trend -->
+      <div class="col-span-2 bg-white rounded-xl border border-gray-200 p-5">
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="text-sm font-bold text-charcoal-dark">User Registrations (last 90 days)</h3>
+          <div class="flex items-center gap-3 text-xs text-charcoal-light">
+            <span>Today: <strong class="text-charcoal-dark">+{u.registered_today || 0}</strong></span>
+            <span>Week: <strong class="text-charcoal-dark">+{u.registered_this_week || 0}</strong></span>
+            <span>Month: <strong class="text-charcoal-dark">+{u.registered_this_month || 0}</strong></span>
+          </div>
+        </div>
+        <canvas id="registrationChart" height="120"></canvas>
+      </div>
+    </div>
+
+
+    <!-- ═══════════════════════════════════════════════════════════════ -->
+    <!-- SECTION 3: LLM API Cost Monitoring (Von Restorff: provider-colored cards) -->
+    <!-- ═══════════════════════════════════════════════════════════════ -->
+
+    <div class="mb-8">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-lg font-bold text-charcoal-dark">LLM API Costs</h2>
+        <span class="text-xs text-charcoal-light">Last 30 days</span>
+      </div>
+
+      <!-- Total cost + provider breakdown -->
+      <div class="grid grid-cols-4 gap-4 mb-6">
+
+        <!-- Total -->
+        <div class="bg-charcoal-dark rounded-xl p-5 text-white">
+          <span class="text-xs font-medium text-gray-400 uppercase tracking-wider">Total Spend</span>
+          <div class="text-3xl font-bold mt-2">{fmtUsd(llmUsage.totals?.cost_usd || llm.total_cost_usd || 0)}</div>
+          <div class="flex items-center gap-3 mt-2 text-xs text-gray-400">
+            <span>{fmtNum(llmUsage.totals?.calls || llm.total_calls || 0)} calls</span>
+            <span>{fmtNum(llmUsage.totals?.input_tokens + llmUsage.totals?.output_tokens || llm.total_tokens || 0)} tokens</span>
+          </div>
+        </div>
+
+        <!-- Per provider (Von Restorff: each has its own color) -->
+        {['anthropic', 'openai', 'gemini'].map(provider => {
+          const data = (llmUsage.totals ? {} : llm.by_provider || {})[provider] ||
+                       (llmUsage.by_model || []).filter((m: any) => m.provider === provider)
+                         .reduce((acc: any, m: any) => ({
+                           calls: (acc.calls || 0) + m.calls,
+                           cost_usd: (acc.cost_usd || 0) + m.cost_usd,
+                           input_tokens: (acc.input_tokens || 0) + m.input_tokens,
+                           output_tokens: (acc.output_tokens || 0) + m.output_tokens,
+                         }), {});
+          const color = providerColor[provider];
+          const borderClass = `border-${color}-200`;
+          return (
+            <div class={`bg-white rounded-xl border border-gray-200 p-5 border-l-4 border-l-${color}-400`}>
+              <span class={`text-xs font-medium text-${color}-600 uppercase tracking-wider`}>{providerLabel[provider]}</span>
+              <div class="text-2xl font-bold text-charcoal-dark mt-2">{fmtUsd(data.cost_usd || 0)}</div>
+              <div class="flex items-center gap-3 mt-2 text-xs text-charcoal-light">
+                <span>{fmtNum(data.calls || 0)} calls</span>
+                <span>{fmtNum((data.input_tokens || 0) + (data.output_tokens || 0))} tok</span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <!-- Daily cost chart -->
+      <div class="bg-white rounded-xl border border-gray-200 p-5 mb-6">
+        <h3 class="text-sm font-bold text-charcoal-dark mb-4">Daily API Cost</h3>
+        <canvas id="dailyCostChart" height="200"></canvas>
+      </div>
+
+      <!-- By Model + By Operation (side by side) -->
+      <div class="grid grid-cols-2 gap-6">
+
+        <!-- By Model -->
+        <div class="bg-white rounded-xl border border-gray-200 p-5">
+          <h3 class="text-sm font-bold text-charcoal-dark mb-4">Cost by Model</h3>
+          {(llmUsage.by_model || []).length === 0 ? (
+            <p class="text-sm text-charcoal-light">No usage data yet</p>
+          ) : (
+            <div class="space-y-2">
+              {(llmUsage.by_model || []).map((m: any) => {
+                const maxCost = Math.max(...(llmUsage.by_model || []).map((x: any) => x.cost_usd || 0), 0.01);
+                const pct = Math.round((m.cost_usd || 0) / maxCost * 100);
+                const color = providerColor[m.provider] || 'gray';
+                return (
+                  <div>
+                    <div class="flex items-center justify-between text-xs mb-1">
+                      <span class="text-charcoal-dark font-medium truncate max-w-[180px]">{m.model}</span>
+                      <span class="text-charcoal-light">{fmtUsd(m.cost_usd)} ({fmtNum(m.calls)} calls)</span>
+                    </div>
+                    <div class="w-full h-2 bg-gray-100 rounded-full overflow-hidden">
+                      <div class={`h-full bg-${color}-400 rounded-full`} style={`width: ${pct}%`}></div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        <!-- By Operation -->
+        <div class="bg-white rounded-xl border border-gray-200 p-5">
+          <h3 class="text-sm font-bold text-charcoal-dark mb-4">Cost by Operation</h3>
+          {(llmUsage.by_operation || []).length === 0 ? (
+            <p class="text-sm text-charcoal-light">No usage data yet</p>
+          ) : (
+            <div class="space-y-2">
+              {(llmUsage.by_operation || []).map((op: any) => {
+                const maxCost = Math.max(...(llmUsage.by_operation || []).map((x: any) => x.cost_usd || 0), 0.01);
+                const pct = Math.round((op.cost_usd || 0) / maxCost * 100);
+                const opLabels: any = {
+                  scan_test: 'Scan Tests (OpenAI/Gemini)',
+                  classify_topics: 'Topic Classification',
+                  generate_personas: 'Persona Generation',
+                  generate_questions: 'Question Generation',
+                  generate_editorial: 'Editorial Summary',
+                  generate_brief: 'Domain Brief',
+                };
+                return (
+                  <div>
+                    <div class="flex items-center justify-between text-xs mb-1">
+                      <span class="text-charcoal-dark font-medium">{opLabels[op.operation] || op.operation}</span>
+                      <span class="text-charcoal-light">{fmtUsd(op.cost_usd)} ({fmtNum(op.calls)} calls)</span>
+                    </div>
+                    <div class="w-full h-2 bg-gray-100 rounded-full overflow-hidden">
+                      <div class="h-full bg-coral rounded-full" style={`width: ${pct}%`}></div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+
+
+    <!-- ═══════════════════════════════════════════════════════════════ -->
+    <!-- SECTION 4: Top Clients by LLM Spend + Credits Per Client -->
+    <!-- ═══════════════════════════════════════════════════════════════ -->
+
+    <div class="grid grid-cols-2 gap-6 mb-8">
+
+      <!-- Top LLM Spenders -->
+      <div class="bg-white rounded-xl border border-gray-200 p-5">
+        <h3 class="text-sm font-bold text-charcoal-dark mb-4">Top Clients by API Spend</h3>
+        {(llmUsage.by_client || []).length === 0 ? (
+          <p class="text-sm text-charcoal-light">No usage data yet</p>
+        ) : (
+          <div class="space-y-2">
+            {(llmUsage.by_client || []).slice(0, 10).map((cl: any, i: number) => (
+              <div class="flex items-center justify-between text-xs py-1.5 border-b border-gray-100 last:border-0">
+                <div class="flex items-center gap-2">
+                  <span class="text-charcoal-light w-4">{i + 1}.</span>
+                  <span class="text-charcoal-dark font-medium">{cl.client_name || 'Unknown'}</span>
+                </div>
+                <div class="flex items-center gap-3">
+                  <span class="text-charcoal-light">{fmtNum(cl.calls)} calls</span>
+                  <span class="font-medium text-charcoal-dark">{fmtUsd(cl.cost_usd)}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <!-- Credit Balances -->
+      <div class="bg-white rounded-xl border border-gray-200 p-5">
+        <h3 class="text-sm font-bold text-charcoal-dark mb-4">Client Credit Balances</h3>
+        {(creditsOverview.clients || []).length === 0 ? (
+          <p class="text-sm text-charcoal-light">No credits data yet</p>
+        ) : (
+          <div class="space-y-2 max-h-[300px] overflow-y-auto">
+            {(creditsOverview.clients || []).map((cl: any) => (
+              <div class="flex items-center justify-between text-xs py-1.5 border-b border-gray-100 last:border-0">
+                <span class="text-charcoal-dark font-medium truncate max-w-[200px]">{cl.client_name}</span>
+                <div class="flex items-center gap-3">
+                  <div class="flex items-center gap-1">
+                    <span class="w-2 h-2 rounded-full bg-blue-400"></span>
+                    <span class="text-charcoal-light">{cl.scan} scans</span>
+                  </div>
+                  <div class="flex items-center gap-1">
+                    <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+                    <span class="text-charcoal-light">{cl.content} content</span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+
+
+    <!-- ═══════════════════════════════════════════════════════════════ -->
+    <!-- SECTION 5: Recent Users + Recent Events (Recognition > Recall) -->
+    <!-- ═══════════════════════════════════════════════════════════════ -->
+
+    <div class="grid grid-cols-2 gap-6 mb-8">
+
+      <!-- Recent Users -->
+      <div class="bg-white rounded-xl border border-gray-200 p-5">
+        <h3 class="text-sm font-bold text-charcoal-dark mb-4">Recent Registrations</h3>
+        <div class="space-y-2">
+          {(dashboard.recent_users || []).map((ru: any) => (
+            <div class="flex items-center justify-between text-xs py-1.5 border-b border-gray-100 last:border-0">
+              <div class="flex items-center gap-2">
+                <div class:list={[
+                  "w-2 h-2 rounded-full",
+                  ru.verified ? "bg-emerald-400" : "bg-amber-400"
+                ]}></div>
+                <span class="text-charcoal-dark">{ru.email}</span>
+              </div>
+              <span class="text-charcoal-light">{ru.created_at ? timeAgo(ru.created_at) : ''}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <!-- Recent Audit Events -->
+      <div class="bg-white rounded-xl border border-gray-200 p-5">
+        <h3 class="text-sm font-bold text-charcoal-dark mb-4">Recent Activity</h3>
+        <div class="space-y-2">
+          {(dashboard.recent_events || []).map((ev: any) => {
+            const actionColors: any = {
+              'auth.register': 'bg-emerald-100 text-emerald-700',
+              'auth.login': 'bg-blue-100 text-blue-700',
+              'auth.verify_email': 'bg-purple-100 text-purple-700',
+              'scan.launch': 'bg-coral/10 text-coral',
+              'credit.purchase': 'bg-amber-100 text-amber-700',
+            };
+            const colorClass = actionColors[ev.action] || 'bg-gray-100 text-gray-600';
+            return (
+              <div class="flex items-center justify-between text-xs py-1.5 border-b border-gray-100 last:border-0">
+                <div class="flex items-center gap-2">
+                  <span class={`px-2 py-0.5 rounded text-[10px] font-medium ${colorClass}`}>
+                    {ev.action}
+                  </span>
+                  {ev.target_type && (
+                    <span class="text-charcoal-light">{ev.target_type}</span>
+                  )}
+                </div>
+                <span class="text-charcoal-light">{ev.created_at ? timeAgo(ev.created_at) : ''}</span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Chart.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.9/dist/chart.umd.min.js"></script>
+
+  <script is:inline define:vars={{ usersActivity, llmUsage, providerColor }}>
+    document.addEventListener('DOMContentLoaded', () => {
+
+      // ── Registration Chart (area) ─────────────────────────────────
+      const regCtx = document.getElementById('registrationChart');
+      if (regCtx && usersActivity.length > 0) {
+        new Chart(regCtx, {
+          type: 'bar',
+          data: {
+            labels: usersActivity.map(d => {
+              const dt = new Date(d.date);
+              return dt.toLocaleDateString('en', { month: 'short', day: 'numeric' });
+            }),
+            datasets: [{
+              data: usersActivity.map(d => d.count),
+              backgroundColor: 'rgba(255, 107, 107, 0.3)',
+              borderColor: '#FF6B6B',
+              borderWidth: 1,
+              borderRadius: 3,
+            }],
+          },
+          options: {
+            responsive: true,
+            plugins: { legend: { display: false } },
+            scales: {
+              x: { grid: { display: false }, ticks: { maxTicksLimit: 12, font: { size: 10 } } },
+              y: { beginAtZero: true, ticks: { stepSize: 1, font: { size: 10 } }, grid: { color: '#f3f4f6' } },
+            },
+          },
+        });
+      }
+
+      // ── Daily Cost Chart (stacked bar by provider) ────────────────
+      const costCtx = document.getElementById('dailyCostChart');
+      const daily = llmUsage.daily || [];
+      if (costCtx && daily.length > 0) {
+        // Group by date, then by provider
+        const dateMap = {};
+        daily.forEach(d => {
+          if (!dateMap[d.date]) dateMap[d.date] = {};
+          dateMap[d.date][d.provider] = (dateMap[d.date][d.provider] || 0) + d.cost_usd;
+        });
+        const dates = Object.keys(dateMap).sort();
+        const providers = ['anthropic', 'openai', 'gemini'];
+        const colorMap = { anthropic: '#F59E0B', openai: '#10B981', gemini: '#3B82F6' };
+        const labelMap = { anthropic: 'Anthropic', openai: 'OpenAI', gemini: 'Gemini' };
+
+        new Chart(costCtx, {
+          type: 'bar',
+          data: {
+            labels: dates.map(d => {
+              const dt = new Date(d);
+              return dt.toLocaleDateString('en', { month: 'short', day: 'numeric' });
+            }),
+            datasets: providers.map(p => ({
+              label: labelMap[p],
+              data: dates.map(d => dateMap[d][p] || 0),
+              backgroundColor: colorMap[p] + '99',
+              borderColor: colorMap[p],
+              borderWidth: 1,
+              borderRadius: 2,
+            })),
+          },
+          options: {
+            responsive: true,
+            plugins: {
+              legend: {
+                position: 'top',
+                labels: { boxWidth: 12, font: { size: 11 } },
+              },
+            },
+            scales: {
+              x: { stacked: true, grid: { display: false }, ticks: { maxTicksLimit: 15, font: { size: 10 } } },
+              y: {
+                stacked: true,
+                beginAtZero: true,
+                grid: { color: '#f3f4f6' },
+                ticks: {
+                  font: { size: 10 },
+                  callback: (v) => '$' + Number(v).toFixed(2),
+                },
+              },
+            },
+          },
+        });
+      }
+    });
+  </script>
+
+  <!-- Tailwind safelist for dynamic provider colors -->
+  <div class="hidden border-l-amber-400 border-l-emerald-400 border-l-blue-400
+              text-amber-600 text-emerald-600 text-blue-600
+              bg-amber-400 bg-emerald-400 bg-blue-400"></div>
+</DashboardLayout>

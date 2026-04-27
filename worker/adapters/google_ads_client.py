@@ -21,7 +21,7 @@ import httpx
 logger = logging.getLogger(__name__)
 
 # Google Ads API version — overridable via worker config
-DEFAULT_API_VERSION = "v19"
+DEFAULT_API_VERSION = "v23"
 
 
 class GoogleAdsClient:

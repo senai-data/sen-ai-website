@@ -16,6 +16,7 @@ import stripe as stripe_lib
 from config import settings
 from models import Client, ClientCredit, Scan, UserClient, get_db
 from services.auth_service import get_current_user
+from services.audit import audit_log
 from services.rate_limit import limiter
 
 logger = logging.getLogger(__name__)
@@ -196,6 +197,9 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
                     db=db,
                     stripe_session_id=stripe_session_id,
                 )
+                audit_log(db, action="credit.purchase", target_type="client", target_id=client_id,
+                          details={"pack_id": pack_id, "credit_type": credit_type, "amount": amount,
+                                   "stripe_session_id": stripe_session_id})
                 db.commit()
             except IntegrityError:
                 # Race-safe fallback: a concurrent webhook delivery beat us to

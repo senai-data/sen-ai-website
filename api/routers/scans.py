@@ -12,8 +12,10 @@ from models import (
     Job, UserClient, get_db,
 )
 from services.auth_service import get_current_user
+from services.audit import audit_log
 from services.rate_limit import limiter
 from services.request_context import current_request_method
+from services.sanitize import strip_tags
 import unicodedata
 
 router = APIRouter()
@@ -145,6 +147,15 @@ class QuestionUpdate(BaseModel):
     question: str | None = None
     type_question: str | None = None
     is_active: bool | None = None
+
+
+class MoveUrlRequest(BaseModel):
+    url: str
+
+
+class MoveKeywordRequest(BaseModel):
+    keyword: str
+    source_topic_id: str
 
 
 # --- Helpers ---
@@ -281,7 +292,7 @@ async def create_scan(request: Request, req: ScanCreate, user=Depends(get_curren
     }
     scan = Scan(
         client_id=req.client_id,
-        name=(req.name or clean_domain),
+        name=strip_tags(req.name) or clean_domain,
         domain=clean_domain,
         config=config,
         created_by=user.id,
@@ -335,7 +346,7 @@ async def update_scan(scan_id: str, req: ScanUpdate, user=Depends(get_current_us
     scan = _check_scan_access(scan_id, user, db)
 
     if req.name is not None:
-        name = req.name.strip()
+        name = strip_tags(req.name)
         if not name:
             raise HTTPException(400, "name cannot be empty")
         scan.name = name
@@ -1059,10 +1070,10 @@ async def get_topic_keywords(scan_id: str, topic_id: str, limit: int = Query(50)
 
 
 @router.post("/{scan_id}/topics/{topic_id}/move-url")
-async def move_url_to_topic(scan_id: str, topic_id: str, req: dict, user=Depends(get_current_user), db: Session = Depends(get_db)):
+async def move_url_to_topic(scan_id: str, topic_id: str, req: MoveUrlRequest, user=Depends(get_current_user), db: Session = Depends(get_db)):
     """Move all keywords with a given URL to a different topic."""
     _check_scan_access(scan_id, user, db)
-    url = req.get("url", "")
+    url = req.url.strip()
     if not url:
         raise HTTPException(400, "URL required")
 
@@ -1098,7 +1109,7 @@ async def move_url_to_topic(scan_id: str, topic_id: str, req: dict, user=Depends
 
 
 @router.post("/{scan_id}/topics/{topic_id}/move-keyword")
-async def move_keyword_to_topic(scan_id: str, topic_id: str, req: dict, user=Depends(get_current_user), db: Session = Depends(get_db)):
+async def move_keyword_to_topic(scan_id: str, topic_id: str, req: MoveKeywordRequest, user=Depends(get_current_user), db: Session = Depends(get_db)):
     """Move all rows of a given keyword (across all its URLs) to a different topic.
 
     HaloScan may return the same keyword for multiple URLs (different positions).
@@ -1108,8 +1119,8 @@ async def move_keyword_to_topic(scan_id: str, topic_id: str, req: dict, user=Dep
     - Target: URL appears (if not already via another keyword)
     """
     _check_scan_access(scan_id, user, db)
-    keyword = req.get("keyword", "")
-    source_topic_id = req.get("source_topic_id", "")
+    keyword = req.keyword.strip()
+    source_topic_id = req.source_topic_id.strip()
     if not keyword or not source_topic_id:
         raise HTTPException(400, "keyword and source_topic_id required")
 
@@ -1140,7 +1151,7 @@ async def move_keyword_to_topic(scan_id: str, topic_id: str, req: dict, user=Dep
 @router.post("/{scan_id}/topics")
 async def create_topic(scan_id: str, req: TopicCreate, user=Depends(get_current_user), db: Session = Depends(get_db)):
     _check_scan_access(scan_id, user, db)
-    topic = ScanTopic(scan_id=scan_id, name=req.name, description=req.description)
+    topic = ScanTopic(scan_id=scan_id, name=strip_tags(req.name), description=strip_tags(req.description))
     db.add(topic)
     db.commit()
     db.refresh(topic)
@@ -1154,9 +1165,9 @@ async def update_topic(scan_id: str, topic_id: str, req: TopicUpdate, user=Depen
     if not topic:
         raise HTTPException(404, "Topic not found")
     if req.name is not None:
-        topic.name = req.name
+        topic.name = strip_tags(req.name)
     if req.description is not None:
-        topic.description = req.description
+        topic.description = strip_tags(req.description)
     if req.is_active is not None:
         topic.is_active = req.is_active
     db.commit()
@@ -1347,7 +1358,7 @@ async def get_personas(scan_id: str, user=Depends(get_current_user), db: Session
 @router.post("/{scan_id}/personas")
 async def create_persona(scan_id: str, req: PersonaCreate, user=Depends(get_current_user), db: Session = Depends(get_db)):
     _check_scan_access(scan_id, user, db)
-    persona = ScanPersona(scan_id=scan_id, topic_id=req.topic_id, name=req.name, data=req.data)
+    persona = ScanPersona(scan_id=scan_id, topic_id=req.topic_id, name=strip_tags(req.name), data=req.data)
     db.add(persona)
     db.commit()
     db.refresh(persona)
@@ -1362,7 +1373,7 @@ async def update_persona(scan_id: str, persona_id: str, req: PersonaUpdate, user
     if not persona:
         raise HTTPException(404, "Persona not found")
     if req.name is not None:
-        persona.name = req.name
+        persona.name = strip_tags(req.name)
     if req.data is not None:
         persona.data = req.data
     if req.topic_id is not None:
@@ -1404,7 +1415,7 @@ async def generate_persona_questions(scan_id: str, persona_id: str, user=Depends
 @router.post("/{scan_id}/questions")
 async def create_question(scan_id: str, req: QuestionCreate, user=Depends(get_current_user), db: Session = Depends(get_db)):
     _check_scan_access(scan_id, user, db)
-    q = ScanQuestion(scan_id=scan_id, persona_id=req.persona_id, question=req.question, type_question=req.type_question)
+    q = ScanQuestion(scan_id=scan_id, persona_id=req.persona_id, question=strip_tags(req.question), type_question=req.type_question)
     db.add(q)
     db.commit()
     db.refresh(q)
@@ -1419,7 +1430,7 @@ async def update_question(scan_id: str, question_id: str, req: QuestionUpdate, u
     if not q:
         raise HTTPException(404, "Question not found")
     if req.question is not None:
-        text = req.question.strip()
+        text = strip_tags(req.question)
         if not text:
             raise HTTPException(400, "question cannot be empty")
         q.question = text
@@ -1502,6 +1513,10 @@ async def launch_scan(request: Request, scan_id: str, user=Depends(get_current_u
     _create_job(db, scan_id, "run_llm_tests", {
         "providers": (scan.config or {}).get("providers", ["openai"]),
     })
+    audit_log(db, action="scan.launch", user_id=str(user.id),
+              target_type="scan", target_id=scan_id,
+              ip=request.client.host if request.client else None,
+              details={"questions": active_questions, "credits_used": active_questions})
     db.commit()
     return {"status": "scanning", "credits_used": active_questions, "credits_remaining": balance - active_questions}
 

@@ -1,4 +1,5 @@
 import logging
+import uuid
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -7,13 +8,15 @@ from pydantic import BaseModel, EmailStr
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 from passlib.context import CryptContext
-from jose import jwt
+from jose import jwt, JWTError
 import httpx
 
 from config import settings
-from models import Client, User, UserClient, get_db
+from models import Client, ClientCredit, User, UserClient, get_db
 from services.auth_service import get_current_user
+from services.audit import audit_log
 from services.rate_limit import limiter
+from services.sanitize import strip_tags
 
 logger = logging.getLogger(__name__)
 
@@ -58,21 +61,69 @@ def _validate_password(password: str):
         raise HTTPException(400, "Password must contain at least 1 digit")
 
 
+def _create_verification_token(user_id: str, email: str) -> str:
+    """Short-lived JWT for email verification (24h)."""
+    payload = {
+        "sub": user_id,
+        "email": email,
+        "purpose": "email_verification",
+        "exp": datetime.utcnow() + timedelta(hours=24),
+    }
+    return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
+
+
+def _send_verification_email(email: str, verify_url: str) -> bool:
+    """Send verification email via Resend. Falls back to log if not configured."""
+    if not settings.resend_api_key:
+        logger.warning(f"RESEND_API_KEY not set — verification URL for {email}: {verify_url}")
+        return False
+    try:
+        import resend
+        resend.api_key = settings.resend_api_key
+        resend.Emails.send({
+            "from": settings.resend_from_email,
+            "to": [email],
+            "subject": "Verify your sen-ai.fr email",
+            "html": (
+                f"<p>Welcome to sen-ai.fr! Please verify your email to activate your account "
+                f"and receive <strong>50 free scan credits</strong>.</p>"
+                f'<p><a href="{verify_url}" style="display:inline-block;padding:12px 24px;'
+                f'background:#E8604C;color:white;border-radius:8px;text-decoration:none;'
+                f'font-weight:bold;">Verify my email</a></p>'
+                f"<p>This link expires in 24 hours.</p>"
+                f"<p>— sen-ai.fr</p>"
+            ),
+        })
+        return True
+    except Exception:
+        logger.exception(f"Failed to send verification email to {email}")
+        return False
+
+
 @router.post("/register", response_model=TokenResponse)
 @limiter.limit("5/minute")
 async def register(request: Request, req: RegisterRequest, response: Response, db: Session = Depends(get_db)):
     _validate_password(req.password)
     if db.query(User).filter(User.email == req.email).first():
-        raise HTTPException(400, "Email already registered")
+        raise HTTPException(400, "Registration failed. If you already have an account, try logging in.")
 
     user = User(
         email=req.email,
-        name=req.name,
+        name=strip_tags(req.name),
         password_hash=pwd_context.hash(req.password),
+        is_email_verified=False,
     )
     db.add(user)
+    audit_log(db, action="auth.register", user_id=str(user.id) if user.id else None,
+              target_type="user", ip=request.client.host if request.client else None,
+              details={"email": req.email})
     db.commit()
     db.refresh(user)
+
+    # Send verification email (welcome bonus granted on verify, not here)
+    verify_token = _create_verification_token(str(user.id), user.email)
+    verify_url = f"{settings.frontend_url}/verify-email?token={verify_token}"
+    _send_verification_email(user.email, verify_url)
 
     token = create_token(str(user.id), user.email)
     # Same HttpOnly cookie logic as /login — overwrites any stale session cookie.
@@ -85,6 +136,90 @@ async def register(request: Request, req: RegisterRequest, response: Response, d
     return TokenResponse(access_token=token)
 
 
+@router.post("/verify-email")
+@limiter.limit("10/minute")
+async def verify_email(request: Request, response: Response, db: Session = Depends(get_db)):
+    """Verify email from token (query param or JSON body)."""
+    # Accept token from query param or JSON body
+    verify_token = request.query_params.get("token", "")
+    if not verify_token:
+        try:
+            body = await request.json()
+            verify_token = body.get("token", "")
+        except Exception:
+            pass
+    if not verify_token:
+        raise HTTPException(400, "Verification token required")
+
+    try:
+        payload = jwt.decode(verify_token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
+        if payload.get("purpose") != "email_verification":
+            raise HTTPException(400, "Invalid verification token")
+        user_id = payload.get("sub")
+    except JWTError:
+        raise HTTPException(400, "Invalid or expired verification token")
+
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(400, "Invalid verification token")
+
+    if user.is_email_verified:
+        return {"ok": True, "message": "Email already verified.", "already_verified": True}
+
+    user.is_email_verified = True
+    audit_log(db, action="auth.verify_email", user_id=str(user.id),
+              target_type="user", ip=request.client.host if request.client else None)
+    db.commit()
+
+    # Grant welcome bonus now that email is verified
+    _grant_welcome_bonus(user, db)
+
+    # Set auth cookie so user is logged in after clicking the link
+    auth_token = create_token(str(user.id), user.email)
+    response.set_cookie(
+        "token", auth_token,
+        httponly=True, secure=True, samesite="lax",
+        max_age=settings.jwt_expire_minutes * 60,
+        path="/",
+    )
+    return {"ok": True, "message": "Email verified. Welcome bonus credited!"}
+
+
+@router.post("/resend-verification")
+@limiter.limit("3/minute")
+async def resend_verification(request: Request, user=Depends(get_current_user), db: Session = Depends(get_db)):
+    """Resend verification email for the current user."""
+    if user.is_email_verified:
+        return {"ok": True, "message": "Email already verified."}
+
+    verify_token = _create_verification_token(str(user.id), user.email)
+    verify_url = f"{settings.frontend_url}/verify-email?token={verify_token}"
+    _send_verification_email(user.email, verify_url)
+    return {"ok": True, "message": "Verification email sent."}
+
+
+def _grant_welcome_bonus(user: User, db: Session):
+    """Grant 50 scan credits to the user's client (called after email verification)."""
+    link = db.query(UserClient).filter(UserClient.user_id == user.id).first()
+    if not link:
+        return
+    # Check if bonus was already granted (idempotent)
+    existing = db.query(ClientCredit).filter(
+        ClientCredit.client_id == link.client_id,
+        ClientCredit.description == "Welcome bonus — 50 free scan credits",
+    ).first()
+    if existing:
+        return
+    db.add(ClientCredit(
+        client_id=link.client_id,
+        credit_type="scan",
+        amount=50,
+        balance_after=50,
+        description="Welcome bonus — 50 free scan credits",
+    ))
+    db.commit()
+
+
 @router.post("/logout")
 async def logout(response: Response):
     """Clear the HttpOnly token cookie server-side.
@@ -95,6 +230,18 @@ async def logout(response: Response):
     """
     response.delete_cookie("token", path="/")
     return {"ok": True}
+
+
+@router.get("/me")
+async def get_me(user: User = Depends(get_current_user)):
+    """Lightweight user profile — used by frontend for verification status check."""
+    return {
+        "id": str(user.id),
+        "email": user.email,
+        "name": user.name,
+        "is_email_verified": user.is_email_verified,
+        "is_superadmin": user.is_superadmin,
+    }
 
 
 @router.delete("/me")
@@ -144,6 +291,10 @@ async def delete_account(
         db.query(Client).filter(Client.id.in_(sole_client_ids)).delete(
             synchronize_session=False
         )
+
+    # Audit before delete (user_id will be SET NULL after cascade)
+    audit_log(db, action="auth.delete_account", user_id=str(user_id),
+              target_type="user", details={"email": user_email, "sole_clients_dropped": len(sole_client_ids)})
 
     # Delete the user. user_clients rows referencing the user (on
     # multi-member clients) cascade away; scans.created_by becomes NULL.
@@ -433,6 +584,10 @@ async def login(request: Request, req: LoginRequest, response: Response, db: Ses
     if not pwd_context.verify(req.password, user.password_hash):
         raise HTTPException(401, "Invalid credentials")
 
+    audit_log(db, action="auth.login", user_id=str(user.id),
+              target_type="user", ip=request.client.host if request.client else None)
+    db.commit()
+
     token = create_token(str(user.id), user.email)
 
     # Set cookie server-side (HttpOnly) so it OVERWRITES any existing HttpOnly
@@ -448,8 +603,30 @@ async def login(request: Request, req: LoginRequest, response: Response, db: Ses
     return TokenResponse(access_token=token)
 
 
+def _sign_oauth_state() -> str:
+    """Create a signed, short-lived state JWT for CSRF protection on Google login."""
+    payload = {
+        "purpose": "google_login",
+        "jti": uuid.uuid4().hex,
+        "exp": datetime.utcnow() + timedelta(minutes=10),
+    }
+    return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
+
+
+def _verify_oauth_state(token: str) -> dict:
+    """Decode and validate the Google login state JWT."""
+    try:
+        payload = jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
+        if payload.get("purpose") != "google_login":
+            raise HTTPException(400, "Invalid OAuth state")
+        return payload
+    except JWTError:
+        raise HTTPException(400, "Invalid or expired OAuth state")
+
+
 @router.get("/google")
 async def google_login():
+    state = _sign_oauth_state()
     params = {
         "client_id": settings.google_client_id,
         "redirect_uri": settings.google_redirect_uri,
@@ -457,13 +634,15 @@ async def google_login():
         "scope": "openid email profile",
         "access_type": "offline",
         "prompt": "consent",
+        "state": state,
     }
     query = "&".join(f"{k}={v}" for k, v in params.items())
     return RedirectResponse(f"https://accounts.google.com/o/oauth2/auth?{query}")
 
 
 @router.get("/google/callback")
-async def google_callback(code: str, response: Response, db: Session = Depends(get_db)):
+async def google_callback(code: str, state: str = "", response: Response = None, db: Session = Depends(get_db)):
+    _verify_oauth_state(state)
     async with httpx.AsyncClient() as client:
         token_resp = await client.post(
             "https://oauth2.googleapis.com/token",
@@ -486,22 +665,32 @@ async def google_callback(code: str, response: Response, db: Session = Depends(g
         userinfo = userinfo_resp.json()
 
     user = db.query(User).filter(User.google_id == userinfo["id"]).first()
+    is_new_user = False
     if not user:
         user = db.query(User).filter(User.email == userinfo["email"]).first()
         if user:
             user.google_id = userinfo["id"]
+            # Auto-verify existing user linking Google account
+            if not user.is_email_verified:
+                user.is_email_verified = True
         else:
+            is_new_user = True
             user = User(
                 email=userinfo["email"],
                 name=userinfo.get("name", ""),
                 google_id=userinfo["id"],
+                is_email_verified=True,  # Google already verified the email
             )
             db.add(user)
         db.commit()
         db.refresh(user)
 
+    # Grant welcome bonus for new Google OAuth users (email pre-verified)
+    if is_new_user:
+        _grant_welcome_bonus(user, db)
+
     token = create_token(str(user.id), user.email)
-    resp = RedirectResponse("/dashboard")
+    resp = RedirectResponse("/app/dashboard")
     resp.set_cookie(
         "token", token,
         httponly=True, secure=True, samesite="lax",

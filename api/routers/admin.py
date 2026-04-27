@@ -1,30 +1,30 @@
 """M5: Superadmin-only routes for platform operations.
 
-Foundation for the admin UI (`/app/admin/`) and Phase 0 OAuth feature
-gating. Every route in this router requires `is_superadmin = true` on the
-authenticated user — see the `require_superadmin` dependency below.
-
-Initial scope (intentionally minimal):
-  * GET  /api/admin/clients   — list every client + member counts + scan counts
-  * GET  /api/admin/users     — list every user + their client links
-
-These two are enough for support cases ("which client does this user
-belong to?", "how many scans on Pierre Fabre's workspace last month?")
-and they unblock the upcoming `/app/admin/` Astro pages without locking
-us into a particular admin schema.
-
-When Phase 0 OAuth lands, this router will grow:
-  * PATCH /api/admin/clients/{id}/apps    — toggle app feature flags
-  * GET   /api/admin/clients/{id}/oauth   — list OAuth connections
-  * POST  /api/admin/clients/{id}/oauth   — create OAuth connection
+Includes:
+  * Client / user listing + feature flag toggling
+  * Platform monitoring dashboard (users, scans, credits, modules)
+  * LLM API cost monitoring (Anthropic, OpenAI, Gemini)
 """
 
-from fastapi import APIRouter, Depends, HTTPException
+from datetime import datetime, timedelta
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import func
+from sqlalchemy import case, cast, func, Date, text
 from sqlalchemy.orm import Session
 
-from models import Client, OAuthConnection, Scan, User, UserClient, get_db
+from models import (
+    AuditLog,
+    Client,
+    ClientCredit,
+    LlmUsageLog,
+    OAuthConnection,
+    Scan,
+    ScanLLMResult,
+    User,
+    UserClient,
+    get_db,
+)
 from services.auth_service import get_current_user
 
 router = APIRouter()
@@ -127,7 +127,7 @@ async def admin_list_users(
     return out
 
 
-VALID_APP_KEYS = {"ai_scan", "google_ads", "local_business"}
+VALID_APP_KEYS = {"ai_scan", "google_ads", "local_business", "search_console"}
 
 
 class AppToggleRequest(BaseModel):
@@ -207,4 +207,442 @@ async def admin_whoami(user: User = Depends(require_superadmin)):
         "id": str(user.id),
         "email": user.email,
         "is_superadmin": True,
+    }
+
+
+# ── Platform Monitoring Dashboard ──────────────────────────────────────
+
+
+@router.get("/dashboard")
+async def admin_dashboard(
+    _: User = Depends(require_superadmin),
+    db: Session = Depends(get_db),
+):
+    """Platform overview — single request for the admin monitoring dashboard.
+
+    Returns aggregated stats: users, clients, scans, credits, modules, LLM usage.
+    """
+    now = datetime.utcnow()
+    today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    week_ago = today - timedelta(days=7)
+    month_ago = today - timedelta(days=30)
+
+    # ── Users ──────────────────────────────────────────────────────────
+    total_users = db.query(func.count(User.id)).scalar() or 0
+    verified_users = db.query(func.count(User.id)).filter(User.is_email_verified == True).scalar() or 0
+    superadmin_count = db.query(func.count(User.id)).filter(User.is_superadmin == True).scalar() or 0
+    users_today = db.query(func.count(User.id)).filter(User.created_at >= today).scalar() or 0
+    users_this_week = db.query(func.count(User.id)).filter(User.created_at >= week_ago).scalar() or 0
+    users_this_month = db.query(func.count(User.id)).filter(User.created_at >= month_ago).scalar() or 0
+
+    # ── Clients ────────────────────────────────────────────────────────
+    total_clients = db.query(func.count(Client.id)).scalar() or 0
+
+    # Count clients with scans
+    clients_with_scans = (
+        db.query(func.count(func.distinct(Scan.client_id)))
+        .filter(Scan.status == "completed")
+        .scalar() or 0
+    )
+
+    # Count clients per module (from apps JSONB)
+    all_clients = db.query(Client.apps).all()
+    module_counts = {"ai_scan": 0, "google_ads": 0, "search_console": 0, "local_business": 0}
+    for (apps,) in all_clients:
+        if apps:
+            for key in module_counts:
+                if apps.get(key, {}).get("enabled"):
+                    module_counts[key] += 1
+
+    # ── Scans ──────────────────────────────────────────────────────────
+    scan_stats = (
+        db.query(
+            func.count(Scan.id).label("total"),
+            func.count(case((Scan.status == "completed", 1))).label("completed"),
+            func.count(case((Scan.status == "failed", 1))).label("failed"),
+            func.count(case((Scan.status.in_(["scanning", "fetching_keywords", "generating_personas"]), 1))).label("in_progress"),
+        )
+        .first()
+    )
+    scans_this_month = (
+        db.query(func.count(Scan.id))
+        .filter(Scan.created_at >= month_ago)
+        .scalar() or 0
+    )
+
+    # ── Credits ────────────────────────────────────────────────────────
+    credit_agg = (
+        db.query(
+            func.sum(case((ClientCredit.amount > 0, ClientCredit.amount), else_=0)).label("total_purchased"),
+            func.sum(case((ClientCredit.amount < 0, func.abs(ClientCredit.amount)), else_=0)).label("total_consumed"),
+        )
+        .filter(ClientCredit.credit_type == "scan")
+        .first()
+    )
+    total_purchased = int(credit_agg.total_purchased or 0)
+    total_consumed = int(credit_agg.total_consumed or 0)
+
+    # Revenue from Stripe (scan packs only — count distinct stripe_session_ids)
+    stripe_purchases = (
+        db.query(func.count(func.distinct(ClientCredit.stripe_session_id)))
+        .filter(ClientCredit.stripe_session_id.isnot(None))
+        .scalar() or 0
+    )
+
+    # ── LLM Usage (from llm_usage_log) ─────────────────────────────────
+    llm_agg = (
+        db.query(
+            func.count(LlmUsageLog.id).label("total_calls"),
+            func.coalesce(func.sum(LlmUsageLog.input_tokens + LlmUsageLog.output_tokens), 0).label("total_tokens"),
+            func.coalesce(func.sum(LlmUsageLog.cost_usd), 0).label("total_cost"),
+        )
+        .first()
+    )
+
+    # LLM by provider
+    llm_by_provider = (
+        db.query(
+            LlmUsageLog.provider,
+            func.count(LlmUsageLog.id).label("calls"),
+            func.coalesce(func.sum(LlmUsageLog.input_tokens + LlmUsageLog.output_tokens), 0).label("tokens"),
+            func.coalesce(func.sum(LlmUsageLog.cost_usd), 0).label("cost_usd"),
+        )
+        .group_by(LlmUsageLog.provider)
+        .all()
+    )
+
+    # Also aggregate from historical scan_llm_results (pre-migration data)
+    legacy_llm = (
+        db.query(
+            ScanLLMResult.provider,
+            func.count(ScanLLMResult.id).label("calls"),
+            func.coalesce(func.sum(ScanLLMResult.input_tokens + ScanLLMResult.output_tokens), 0).label("tokens"),
+        )
+        .group_by(ScanLLMResult.provider)
+        .all()
+    )
+
+    # ── Recent activity (last 10 audit events) ─────────────────────────
+    recent_events = (
+        db.query(AuditLog)
+        .order_by(AuditLog.created_at.desc())
+        .limit(10)
+        .all()
+    )
+
+    # ── Recent registrations (last 15 users) ───────────────────────────
+    recent_users = (
+        db.query(User.id, User.email, User.name, User.is_email_verified, User.created_at)
+        .order_by(User.created_at.desc())
+        .limit(15)
+        .all()
+    )
+
+    return {
+        "users": {
+            "total": total_users,
+            "verified": verified_users,
+            "superadmin": superadmin_count,
+            "registered_today": users_today,
+            "registered_this_week": users_this_week,
+            "registered_this_month": users_this_month,
+        },
+        "clients": {
+            "total": total_clients,
+            "with_scans": clients_with_scans,
+            "modules": module_counts,
+        },
+        "scans": {
+            "total": scan_stats.total if scan_stats else 0,
+            "completed": scan_stats.completed if scan_stats else 0,
+            "failed": scan_stats.failed if scan_stats else 0,
+            "in_progress": scan_stats.in_progress if scan_stats else 0,
+            "this_month": scans_this_month,
+        },
+        "credits": {
+            "total_purchased": total_purchased,
+            "total_consumed": total_consumed,
+            "total_balance": total_purchased - total_consumed,
+            "stripe_purchases": stripe_purchases,
+        },
+        "llm_usage": {
+            "total_calls": int(llm_agg.total_calls or 0),
+            "total_tokens": int(llm_agg.total_tokens or 0),
+            "total_cost_usd": round(float(llm_agg.total_cost or 0), 4),
+            "by_provider": {
+                row.provider: {
+                    "calls": int(row.calls),
+                    "tokens": int(row.tokens),
+                    "cost_usd": round(float(row.cost_usd), 4),
+                }
+                for row in llm_by_provider
+            },
+            "legacy_scan_results": {
+                row.provider: {
+                    "calls": int(row.calls),
+                    "tokens": int(row.tokens),
+                }
+                for row in legacy_llm
+            },
+        },
+        "recent_events": [
+            {
+                "action": e.action,
+                "target_type": e.target_type,
+                "target_id": e.target_id,
+                "ip": e.ip_address,
+                "created_at": e.created_at.isoformat() if e.created_at else None,
+            }
+            for e in recent_events
+        ],
+        "recent_users": [
+            {
+                "id": str(u.id),
+                "email": u.email,
+                "name": u.name,
+                "verified": bool(u.is_email_verified),
+                "created_at": u.created_at.isoformat() if u.created_at else None,
+            }
+            for u in recent_users
+        ],
+    }
+
+
+@router.get("/llm-usage")
+async def admin_llm_usage(
+    days: int = Query(30, ge=1, le=365),
+    _: User = Depends(require_superadmin),
+    db: Session = Depends(get_db),
+):
+    """Detailed LLM API usage for cost monitoring.
+
+    Returns daily breakdown, per-model costs, and per-operation costs
+    over the requested period (default 30 days).
+    """
+    since = datetime.utcnow() - timedelta(days=days)
+
+    # ── Daily breakdown ────────────────────────────────────────────────
+    daily = (
+        db.query(
+            cast(LlmUsageLog.created_at, Date).label("date"),
+            LlmUsageLog.provider,
+            func.count(LlmUsageLog.id).label("calls"),
+            func.sum(LlmUsageLog.input_tokens).label("input_tokens"),
+            func.sum(LlmUsageLog.output_tokens).label("output_tokens"),
+            func.sum(LlmUsageLog.cost_usd).label("cost_usd"),
+            func.count(case((LlmUsageLog.error == True, 1))).label("errors"),
+        )
+        .filter(LlmUsageLog.created_at >= since)
+        .group_by(cast(LlmUsageLog.created_at, Date), LlmUsageLog.provider)
+        .order_by(cast(LlmUsageLog.created_at, Date))
+        .all()
+    )
+
+    # ── By model ───────────────────────────────────────────────────────
+    by_model = (
+        db.query(
+            LlmUsageLog.provider,
+            LlmUsageLog.model,
+            func.count(LlmUsageLog.id).label("calls"),
+            func.sum(LlmUsageLog.input_tokens).label("input_tokens"),
+            func.sum(LlmUsageLog.output_tokens).label("output_tokens"),
+            func.sum(LlmUsageLog.cost_usd).label("cost_usd"),
+        )
+        .filter(LlmUsageLog.created_at >= since)
+        .group_by(LlmUsageLog.provider, LlmUsageLog.model)
+        .order_by(func.sum(LlmUsageLog.cost_usd).desc())
+        .all()
+    )
+
+    # ── By operation ───────────────────────────────────────────────────
+    by_operation = (
+        db.query(
+            LlmUsageLog.operation,
+            func.count(LlmUsageLog.id).label("calls"),
+            func.sum(LlmUsageLog.input_tokens).label("input_tokens"),
+            func.sum(LlmUsageLog.output_tokens).label("output_tokens"),
+            func.sum(LlmUsageLog.cost_usd).label("cost_usd"),
+        )
+        .filter(LlmUsageLog.created_at >= since)
+        .group_by(LlmUsageLog.operation)
+        .order_by(func.sum(LlmUsageLog.cost_usd).desc())
+        .all()
+    )
+
+    # ── By client (top 20 spenders) ────────────────────────────────────
+    by_client = (
+        db.query(
+            LlmUsageLog.client_id,
+            Client.name.label("client_name"),
+            func.count(LlmUsageLog.id).label("calls"),
+            func.sum(LlmUsageLog.cost_usd).label("cost_usd"),
+        )
+        .outerjoin(Client, Client.id == LlmUsageLog.client_id)
+        .filter(LlmUsageLog.created_at >= since)
+        .filter(LlmUsageLog.client_id.isnot(None))
+        .group_by(LlmUsageLog.client_id, Client.name)
+        .order_by(func.sum(LlmUsageLog.cost_usd).desc())
+        .limit(20)
+        .all()
+    )
+
+    # ── Totals for period ──────────────────────────────────────────────
+    totals = (
+        db.query(
+            func.count(LlmUsageLog.id).label("calls"),
+            func.coalesce(func.sum(LlmUsageLog.input_tokens), 0).label("input_tokens"),
+            func.coalesce(func.sum(LlmUsageLog.output_tokens), 0).label("output_tokens"),
+            func.coalesce(func.sum(LlmUsageLog.cost_usd), 0).label("cost_usd"),
+            func.count(case((LlmUsageLog.error == True, 1))).label("errors"),
+        )
+        .filter(LlmUsageLog.created_at >= since)
+        .first()
+    )
+
+    return {
+        "period_days": days,
+        "totals": {
+            "calls": int(totals.calls or 0),
+            "input_tokens": int(totals.input_tokens or 0),
+            "output_tokens": int(totals.output_tokens or 0),
+            "cost_usd": round(float(totals.cost_usd or 0), 4),
+            "errors": int(totals.errors or 0),
+        },
+        "daily": [
+            {
+                "date": str(row.date),
+                "provider": row.provider,
+                "calls": int(row.calls),
+                "input_tokens": int(row.input_tokens or 0),
+                "output_tokens": int(row.output_tokens or 0),
+                "cost_usd": round(float(row.cost_usd or 0), 4),
+                "errors": int(row.errors or 0),
+            }
+            for row in daily
+        ],
+        "by_model": [
+            {
+                "provider": row.provider,
+                "model": row.model,
+                "calls": int(row.calls),
+                "input_tokens": int(row.input_tokens or 0),
+                "output_tokens": int(row.output_tokens or 0),
+                "cost_usd": round(float(row.cost_usd or 0), 4),
+            }
+            for row in by_model
+        ],
+        "by_operation": [
+            {
+                "operation": row.operation,
+                "calls": int(row.calls),
+                "input_tokens": int(row.input_tokens or 0),
+                "output_tokens": int(row.output_tokens or 0),
+                "cost_usd": round(float(row.cost_usd or 0), 4),
+            }
+            for row in by_operation
+        ],
+        "by_client": [
+            {
+                "client_id": str(row.client_id) if row.client_id else None,
+                "client_name": row.client_name,
+                "calls": int(row.calls),
+                "cost_usd": round(float(row.cost_usd or 0), 4),
+            }
+            for row in by_client
+        ],
+    }
+
+
+@router.get("/users/activity")
+async def admin_users_activity(
+    days: int = Query(90, ge=1, le=365),
+    _: User = Depends(require_superadmin),
+    db: Session = Depends(get_db),
+):
+    """User registration timeline — daily counts for trend chart."""
+    since = datetime.utcnow() - timedelta(days=days)
+
+    daily = (
+        db.query(
+            cast(User.created_at, Date).label("date"),
+            func.count(User.id).label("count"),
+        )
+        .filter(User.created_at >= since)
+        .group_by(cast(User.created_at, Date))
+        .order_by(cast(User.created_at, Date))
+        .all()
+    )
+
+    return [
+        {"date": str(row.date), "count": int(row.count)}
+        for row in daily
+    ]
+
+
+@router.get("/credits/overview")
+async def admin_credits_overview(
+    _: User = Depends(require_superadmin),
+    db: Session = Depends(get_db),
+):
+    """Platform-wide credit overview — per-client balances + top consumers."""
+    # Current balance per client (latest balance_after per credit_type)
+    from sqlalchemy import desc
+
+    # Get current scan credit balance per client
+    subq = (
+        db.query(
+            ClientCredit.client_id,
+            ClientCredit.credit_type,
+            ClientCredit.balance_after,
+            func.row_number().over(
+                partition_by=[ClientCredit.client_id, ClientCredit.credit_type],
+                order_by=desc(ClientCredit.created_at),
+            ).label("rn"),
+        )
+        .subquery()
+    )
+
+    balances = (
+        db.query(
+            subq.c.client_id,
+            Client.name.label("client_name"),
+            subq.c.credit_type,
+            subq.c.balance_after,
+        )
+        .join(Client, Client.id == subq.c.client_id)
+        .filter(subq.c.rn == 1)
+        .order_by(subq.c.balance_after.desc())
+        .all()
+    )
+
+    # Group by client
+    clients_map: dict = {}
+    for row in balances:
+        cid = str(row.client_id)
+        if cid not in clients_map:
+            clients_map[cid] = {"client_id": cid, "client_name": row.client_name, "scan": 0, "content": 0}
+        clients_map[cid][row.credit_type] = int(row.balance_after)
+
+    # Monthly credit consumption trend
+    monthly = (
+        db.query(
+            func.to_char(ClientCredit.created_at, 'YYYY-MM').label("month"),
+            func.sum(case((ClientCredit.amount > 0, ClientCredit.amount), else_=0)).label("purchased"),
+            func.sum(case((ClientCredit.amount < 0, func.abs(ClientCredit.amount)), else_=0)).label("consumed"),
+        )
+        .group_by(func.to_char(ClientCredit.created_at, 'YYYY-MM'))
+        .order_by(func.to_char(ClientCredit.created_at, 'YYYY-MM'))
+        .all()
+    )
+
+    return {
+        "clients": list(clients_map.values()),
+        "monthly": [
+            {
+                "month": row.month,
+                "purchased": int(row.purchased or 0),
+                "consumed": int(row.consumed or 0),
+            }
+            for row in monthly
+        ],
     }

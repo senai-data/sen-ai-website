@@ -266,6 +266,20 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
     db.flush()
     logger.info(f"Created {brand_topic_count} brand-topic associations")
 
+    # Log LLM usage for cost monitoring
+    from adapters.llm_logger import log_llm_usage
+    log_llm_usage(
+        db,
+        provider="anthropic",
+        model=result.get("model", "claude-haiku-4-5-20251001"),
+        operation="classify_topics",
+        input_tokens=result.get("input_tokens", 0),
+        output_tokens=result.get("output_tokens", 0),
+        duration_ms=result.get("duration_ms"),
+        scan_id=scan_id,
+        client_id=str(scan.client_id),
+    )
+
     scan.status = "topics_ready"
     classified_brands = {category_map.get(m.get("category", ""), "unclassified"): 0 for m in marques if isinstance(m, dict)}
     for m in marques:

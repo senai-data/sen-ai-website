@@ -414,6 +414,24 @@ class OAuthConnection(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class LlmUsageLog(Base):
+    """Platform-wide LLM API usage tracking for cost monitoring."""
+    __tablename__ = "llm_usage_log"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    provider = Column(String(30), nullable=False)
+    model = Column(String(100), nullable=False)
+    operation = Column(String(50), nullable=False)
+    input_tokens = Column(Integer, nullable=False, default=0)
+    output_tokens = Column(Integer, nullable=False, default=0)
+    cost_usd = Column(Float, nullable=False, default=0)
+    duration_ms = Column(Integer)
+    scan_id = Column(UUID(as_uuid=True), ForeignKey("scans.id", ondelete="SET NULL"))
+    client_id = Column(UUID(as_uuid=True), ForeignKey("clients.id", ondelete="SET NULL"))
+    error = Column(Boolean, nullable=False, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 class SyncRun(Base):
     """Tracks each data sync operation."""
     __tablename__ = "sync_runs"

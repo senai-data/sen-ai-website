@@ -9,6 +9,7 @@ let scans = [];
 try {
   const clientsRes = await fetch('http://api:8000/api/clients/', {
     headers: { Cookie: `token=${token}` },
+    signal: AbortSignal.timeout(3000),
   });
   const clients = clientsRes.ok ? await clientsRes.json() : [];
   const clientId = clients[0]?.id;
@@ -16,6 +17,7 @@ try {
   if (clientId) {
     const scansRes = await fetch(`http://api:8000/api/scans?client_id=${clientId}`, {
       headers: { Cookie: `token=${token}` },
+      signal: AbortSignal.timeout(3000),
     });
     scans = scansRes.ok ? await scansRes.json() : [];
   }

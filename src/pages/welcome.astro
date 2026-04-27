@@ -23,6 +23,7 @@ let clientId = null;
 try {
   const res = await fetch('http://api:8000/api/clients/', {
     headers: { Cookie: `token=${token}` },
+    signal: AbortSignal.timeout(3000),
   });
   const clients = res.ok ? await res.json() : [];
   clientId = clients[0]?.id;
@@ -30,6 +31,7 @@ try {
   if (clientId) {
     const scansRes = await fetch(`http://api:8000/api/scans/?client_id=${clientId}`, {
       headers: { Cookie: `token=${token}` },
+      signal: AbortSignal.timeout(3000),
     });
     const scans = scansRes.ok ? await scansRes.json() : [];
     hasScans = scans.length > 0;
@@ -39,10 +41,21 @@ try {
 if (hasScans) return Astro.redirect('/app/dashboard');
 
 let user = { email: '', name: '' };
+let isEmailVerified = true;
 try {
   const payload = JSON.parse(atob(token.split('.')[1]));
   user.email = payload.email || '';
   user.name = payload.email?.split('@')[0] || '';
+} catch {}
+try {
+  const meRes = await fetch('http://api:8000/api/auth/me', {
+    headers: { Cookie: `token=${token}` },
+    signal: AbortSignal.timeout(3000),
+  });
+  if (meRes.ok) {
+    const me = await meRes.json();
+    isEmailVerified = me.is_email_verified;
+  }
 } catch {}
 ---
 
@@ -87,10 +100,21 @@ try {
       <div class="bg-white rounded-2xl shadow-lg p-8">
         <h1 class="text-2xl font-bold text-charcoal-dark mb-2">Welcome to sen-ai.fr</h1>
         <p class="text-charcoal-light mb-4">Let's measure your brand's visibility in AI responses. It takes 2 minutes.</p>
-        <div class="bg-emerald-50 border border-emerald-200 rounded-lg px-4 py-2.5 mb-6 flex items-center gap-2">
-          <span class="text-emerald-600 text-lg">🎁</span>
-          <span class="text-sm text-emerald-700">You have <strong>50 free scan credits</strong> to get started.</span>
-        </div>
+        {isEmailVerified ? (
+          <div class="bg-emerald-50 border border-emerald-200 rounded-lg px-4 py-2.5 mb-6 flex items-center gap-2">
+            <span class="text-emerald-600 text-lg font-bold">+50</span>
+            <span class="text-sm text-emerald-700">You have <strong>50 free scan credits</strong> to get started.</span>
+          </div>
+        ) : (
+          <div class="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 mb-6">
+            <div class="flex items-center gap-2 mb-1.5">
+              <svg class="w-4 h-4 text-amber-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+              <span class="text-sm font-medium text-amber-800">Check your email to get 50 free credits</span>
+            </div>
+            <p class="text-xs text-amber-700 ml-6">We sent a verification link to <strong>{user.email}</strong>. Verify to unlock your credits.</p>
+            <button onclick="fetch('/api/auth/resend-verification',{method:'POST'}).then(()=>this.textContent='Sent!')" class="ml-6 mt-1.5 text-xs text-amber-700 underline hover:text-amber-900">Resend email</button>
+          </div>
+        )}
 
         <div class="space-y-5">
           <div>

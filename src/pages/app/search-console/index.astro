@@ -1,0 +1,451 @@
+---
+/**
+ * Google Search Console — Dashboard + Sync Management
+ *
+ * UX Laws applied:
+ * - Progressive Disclosure: guided steps, dashboard only after data exists
+ * - Miller's Law: 4 KPI cards, sites collapsed when not needed
+ * - Jakob's Law: GSC-like layout familiar to SEOs
+ * - Von Restorff: emerald accent on primary actions + KPIs
+ * - Fitts's Law: large CTAs, prominent sync button
+ * - Goal-Gradient: step indicators, clear "what's next"
+ * - Aesthetic-Usability: generous spacing, clean hierarchy
+ * - Doherty Threshold: loading states, instant feedback
+ */
+export const prerender = false;
+import DashboardLayout from '../../../layouts/DashboardLayout.astro';
+
+const token = Astro.cookies.get('token')?.value;
+if (!token) return Astro.redirect('/login');
+
+let clientId = '';
+let selectedSites: string[] = [];
+
+try {
+  const clientsRes = await fetch('http://api:8000/api/clients/', {
+    headers: { Cookie: `token=${token}` },
+    signal: AbortSignal.timeout(3000),
+  });
+  if (clientsRes.ok) {
+    const clients = await clientsRes.json();
+    if (clients[0]?.id) {
+      clientId = clients[0].id;
+      selectedSites = clients[0].apps?.search_console?.sites || [];
+    }
+  }
+} catch {}
+
+const domainOptions = selectedSites.map(s => ({
+  value: s,
+  label: s.replace('sc-domain:', '').replace(/^https?:\/\//, '').replace(/\/$/, ''),
+}));
+---
+
+<DashboardLayout title="Search Console" activeSection="search-console">
+  <div class="p-8 max-w-7xl" x-data={`gscApp('${clientId}', ${JSON.stringify(selectedSites)})`}>
+
+    <!-- Header -->
+    <div class="flex flex-wrap items-end gap-4 mb-8">
+      <div class="flex-1 min-w-0">
+        <h1 class="text-2xl font-bold text-charcoal-dark">Search Console</h1>
+        <p class="text-charcoal-light mt-1">Organic search performance</p>
+      </div>
+
+      <!-- Date range + domain filter (only when data) -->
+      <template x-if="summary && summary.clicks != null">
+        <div class="flex items-center gap-3">
+          <input type="date" x-model="dateFrom" @change="fetchDashboard()"
+                 class="text-sm border border-gray-200 rounded-lg px-3 py-2 outline-none focus:border-emerald-500" />
+          <span class="text-charcoal-light text-sm">to</span>
+          <input type="date" x-model="dateTo" @change="fetchDashboard()"
+                 class="text-sm border border-gray-200 rounded-lg px-3 py-2 outline-none focus:border-emerald-500" />
+          {domainOptions.length > 1 && (
+            <select x-model="domain" @change="fetchDashboard()"
+                    class="text-sm border border-gray-200 rounded-lg px-3 py-2 outline-none focus:border-emerald-500">
+              <option value="">All sites</option>
+              {domainOptions.map(d => (
+                <option value={d.value}>{d.label}</option>
+              ))}
+            </select>
+          )}
+        </div>
+      </template>
+    </div>
+
+    <!--
+      ═══════════════════════════════════════════════════
+      SETUP FLOW (Progressive Disclosure — one step at a time)
+      ═══════════════════════════════════════════════════
+    -->
+
+    <!-- Step 1: No connection → single clear CTA (Fitts: large target, Von Restorff: only action) -->
+    <template x-if="!hasConnection && !loadingSites">
+      <div class="max-w-lg mx-auto mt-12 text-center">
+        <div class="w-20 h-20 rounded-2xl bg-emerald-50 flex items-center justify-center mx-auto mb-6">
+          <svg class="w-10 h-10 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"/>
+          </svg>
+        </div>
+        <h2 class="text-xl font-bold text-charcoal-dark mb-2">Connect Google Search Console</h2>
+        <p class="text-charcoal-light mb-8 max-w-sm mx-auto">Import your organic search data — queries, pages, positions, and click-through rates.</p>
+        <a href="/app/settings/connections"
+           class="inline-flex items-center gap-2 px-6 py-3 bg-emerald-600 text-white rounded-xl font-medium hover:bg-emerald-700 hover:shadow-lg hover:scale-[1.02] transition-all text-sm">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/></svg>
+          Connect Google Account
+        </a>
+        <p class="text-xs text-charcoal-light mt-4">Requires the "Search Console" product during connection.</p>
+      </div>
+    </template>
+
+    <!-- Step 2: Connected, no sites → pick sites -->
+    <template x-if="hasConnection && selectedSites.length === 0 && !loadingSites">
+      <div class="max-w-lg mx-auto mt-8">
+        <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-8">
+          <div class="flex items-center gap-3 mb-5">
+            <div class="w-8 h-8 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center text-sm font-bold">2</div>
+            <h2 class="text-lg font-bold text-charcoal-dark">Select your sites</h2>
+          </div>
+          <p class="text-sm text-charcoal-light mb-5">Choose which Search Console properties to track.</p>
+
+          <template x-if="availableSites.length === 0">
+            <button @click="fetchAvailableSites()" :disabled="loadingAvailable"
+                    class="w-full py-3 bg-emerald-600 text-white rounded-xl font-medium hover:bg-emerald-700 disabled:opacity-50 transition-all flex items-center justify-center gap-2">
+              <svg x-show="loadingAvailable" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+              <span x-text="loadingAvailable ? 'Loading...' : 'Load my sites from Google'"></span>
+            </button>
+          </template>
+
+          <template x-if="availableSites.length > 0">
+            <div>
+              <div class="space-y-2 mb-5 max-h-64 overflow-y-auto">
+                <template x-for="site in availableSites" :key="site.siteUrl">
+                  <label class="flex items-center gap-3 p-3 rounded-xl border border-gray-100 hover:border-emerald-200 hover:bg-emerald-50/30 cursor-pointer transition-colors">
+                    <input type="checkbox" :value="site.siteUrl" x-model="sitesToSelect" class="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500">
+                    <span class="text-sm font-medium text-charcoal-dark flex-1" x-text="site.siteUrl.replace('sc-domain:', '').replace(/^https?:\/\//, '').replace(/\/$/, '')"></span>
+                    <span class="text-[10px] px-2 py-0.5 rounded-full bg-gray-100 text-charcoal-light" x-text="site.permissionLevel"></span>
+                  </label>
+                </template>
+              </div>
+              <button @click="saveSiteSelection()" :disabled="sitesToSelect.length === 0"
+                      class="w-full py-3 bg-emerald-600 text-white rounded-xl font-medium hover:bg-emerald-700 disabled:opacity-50 transition-all">
+                Save Selection
+              </button>
+            </div>
+          </template>
+        </div>
+      </div>
+    </template>
+
+    <!--
+      ═══════════════════════════════════════════════════
+      DASHBOARD (when sites selected)
+      ═══════════════════════════════════════════════════
+    -->
+    <template x-if="hasConnection && selectedSites.length > 0">
+      <div>
+        <!-- Ready to load (user clicks to fetch — no auto-load that blocks the page) -->
+        <template x-if="ready && !loadingDashboard && !summary.clicks && summary.clicks !== 0">
+          <div class="max-w-lg mx-auto mt-8 text-center">
+            <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-8">
+              <div class="w-16 h-16 rounded-2xl bg-emerald-50 flex items-center justify-center mx-auto mb-5">
+                <svg class="w-8 h-8 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+                </svg>
+              </div>
+              <h2 class="text-lg font-bold text-charcoal-dark mb-2">Your Search Console data</h2>
+              <p class="text-sm text-charcoal-light mb-6">Fetched in real-time from Google. Takes a few seconds.</p>
+              <button @click="fetchDashboard()"
+                      class="px-8 py-3 bg-emerald-600 text-white rounded-xl font-medium hover:bg-emerald-700 hover:shadow-lg transition-all">
+                Load Dashboard
+              </button>
+            </div>
+          </div>
+        </template>
+
+        <!-- Loading spinner -->
+        <template x-if="loadingDashboard">
+          <div class="flex items-center justify-center py-24">
+            <div class="w-8 h-8 border-3 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>
+            <span class="ml-3 text-charcoal-light text-sm">Fetching data from Google (~5s)...</span>
+          </div>
+        </template>
+
+        <!-- Dashboard with data -->
+        <template x-if="!loadingDashboard && summary.clicks != null">
+          <div>
+            <!-- KPI Cards -->
+            <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+              <div class="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
+                <p class="text-xs text-charcoal-light uppercase tracking-wide mb-2">Clicks</p>
+                <p class="text-3xl font-bold text-emerald-600" x-text="fmt(summary.clicks)"></p>
+                <p class="text-xs text-charcoal-light mt-1" x-text="summary.days_with_data + ' days'"></p>
+              </div>
+              <div class="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
+                <p class="text-xs text-charcoal-light uppercase tracking-wide mb-2">Impressions</p>
+                <p class="text-3xl font-bold text-charcoal-dark" x-text="fmt(summary.impressions)"></p>
+                <p class="text-xs text-charcoal-light mt-1" x-text="fmt(summary.unique_queries) + ' queries'"></p>
+              </div>
+              <div class="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
+                <p class="text-xs text-charcoal-light uppercase tracking-wide mb-2">CTR</p>
+                <p class="text-3xl font-bold" :class="summary.ctr >= 5 ? 'text-emerald-600' : summary.ctr >= 2 ? 'text-amber-500' : 'text-red-500'"
+                   x-text="summary.ctr + '%'"></p>
+                <p class="text-xs text-charcoal-light mt-1" x-text="fmt(summary.unique_pages) + ' pages'"></p>
+              </div>
+              <div class="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
+                <p class="text-xs text-charcoal-light uppercase tracking-wide mb-2">Avg Position</p>
+                <p class="text-3xl font-bold" :class="summary.avg_position <= 10 ? 'text-emerald-600' : summary.avg_position <= 20 ? 'text-amber-500' : 'text-charcoal-dark'"
+                   x-text="summary.avg_position ? summary.avg_position.toFixed(1) : '—'"></p>
+                <p class="text-xs text-charcoal-light mt-1">weighted by impressions</p>
+              </div>
+            </div>
+
+            <!-- Charts -->
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-8">
+              <div class="lg:col-span-2 bg-white rounded-xl shadow-sm p-6">
+                <h3 class="text-sm font-semibold text-charcoal-dark mb-1">Daily Trend</h3>
+                <p class="text-[11px] text-charcoal-light mb-4">Clicks and impressions over time</p>
+                <div class="relative" style="height: 280px;"><canvas id="gscTrend"></canvas></div>
+              </div>
+              <div class="bg-white rounded-xl shadow-sm p-6">
+                <h3 class="text-sm font-semibold text-charcoal-dark mb-1">Position Trend</h3>
+                <p class="text-[11px] text-charcoal-light mb-4">Lower is better</p>
+                <div class="relative" style="height: 280px;"><canvas id="gscPosition"></canvas></div>
+              </div>
+            </div>
+
+            <!-- Tables -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-8">
+              <!-- Top Queries -->
+              <div class="bg-white rounded-xl shadow-sm border border-gray-100">
+                <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+                  <h2 class="font-semibold text-charcoal-dark">Top Queries</h2>
+                  <input type="text" x-model="searchQuery" placeholder="Search..."
+                         class="text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 outline-none focus:border-emerald-500 w-36" />
+                </div>
+                <div class="overflow-x-auto max-h-[420px] overflow-y-auto">
+                  <table class="w-full text-sm">
+                    <thead class="sticky top-0 bg-white z-10">
+                      <tr class="border-b border-gray-100">
+                        <th class="px-5 py-2.5 text-left text-xs text-charcoal-light uppercase font-medium">Query</th>
+                        <th class="px-3 py-2.5 text-right text-xs text-charcoal-light uppercase font-medium cursor-pointer select-none" @click="toggleQuerySort('clicks')">Clicks <span x-show="querySort==='clicks'" x-text="querySortDir==='desc'?'↓':'↑'"></span></th>
+                        <th class="px-3 py-2.5 text-right text-xs text-charcoal-light uppercase font-medium cursor-pointer select-none" @click="toggleQuerySort('impressions')">Impr <span x-show="querySort==='impressions'" x-text="querySortDir==='desc'?'↓':'↑'"></span></th>
+                        <th class="px-3 py-2.5 text-right text-xs text-charcoal-light uppercase font-medium cursor-pointer select-none" @click="toggleQuerySort('ctr')">CTR <span x-show="querySort==='ctr'" x-text="querySortDir==='desc'?'↓':'↑'"></span></th>
+                        <th class="px-3 py-2.5 text-right text-xs text-charcoal-light uppercase font-medium cursor-pointer select-none" @click="toggleQuerySort('position')">Pos <span x-show="querySort==='position'" x-text="querySortDir==='desc'?'↓':'↑'"></span></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <template x-for="q in filteredQueries" :key="q.query">
+                        <tr class="border-b border-gray-50 hover:bg-gray-50/50">
+                          <td class="px-5 py-2.5 text-charcoal-dark truncate max-w-[200px]" x-text="q.query"></td>
+                          <td class="px-3 py-2.5 text-right font-medium text-emerald-600" x-text="fmt(q.clicks)"></td>
+                          <td class="px-3 py-2.5 text-right text-charcoal-light" x-text="fmt(q.impressions)"></td>
+                          <td class="px-3 py-2.5 text-right text-charcoal-dark" x-text="q.ctr + '%'"></td>
+                          <td class="px-3 py-2.5 text-right" :class="q.position <= 10 ? 'text-emerald-600 font-medium' : 'text-charcoal-light'" x-text="q.position?.toFixed(1) || '—'"></td>
+                        </tr>
+                      </template>
+                    </tbody>
+                  </table>
+                </div>
+                <template x-if="filteredQueries.length === 0">
+                  <p class="px-5 py-6 text-center text-sm text-charcoal-light">No queries found</p>
+                </template>
+              </div>
+
+              <!-- Top Pages -->
+              <div class="bg-white rounded-xl shadow-sm border border-gray-100">
+                <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+                  <h2 class="font-semibold text-charcoal-dark">Top Pages</h2>
+                  <input type="text" x-model="searchPage" placeholder="Search..."
+                         class="text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 outline-none focus:border-emerald-500 w-36" />
+                </div>
+                <div class="overflow-x-auto max-h-[420px] overflow-y-auto">
+                  <table class="w-full text-sm">
+                    <thead class="sticky top-0 bg-white z-10">
+                      <tr class="border-b border-gray-100">
+                        <th class="px-5 py-2.5 text-left text-xs text-charcoal-light uppercase font-medium">Page</th>
+                        <th class="px-3 py-2.5 text-right text-xs text-charcoal-light uppercase font-medium cursor-pointer select-none" @click="togglePageSort('clicks')">Clicks <span x-show="pageSort==='clicks'" x-text="pageSortDir==='desc'?'↓':'↑'"></span></th>
+                        <th class="px-3 py-2.5 text-right text-xs text-charcoal-light uppercase font-medium cursor-pointer select-none" @click="togglePageSort('ctr')">CTR <span x-show="pageSort==='ctr'" x-text="pageSortDir==='desc'?'↓':'↑'"></span></th>
+                        <th class="px-3 py-2.5 text-right text-xs text-charcoal-light uppercase font-medium cursor-pointer select-none" @click="togglePageSort('position')">Pos <span x-show="pageSort==='position'" x-text="pageSortDir==='desc'?'↓':'↑'"></span></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <template x-for="p in filteredPages" :key="p.page">
+                        <tr class="border-b border-gray-50 hover:bg-gray-50/50">
+                          <td class="px-5 py-2.5">
+                            <a :href="p.page" target="_blank" rel="noopener" class="text-charcoal-dark hover:text-emerald-600 truncate block max-w-[240px]"
+                               x-text="p.page.replace(/^https?:\/\/[^/]+/, '')"></a>
+                          </td>
+                          <td class="px-3 py-2.5 text-right font-medium text-emerald-600" x-text="fmt(p.clicks)"></td>
+                          <td class="px-3 py-2.5 text-right text-charcoal-dark" x-text="p.ctr + '%'"></td>
+                          <td class="px-3 py-2.5 text-right" :class="p.position <= 10 ? 'text-emerald-600 font-medium' : 'text-charcoal-light'" x-text="p.position?.toFixed(1) || '—'"></td>
+                        </tr>
+                      </template>
+                    </tbody>
+                  </table>
+                </div>
+                <template x-if="filteredPages.length === 0">
+                  <p class="px-5 py-6 text-center text-sm text-charcoal-light">No pages found</p>
+                </template>
+              </div>
+            </div>
+
+            <!-- Sites footer -->
+            <div class="bg-gray-50 rounded-xl px-5 py-3 flex items-center gap-2 text-xs text-charcoal-light">
+              <span>Showing data for</span>
+              <template x-for="site in selectedSites" :key="site">
+                <span class="px-2 py-0.5 bg-emerald-50 text-emerald-700 rounded-lg text-[10px]"
+                      x-text="site.replace('sc-domain:', '').replace(/^https?:\/\//, '').replace(/\/$/, '')"></span>
+              </template>
+              <span class="ml-auto text-charcoal-light">Real-time from Google Search Console API</span>
+            </div>
+          </div>
+        </template>
+      </div>
+    </template>
+  </div>
+
+  <!-- Chart.js -->
+  <script is:inline src="https://cdn.jsdelivr.net/npm/chart.js@4.4.9/dist/chart.umd.min.js"></script>
+  <script is:inline>
+    if (typeof Chart !== 'undefined') {
+      Chart.defaults.font.family = "system-ui, -apple-system, 'Segoe UI', sans-serif";
+      Chart.defaults.font.size = 12;
+      Chart.defaults.color = '#9ca3af';
+      Chart.defaults.plugins.legend.display = false;
+    }
+    document.addEventListener('alpine:init', () => {
+      Alpine.data('gscApp', (clientId, initialSites) => ({
+        clientId,
+        selectedSites: initialSites || [],
+        hasConnection: false,
+        connectionId: '',
+        availableSites: [],
+        sitesToSelect: [],
+        loadingSites: true,
+        loadingAvailable: false,
+        ready: false,
+        loadingDashboard: false,
+        summary: {},
+        daily: [],
+        queries: [],
+        pages: [],
+        dateFrom: new Date(Date.now() - 31 * 86400000).toISOString().slice(0, 10),
+        dateTo: new Date(Date.now() - 3 * 86400000).toISOString().slice(0, 10),
+        domain: '',
+        searchQuery: '',
+        searchPage: '',
+        querySort: 'clicks',
+        querySortDir: 'desc',
+        pageSort: 'clicks',
+        pageSortDir: 'desc',
+
+        async init() {
+          await this.checkConnection();
+          if (this.hasConnection && this.selectedSites.length > 0) {
+            this.ready = true;
+          }
+          this.loadingSites = false;
+        },
+        async checkConnection() {
+          try {
+            var res = await fetch('/api/oauth/connections?client_id=' + this.clientId);
+            if (res.ok) {
+              var conns = await res.json();
+              var gsc = conns.find(c => c.product === 'search_console' && c.status === 'active');
+              if (gsc) { this.hasConnection = true; this.connectionId = gsc.id; }
+            }
+          } catch {}
+        },
+        async fetchDashboard() {
+          if (!this.clientId) return;
+          this.loadingDashboard = true;
+          var base = '/api/search-console/' + this.clientId + '/analytics';
+          var qs = 'date_from=' + this.dateFrom + '&date_to=' + this.dateTo + (this.domain ? '&domain=' + encodeURIComponent(this.domain) : '');
+          try {
+            var [sRes, dRes, qRes, pRes] = await Promise.all([
+              fetch(base + '/summary?' + qs),
+              fetch(base + '/daily?' + qs),
+              fetch(base + '/queries?' + qs + '&limit=100'),
+              fetch(base + '/pages?' + qs + '&limit=100'),
+            ]);
+            if (sRes.ok) this.summary = await sRes.json();
+            if (dRes.ok) this.daily = await dRes.json();
+            if (qRes.ok) this.queries = await qRes.json();
+            if (pRes.ok) this.pages = await pRes.json();
+          } catch (e) { console.error('GSC fetch error:', e); }
+          this.loadingDashboard = false;
+          this.$nextTick(() => this.renderCharts());
+        },
+        renderCharts() {
+          if (typeof Chart === 'undefined' || this.daily.length === 0) return;
+          var el = document.getElementById('gscTrend');
+          if (el) {
+            if (el._chart) el._chart.destroy();
+            el._chart = new Chart(el, {
+              type: 'bar',
+              data: {
+                labels: this.daily.map(d => d.date.slice(5)),
+                datasets: [
+                  { label: 'Clicks', data: this.daily.map(d => d.clicks), backgroundColor: 'rgba(5,150,105,0.2)', borderColor: '#059669', borderWidth: 1, borderRadius: 3, yAxisID: 'y', order: 2 },
+                  { label: 'Impressions', type: 'line', data: this.daily.map(d => d.impressions), borderColor: '#9ca3af', backgroundColor: 'rgba(156,163,175,0.05)', fill: true, tension: 0.3, pointRadius: 0, pointHoverRadius: 4, borderWidth: 1.5, yAxisID: 'y1', order: 1 },
+                ],
+              },
+              options: {
+                responsive: true, maintainAspectRatio: false,
+                interaction: { mode: 'index', intersect: false },
+                scales: {
+                  x: { ticks: { maxTicksLimit: 10, font: { size: 10 } }, grid: { display: false } },
+                  y: { position: 'left', title: { display: true, text: 'Clicks', font: { size: 10 } }, grid: { color: '#f3f4f6' } },
+                  y1: { position: 'right', title: { display: true, text: 'Impressions', font: { size: 10 } }, grid: { display: false } },
+                },
+                plugins: { legend: { display: true, position: 'bottom', labels: { usePointStyle: true, pointStyle: 'circle', padding: 16, font: { size: 11 } } } },
+              },
+            });
+          }
+          var el2 = document.getElementById('gscPosition');
+          if (el2) {
+            if (el2._chart) el2._chart.destroy();
+            el2._chart = new Chart(el2, {
+              type: 'line',
+              data: {
+                labels: this.daily.map(d => d.date.slice(5)),
+                datasets: [{ label: 'Position', data: this.daily.map(d => d.position), borderColor: '#f59e0b', backgroundColor: 'rgba(245,158,11,0.08)', fill: true, tension: 0.3, pointRadius: 1, pointHoverRadius: 4, borderWidth: 2 }],
+              },
+              options: {
+                responsive: true, maintainAspectRatio: false,
+                scales: {
+                  x: { ticks: { maxTicksLimit: 8, font: { size: 10 } }, grid: { display: false } },
+                  y: { reverse: true, title: { display: true, text: 'Position', font: { size: 10 } }, grid: { color: '#f3f4f6' }, min: 1 },
+                },
+              },
+            });
+          }
+        },
+        get filteredQueries() {
+          var q = this.searchQuery.toLowerCase(), key = this.querySort, dir = this.querySortDir === 'desc' ? -1 : 1;
+          if (key === 'position') dir = -dir;
+          return [...this.queries].filter(r => !q || r.query.toLowerCase().includes(q)).sort((a, b) => ((a[key] || 0) - (b[key] || 0)) * dir);
+        },
+        get filteredPages() {
+          var q = this.searchPage.toLowerCase(), key = this.pageSort, dir = this.pageSortDir === 'desc' ? -1 : 1;
+          if (key === 'position') dir = -dir;
+          return [...this.pages].filter(r => !q || r.page.toLowerCase().includes(q)).sort((a, b) => ((a[key] || 0) - (b[key] || 0)) * dir);
+        },
+        toggleQuerySort(col) { if (this.querySort === col) this.querySortDir = this.querySortDir === 'desc' ? 'asc' : 'desc'; else { this.querySort = col; this.querySortDir = col === 'position' ? 'asc' : 'desc'; } },
+        togglePageSort(col) { if (this.pageSort === col) this.pageSortDir = this.pageSortDir === 'desc' ? 'asc' : 'desc'; else { this.pageSort = col; this.pageSortDir = col === 'position' ? 'asc' : 'desc'; } },
+        fmt(n) { return n != null ? n.toLocaleString() : '—'; },
+        async fetchAvailableSites() {
+          this.loadingAvailable = true;
+          try { var res = await fetch('/api/search-console/' + this.clientId + '/sites'); if (res.ok) this.availableSites = await res.json(); } catch {}
+          this.loadingAvailable = false;
+        },
+        async saveSiteSelection() {
+          try {
+            var res = await fetch('/api/search-console/' + this.clientId + '/sites/select', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sites: this.sitesToSelect }) });
+            if (res.ok) { this.selectedSites = [...this.sitesToSelect]; this.sitesToSelect = []; this.availableSites = []; }
+          } catch {}
+        },
+      }));
+    });
+  </script>
+</DashboardLayout>

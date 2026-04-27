@@ -1,0 +1,386 @@
+---
+/**
+ * Google Ads Intelligence — Overview Dashboard
+ *
+ * "How are my ads performing?" — KPIs, daily trend, channel breakdown, top campaigns.
+ *
+ * UX Laws:
+ * - Miller's Law: 4 KPI cards max
+ * - Serial Position: KPIs first = most remembered
+ * - Von Restorff: gads-blue accent for ad metrics
+ * - Progressive Disclosure: overview here, details in sub-pages
+ */
+export const prerender = false;
+import DashboardLayout from '../../../layouts/DashboardLayout.astro';
+
+const token = Astro.cookies.get('token')?.value;
+if (!token) return Astro.redirect('/login');
+
+let clientId = '';
+let accounts: Record<string, { customer_id: string; label: string }> = {};
+let error: string | null = null;
+
+try {
+  const clientsRes = await fetch('http://api:8000/api/clients/', {
+    headers: { Cookie: `token=${token}` },
+    signal: AbortSignal.timeout(3000),
+  });
+  if (clientsRes.ok) {
+    const clients = await clientsRes.json();
+    if (clients[0]?.id) {
+      clientId = clients[0].id;
+      accounts = clients[0].apps?.google_ads?.accounts || {};
+    }
+  }
+} catch (e) {
+  error = e.message;
+}
+
+const accountList = Object.entries(accounts).map(([key, val]) => ({
+  key,
+  customer_id: val.customer_id,
+  label: val.label || key,
+}));
+---
+
+<DashboardLayout title="Google Ads" activeSection="google-ads">
+  <div class="p-8 max-w-7xl" x-data={`{
+    clientId: '${clientId}',
+    dateFrom: new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10),
+    dateTo: new Date(Date.now() - 86400000).toISOString().slice(0, 10),
+    customerId: '',
+    loading: true,
+    summary: null,
+    daily: [],
+    channels: [],
+    campaigns: [],
+    sortBy: 'cost',
+    sortDir: 'desc',
+    searchCampaign: '',
+
+    async fetchAll() {
+      if (!this.clientId) return;
+      this.loading = true;
+      const base = '/api/google-ads/' + this.clientId;
+      const qs = 'date_from=' + this.dateFrom + '&date_to=' + this.dateTo + (this.customerId ? '&customer_id=' + this.customerId : '');
+      try {
+        const [sRes, dRes, cRes, tRes] = await Promise.all([
+          fetch(base + '/campaigns/summary?' + qs),
+          fetch(base + '/campaigns/daily?' + qs),
+          fetch(base + '/campaigns/by-channel?' + qs),
+          fetch(base + '/campaigns/top?' + qs + '&limit=50'),
+        ]);
+        if (sRes.ok) this.summary = await sRes.json();
+        if (dRes.ok) this.daily = await dRes.json();
+        if (cRes.ok) this.channels = await cRes.json();
+        if (tRes.ok) this.campaigns = await tRes.json();
+      } catch (e) {
+        console.error('Google Ads fetch error:', e);
+      }
+      this.loading = false;
+      this.$nextTick(() => this.renderCharts());
+    },
+
+    renderCharts() {
+      if (typeof Chart === 'undefined') return;
+
+      // Daily trend (dual axis: cost line + clicks bars)
+      const trendEl = document.getElementById('dailyTrend');
+      if (trendEl && this.daily.length > 0) {
+        if (trendEl._chart) trendEl._chart.destroy();
+        trendEl._chart = new Chart(trendEl, {
+          type: 'bar',
+          data: {
+            labels: this.daily.map(d => d.date.slice(5)),
+            datasets: [
+              {
+                label: 'Clicks',
+                data: this.daily.map(d => d.clicks),
+                backgroundColor: 'rgba(66, 133, 244, 0.15)',
+                borderColor: '#4285F4',
+                borderWidth: 1,
+                borderRadius: 3,
+                yAxisID: 'y',
+                order: 2,
+              },
+              {
+                label: 'Cost',
+                type: 'line',
+                data: this.daily.map(d => d.cost),
+                borderColor: '#E8707A',
+                backgroundColor: 'rgba(232, 112, 122, 0.08)',
+                fill: true,
+                tension: 0.3,
+                pointRadius: 0,
+                pointHoverRadius: 4,
+                borderWidth: 2,
+                yAxisID: 'y1',
+                order: 1,
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            scales: {
+              x: { ticks: { maxTicksLimit: 10, font: { size: 10 } }, grid: { display: false } },
+              y: { position: 'left', title: { display: true, text: 'Clicks', font: { size: 10 } }, grid: { color: '#f3f4f6' } },
+              y1: { position: 'right', title: { display: true, text: 'Cost (€)', font: { size: 10 } }, grid: { display: false } },
+            },
+            plugins: {
+              legend: { display: true, position: 'bottom', labels: { usePointStyle: true, pointStyle: 'circle', padding: 16, font: { size: 11 } } },
+              tooltip: {
+                callbacks: {
+                  label: function(ctx) {
+                    if (ctx.dataset.label === 'Cost') return 'Cost: €' + ctx.raw.toLocaleString();
+                    return ctx.dataset.label + ': ' + ctx.raw.toLocaleString();
+                  }
+                }
+              }
+            },
+          },
+        });
+      }
+
+      // Channel breakdown (horizontal bar)
+      const chanEl = document.getElementById('channelBreakdown');
+      if (chanEl && this.channels.length > 0) {
+        if (chanEl._chart) chanEl._chart.destroy();
+        const colors = ['#4285F4', '#34A853', '#FBBC04', '#EA4335', '#9AA0A6', '#FF6D01'];
+        chanEl._chart = new Chart(chanEl, {
+          type: 'bar',
+          data: {
+            labels: this.channels.map(c => (c.channel_type || 'Unknown').replace('_', ' ')),
+            datasets: [{
+              data: this.channels.map(c => c.cost),
+              backgroundColor: this.channels.map((_, i) => colors[i % colors.length]),
+              borderRadius: 4,
+              barThickness: 28,
+            }],
+          },
+          options: {
+            indexAxis: 'y',
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+              x: { ticks: { callback: v => '€' + v.toLocaleString() }, grid: { color: '#f3f4f6' } },
+              y: { ticks: { font: { size: 11 }, color: '#374151' }, grid: { display: false } },
+            },
+            plugins: {
+              tooltip: { callbacks: { label: ctx => '€' + ctx.raw.toLocaleString() } },
+            },
+          },
+        });
+      }
+    },
+
+    get sortedCampaigns() {
+      const key = this.sortBy;
+      const dir = this.sortDir === 'desc' ? -1 : 1;
+      const q = this.searchCampaign.toLowerCase();
+      return [...this.campaigns]
+        .filter(c => !q || (c.campaign_name || '').toLowerCase().includes(q))
+        .sort((a, b) => ((a[key] || 0) - (b[key] || 0)) * dir);
+    },
+
+    toggleSort(col) {
+      if (this.sortBy === col) {
+        this.sortDir = this.sortDir === 'desc' ? 'asc' : 'desc';
+      } else {
+        this.sortBy = col;
+        this.sortDir = 'desc';
+      }
+    },
+
+    fmt(n) { return n != null ? n.toLocaleString() : '—'; },
+    fmtCur(n) { return n != null ? '€' + n.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 }) : '—'; },
+    fmtPct(n) { return n != null ? n.toFixed(1) + '%' : '—'; },
+    fmtDec(n) { return n != null ? n.toFixed(1) : '—'; },
+  }`} x-init="fetchAll()">
+
+    <!-- Header + filters -->
+    <div class="flex flex-wrap items-end gap-4 mb-8">
+      <div class="flex-1 min-w-0">
+        <h1 class="text-2xl font-bold text-charcoal-dark">Google Ads</h1>
+        <p class="text-charcoal-light mt-1">Campaign performance overview</p>
+      </div>
+      <div class="flex items-center gap-3">
+        <input type="date" x-model="dateFrom" @change="fetchAll()"
+               class="text-sm border border-gray-200 rounded-lg px-3 py-2 outline-none focus:border-gads" />
+        <span class="text-charcoal-light text-sm">to</span>
+        <input type="date" x-model="dateTo" @change="fetchAll()"
+               class="text-sm border border-gray-200 rounded-lg px-3 py-2 outline-none focus:border-gads" />
+        {accountList.length > 1 && (
+          <select x-model="customerId" @change="fetchAll()"
+                  class="text-sm border border-gray-200 rounded-lg px-3 py-2 outline-none focus:border-gads">
+            <option value="">All accounts</option>
+            {accountList.map(a => (
+              <option value={a.customer_id}>{a.label}</option>
+            ))}
+          </select>
+        )}
+      </div>
+    </div>
+
+    <!-- Loading state -->
+    <template x-if="loading">
+      <div class="flex items-center justify-center py-20">
+        <div class="w-8 h-8 border-3 border-gads border-t-transparent rounded-full animate-spin"></div>
+        <span class="ml-3 text-charcoal-light text-sm">Loading Google Ads data...</span>
+      </div>
+    </template>
+
+    <!-- Empty state -->
+    <template x-if="!loading && !summary">
+      <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center">
+        <svg class="w-16 h-16 text-gray-300 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+        </svg>
+        <p class="text-charcoal-dark font-semibold mb-2">No Google Ads data yet</p>
+        <p class="text-sm text-charcoal-light">Connect your Google Ads account and run a sync to see your data here.</p>
+        <a href="/app/settings/connections" class="inline-block mt-4 px-5 py-2.5 bg-gads text-white rounded-lg text-sm font-medium hover:bg-gads-dark transition-colors">
+          Connect Google Ads
+        </a>
+      </div>
+    </template>
+
+    <!-- Dashboard content -->
+    <template x-if="!loading && summary">
+      <div>
+        <!-- KPI Cards -->
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+          <div class="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
+            <p class="text-xs text-charcoal-light uppercase tracking-wide mb-2">Cost</p>
+            <p class="text-3xl font-bold text-charcoal-dark" x-text="fmtCur(summary.cost)"></p>
+            <p class="text-xs text-charcoal-light mt-1">
+              CPC: <span class="font-medium text-charcoal-dark" x-text="'€' + (summary.avg_cpc || 0).toFixed(2)"></span>
+            </p>
+          </div>
+          <div class="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
+            <p class="text-xs text-charcoal-light uppercase tracking-wide mb-2">Clicks</p>
+            <p class="text-3xl font-bold text-gads" x-text="fmt(summary.clicks)"></p>
+            <p class="text-xs text-charcoal-light mt-1">
+              CTR: <span class="font-medium text-charcoal-dark" x-text="fmtPct(summary.ctr)"></span>
+            </p>
+          </div>
+          <div class="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
+            <p class="text-xs text-charcoal-light uppercase tracking-wide mb-2">Conversions</p>
+            <p class="text-3xl font-bold text-emerald-600" x-text="fmtDec(summary.conversions)"></p>
+            <p class="text-xs text-charcoal-light mt-1">
+              CPA: <span class="font-medium text-charcoal-dark" x-text="summary.cpa ? '€' + summary.cpa.toFixed(2) : '—'"></span>
+            </p>
+          </div>
+          <div class="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
+            <p class="text-xs text-charcoal-light uppercase tracking-wide mb-2">ROAS</p>
+            <p class="text-3xl font-bold" :class="summary.roas >= 3 ? 'text-emerald-600' : summary.roas >= 1 ? 'text-amber-500' : 'text-red-500'" x-text="summary.roas ? summary.roas.toFixed(2) + 'x' : '—'"></p>
+            <p class="text-xs text-charcoal-light mt-1">
+              Value: <span class="font-medium text-charcoal-dark" x-text="fmtCur(summary.conversions_value)"></span>
+            </p>
+          </div>
+        </div>
+
+        <!-- Charts row -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-8">
+          <!-- Daily trend (2/3 width) -->
+          <div class="lg:col-span-2 bg-white rounded-xl shadow-sm p-6">
+            <h3 class="text-sm font-semibold text-charcoal-dark mb-1">Daily Trend</h3>
+            <p class="text-[11px] text-charcoal-light mb-4">Clicks and cost over time</p>
+            <div class="relative" style="height: 280px;">
+              <canvas id="dailyTrend"></canvas>
+            </div>
+          </div>
+
+          <!-- Channel breakdown (1/3 width) -->
+          <div class="bg-white rounded-xl shadow-sm p-6">
+            <h3 class="text-sm font-semibold text-charcoal-dark mb-1">Spend by Channel</h3>
+            <p class="text-[11px] text-charcoal-light mb-4">Cost breakdown by campaign type</p>
+            <div class="relative" :style="'height:' + Math.max(channels.length * 44, 120) + 'px'">
+              <canvas id="channelBreakdown"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <!-- Top Campaigns table -->
+        <div class="bg-white rounded-xl shadow-sm border border-gray-100">
+          <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between gap-4">
+            <h2 class="font-semibold text-charcoal-dark shrink-0">Top Campaigns</h2>
+            <input type="text" x-model="searchCampaign" placeholder="Search campaigns..."
+                   class="text-sm border border-gray-200 rounded-lg px-3 py-2 outline-none focus:border-gads w-64" />
+          </div>
+
+          <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+              <thead>
+                <tr class="border-b border-gray-100 text-left">
+                  <th class="px-6 py-3 text-xs text-charcoal-light uppercase tracking-wide font-medium">Campaign</th>
+                  <th class="px-4 py-3 text-xs text-charcoal-light uppercase tracking-wide font-medium">Channel</th>
+                  <th class="px-4 py-3 text-xs text-charcoal-light uppercase tracking-wide font-medium text-right cursor-pointer select-none" @click="toggleSort('impressions')">
+                    Impressions <span x-show="sortBy === 'impressions'" x-text="sortDir === 'desc' ? '↓' : '↑'"></span>
+                  </th>
+                  <th class="px-4 py-3 text-xs text-charcoal-light uppercase tracking-wide font-medium text-right cursor-pointer select-none" @click="toggleSort('clicks')">
+                    Clicks <span x-show="sortBy === 'clicks'" x-text="sortDir === 'desc' ? '↓' : '↑'"></span>
+                  </th>
+                  <th class="px-4 py-3 text-xs text-charcoal-light uppercase tracking-wide font-medium text-right cursor-pointer select-none" @click="toggleSort('cost')">
+                    Cost <span x-show="sortBy === 'cost'" x-text="sortDir === 'desc' ? '↓' : '↑'"></span>
+                  </th>
+                  <th class="px-4 py-3 text-xs text-charcoal-light uppercase tracking-wide font-medium text-right cursor-pointer select-none" @click="toggleSort('conversions')">
+                    Conv. <span x-show="sortBy === 'conversions'" x-text="sortDir === 'desc' ? '↓' : '↑'"></span>
+                  </th>
+                  <th class="px-4 py-3 text-xs text-charcoal-light uppercase tracking-wide font-medium text-right cursor-pointer select-none" @click="toggleSort('cpa')">
+                    CPA <span x-show="sortBy === 'cpa'" x-text="sortDir === 'desc' ? '↓' : '↑'"></span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                <template x-for="c in sortedCampaigns" :key="c.campaign_id">
+                  <tr class="border-b border-gray-50 hover:bg-gray-50/50 transition-colors">
+                    <td class="px-6 py-3">
+                      <p class="font-medium text-charcoal-dark truncate max-w-[300px]" x-text="c.campaign_name"></p>
+                    </td>
+                    <td class="px-4 py-3">
+                      <span class="text-[10px] px-2 py-0.5 rounded bg-gads/10 text-gads font-medium" x-text="(c.channel_type || '').replace('_', ' ')"></span>
+                    </td>
+                    <td class="px-4 py-3 text-right text-charcoal-dark" x-text="fmt(c.impressions)"></td>
+                    <td class="px-4 py-3 text-right text-charcoal-dark" x-text="fmt(c.clicks)"></td>
+                    <td class="px-4 py-3 text-right font-medium text-charcoal-dark" x-text="fmtCur(c.cost)"></td>
+                    <td class="px-4 py-3 text-right text-emerald-600 font-medium" x-text="fmtDec(c.conversions)"></td>
+                    <td class="px-4 py-3 text-right text-charcoal-light" x-text="c.cpa != null ? '€' + c.cpa.toFixed(2) : '—'"></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+
+          <template x-if="sortedCampaigns.length === 0 && !loading">
+            <div class="px-6 py-8 text-center text-sm text-charcoal-light">No campaigns found</div>
+          </template>
+        </div>
+
+        <!-- Sub-page links -->
+        <div class="flex items-center gap-4 mt-8">
+          <a href="/app/google-ads/keywords" class="flex items-center gap-2 px-5 py-2.5 bg-white rounded-lg shadow-sm border border-gray-100 text-sm font-medium text-charcoal-dark hover:border-gads hover:text-gads transition-colors">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 20l4-16m2 16l4-16M6 9h14M4 15h14"/></svg>
+            Keywords
+          </a>
+          <a href="/app/google-ads/stores" class="flex items-center gap-2 px-5 py-2.5 bg-white rounded-lg shadow-sm border border-gray-100 text-sm font-medium text-charcoal-dark hover:border-gads hover:text-gads transition-colors">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+            Store Performance
+          </a>
+        </div>
+      </div>
+    </template>
+  </div>
+
+  <!-- Chart.js CDN -->
+  <script is:inline src="https://cdn.jsdelivr.net/npm/chart.js@4.4.9/dist/chart.umd.min.js"></script>
+  <script is:inline>
+    // Chart.js global defaults
+    if (typeof Chart !== 'undefined') {
+      Chart.defaults.font.family = "system-ui, -apple-system, 'Segoe UI', sans-serif";
+      Chart.defaults.font.size = 12;
+      Chart.defaults.color = '#9ca3af';
+      Chart.defaults.plugins.legend.display = false;
+    }
+  </script>
+</DashboardLayout>

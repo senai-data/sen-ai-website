@@ -1,0 +1,84 @@
+---
+export const prerender = false;
+import AppLayout from '../layouts/AppLayout.astro';
+
+const token = Astro.url.searchParams.get('token');
+---
+
+<AppLayout title="Verify Email">
+  <div class="min-h-screen flex items-center justify-center px-4">
+    <div class="w-full max-w-md">
+      <div class="text-center mb-8">
+        <a href="/">
+          <img src="/logo-sen-ai-fr.png" alt="sen-ai.fr" class="h-10 mx-auto mb-4" />
+        </a>
+      </div>
+
+      <div class="bg-white rounded-2xl shadow-lg p-8">
+        {token ? (
+          <div id="verifying" class="text-center py-4">
+            <div class="w-8 h-8 border-3 border-coral border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+            <p class="text-sm text-charcoal-dark">Verifying your email...</p>
+          </div>
+        ) : (
+          <div class="text-center py-4">
+            <p class="text-sm text-charcoal-dark font-medium">No verification token provided.</p>
+            <p class="text-xs text-charcoal-light mt-1">Check your email for the verification link.</p>
+          </div>
+        )}
+
+        <div id="success-section" class="hidden text-center py-4">
+          <div class="w-12 h-12 mx-auto mb-4 rounded-full bg-emerald-100 flex items-center justify-center">
+            <svg class="w-6 h-6 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+            </svg>
+          </div>
+          <p class="text-sm text-charcoal-dark font-medium">Email verified!</p>
+          <p class="text-xs text-charcoal-light mt-1">Your account is active and 50 free scan credits have been added.</p>
+          <a href="/app/dashboard" class="inline-block mt-4 px-6 py-2.5 bg-coral text-white font-medium rounded-lg hover:bg-coral-dark transition-colors text-sm">
+            Go to Dashboard
+          </a>
+        </div>
+
+        <div id="error-section" class="hidden text-center py-4">
+          <div class="w-12 h-12 mx-auto mb-4 rounded-full bg-red-100 flex items-center justify-center">
+            <svg class="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+            </svg>
+          </div>
+          <p class="text-sm text-charcoal-dark font-medium">Verification failed</p>
+          <p id="error-detail" class="text-xs text-charcoal-light mt-1">The link may have expired. Please request a new one.</p>
+          <a href="/login" class="inline-block mt-4 px-6 py-2.5 bg-coral text-white font-medium rounded-lg hover:bg-coral-dark transition-colors text-sm">
+            Go to login
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {token && (
+    <script type="module" define:vars={{ token }}>
+      (async () => {
+        try {
+          const res = await fetch('/api/auth/verify-email', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token }),
+          });
+          document.getElementById('verifying')?.classList.add('hidden');
+          if (res.ok) {
+            document.getElementById('success-section').classList.remove('hidden');
+          } else {
+            const err = await res.json().catch(() => ({}));
+            document.getElementById('error-detail').textContent = err.detail || 'The link may have expired.';
+            document.getElementById('error-section').classList.remove('hidden');
+          }
+        } catch {
+          document.getElementById('verifying')?.classList.add('hidden');
+          document.getElementById('error-detail').textContent = 'Network error. Please try again.';
+          document.getElementById('error-section').classList.remove('hidden');
+        }
+      })();
+    </script>
+  )}
+</AppLayout>

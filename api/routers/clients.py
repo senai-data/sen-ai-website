@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 
 from models import Client, ClientCredit, UserClient, get_db
 from services.auth_service import get_current_user
+from services.sanitize import strip_tags
 
 router = APIRouter()
 
@@ -38,21 +39,13 @@ async def create_client(req: ClientCreate, user=Depends(get_current_user), db: S
         client = db.query(Client).filter(Client.id == existing.client_id).first()
         return ClientResponse(id=str(client.id), name=client.name, brand=client.brand, apps=client.apps)
 
-    # Create new client + link user as owner + welcome credits
-    client = Client(name=req.name, brand=req.brand)
+    # Create new client + link user as owner
+    # Welcome bonus is now granted on email verification (H3), not here
+    client = Client(name=strip_tags(req.name), brand=strip_tags(req.brand))
     db.add(client)
     db.flush()
 
     db.add(UserClient(user_id=user.id, client_id=client.id, role="owner"))
-
-    # Grant 50 free scan credits as welcome bonus
-    db.add(ClientCredit(
-        client_id=client.id,
-        credit_type="scan",
-        amount=50,
-        balance_after=50,
-        description="Welcome bonus — 50 free scan credits",
-    ))
 
     db.commit()
     db.refresh(client)

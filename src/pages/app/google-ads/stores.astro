@@ -1,0 +1,358 @@
+---
+/**
+ * Google Ads Intelligence — Store Performance
+ *
+ * The highest-value view for Pierre Fabre: per-store metrics from local campaigns.
+ * Store visits, click-to-call, directions, website clicks.
+ *
+ * UX Laws:
+ * - Progressive Disclosure: summary cards, expand for daily trend
+ * - Von Restorff: top performer highlighted
+ * - Fitts's Law: large clickable store cards
+ */
+export const prerender = false;
+import DashboardLayout from '../../../layouts/DashboardLayout.astro';
+
+const token = Astro.cookies.get('token')?.value;
+if (!token) return Astro.redirect('/login');
+
+let clientId = '';
+let accounts: Record<string, { customer_id: string; label: string }> = {};
+
+try {
+  const clientsRes = await fetch('http://api:8000/api/clients/', {
+    headers: { Cookie: `token=${token}` },
+    signal: AbortSignal.timeout(3000),
+  });
+  if (clientsRes.ok) {
+    const clients = await clientsRes.json();
+    if (clients[0]?.id) {
+      clientId = clients[0].id;
+      accounts = clients[0].apps?.google_ads?.accounts || {};
+    }
+  }
+} catch {}
+
+const accountList = Object.entries(accounts).map(([key, val]) => ({
+  key,
+  customer_id: val.customer_id,
+  label: val.label || key,
+}));
+---
+
+<DashboardLayout title="Store Performance — Google Ads" activeSection="google-ads">
+  <div class="p-8 max-w-7xl" x-data={`{
+    clientId: '${clientId}',
+    dateFrom: new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10),
+    dateTo: new Date(Date.now() - 86400000).toISOString().slice(0, 10),
+    customerId: '',
+    loading: true,
+    stores: [],
+    sortBy: 'store_visits',
+    sortDir: 'desc',
+    search: '',
+    expandedStore: null,
+    storeDaily: [],
+    loadingDaily: false,
+
+    async fetchStores() {
+      if (!this.clientId) return;
+      this.loading = true;
+      const base = '/api/google-ads/' + this.clientId;
+      const qs = 'date_from=' + this.dateFrom + '&date_to=' + this.dateTo + (this.customerId ? '&customer_id=' + this.customerId : '') + '&limit=100';
+      try {
+        const res = await fetch(base + '/stores/summary?' + qs);
+        if (res.ok) this.stores = await res.json();
+      } catch (e) {
+        console.error('Stores fetch error:', e);
+      }
+      this.loading = false;
+    },
+
+    async toggleStore(placeId) {
+      if (this.expandedStore === placeId) {
+        this.expandedStore = null;
+        return;
+      }
+      this.expandedStore = placeId;
+      this.loadingDaily = true;
+      this.storeDaily = [];
+      try {
+        const base = '/api/google-ads/' + this.clientId;
+        const qs = 'date_from=' + this.dateFrom + '&date_to=' + this.dateTo;
+        const res = await fetch(base + '/stores/' + encodeURIComponent(placeId) + '/daily?' + qs);
+        if (res.ok) this.storeDaily = await res.json();
+      } catch (e) {
+        console.error('Store daily fetch error:', e);
+      }
+      this.loadingDaily = false;
+      this.$nextTick(() => this.renderStoreChart(placeId));
+    },
+
+    renderStoreChart(placeId) {
+      if (typeof Chart === 'undefined' || this.storeDaily.length === 0) return;
+      const el = document.getElementById('storeChart-' + CSS.escape(placeId));
+      if (!el) return;
+      if (el._chart) el._chart.destroy();
+      el._chart = new Chart(el, {
+        type: 'line',
+        data: {
+          labels: this.storeDaily.map(d => d.date.slice(5)),
+          datasets: [
+            {
+              label: 'Store Visits',
+              data: this.storeDaily.map(d => d.store_visits),
+              borderColor: '#4285F4',
+              backgroundColor: 'rgba(66, 133, 244, 0.08)',
+              fill: true,
+              tension: 0.3,
+              pointRadius: 2,
+              pointHoverRadius: 5,
+              borderWidth: 2,
+            },
+            {
+              label: 'Calls',
+              data: this.storeDaily.map(d => d.click_to_call),
+              borderColor: '#34A853',
+              borderWidth: 1.5,
+              tension: 0.3,
+              pointRadius: 0,
+              pointHoverRadius: 4,
+            },
+            {
+              label: 'Directions',
+              data: this.storeDaily.map(d => d.directions),
+              borderColor: '#FBBC04',
+              borderWidth: 1.5,
+              tension: 0.3,
+              pointRadius: 0,
+              pointHoverRadius: 4,
+            },
+          ],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: { mode: 'index', intersect: false },
+          scales: {
+            x: { ticks: { maxTicksLimit: 10, font: { size: 10 } }, grid: { display: false } },
+            y: { grid: { color: '#f3f4f6' }, beginAtZero: true },
+          },
+          plugins: {
+            legend: { display: true, position: 'bottom', labels: { usePointStyle: true, pointStyle: 'circle', padding: 16, font: { size: 10 } } },
+          },
+        },
+      });
+    },
+
+    get sortedStores() {
+      const q = this.search.toLowerCase();
+      const key = this.sortBy;
+      const dir = this.sortDir === 'desc' ? -1 : 1;
+      return [...this.stores]
+        .filter(s => !q || (s.business_name || '').toLowerCase().includes(q) || (s.city || '').toLowerCase().includes(q))
+        .sort((a, b) => ((a[key] || 0) - (b[key] || 0)) * dir);
+    },
+
+    toggleSort(col) {
+      if (this.sortBy === col) {
+        this.sortDir = this.sortDir === 'desc' ? 'asc' : 'desc';
+      } else {
+        this.sortBy = col;
+        this.sortDir = 'desc';
+      }
+    },
+
+    fmt(n) { return n != null ? n.toLocaleString(undefined, { maximumFractionDigits: 1 }) : '—'; },
+
+    get totals() {
+      return this.stores.reduce((acc, s) => ({
+        visits: acc.visits + (s.store_visits || 0),
+        calls: acc.calls + (s.click_to_call || 0),
+        directions: acc.directions + (s.directions || 0),
+        website: acc.website + (s.website_clicks || 0),
+      }), { visits: 0, calls: 0, directions: 0, website: 0 });
+    },
+  }`} x-init="fetchStores()">
+
+    <!-- Header + filters -->
+    <div class="flex flex-wrap items-end gap-4 mb-6">
+      <div class="flex-1 min-w-0">
+        <div class="flex items-center gap-3 mb-1">
+          <a href="/app/google-ads" class="text-charcoal-light hover:text-gads transition-colors">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+          </a>
+          <h1 class="text-2xl font-bold text-charcoal-dark">Store Performance</h1>
+        </div>
+        <p class="text-charcoal-light mt-1 ml-8">Local campaign impact per store location</p>
+      </div>
+      <div class="flex items-center gap-3">
+        <input type="date" x-model="dateFrom" @change="fetchStores()"
+               class="text-sm border border-gray-200 rounded-lg px-3 py-2 outline-none focus:border-gads" />
+        <span class="text-charcoal-light text-sm">to</span>
+        <input type="date" x-model="dateTo" @change="fetchStores()"
+               class="text-sm border border-gray-200 rounded-lg px-3 py-2 outline-none focus:border-gads" />
+        {accountList.length > 1 && (
+          <select x-model="customerId" @change="fetchStores()"
+                  class="text-sm border border-gray-200 rounded-lg px-3 py-2 outline-none focus:border-gads">
+            <option value="">All accounts</option>
+            {accountList.map(a => (
+              <option value={a.customer_id}>{a.label}</option>
+            ))}
+          </select>
+        )}
+      </div>
+    </div>
+
+    <!-- Loading -->
+    <template x-if="loading">
+      <div class="flex items-center justify-center py-20">
+        <div class="w-8 h-8 border-3 border-gads border-t-transparent rounded-full animate-spin"></div>
+        <span class="ml-3 text-charcoal-light text-sm">Loading store data...</span>
+      </div>
+    </template>
+
+    <!-- Empty state -->
+    <template x-if="!loading && stores.length === 0">
+      <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center">
+        <svg class="w-16 h-16 text-gray-300 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/>
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/>
+        </svg>
+        <p class="text-charcoal-dark font-semibold mb-2">No store performance data</p>
+        <p class="text-sm text-charcoal-light">Store data will appear after syncing Google Ads campaigns with local extensions.</p>
+      </div>
+    </template>
+
+    <!-- Content -->
+    <template x-if="!loading && stores.length > 0">
+      <div>
+        <!-- Totals KPI row -->
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+          <div class="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
+            <p class="text-xs text-charcoal-light uppercase tracking-wide mb-2">Store Visits</p>
+            <p class="text-3xl font-bold text-gads" x-text="fmt(totals.visits)"></p>
+            <p class="text-xs text-charcoal-light mt-1" x-text="stores.length + ' stores'"></p>
+          </div>
+          <div class="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
+            <p class="text-xs text-charcoal-light uppercase tracking-wide mb-2">Calls</p>
+            <p class="text-3xl font-bold text-emerald-600" x-text="fmt(totals.calls)"></p>
+            <p class="text-xs text-charcoal-light mt-1">Click-to-call actions</p>
+          </div>
+          <div class="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
+            <p class="text-xs text-charcoal-light uppercase tracking-wide mb-2">Directions</p>
+            <p class="text-3xl font-bold text-amber-500" x-text="fmt(totals.directions)"></p>
+            <p class="text-xs text-charcoal-light mt-1">Get directions clicks</p>
+          </div>
+          <div class="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
+            <p class="text-xs text-charcoal-light uppercase tracking-wide mb-2">Website Clicks</p>
+            <p class="text-3xl font-bold text-charcoal-dark" x-text="fmt(totals.website)"></p>
+            <p class="text-xs text-charcoal-light mt-1">From local extensions</p>
+          </div>
+        </div>
+
+        <!-- Search + sort controls -->
+        <div class="flex items-center gap-4 mb-4">
+          <input type="text" x-model="search" placeholder="Search stores..."
+                 class="text-sm border border-gray-200 rounded-lg px-3 py-2 outline-none focus:border-gads w-64" />
+          <div class="flex items-center gap-2 text-xs text-charcoal-light">
+            Sort:
+            <button @click="toggleSort('store_visits')" :class="sortBy === 'store_visits' ? 'text-gads font-medium' : ''" class="hover:text-gads">Visits</button>
+            <span>·</span>
+            <button @click="toggleSort('click_to_call')" :class="sortBy === 'click_to_call' ? 'text-gads font-medium' : ''" class="hover:text-gads">Calls</button>
+            <span>·</span>
+            <button @click="toggleSort('directions')" :class="sortBy === 'directions' ? 'text-gads font-medium' : ''" class="hover:text-gads">Directions</button>
+            <span>·</span>
+            <button @click="toggleSort('website_clicks')" :class="sortBy === 'website_clicks' ? 'text-gads font-medium' : ''" class="hover:text-gads">Website</button>
+          </div>
+        </div>
+
+        <!-- Store cards -->
+        <div class="space-y-3">
+          <template x-for="(store, idx) in sortedStores" :key="store.place_id">
+            <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden transition-shadow hover:shadow-md">
+              <!-- Store header (clickable) -->
+              <div class="px-6 py-4 cursor-pointer flex items-center gap-4" @click="toggleStore(store.place_id)">
+                <!-- Rank badge -->
+                <div class="w-8 h-8 rounded-full flex items-center justify-center shrink-0 text-xs font-bold"
+                     :class="idx === 0 ? 'bg-gads/10 text-gads' : 'bg-gray-100 text-charcoal-light'"
+                     x-text="idx + 1"></div>
+
+                <!-- Store info -->
+                <div class="flex-1 min-w-0">
+                  <p class="font-medium text-charcoal-dark truncate" x-text="store.business_name || 'Unknown Store'"></p>
+                  <p class="text-xs text-charcoal-light" x-text="[store.city, store.postal_code].filter(Boolean).join(' · ') || store.place_id"></p>
+                </div>
+
+                <!-- Metric pills -->
+                <div class="flex items-center gap-4 shrink-0">
+                  <div class="text-center">
+                    <p class="text-sm font-bold text-gads" x-text="fmt(store.store_visits)"></p>
+                    <p class="text-[10px] text-charcoal-light">Visits</p>
+                  </div>
+                  <div class="text-center">
+                    <p class="text-sm font-bold text-emerald-600" x-text="fmt(store.click_to_call)"></p>
+                    <p class="text-[10px] text-charcoal-light">Calls</p>
+                  </div>
+                  <div class="text-center">
+                    <p class="text-sm font-bold text-amber-500" x-text="fmt(store.directions)"></p>
+                    <p class="text-[10px] text-charcoal-light">Directions</p>
+                  </div>
+                  <div class="text-center">
+                    <p class="text-sm font-bold text-charcoal-dark" x-text="fmt(store.website_clicks)"></p>
+                    <p class="text-[10px] text-charcoal-light">Website</p>
+                  </div>
+                </div>
+
+                <!-- Expand arrow -->
+                <svg class="w-4 h-4 text-gray-400 transition-transform shrink-0"
+                     :class="expandedStore === store.place_id ? 'rotate-180' : ''"
+                     fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                </svg>
+              </div>
+
+              <!-- Expanded: daily trend chart -->
+              <div x-show="expandedStore === store.place_id" x-transition class="border-t border-gray-100 px-6 py-5">
+                <template x-if="loadingDaily">
+                  <div class="flex items-center justify-center py-8">
+                    <div class="w-6 h-6 border-2 border-gads border-t-transparent rounded-full animate-spin"></div>
+                    <span class="ml-2 text-charcoal-light text-xs">Loading daily data...</span>
+                  </div>
+                </template>
+                <template x-if="!loadingDaily && storeDaily.length > 0">
+                  <div>
+                    <h4 class="text-xs font-semibold text-charcoal-dark mb-3">Daily Trend</h4>
+                    <div class="relative" style="height: 220px;">
+                      <canvas :id="'storeChart-' + store.place_id"></canvas>
+                    </div>
+                  </div>
+                </template>
+                <template x-if="!loadingDaily && storeDaily.length === 0">
+                  <p class="text-sm text-charcoal-light text-center py-4">No daily data for this period</p>
+                </template>
+              </div>
+            </div>
+          </template>
+        </div>
+
+        <template x-if="sortedStores.length === 0">
+          <div class="bg-white rounded-xl shadow-sm border border-gray-100 px-6 py-8 text-center text-sm text-charcoal-light">
+            No stores match your search
+          </div>
+        </template>
+      </div>
+    </template>
+  </div>
+
+  <!-- Chart.js CDN -->
+  <script is:inline src="https://cdn.jsdelivr.net/npm/chart.js@4.4.9/dist/chart.umd.min.js"></script>
+  <script is:inline>
+    if (typeof Chart !== 'undefined') {
+      Chart.defaults.font.family = "system-ui, -apple-system, 'Segoe UI', sans-serif";
+      Chart.defaults.font.size = 12;
+      Chart.defaults.color = '#9ca3af';
+      Chart.defaults.plugins.legend.display = false;
+    }
+  </script>
+</DashboardLayout>

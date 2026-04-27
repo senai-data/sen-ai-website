@@ -268,6 +268,18 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
                                f"brand={result.get('brand_analysis', {}).get('marque_cible_mentionnee', False)} | "
                                f"{result.get('duration_ms')}ms")
 
+                    # Log LLM usage for cost monitoring
+                    from adapters.llm_logger import log_llm_usage
+                    log_llm_usage(
+                        db, provider=result["provider"],
+                        model=result.get("model", "unknown"),
+                        operation="scan_test",
+                        input_tokens=result.get("input_tokens", 0),
+                        output_tokens=result.get("output_tokens", 0),
+                        duration_ms=result.get("duration_ms"),
+                        scan_id=scan_id, client_id=str(scan.client_id),
+                    )
+
                 except Exception as e:
                     logger.error(f"Test failed ({provider}): {e}")
                     errors += 1

@@ -707,6 +707,23 @@ class AuditLog(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
+class Report(Base):
+    """017: Static HTML client deliverables published at /r/{slug}/{filename}.html."""
+    __tablename__ = "reports"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    slug = Column(String(12), unique=True, nullable=False, index=True)
+    filename = Column(String(255), nullable=False)
+    client_label = Column(String(100), nullable=False)
+    period_label = Column(String(100), nullable=False)
+    real_path = Column(Text, nullable=False)
+    file_size = Column(Integer, nullable=False)
+    uploaded_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    published_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    expires_at = Column(DateTime, nullable=False)
+    unpublished_at = Column(DateTime)
+
+
 engine = create_engine(settings.database_url)
 SessionLocal = sessionmaker(bind=engine)
 

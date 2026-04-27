@@ -1,0 +1,829 @@
+---
+/**
+ * Admin · Client reports — publish standalone HTML deliverables at unguessable URLs.
+ *
+ * UX Laws applied:
+ * - Hick's Law: minimal form (file(s) + client + period), TTL has a sane default
+ * - Fitts's Law: large drop zone, generous primary CTA, keyboard-accessible
+ * - Jakob's Law: drag-drop file upload pattern familiar from every SaaS
+ * - Doherty Threshold: optimistic UI on publish/unpublish (no spinner waits)
+ * - Peak-End Rule: post-publish toast + row highlight + auto-copy URL(s) = satisfying success moment
+ * - Von Restorff: coral reserved for the primary action; red only for destructive; URL is passive (gray)
+ * - Aesthetic-Usability: clean spacing, breathing room, single accent color
+ * - Goal Gradient: drop zone + queue items show progress visually
+ * - Recognition over recall: <datalist> autocomplete from past client/period values
+ * - Tesler's Law: slug generation, meta injection, expiry math all hidden from user
+ * - Miller's Law: queue chunked into rows, each row a single conceptual unit
+ * - Postel's Law: drop multiple files at once, queue invalid ones with errors instead of rejecting all
+ */
+export const prerender = false;
+import DashboardLayout from '../../../layouts/DashboardLayout.astro';
+
+const token = Astro.cookies.get('token')?.value;
+if (!token) return Astro.redirect('/login');
+
+let isSuperadmin = false;
+try {
+  const res = await fetch('http://api:8000/api/admin/me', {
+    headers: { Cookie: `token=${token}` },
+    signal: AbortSignal.timeout(3000),
+  });
+  isSuperadmin = res.ok;
+} catch {}
+if (!isSuperadmin) return Astro.redirect('/app/dashboard');
+
+let reports: any[] = [];
+let suggestions = { clients: [] as string[], periods: [] as string[] };
+try {
+  const [r1, r2] = await Promise.all([
+    fetch('http://api:8000/api/admin/reports/', {
+      headers: { Cookie: `token=${token}` },
+      signal: AbortSignal.timeout(3000),
+    }),
+    fetch('http://api:8000/api/admin/reports/suggestions', {
+      headers: { Cookie: `token=${token}` },
+      signal: AbortSignal.timeout(3000),
+    }),
+  ]);
+  if (r1.ok) reports = await r1.json();
+  if (r2.ok) suggestions = await r2.json();
+} catch {}
+
+const FR_MONTHS = ['janvier','fevrier','mars','avril','mai','juin','juillet','aout','septembre','octobre','novembre','decembre'];
+const now = new Date();
+const defaultPeriod = `${FR_MONTHS[now.getMonth()]}-${now.getFullYear()}`;
+---
+
+<DashboardLayout title="Client reports" activeSection="admin-reports">
+  <div class="p-8 max-w-5xl" x-data={`reportsPanel(${JSON.stringify(reports)}, ${JSON.stringify(suggestions)}, '${defaultPeriod}')`}>
+
+    <!-- Header -->
+    <div class="mb-8">
+      <h1 class="text-2xl font-semibold text-charcoal">Client reports</h1>
+      <p class="text-sm text-gray-500 mt-1 max-w-2xl">
+        Publish standalone HTML deliverables at unguessable URLs.
+        Files are served as static, isolated from the app, and excluded from search engines.
+      </p>
+    </div>
+
+    <!-- Conflict modal (Postel + transparency: user decides per duplicate) -->
+    <div
+      x-show="conflictDialog.visible"
+      x-cloak
+      x-transition.opacity.duration.150ms
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      @keydown.escape.window="resolveConflict('cancel')"
+    >
+      <div class="bg-white rounded-xl shadow-2xl max-w-lg w-full p-6">
+        <div class="flex items-start gap-3 mb-4">
+          <div class="w-9 h-9 rounded-full bg-amber-100 flex items-center justify-center shrink-0">
+            <svg class="w-5 h-5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M5.07 19h13.86a2 2 0 001.74-2.99l-6.93-12a2 2 0 00-3.48 0L3.33 16a2 2 0 001.74 2.99z"/>
+            </svg>
+          </div>
+          <div class="flex-1 min-w-0">
+            <h3 class="text-base font-semibold text-charcoal">Report already published</h3>
+            <p class="text-sm text-gray-500 mt-0.5">
+              <code class="font-mono text-xs bg-gray-100 px-1.5 py-0.5 rounded" x-text="conflictDialog.filename"></code>
+              already exists for
+              <span class="font-medium" x-text="conflictDialog.client"></span> /
+              <span class="font-medium" x-text="conflictDialog.period"></span>.
+            </p>
+          </div>
+        </div>
+
+        <div class="bg-gray-50 rounded-lg p-3 mb-5 text-xs text-gray-600">
+          <div class="flex items-center justify-between gap-3">
+            <span>Currently published:</span>
+            <span x-text="conflictDialog.publishedRelative"></span>
+          </div>
+          <div class="font-mono text-gray-500 truncate mt-1" :title="conflictDialog.existingUrl" x-text="conflictDialog.existingUrl"></div>
+        </div>
+
+        <div class="space-y-2 mb-5">
+          <button
+            @click="resolveConflict('replace')"
+            class="w-full text-left px-4 py-3 rounded-lg border border-gray-200 hover:border-coral hover:bg-coral/5 transition-all"
+          >
+            <div class="text-sm font-medium text-charcoal">Replace existing</div>
+            <div class="text-xs text-gray-500 mt-0.5">New URL will replace the old one. The old URL returns 404 within 5 min.</div>
+          </button>
+          <button
+            @click="resolveConflict('keep')"
+            class="w-full text-left px-4 py-3 rounded-lg border border-gray-200 hover:border-coral hover:bg-coral/5 transition-all"
+          >
+            <div class="text-sm font-medium text-charcoal">Keep both</div>
+            <div class="text-xs text-gray-500 mt-0.5">Publish under a fresh URL. Both versions stay live.</div>
+          </button>
+          <button
+            @click="resolveConflict('cancel')"
+            class="w-full text-left px-4 py-3 rounded-lg border border-gray-200 hover:border-gray-300 hover:bg-gray-50 transition-all"
+          >
+            <div class="text-sm font-medium text-charcoal">Skip this file</div>
+            <div class="text-xs text-gray-500 mt-0.5">Don't publish — leave existing as-is.</div>
+          </button>
+        </div>
+
+        <label x-show="conflictDialog.hasMoreInBatch" class="flex items-center gap-2 text-xs text-gray-600 cursor-pointer">
+          <input type="checkbox" x-model="conflictApplyAll" class="rounded border-gray-300 text-coral focus:ring-coral" />
+          <span>Apply to all remaining duplicates in this batch</span>
+        </label>
+      </div>
+    </div>
+
+    <!-- Toast (Peak-End Rule: non-blocking success feedback) -->
+    <div
+      x-show="toast.visible"
+      x-transition.opacity.duration.200ms
+      x-cloak
+      class="fixed top-6 right-6 z-50 max-w-md rounded-lg shadow-lg px-4 py-3 flex items-start gap-3 text-white"
+      :class="toast.kind === 'error' ? 'bg-red-600' : 'bg-emerald-600'"
+    >
+      <svg class="w-5 h-5 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <template x-if="toast.kind !== 'error'">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+        </template>
+        <template x-if="toast.kind === 'error'">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+        </template>
+      </svg>
+      <div class="flex-1 text-sm">
+        <div class="font-medium" x-text="toast.title"></div>
+        <div class="text-white/90 text-xs mt-0.5" x-text="toast.body"></div>
+      </div>
+      <button @click="toast.visible = false" class="text-white/70 hover:text-white" aria-label="Dismiss">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+        </svg>
+      </button>
+    </div>
+
+    <!-- Upload form -->
+    <div class="bg-white rounded-xl border border-gray-200 p-6 mb-8">
+      <h2 class="text-base font-semibold text-charcoal mb-4">Publish reports</h2>
+
+      <!-- Drop zone (Fitts: large target; Jakob: keyboard-accessible) -->
+      <div
+        role="button"
+        tabindex="0"
+        @dragover.prevent="isDragging = true"
+        @dragleave.prevent="isDragging = false"
+        @drop.prevent="isDragging = false; handleDrop($event)"
+        @click="$refs.fileInput.click()"
+        @keydown.enter.prevent="$refs.fileInput.click()"
+        @keydown.space.prevent="$refs.fileInput.click()"
+        :class="{
+          'border-coral bg-coral/5':                     isDragging,
+          'border-gray-300 hover:border-gray-400':       !isDragging && queue.length === 0,
+          'border-emerald-300 bg-emerald-50/50':         !isDragging && queue.length > 0,
+        }"
+        class="border-2 border-dashed rounded-lg py-8 px-6 text-center transition-colors mb-4 cursor-pointer focus:outline-none focus:ring-2 focus:ring-coral focus:ring-offset-2"
+      >
+        <input
+          type="file"
+          accept=".html,text/html"
+          multiple
+          x-ref="fileInput"
+          @change="handleFiles($event.target.files); $event.target.value = ''"
+          class="hidden"
+        />
+        <svg class="w-9 h-9 mx-auto text-gray-400 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+        </svg>
+        <p class="text-sm text-gray-700 font-medium">
+          <span x-show="queue.length === 0">Drop one or more .html files, or click to browse</span>
+          <span x-show="queue.length > 0" x-text="'Drop more, or click to add'"></span>
+        </p>
+        <p class="text-xs text-gray-400 mt-1">Max 10 MB each · self-contained HTML (CDN scripts OK)</p>
+      </div>
+
+      <!-- Queue (visible when files staged) -->
+      <div x-show="queue.length > 0" x-cloak class="mb-5 space-y-1.5">
+        <template x-for="(item, idx) in queue" :key="item.key">
+          <div
+            class="flex items-center gap-3 px-3 py-2 rounded-lg border text-sm"
+            :class="{
+              'border-gray-200 bg-white':              item.status === 'pending',
+              'border-coral/40 bg-coral/5':            item.status === 'uploading',
+              'border-emerald-200 bg-emerald-50':      item.status === 'done',
+              'border-red-200 bg-red-50':              item.status === 'error',
+            }"
+          >
+            <!-- Status icon -->
+            <template x-if="item.status === 'pending'">
+              <span class="w-4 h-4 rounded-full border-2 border-gray-300 shrink-0"></span>
+            </template>
+            <template x-if="item.status === 'uploading'">
+              <svg class="w-4 h-4 animate-spin text-coral shrink-0" fill="none" viewBox="0 0 24 24">
+                <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" class="opacity-25"></circle>
+                <path d="M4 12a8 8 0 018-8" stroke="currentColor" stroke-width="3" class="opacity-75"></path>
+              </svg>
+            </template>
+            <template x-if="item.status === 'done'">
+              <svg class="w-4 h-4 text-emerald-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/>
+              </svg>
+            </template>
+            <template x-if="item.status === 'error'">
+              <svg class="w-4 h-4 text-red-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+              </svg>
+            </template>
+
+            <!-- Filename + size -->
+            <span class="flex-1 truncate text-charcoal" x-text="item.file.name"></span>
+            <span class="text-xs text-gray-500 shrink-0" x-text="(item.file.size / 1024).toFixed(1) + ' kB'"></span>
+
+            <!-- Error message (when error) -->
+            <span x-show="item.status === 'error'" class="text-xs text-red-600 shrink-0" x-text="item.error"></span>
+
+            <!-- Remove (only for pending or error) -->
+            <button
+              x-show="item.status === 'pending' || item.status === 'error'"
+              @click="removeFromQueue(idx)"
+              class="text-gray-400 hover:text-red-600 shrink-0"
+              aria-label="Remove"
+            >
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+              </svg>
+            </button>
+          </div>
+        </template>
+
+        <!-- Queue summary -->
+        <div class="flex items-center justify-between text-xs text-gray-500 pt-1">
+          <span x-text="queueSummary()"></span>
+          <button
+            x-show="queue.some(i => i.status === 'pending' || i.status === 'error') && !uploading"
+            @click="clearQueue()"
+            class="text-gray-400 hover:text-red-600"
+          >Clear all</button>
+        </div>
+      </div>
+
+      <!-- Inputs -->
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-5">
+        <div>
+          <label class="block text-xs font-medium text-gray-700 mb-1">Client</label>
+          <input
+            type="text"
+            x-model="client"
+            list="client-suggestions"
+            placeholder="pierrefabre"
+            class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-coral"
+          />
+          <datalist id="client-suggestions">
+            <template x-for="c in suggestions.clients" :key="c">
+              <option :value="c"></option>
+            </template>
+          </datalist>
+        </div>
+
+        <div>
+          <label class="block text-xs font-medium text-gray-700 mb-1">
+            Period
+            <span class="text-gray-400 font-normal">· organizes files on disk</span>
+          </label>
+          <input
+            type="text"
+            x-model="period"
+            list="period-suggestions"
+            placeholder="avril-2026"
+            class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-coral"
+          />
+          <datalist id="period-suggestions">
+            <template x-for="p in suggestions.periods" :key="p">
+              <option :value="p"></option>
+            </template>
+          </datalist>
+        </div>
+
+        <div>
+          <label class="block text-xs font-medium text-gray-700 mb-1">
+            Expires in
+            <span class="text-gray-400 font-normal">· days</span>
+          </label>
+          <input
+            type="number"
+            min="1"
+            max="365"
+            x-model.number="ttlDays"
+            class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-coral"
+          />
+        </div>
+      </div>
+
+      <!-- Submit -->
+      <div class="flex items-center justify-end gap-4">
+        <button
+          @click="publishQueue()"
+          :disabled="!canPublish()"
+          class="px-6 py-2.5 bg-coral text-white rounded-lg font-medium hover:bg-coral-dark hover:shadow-md hover:scale-[1.02] transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100 disabled:hover:shadow-none"
+        >
+          <span x-show="!uploading" x-text="publishLabel()"></span>
+          <span x-show="uploading" class="flex items-center gap-2">
+            <svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+              <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" class="opacity-25"></circle>
+              <path d="M4 12a8 8 0 018-8" stroke="currentColor" stroke-width="3" class="opacity-75"></path>
+            </svg>
+            <span x-text="'Uploading ' + uploadIndex + ' of ' + uploadTotal + '…'"></span>
+          </span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Active reports list -->
+    <div class="bg-white rounded-xl border border-gray-200">
+      <!-- Header (Jakob: Gmail-like select-all + count) -->
+      <div class="px-6 py-3 border-b border-gray-100 flex items-center gap-3">
+        <input
+          type="checkbox"
+          x-show="reports.length > 0"
+          :checked="reports.length > 0 && selectedIds.length === reports.length"
+          :indeterminate="selectedIds.length > 0 && selectedIds.length < reports.length"
+          @change="toggleSelectAll($event.target.checked)"
+          class="w-4 h-4 rounded border-gray-300 text-coral focus:ring-coral cursor-pointer"
+          aria-label="Select all reports"
+        />
+        <h2 class="text-base font-semibold text-charcoal">Active reports</h2>
+        <span class="text-xs text-gray-500 ml-auto" x-text="reports.length === 0 ? '' : reports.length + ' active'"></span>
+      </div>
+
+      <!-- Bulk action bar (Von Restorff: appears only when ≥1 selected) -->
+      <div
+        x-show="selectedIds.length > 0"
+        x-transition.opacity.duration.150ms
+        x-cloak
+        class="px-6 py-3 bg-charcoal-dark text-white flex items-center gap-3"
+      >
+        <span class="text-sm font-medium" x-text="selectedIds.length + ' selected'"></span>
+        <span class="text-xs text-gray-400" x-text="'· ' + selectedSizeKb() + ' kB total'"></span>
+        <div class="ml-auto flex items-center gap-2">
+          <button
+            @click="bulkUnpublish()"
+            :disabled="bulkDeleting"
+            class="px-4 py-1.5 bg-red-600 hover:bg-red-700 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+          >
+            <span x-show="!bulkDeleting" x-text="'Unpublish ' + selectedIds.length"></span>
+            <span x-show="bulkDeleting" class="flex items-center gap-2">
+              <svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" class="opacity-25"></circle>
+                <path d="M4 12a8 8 0 018-8" stroke="currentColor" stroke-width="3" class="opacity-75"></path>
+              </svg>
+              Removing…
+            </span>
+          </button>
+          <button
+            @click="selectedIds = []"
+            class="px-3 py-1.5 text-gray-300 hover:text-white text-sm transition-colors"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+
+      <template x-if="reports.length === 0">
+        <div class="px-6 py-12 text-center">
+          <svg class="w-12 h-12 mx-auto text-gray-300 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+          </svg>
+          <p class="text-sm text-gray-500">No reports published yet.</p>
+          <p class="text-xs text-gray-400 mt-1">Drop a file above to get started.</p>
+        </div>
+      </template>
+
+      <div class="divide-y divide-gray-100">
+        <template x-for="r in reports" :key="r.id">
+          <div
+            class="px-6 py-4 flex items-center gap-4 transition-colors duration-1000"
+            :class="{
+              'bg-emerald-50': justPublishedIds.includes(r.id),
+              'bg-coral/5':    selectedIds.includes(r.id) && !justPublishedIds.includes(r.id),
+            }"
+          >
+            <!-- Checkbox (Fitts: padded hit area) -->
+            <label class="flex items-center justify-center w-6 h-6 cursor-pointer shrink-0" @click.stop>
+              <input
+                type="checkbox"
+                :checked="selectedIds.includes(r.id)"
+                @change="toggleSelect(r.id)"
+                class="w-4 h-4 rounded border-gray-300 text-coral focus:ring-coral cursor-pointer"
+                :aria-label="'Select ' + r.filename"
+              />
+            </label>
+
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center gap-2 mb-1 flex-wrap">
+                <span class="text-sm font-medium text-charcoal" x-text="r.filename"></span>
+                <span class="text-xs px-2 py-0.5 rounded bg-gray-100 text-gray-600" x-text="r.client_label"></span>
+                <span class="text-xs px-2 py-0.5 rounded bg-gray-100 text-gray-600" x-text="r.period_label"></span>
+              </div>
+              <div class="text-xs text-gray-500 flex items-center gap-1.5 flex-wrap">
+                <span x-text="'Published ' + new Date(r.published_at).toLocaleDateString('fr-FR')"></span>
+                <span class="text-gray-300">·</span>
+                <span x-text="'Expires ' + new Date(r.expires_at).toLocaleDateString('fr-FR')"></span>
+                <span class="text-gray-300">·</span>
+                <span x-text="(r.file_size / 1024).toFixed(1) + ' kB'"></span>
+              </div>
+              <div class="text-xs text-gray-500 font-mono mt-1.5 truncate" :title="r.url" x-text="r.url"></div>
+            </div>
+
+            <div class="flex items-center gap-2 shrink-0">
+              <button
+                @click="copyUrl(r.url, $event)"
+                class="px-3 py-1.5 rounded-lg border border-gray-200 text-charcoal-light hover:border-coral hover:text-coral transition-all text-xs"
+              >
+                Copy URL
+              </button>
+              <a
+                :href="r.url"
+                target="_blank"
+                rel="noopener"
+                class="px-3 py-1.5 rounded-lg border border-gray-200 text-charcoal-light hover:border-coral hover:text-coral transition-all text-xs"
+              >
+                Open
+              </a>
+              <button
+                @click="unpublish(r)"
+                class="px-3 py-1.5 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 hover:border-red-300 transition-all text-xs"
+              >
+                Unpublish
+              </button>
+            </div>
+          </div>
+        </template>
+      </div>
+    </div>
+  </div>
+
+  <script is:inline>
+    document.addEventListener('alpine:init', () => {
+      Alpine.data('reportsPanel', (initialReports, initialSuggestions, defaultPeriod) => ({
+        reports: initialReports || [],
+        suggestions: initialSuggestions || { clients: [], periods: [] },
+        queue: [],                         // {key, file, status, error, publishedUrl}
+        client: '',
+        period: defaultPeriod,
+        ttlDays: 30,
+        isDragging: false,
+        uploading: false,
+        uploadIndex: 0,
+        uploadTotal: 0,
+        justPublishedIds: [],
+        selectedIds: [],
+        bulkDeleting: false,
+        toast: { visible: false, kind: 'success', title: '', body: '' },
+        _toastTimer: null,
+        conflictDialog: {
+          visible: false,
+          filename: '',
+          client: '',
+          period: '',
+          existingUrl: '',
+          publishedRelative: '',
+          hasMoreInBatch: false,
+          _resolve: null,
+        },
+        conflictApplyAll: false,
+        _batchConflictMode: null,    // 'replace' | 'keep' | 'cancel' once user ticks "apply to all"
+
+        // ── Toast ───────────────────────────────────────────────────────
+        showToast(title, body, kind = 'success', durationMs = 4500) {
+          this.toast = { visible: true, kind, title, body };
+          if (this._toastTimer) clearTimeout(this._toastTimer);
+          this._toastTimer = setTimeout(() => { this.toast.visible = false; }, durationMs);
+        },
+
+        // ── Queue management ────────────────────────────────────────────
+        handleDrop(e) {
+          this.handleFiles(e.dataTransfer?.files);
+        },
+        handleFiles(fileList) {
+          if (!fileList || fileList.length === 0) return;
+          for (const f of Array.from(fileList)) {
+            const item = this._validateFile(f);
+            this.queue.push(item);
+          }
+        },
+        _validateFile(f) {
+          const item = {
+            key: Math.random().toString(36).slice(2),
+            file: f,
+            status: 'pending',
+            error: '',
+            publishedUrl: '',
+          };
+          if (!f.name.toLowerCase().endsWith('.html')) {
+            item.status = 'error';
+            item.error = 'Not an .html file';
+          } else if (f.size > 10 * 1024 * 1024) {
+            item.status = 'error';
+            item.error = 'Too large (max 10 MB)';
+          } else if (f.size === 0) {
+            item.status = 'error';
+            item.error = 'Empty file';
+          }
+          return item;
+        },
+        removeFromQueue(idx) {
+          this.queue.splice(idx, 1);
+        },
+        clearQueue() {
+          this.queue = this.queue.filter(i => i.status === 'uploading' || i.status === 'done');
+        },
+        queueSummary() {
+          const pending = this.queue.filter(i => i.status === 'pending').length;
+          const errors  = this.queue.filter(i => i.status === 'error').length;
+          const parts = [];
+          if (pending) parts.push(`${pending} ready`);
+          if (errors)  parts.push(`${errors} error${errors > 1 ? 's' : ''}`);
+          return parts.join(' · ');
+        },
+        canPublish() {
+          if (this.uploading) return false;
+          if (!this.client || !this.period) return false;
+          return this.queue.some(i => i.status === 'pending');
+        },
+        publishLabel() {
+          const n = this.queue.filter(i => i.status === 'pending').length;
+          if (n === 0) return 'Publish';
+          if (n === 1) return 'Publish report';
+          return `Publish ${n} reports`;
+        },
+
+        // ── Conflict dialog (returns 'replace' | 'keep' | 'cancel') ─────
+        askConflict(detail, hasMoreInBatch) {
+          return new Promise(resolve => {
+            // Format "published X ago" relative time
+            const dt = new Date(detail.existing_published_at);
+            const mins = Math.max(1, Math.round((Date.now() - dt.getTime()) / 60000));
+            let rel;
+            if (mins < 60) rel = `${mins} min ago`;
+            else if (mins < 1440) rel = `${Math.round(mins / 60)} h ago`;
+            else rel = `${Math.round(mins / 1440)} days ago`;
+
+            this.conflictDialog = {
+              visible: true,
+              filename: detail.filename,
+              client: detail.client,
+              period: detail.period,
+              existingUrl: detail.existing_url,
+              publishedRelative: rel,
+              hasMoreInBatch,
+              _resolve: resolve,
+            };
+          });
+        },
+        resolveConflict(choice) {
+          const applyAll = this.conflictApplyAll && this.conflictDialog.hasMoreInBatch;
+          this.conflictApplyAll = false;
+          if (applyAll) this._batchConflictMode = choice;
+          this.conflictDialog.visible = false;
+          const r = this.conflictDialog._resolve;
+          this.conflictDialog._resolve = null;
+          if (r) r(choice);
+        },
+
+        // ── Upload (sequential, errors don't block siblings) ────────────
+        async publishQueue() {
+          const pending = this.queue.filter(i => i.status === 'pending');
+          if (pending.length === 0 || !this.client || !this.period) return;
+
+          this.uploading = true;
+          this.uploadTotal = pending.length;
+          this.uploadIndex = 0;
+          this._batchConflictMode = null;
+
+          const successUrls = [];
+          const successIds = [];
+          let firstError = '';
+          let skippedDup = 0;
+
+          for (let i = 0; i < pending.length; i++) {
+            const item = pending[i];
+            this.uploadIndex = i + 1;
+            item.status = 'uploading';
+            let conflictMode = 'fail';
+
+            // Inner retry loop: re-fire upload after conflict resolution
+            // eslint-disable-next-line no-constant-condition
+            while (true) {
+              try {
+                const fd = new FormData();
+                fd.append('file', item.file);
+                fd.append('client', this.client);
+                fd.append('period', this.period);
+                fd.append('ttl_days', String(this.ttlDays || 30));
+                fd.append('on_conflict', conflictMode);
+                const res = await fetch('/api/admin/reports/', { method: 'POST', body: fd });
+
+                if (res.status === 409) {
+                  const body = await res.json().catch(() => ({}));
+                  const detail = body.detail || {};
+                  if (detail.code !== 'duplicate_report') {
+                    item.status = 'error';
+                    item.error = `HTTP 409`;
+                    break;
+                  }
+                  // If user already chose "apply to all" earlier, reuse that
+                  let choice = this._batchConflictMode;
+                  if (!choice) {
+                    const hasMore = pending.slice(i + 1).some(p => p.status === 'pending');
+                    choice = await this.askConflict(detail, hasMore);
+                  }
+                  if (choice === 'cancel') {
+                    item.status = 'error';
+                    item.error = 'Skipped (duplicate)';
+                    skippedDup += 1;
+                    break;
+                  }
+                  if (choice === 'replace' || choice === 'keep') {
+                    conflictMode = choice;
+                    continue;     // retry with new mode
+                  }
+                  // Unknown choice → treat as cancel
+                  item.status = 'error';
+                  item.error = 'Skipped';
+                  break;
+                }
+
+                if (!res.ok) {
+                  const err = await res.json().catch(() => ({}));
+                  item.status = 'error';
+                  item.error = (typeof err.detail === 'string' ? err.detail : null) || `HTTP ${res.status}`;
+                  if (!firstError) firstError = item.error;
+                  break;
+                }
+                const created = await res.json();
+                item.status = 'done';
+                item.publishedUrl = created.url;
+                // If we replaced an existing one, drop it from the visible list
+                if (conflictMode === 'replace') {
+                  this.reports = this.reports.filter(r =>
+                    !(r.filename === created.filename
+                      && r.client_label === created.client_label
+                      && r.period_label === created.period_label
+                      && r.id !== created.id),
+                  );
+                }
+                this.reports.unshift(created);
+                successUrls.push(created.url);
+                successIds.push(created.id);
+                if (!this.suggestions.clients.includes(this.client)) this.suggestions.clients.push(this.client);
+                if (!this.suggestions.periods.includes(this.period)) this.suggestions.periods.unshift(this.period);
+                break;
+              } catch (e) {
+                item.status = 'error';
+                item.error = 'Network error';
+                if (!firstError) firstError = e.message || 'Network error';
+                break;
+              }
+            }
+          }
+
+          this.uploading = false;
+          this._batchConflictMode = null;
+
+          // Highlight all new rows briefly (Peak-End)
+          this.justPublishedIds = successIds;
+          setTimeout(() => { this.justPublishedIds = []; }, 2500);
+
+          // Auto-copy: single URL → just it; multiple → newline-separated
+          let copied = false;
+          if (successUrls.length > 0) {
+            try {
+              await navigator.clipboard.writeText(successUrls.join('\n'));
+              copied = true;
+            } catch {}
+          }
+
+          // Drop the done items from the queue (errors stay for retry)
+          this.queue = this.queue.filter(i => i.status !== 'done');
+
+          // Final toast
+          const ok = successUrls.length;
+          const ko = pending.length - ok;
+          const failedCount = ko - skippedDup;
+          if (ok === 0 && skippedDup === pending.length) {
+            this.showToast('Nothing published', `${skippedDup} duplicate${skippedDup > 1 ? 's' : ''} skipped`, 'success');
+          } else if (ok > 0 && ko === 0) {
+            const title = ok === 1 ? 'Published' : `Published ${ok} reports`;
+            const body  = copied
+              ? (ok === 1 ? `URL copied: ${successUrls[0]}` : `${ok} URLs copied to clipboard`)
+              : (ok === 1 ? successUrls[0] : `${ok} URLs`);
+            this.showToast(title, body, 'success');
+          } else if (ok > 0 && ko > 0) {
+            const parts = [];
+            if (failedCount) parts.push(`${failedCount} failed`);
+            if (skippedDup) parts.push(`${skippedDup} skipped`);
+            this.showToast(
+              `Published ${ok} of ${ok + ko}`,
+              parts.join(' · ') + ' — see queue for details',
+              'error',
+              7000,
+            );
+          } else {
+            this.showToast('Upload failed', firstError || 'See queue for details', 'error', 7000);
+          }
+        },
+
+        // ── Selection (Jakob: Gmail-style) ──────────────────────────────
+        toggleSelect(id) {
+          const i = this.selectedIds.indexOf(id);
+          if (i === -1) this.selectedIds.push(id);
+          else this.selectedIds.splice(i, 1);
+        },
+        toggleSelectAll(checked) {
+          this.selectedIds = checked ? this.reports.map(r => r.id) : [];
+        },
+        selectedSizeKb() {
+          const total = this.reports
+            .filter(r => this.selectedIds.includes(r.id))
+            .reduce((sum, r) => sum + r.file_size, 0);
+          return (total / 1024).toFixed(1);
+        },
+
+        // ── Bulk unpublish (Doherty: optimistic; rollback on errors) ────
+        async bulkUnpublish() {
+          const ids = [...this.selectedIds];
+          if (ids.length === 0) return;
+          const targets = this.reports.filter(r => ids.includes(r.id));
+          const summary = targets.length === 1
+            ? `"${targets[0].filename}"`
+            : `${targets.length} reports`;
+          if (!confirm(`Unpublish ${summary}?\n\nURLs will return 404 within 5 minutes.`)) return;
+
+          this.bulkDeleting = true;
+          // Optimistic removal
+          const prev = this.reports;
+          this.reports = this.reports.filter(r => !ids.includes(r.id));
+          this.selectedIds = [];
+
+          // Fire all unpublish requests in parallel
+          const results = await Promise.allSettled(
+            ids.map(id => fetch(`/api/admin/reports/${id}/unpublish`, { method: 'POST' }))
+          );
+
+          const failedIds = [];
+          results.forEach((res, i) => {
+            const ok = res.status === 'fulfilled' && res.value.ok;
+            if (!ok) failedIds.push(ids[i]);
+          });
+
+          if (failedIds.length > 0) {
+            // Rollback failed ones
+            const rollback = prev.filter(r => failedIds.includes(r.id));
+            this.reports = [...rollback, ...this.reports];
+            this.showToast(
+              `Unpublished ${ids.length - failedIds.length} of ${ids.length}`,
+              `${failedIds.length} failed — restored to the list`,
+              'error',
+              7000,
+            );
+          } else {
+            this.showToast(
+              ids.length === 1 ? 'Report unpublished' : `${ids.length} reports unpublished`,
+              'URLs will 404 within 5 minutes',
+              'success',
+            );
+          }
+          this.bulkDeleting = false;
+        },
+
+        // ── Existing report actions ─────────────────────────────────────
+        async unpublish(r) {
+          if (!confirm(`Unpublish "${r.filename}"?\n\nClient: ${r.client_label}\nPeriod: ${r.period_label}\n\nThe URL will return 404 within 5 minutes.`)) return;
+          const prev = this.reports;
+          this.reports = this.reports.filter(x => x.id !== r.id);
+          try {
+            const res = await fetch(`/api/admin/reports/${r.id}/unpublish`, { method: 'POST' });
+            if (!res.ok) {
+              const err = await res.json().catch(() => ({}));
+              this.reports = prev;
+              this.showToast('Unpublish failed', err.detail || `HTTP ${res.status}`, 'error');
+            }
+          } catch (e) {
+            this.reports = prev;
+            this.showToast('Unpublish failed', e.message || 'Network error', 'error');
+          }
+        },
+        async copyUrl(url, ev) {
+          try {
+            await navigator.clipboard.writeText(url);
+            const btn = ev.target;
+            const orig = btn.textContent;
+            btn.textContent = 'Copied!';
+            btn.classList.add('text-emerald-600', 'border-emerald-300');
+            setTimeout(() => {
+              btn.textContent = orig;
+              btn.classList.remove('text-emerald-600', 'border-emerald-300');
+            }, 1200);
+          } catch {
+            this.showToast('Copy failed', url, 'error');
+          }
+        },
+      }));
+    });
+  </script>
+</DashboardLayout>

@@ -1,3 +1,5 @@
 User-agent: *
 Allow: /
+Disallow: /r/
+
 Sitemap: https://sen-ai.fr/sitemap-index.xml

@@ -8,6 +8,9 @@ services:
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - /etc/letsencrypt:/etc/letsencrypt:ro
+      # Whole reports tree mounted RO so symlinks in _serve/ can resolve their targets.
+      # Nginx alias only exposes _serve/ — the {client}/{period}/ folders are not browsable.
+      - /opt/sen-ai/reports:/var/www/reports:ro
     depends_on:
       - api
       - astro
@@ -26,6 +29,9 @@ services:
       dockerfile: Dockerfile
     container_name: senai-api
     env_file: ./api/.env
+    volumes:
+      # API needs RW access to publish/unpublish report files + symlinks.
+      - /opt/sen-ai/reports:/opt/sen-ai/reports
     depends_on:
       postgres:
         condition: service_healthy

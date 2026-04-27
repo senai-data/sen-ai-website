@@ -1493,16 +1493,13 @@ const isReviewing = effectiveView !== null && (
 
         async validateTopics() {
           const inactive = this.topics.filter(t => !t.active);
-          console.log('[topicsWizard] Deactivating ' + inactive.length + '/' + this.topics.length + ' topics');
           for (const t of inactive) {
-            console.log('[topicsWizard] PATCH topic ' + t.id + ' → is_active=false');
             await fetch('/api/scans/' + this.scanId + '/topics/' + t.id, {
               method: 'PATCH',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ is_active: false }),
             });
           }
-          console.log('[topicsWizard] POST validate');
           const res = await fetch('/api/scans/' + this.scanId + '/topics/validate', { method: 'POST' });
           if (res.ok) {
             location.href = '/app/scans/' + this.scanId;

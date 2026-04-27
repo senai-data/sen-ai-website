@@ -309,14 +309,11 @@ try {
                 },
               }),
             });
-            console.log('[createScan] POST /api/scans/ →', res.status, res.headers.get('content-type'));
             const rawText = await res.text();
-            console.log('[createScan] Response body (' + rawText.length + ' chars):', rawText.substring(0, 200));
             let scan;
             try {
               scan = JSON.parse(rawText);
             } catch (parseErr) {
-              console.error('[createScan] JSON parse failed:', parseErr.message, '\nFull body:', rawText);
               throw parseErr;
             }
             if (!res.ok) throw new Error(scan.detail || 'Failed to create scan');

@@ -1,0 +1,28 @@
+---
+import site from '../content/site.json';
+const { other_solutions } = site;
+---
+
+<section id={other_solutions.id} class="py-16 sm:py-20 px-4 bg-white">
+  <div class="max-w-3xl mx-auto">
+    <div class="rounded-2xl border border-gray-200 bg-gradient-to-br from-white to-gray-50 p-8 sm:p-12 text-center">
+      <span class="inline-block px-3 py-1 bg-gray-100 text-charcoal-light text-xs font-bold rounded-full uppercase tracking-wide mb-5">
+        {other_solutions.badge}
+      </span>
+      <h2 class="text-2xl sm:text-3xl font-bold text-charcoal-dark mb-4">
+        {other_solutions.title}
+      </h2>
+      <p class="text-charcoal-light leading-relaxed max-w-xl mx-auto mb-8">
+        {other_solutions.subtitle}
+      </p>
+      <a
+        href={other_solutions.whatsapp_url}
+        target="_blank"
+        rel="noopener noreferrer"
+        class="inline-flex items-center px-6 py-3 border-2 border-charcoal-dark text-charcoal-dark font-medium rounded-lg hover:bg-charcoal-dark hover:text-white transition-colors text-base"
+      >
+        {other_solutions.cta}
+      </a>
+    </div>
+  </div>
+</section>

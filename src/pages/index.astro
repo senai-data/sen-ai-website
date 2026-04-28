@@ -2,27 +2,27 @@
 import BaseLayout from '../layouts/BaseLayout.astro';
 import Nav from '../components/Nav.astro';
 import Hero from '../components/Hero.astro';
-import SolutionsIntro from '../components/SolutionsIntro.astro';
 import AiScan from '../components/AiScan.astro';
-import StoreImpact from '../components/StoreImpact.astro';
 import Comparison from '../components/Comparison.astro';
 import Engagement from '../components/Engagement.astro';
+import OtherSolutions from '../components/OtherSolutions.astro';
 import Story from '../components/Story.astro';
 import Footer from '../components/Footer.astro';
 import WhatsApp from '../components/WhatsApp.astro';
+import AuditRequestModal from '../components/AuditRequestModal.astro';
 ---
 
 <BaseLayout>
   <Nav />
   <main id="main-content">
     <Hero />
-    <SolutionsIntro />
     <AiScan />
-    <StoreImpact />
     <Comparison />
     <Engagement />
+    <OtherSolutions />
     <Story />
   </main>
   <Footer />
   <WhatsApp />
+  <AuditRequestModal />
 </BaseLayout>

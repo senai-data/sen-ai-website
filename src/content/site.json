@@ -1,7 +1,7 @@
 {
   "meta": {
-    "title": "sen-ai.fr | Solutions sur-mesure pour votre visibilité digitale",
-    "description": "sen-ai.fr transforme la complexité digitale en actions concrètes pour votre business. Solutions personnalisées, facturées à l'impact.",
+    "title": "sen-ai.fr | AI Scan - votre marque est-elle visible dans les réponses de l'IA ?",
+    "description": "AI Scan mesure si ChatGPT, Gemini et autres IA citent votre marque. Analyse calibrée sur vos produits, segments et concurrents - facturée à l'impact.",
     "url": "https://sen-ai.fr",
     "locale": "fr_FR"
   },
@@ -9,19 +9,69 @@
     "tagline": "from data to bloom",
     "headline": "Le digital est complexe. Vos décisions ne devraient pas l'être.",
     "subheadline": "On transforme la boue en fleurs.",
-    "description": "SEO, GEO, SEA, data, marketing digital — tout ça, c'est la boue. sen-ai.fr construit des solutions sur-mesure qui en font émerger des actions concrètes pour votre business. Pas d'outil générique. Pas d'abonnement figé. Une solution adaptée à votre métier, facturée à l'impact.",
-    "cta_primary": "Parlons de votre marque",
-    "cta_secondary": "Comprendre la démarche"
+    "description": "AI Scan mesure votre visibilité dans les IA génératives, sur un sujet précis. Audit gratuit en 24h, calibré sur vos produits, vos segments, vos concurrents.",
+    "cta_primary": "Mon audit gratuit en 24h",
+    "cta_secondary": "Découvrir AI Scan",
+    "trust_signals": [
+      "📨 Réponse 24h",
+      "🔒 Données privées",
+      "✨ Sans CB ni engagement"
+    ]
+  },
+  "audit_form": {
+    "badge": "Audit gratuit",
+    "title": "Votre audit IA en 24h",
+    "subtitle": "Comment ChatGPT, Gemini et Perplexity parlent (ou pas) de votre marque sur un sujet précis.",
+    "value_label": "Ce que vous allez recevoir",
+    "value_bullets": [
+      "3 personas réalistes de vos clients sur le sujet choisi",
+      "6 questions clés posées à ChatGPT, Gemini et Perplexity",
+      "Un mini-rapport actionable avec ce que dit l'IA de vous",
+      "Aucune carte bancaire, aucun engagement"
+    ],
+    "label_website": "Site web",
+    "placeholder_website": "votremarque.fr",
+    "label_email": "Email",
+    "placeholder_email": "vous@entreprise.fr",
+    "label_topic": "Sujet à analyser",
+    "placeholder_topic": "ex: anti-âge, psoriasis, conseil bébé, soin du cuir chevelu...",
+    "topic_hint": "Un seul sujet précis - on cible l'analyse pour qu'elle soit pertinente.",
+    "details_toggle": "Détails (optionnel)",
+    "label_firstname": "Prénom",
+    "placeholder_firstname": "Lee",
+    "label_message": "Votre principal défi de visibilité IA",
+    "placeholder_message": "Quelques mots sur ce qui vous préoccupe...",
+    "submit_label": "Demander mon audit",
+    "submit_loading": "Envoi en cours...",
+    "trust_signals": [
+      "📨 Réponse 24h",
+      "🔒 Données privées",
+      "✨ Sans engagement"
+    ],
+    "success_title": "Demande envoyée",
+    "success_subtitle": "Vérifiez votre email à",
+    "success_action": "Cliquez sur le lien dans le mail pour confirmer votre demande.",
+    "success_summary_prefix": "Votre audit sur",
+    "success_summary_suffix": " arrive sous 24h après confirmation.",
+    "success_close": "Fermer"
+  },
+  "other_solutions": {
+    "id": "other-solutions",
+    "badge": "Sur-mesure",
+    "title": "Un autre défi digital ?",
+    "subtitle": "AI Scan, c'est notre solution actuelle. Pour le reste - Google Ads, présence locale, dashboards SEO, automatisation marketing - on construit du sur-mesure, calibré sur vos données et votre métier.",
+    "cta": "Discuter de mon besoin",
+    "whatsapp_url": "https://wa.me/33671738273?text=Bonjour%2C%20j%27ai%20un%20besoin%20sp%C3%A9cifique%20%C3%A0%20discuter%20avec%20sen-ai.fr."
   },
   "solutions_intro": {
     "title": "Nos solutions",
-    "subtitle": "Chaque business est différent. Chaque solution aussi. Aujourd'hui deux solutions, demain autant que nécessaire — toujours sur-mesure, toujours facturées à l'impact."
+    "subtitle": "Chaque business est différent. Chaque solution aussi. Aujourd'hui deux solutions, demain autant que nécessaire - toujours sur-mesure, toujours facturées à l'impact."
   },
   "aiscan": {
     "id": "ai-scan",
     "title": "AI Scan",
     "tagline": "Votre marque est-elle visible dans les réponses de l'IA ?",
-    "description": "AI Scan mesure si ChatGPT, Gemini et les autres LLMs citent votre marque quand vos clients leur posent des questions. Pas un dashboard générique — une analyse calibrée sur vos produits, vos segments, vos concurrents.",
+    "description": "AI Scan mesure si ChatGPT, Gemini et les autres LLMs citent votre marque quand vos clients leur posent des questions. Pas un dashboard générique - une analyse calibrée sur vos produits, vos segments, vos concurrents.",
     "mindset": {
       "title": "La démarche AI Scan",
       "subtitle": "On ne compte pas des mots-clés. On pense comme vos clients.",
@@ -29,13 +79,13 @@
         {
           "id": "persona",
           "title": "On pense comme vos clients",
-          "description": "À partir de vos données Search Console et Haloscan, on crée des profils réalistes — pas des personas marketing, mais des vrais comportements de recherche, ancrés dans vos segments métier.",
+          "description": "À partir de vos données SEO (Haloscan), on crée des profils réalistes - pas des personas marketing, mais des vrais comportements de recherche, ancrés dans vos segments métier.",
           "icon": "user"
         },
         {
           "id": "question",
           "title": "On pose leurs questions",
-          "description": "Chaque profil génère les questions qu'il poserait naturellement à ChatGPT ou Gemini — urgentes, comparatives, techniques, de validation.",
+          "description": "Chaque profil génère les questions qu'il poserait naturellement à ChatGPT ou Gemini - urgentes, comparatives, techniques, de validation.",
           "icon": "chat"
         },
         {
@@ -47,31 +97,31 @@
         {
           "id": "analyse",
           "title": "On décode ce que l'IA pense de vous",
-          "description": "Taux de citation, sentiment, recommandations produit, gaps vs concurrents — tout est segmenté par univers métier, pas noyé dans une moyenne globale.",
+          "description": "Taux de citation, sentiment, recommandations produit, gaps vs concurrents - tout est segmenté par univers métier, pas noyé dans une moyenne globale.",
           "icon": "chart"
         },
         {
           "id": "livrable",
           "title": "On vous donne les clés pour agir",
-          "description": "Une newsletter mensuelle pour la marque — ce qui a changé, ce qu'il faut faire. Un dashboard interactif pour ceux qui veulent explorer chaque donnée en détail.",
+          "description": "Une newsletter mensuelle pour la marque - ce qui a changé, ce qu'il faut faire. Un dashboard interactif pour ceux qui veulent explorer chaque donnée en détail.",
           "icon": "document"
         }
       ]
     },
     "livrables": {
       "newsletter": {
-        "title": "La Newsletter mensuelle — pour le business",
+        "title": "La Newsletter mensuelle - pour le business",
         "subtitle": "Pour ceux qui veulent comprendre la situation et savoir quoi faire. Pas besoin d'ouvrir une application.",
         "points": [
           "Envoyée chaque mois, directement dans votre boîte mail",
-          "Ce que l'IA dit de vos produits ce mois-ci — en clair",
+          "Ce que l'IA dit de vos produits ce mois-ci - en clair",
           "Ce qui a changé par rapport au mois dernier",
           "Actions prioritaires : quoi faire pour avancer",
           "Benchmark concurrentiel : qui gagne du terrain, qui en perd"
         ]
       },
       "dashboard": {
-        "title": "Le Dashboard interactif — pour les curieux",
+        "title": "Le Dashboard interactif - pour les curieux",
         "subtitle": "Pour ceux qui veulent analyser chaque angle, explorer chaque chiffre.",
         "points": [
           "Dashboard Power BI connecté à vos données en temps réel",
@@ -101,7 +151,7 @@
     "id": "store-impact",
     "title": "Store Impact",
     "tagline": "Vos points de vente ont une vitrine digitale. Qui s'en occupe ?",
-    "description": "Vous investissez en Google Ads pour votre marque, mais sans site e-commerce, difficile de mesurer le retour. Votre chiffre d'affaires se fait en point de vente. Store Impact combine la puissance de votre marque avec vos points de vente physiques — Google Ads Store Visit + fiches Google optimisées — pour transformer votre budget pub en visites réelles. Et vos points de vente n'ont rien à faire : on gère tout pour eux.",
+    "description": "Vous investissez en Google Ads pour votre marque, mais sans site e-commerce, difficile de mesurer le retour. Votre chiffre d'affaires se fait en point de vente. Store Impact combine la puissance de votre marque avec vos points de vente physiques - Google Ads Store Visit + fiches Google optimisées - pour transformer votre budget pub en visites réelles. Et vos points de vente n'ont rien à faire : on gère tout pour eux.",
     "mindset": {
       "title": "La démarche Store Impact",
       "subtitle": "La notoriété de votre marque au service de chaque point de vente.",
@@ -140,7 +190,7 @@
     },
     "livrables": {
       "newsletter": {
-        "title": "La Newsletter mensuelle — pour chaque point de vente",
+        "title": "La Newsletter mensuelle - pour chaque point de vente",
         "subtitle": "Chaque gérant reçoit SA newsletter. Pas besoin d'outil, tout arrive dans la boîte mail.",
         "points": [
           "Performance Google Ads Store Visit de son point de vente",
@@ -151,7 +201,7 @@
         ]
       },
       "dashboard": {
-        "title": "Le Dashboard interactif — pour piloter le réseau",
+        "title": "Le Dashboard interactif - pour piloter le réseau",
         "subtitle": "Pour le siège qui veut piloter chaque point de vente, chaque campagne.",
         "points": [
           "Vue réseau complète avec KPIs par point de vente",
@@ -170,7 +220,7 @@
     "title": "Générique vs. sur-mesure",
     "columns": ["", "Outil générique", "sen-ai.fr"],
     "rows": [
-      { "feature": "Personas basées sur vos vraies données Search Console / Haloscan", "generic": false, "senai": true },
+      { "feature": "Personas basées sur vos vraies données SEO (Haloscan)", "generic": false, "senai": true },
       { "feature": "Questions calibrées sur vos segments métier", "generic": false, "senai": true },
       { "feature": "Analyse par univers produit (pas une moyenne globale)", "generic": false, "senai": true },
       { "feature": "Newsletter actionnable pour la marque", "generic": false, "senai": true },
@@ -186,7 +236,7 @@
       {
         "number": 1,
         "title": "Audit offert",
-        "description": "On analyse un premier périmètre gratuitement. Vous voyez concrètement ce que l'IA dit de vous — et ce qu'elle ne dit pas."
+        "description": "On analyse un premier périmètre gratuitement. Vous voyez concrètement ce que l'IA dit de vous - et ce qu'elle ne dit pas."
       },
       {
         "number": 2,
@@ -209,8 +259,8 @@
   "story": {
     "title": "Pourquoi sen ?",
     "paragraphs": [
-      "En vietnamien, « sen » signifie « lotus ». Le lotus pousse dans la boue, traverse l'eau trouble, et finit par éclore — magnifique — à la surface.",
-      "SEO, GEO, SEA, data, marketing digital — c'est la boue. Complexe, fragmentée, difficile à transformer en décisions. sen-ai.fr prend cette complexité et en fait émerger des actions claires, mesurables, utiles pour le business.",
+      "En vietnamien, « sen » signifie « lotus ». Le lotus pousse dans la boue, traverse l'eau trouble, et finit par éclore - magnifique - à la surface.",
+      "SEO, GEO, SEA, data, marketing digital - c'est la boue. Complexe, fragmentée, difficile à transformer en décisions. sen-ai.fr prend cette complexité et en fait émerger des actions claires, mesurables, utiles pour le business.",
       "Le lotus ne fleurit pas malgré la boue. Il fleurit grâce à elle."
     ],
     "quote": "from data to bloom"

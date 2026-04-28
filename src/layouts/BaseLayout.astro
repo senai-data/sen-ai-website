@@ -82,6 +82,10 @@ const softwareSchema = {
     <!-- JSON-LD Structured Data -->
     <script type="application/ld+json" set:html={JSON.stringify(organizationSchema)} />
     <script type="application/ld+json" set:html={JSON.stringify(softwareSchema)} />
+
+    <!-- Alpine.js for interactive components (modal, etc.) — defer keeps it non-blocking -->
+    <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js" defer></script>
+    <style is:global>[x-cloak] { display: none !important; }</style>
   </head>
   <body class="bg-white text-charcoal font-sans antialiased">
     <a href="#main-content" class="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[100] focus:px-4 focus:py-2 focus:bg-coral focus:text-white focus:rounded-lg focus:text-sm focus:font-medium">

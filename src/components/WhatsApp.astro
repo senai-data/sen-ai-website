@@ -83,14 +83,14 @@ const emailUrl = "mailto:contact@sen-ai.fr?subject=Contact%20sen-ai.fr&body=Bonj
     }
   });
 
-  // Tous les boutons qui ouvrent la popup
-  document.querySelectorAll('#hero-contact, #nav-contact-desktop, #nav-contact-mobile').forEach(btn => {
+  // Tous les boutons qui ouvrent la popup (Nav contact uniquement - le Hero CTA va maintenant sur le modal d'audit)
+  document.querySelectorAll('#nav-contact-desktop, #nav-contact-mobile').forEach(btn => {
     btn.addEventListener('click', openPopup);
   });
 
   document.addEventListener('click', (e) => {
     const target = e.target as Node;
-    const isContactBtn = (target as Element).closest?.('#hero-contact, #nav-contact-desktop, #nav-contact-mobile');
+    const isContactBtn = (target as Element).closest?.('#nav-contact-desktop, #nav-contact-mobile');
     if (!toggle.contains(target) && !popup.contains(target) && !isContactBtn) {
       closePopup();
     }

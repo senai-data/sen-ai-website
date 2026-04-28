@@ -7,42 +7,48 @@ const { hero } = site;
   <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 w-full">
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-16 items-center">
 
-      <!-- Texte — gauche -->
+      <!-- Texte - gauche -->
       <div class="max-w-xl">
         <!-- Tagline -->
         <p class="text-coral uppercase tracking-[0.25em] text-sm font-medium mb-6">
           {hero.tagline}
         </p>
 
-        <!-- H1 -->
-        <h1 class="text-4xl sm:text-5xl lg:text-[3.5rem] font-bold text-charcoal-dark leading-[1.1] mb-5">
-          Le digital est complexe.<br />
-          <span class="text-coral">Vos décisions ne devraient pas l'être.</span>
+        <!-- H1 produit-centric : question hooky qui dit ce que le produit fait -->
+        <h1 class="text-4xl sm:text-5xl lg:text-[3.25rem] font-bold text-charcoal-dark leading-[1.1] mb-5">
+          Que disent <span class="text-coral">ChatGPT, Gemini et Perplexity</span> de votre marque ?
         </h1>
 
         <!-- Description -->
         <p class="text-lg text-charcoal-light/80 leading-relaxed mb-8">
-          ChatGPT, Google, data, marketing digital — on prend cette complexité et on en fait émerger des <strong class="text-charcoal font-medium">actions concrètes pour votre business</strong>. Pas d'outil générique. Une solution sur-mesure, facturée à l'impact.
+          AI Scan mesure votre visibilité dans les IA génératives, sur un sujet précis. <strong class="text-charcoal font-medium">Audit gratuit en 24h</strong>, calibré sur vos produits, vos segments, vos concurrents.
         </p>
 
         <!-- CTA -->
-        <div class="flex flex-col sm:flex-row items-start gap-4">
+        <div class="flex flex-col sm:flex-row items-start gap-4 mb-6">
           <button
-            id="hero-contact"
+            id="hero-audit-cta"
             class="inline-flex items-center px-7 py-3.5 bg-coral text-white font-medium rounded-lg hover:bg-coral-dark transition-colors text-base shadow-lg shadow-coral/20 cursor-pointer"
           >
             {hero.cta_primary}
           </button>
           <a
-            href="#solutions"
+            href="#ai-scan"
             class="inline-flex items-center px-7 py-3.5 border-2 border-charcoal-light/30 text-charcoal font-medium rounded-lg hover:border-coral hover:text-coral transition-colors text-base"
           >
             {hero.cta_secondary}
           </a>
         </div>
+
+        <!-- Trust signals -->
+        <div class="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-charcoal-light">
+          {hero.trust_signals.map((t) => (
+            <span>{t}</span>
+          ))}
+        </div>
       </div>
 
-      <!-- Visuel — droite -->
+      <!-- Visuel - droite -->
       <div class="hidden lg:flex items-center justify-center relative" aria-hidden="true">
         <div class="relative w-80 h-80">
           <!-- Cercles décoratifs -->
@@ -79,3 +85,9 @@ const { hero } = site;
     animation: pulse-slow 6s ease-in-out infinite;
   }
 </style>
+
+<script>
+  document.getElementById('hero-audit-cta')?.addEventListener('click', () => {
+    window.dispatchEvent(new CustomEvent('open-audit-modal'));
+  });
+</script>

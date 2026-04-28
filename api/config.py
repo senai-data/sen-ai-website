@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     # Email (Resend) — optional, logs reset URL if not configured
     resend_api_key: str = ""
     resend_from_email: str = "sen-ai.fr <noreply@sen-ai.fr>"
+    audit_notification_email: str = "data@sen-ai.fr"
 
     # Frontend
     frontend_url: str = "https://sen-ai.fr"

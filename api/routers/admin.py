@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from models import (
     AuditLog,
+    AuditRequest,
     Client,
     ClientCredit,
     LlmUsageLog,
@@ -25,6 +26,7 @@ from models import (
     UserClient,
     get_db,
 )
+from services.audit import audit_log
 from services.auth_service import get_current_user
 
 router = APIRouter()
@@ -646,3 +648,88 @@ async def admin_credits_overview(
             for row in monthly
         ],
     }
+
+
+# -----------------------------------------------------------------------------
+# 018: Audit-gratuit requests admin endpoints
+# -----------------------------------------------------------------------------
+
+
+class AuditRequestStatusUpdate(BaseModel):
+    status: str  # one of: pending|confirmed|launched|completed|rejected
+    scan_id: str | None = None
+
+
+@router.get("/audit-requests")
+async def list_audit_requests(
+    status: str | None = Query(default=None, description="Filter by status"),
+    _: User = Depends(require_superadmin),
+    db: Session = Depends(get_db),
+):
+    """List audit-gratuit requests with optional status filter.
+
+    Sorted by created_at desc — most recent first. No pagination yet (volume
+    expected to be low for MVP).
+    """
+    q = db.query(AuditRequest)
+    if status:
+        q = q.filter(AuditRequest.status == status)
+    rows = q.order_by(AuditRequest.created_at.desc()).limit(500).all()
+    return {
+        "items": [
+            {
+                "id": str(r.id),
+                "website": r.website,
+                "email": r.email,
+                "topic_focus": r.topic_focus,
+                "first_name": r.first_name,
+                "message": r.message,
+                "status": r.status,
+                "scan_id": str(r.scan_id) if r.scan_id else None,
+                "source_ip": r.source_ip,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+                "confirmed_at": r.confirmed_at.isoformat() if r.confirmed_at else None,
+                "processed_at": r.processed_at.isoformat() if r.processed_at else None,
+            }
+            for r in rows
+        ],
+    }
+
+
+@router.patch("/audit-requests/{audit_id}")
+async def update_audit_request(
+    audit_id: str,
+    update: AuditRequestStatusUpdate,
+    user: User = Depends(require_superadmin),
+    db: Session = Depends(get_db),
+):
+    """Update an audit_request status (admin workflow).
+
+    Used to mark a request as launched once the scan is created, or rejected
+    if it's spam / out of scope. Setting status to 'launched' or 'completed'
+    stamps processed_at; setting 'launched' also accepts an optional scan_id.
+    """
+    valid = {"pending", "confirmed", "launched", "completed", "rejected"}
+    if update.status not in valid:
+        raise HTTPException(400, f"Invalid status. Must be one of {valid}")
+
+    audit_req = db.query(AuditRequest).filter(AuditRequest.id == audit_id).first()
+    if not audit_req:
+        raise HTTPException(404, "Audit request not found")
+
+    audit_req.status = update.status
+    if update.status in ("launched", "completed", "rejected"):
+        audit_req.processed_at = datetime.utcnow()
+    if update.scan_id:
+        audit_req.scan_id = update.scan_id
+
+    audit_log(
+        db,
+        action="audit_request.update",
+        user_id=str(user.id),
+        target_type="audit_request",
+        target_id=str(audit_req.id),
+        details={"status": update.status, "scan_id": update.scan_id},
+    )
+    db.commit()
+    return {"ok": True, "status": audit_req.status}

@@ -1,0 +1,177 @@
+---
+/**
+ * Admin: Audit Requests - review public "audit gratuit" submissions.
+ *
+ * Lifecycle: pending (just submitted) -> confirmed (magic-link clicked) ->
+ * launched (scan created) -> completed (results delivered) | rejected.
+ */
+export const prerender = false;
+import DashboardLayout from '../../../layouts/DashboardLayout.astro';
+
+const token = Astro.cookies.get('token')?.value;
+if (!token) return Astro.redirect('/login');
+
+// Check superadmin
+let isSuperadmin = false;
+try {
+  const res = await fetch('http://api:8000/api/admin/me', {
+    headers: { Cookie: `token=${token}` },
+  });
+  isSuperadmin = res.ok;
+} catch {}
+if (!isSuperadmin) return Astro.redirect('/app/dashboard');
+
+const filter = Astro.url.searchParams.get('status') || '';
+
+// Fetch list
+let items: any[] = [];
+try {
+  const url = filter
+    ? `http://api:8000/api/admin/audit-requests?status=${encodeURIComponent(filter)}`
+    : 'http://api:8000/api/admin/audit-requests';
+  const res = await fetch(url, { headers: { Cookie: `token=${token}` } });
+  if (res.ok) {
+    const data = await res.json();
+    items = data.items || [];
+  }
+} catch {}
+
+const statusLabels: Record<string, { label: string; badge: string }> = {
+  pending:   { label: 'En attente',  badge: 'bg-amber-100 text-amber-800' },
+  confirmed: { label: 'Confirmée',   badge: 'bg-coral/10 text-coral' },
+  launched:  { label: 'Scan lancé',  badge: 'bg-blue-100 text-blue-800' },
+  completed: { label: 'Livrée',      badge: 'bg-emerald/10 text-emerald' },
+  rejected:  { label: 'Rejetée',     badge: 'bg-gray-100 text-gray-600' },
+};
+
+function fmtDate(iso: string | null): string {
+  if (!iso) return '-';
+  return new Date(iso).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' });
+}
+---
+
+<DashboardLayout title="Admin: Audit Requests" activeSection="admin">
+  <div class="p-8 max-w-6xl">
+
+    <div class="flex items-center gap-2 text-sm text-charcoal-light mb-6">
+      <a href="/app/dashboard" class="hover:text-charcoal-dark">Dashboard</a>
+      <span>/</span>
+      <a href="/app/admin" class="hover:text-charcoal-dark">Admin</a>
+      <span>/</span>
+      <span class="text-charcoal-dark font-medium">Audit Requests</span>
+    </div>
+
+    <div class="flex items-start justify-between mb-6 gap-4 flex-wrap">
+      <div>
+        <h1 class="text-2xl font-bold text-charcoal-dark">Audit Requests</h1>
+        <p class="text-sm text-charcoal-light mt-1">
+          {items.length} demande{items.length > 1 ? 's' : ''} {filter ? `(${statusLabels[filter]?.label || filter})` : 'au total'}
+        </p>
+      </div>
+      <div class="flex gap-1.5 flex-wrap">
+        <a href="/app/admin/audit-requests" class:list={["px-3 py-1.5 rounded-lg text-xs font-medium transition-colors", !filter ? "bg-charcoal-dark text-white" : "bg-gray-100 text-charcoal-light hover:bg-gray-200"]}>Tous</a>
+        {Object.entries(statusLabels).map(([key, val]) => (
+          <a href={`/app/admin/audit-requests?status=${key}`} class:list={["px-3 py-1.5 rounded-lg text-xs font-medium transition-colors", filter === key ? "bg-charcoal-dark text-white" : "bg-gray-100 text-charcoal-light hover:bg-gray-200"]}>{val.label}</a>
+        ))}
+      </div>
+    </div>
+
+    {items.length === 0 ? (
+      <div class="bg-white rounded-xl border border-gray-200 p-12 text-center">
+        <p class="text-sm text-charcoal-light">Aucune demande pour ce filtre.</p>
+      </div>
+    ) : (
+      <div class="space-y-3" x-data="auditRequests()">
+        {items.map((it: any) => (
+          <div class="bg-white rounded-xl border border-gray-200 p-5" data-id={it.id}>
+            <div class="flex items-start justify-between gap-4 flex-wrap">
+              <div class="min-w-0 flex-1">
+                <div class="flex items-center gap-2 mb-2 flex-wrap">
+                  <h3 class="text-sm font-bold text-charcoal-dark truncate">{it.website}</h3>
+                  <span class:list={["text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wide", statusLabels[it.status]?.badge || 'bg-gray-100']}>
+                    {statusLabels[it.status]?.label || it.status}
+                  </span>
+                </div>
+                <p class="text-sm text-charcoal-dark mb-1">
+                  <span class="text-charcoal-light">Sujet :</span> <strong>{it.topic_focus}</strong>
+                </p>
+                <p class="text-xs text-charcoal-light">
+                  {it.first_name ? `${it.first_name} · ` : ''}<a href={`mailto:${it.email}`} class="text-coral hover:underline">{it.email}</a>
+                </p>
+                {it.message && (
+                  <p class="text-xs text-charcoal-light mt-2 italic bg-gray-50 rounded-lg p-2.5 max-w-2xl">
+                    "{it.message}"
+                  </p>
+                )}
+                <div class="flex items-center gap-3 text-[11px] text-gray-400 mt-2 flex-wrap">
+                  <span>Créée: {fmtDate(it.created_at)}</span>
+                  {it.confirmed_at && <span>· Confirmée: {fmtDate(it.confirmed_at)}</span>}
+                  {it.processed_at && <span>· Traitée: {fmtDate(it.processed_at)}</span>}
+                  {it.source_ip && <span class="font-mono">· IP: {it.source_ip}</span>}
+                  <span class="font-mono">· {it.id.slice(0, 8)}</span>
+                </div>
+              </div>
+
+              <div class="flex flex-col gap-1.5 shrink-0">
+                {(it.status === 'confirmed' || it.status === 'pending') && (
+                  <button
+                    type="button"
+                    class="action-btn px-3 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 transition-colors"
+                    data-id={it.id}
+                    data-action="launched"
+                  >Marquer "Scan lancé"</button>
+                )}
+                {(it.status === 'launched' || it.status === 'confirmed') && (
+                  <button
+                    type="button"
+                    class="action-btn px-3 py-1.5 bg-emerald text-white text-xs font-medium rounded-lg hover:bg-emerald-dark transition-colors"
+                    data-id={it.id}
+                    data-action="completed"
+                  >Marquer "Livrée"</button>
+                )}
+                {it.status !== 'rejected' && it.status !== 'completed' && (
+                  <button
+                    type="button"
+                    class="action-btn px-3 py-1.5 border border-gray-300 text-charcoal-light text-xs font-medium rounded-lg hover:bg-gray-50 transition-colors"
+                    data-id={it.id}
+                    data-action="rejected"
+                  >Rejeter</button>
+                )}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    )}
+  </div>
+
+  <script is:inline>
+    document.querySelectorAll('.action-btn').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const id = btn.dataset.id;
+        const action = btn.dataset.action;
+        if (!id || !action) return;
+        if (action === 'rejected' && !confirm('Rejeter cette demande ?')) return;
+        btn.disabled = true;
+        btn.textContent = '...';
+        try {
+          const res = await fetch(`/api/admin/audit-requests/${id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: action }),
+          });
+          if (res.ok) {
+            window.location.reload();
+          } else {
+            alert('Erreur lors de la mise à jour.');
+            btn.disabled = false;
+            btn.textContent = action;
+          }
+        } catch (e) {
+          alert('Erreur réseau.');
+          btn.disabled = false;
+        }
+      });
+    });
+  </script>
+</DashboardLayout>

@@ -707,6 +707,36 @@ class AuditLog(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
+class AuditRequest(Base):
+    """018: Public audit-gratuit submissions from the homepage modal.
+
+    Decoupled from User/Client — created by anonymous visitors before any
+    account exists. Lifecycle:
+      pending → confirmed (magic-link clicked) → launched (admin runs scan)
+      → completed (results delivered) | rejected (spam / out of scope)
+    """
+    __tablename__ = "audit_requests"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    website = Column(String(500), nullable=False)
+    email = Column(String(255), nullable=False)
+    topic_focus = Column(String(500), nullable=False)
+    first_name = Column(String(100))
+    message = Column(Text)
+    status = Column(
+        Enum("pending", "confirmed", "launched", "completed", "rejected", name="audit_request_status"),
+        nullable=False, default="pending",
+    )
+    confirmation_jti = Column(String(64))
+    scan_id = Column(UUID(as_uuid=True), ForeignKey("scans.id", ondelete="SET NULL"))
+    source_ip = Column(String(45))
+    user_agent = Column(Text)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    confirmed_at = Column(DateTime)
+    processed_at = Column(DateTime)
+
+
 class Report(Base):
     """017: Static HTML client deliverables published at /r/{slug}/{filename}.html."""
     __tablename__ = "reports"

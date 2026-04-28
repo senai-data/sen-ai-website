@@ -262,7 +262,7 @@ const defaultPeriod = `${FR_MONTHS[now.getMonth()]}-${now.getFullYear()}`;
         </div>
       </div>
 
-      <!-- Inputs -->
+      <!-- Inputs (Recognition over recall: live indicator catches typos before they create zombie folders) -->
       <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-5">
         <div>
           <label class="block text-xs font-medium text-gray-700 mb-1">Client</label>
@@ -271,13 +271,36 @@ const defaultPeriod = `${FR_MONTHS[now.getMonth()]}-${now.getFullYear()}`;
             x-model="client"
             list="client-suggestions"
             placeholder="pierrefabre"
-            class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-coral"
+            class="w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-coral"
+            :class="{
+              'border-emerald-300 bg-emerald-50/30': clientMatchInfo().state === 'existing',
+              'border-amber-300 bg-amber-50/30':     clientMatchInfo().state === 'new',
+              'border-gray-300':                     clientMatchInfo().state === 'empty',
+            }"
           />
           <datalist id="client-suggestions">
             <template x-for="c in suggestions.clients" :key="c">
               <option :value="c"></option>
             </template>
           </datalist>
+          <div class="text-xs mt-1 h-4 flex items-center gap-1">
+            <template x-if="clientMatchInfo().state === 'existing'">
+              <span class="text-emerald-600 flex items-center gap-1">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/>
+                </svg>
+                <span x-text="'Existing client · ' + clientMatchInfo().count + ' report' + (clientMatchInfo().count > 1 ? 's' : '')"></span>
+              </span>
+            </template>
+            <template x-if="clientMatchInfo().state === 'new'">
+              <span class="text-amber-600 flex items-center gap-1">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+                </svg>
+                <span>Will create new client folder</span>
+              </span>
+            </template>
+          </div>
         </div>
 
         <div>
@@ -290,13 +313,36 @@ const defaultPeriod = `${FR_MONTHS[now.getMonth()]}-${now.getFullYear()}`;
             x-model="period"
             list="period-suggestions"
             placeholder="avril-2026"
-            class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-coral"
+            class="w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-coral"
+            :class="{
+              'border-emerald-300 bg-emerald-50/30': periodMatchInfo().state === 'existing',
+              'border-amber-300 bg-amber-50/30':     periodMatchInfo().state === 'new',
+              'border-gray-300':                     periodMatchInfo().state === 'empty',
+            }"
           />
           <datalist id="period-suggestions">
             <template x-for="p in suggestions.periods" :key="p">
               <option :value="p"></option>
             </template>
           </datalist>
+          <div class="text-xs mt-1 h-4 flex items-center gap-1">
+            <template x-if="periodMatchInfo().state === 'existing'">
+              <span class="text-emerald-600 flex items-center gap-1">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/>
+                </svg>
+                <span x-text="'Existing folder · ' + periodMatchInfo().count + ' report' + (periodMatchInfo().count > 1 ? 's' : '')"></span>
+              </span>
+            </template>
+            <template x-if="periodMatchInfo().state === 'new'">
+              <span class="text-amber-600 flex items-center gap-1">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+                </svg>
+                <span x-text="clientMatchInfo().state === 'existing' ? 'Will create new period in this client' : 'Will create new period folder'"></span>
+              </span>
+            </template>
+          </div>
         </div>
 
         <div>
@@ -335,19 +381,41 @@ const defaultPeriod = `${FR_MONTHS[now.getMonth()]}-${now.getFullYear()}`;
 
     <!-- Active reports list -->
     <div class="bg-white rounded-xl border border-gray-200">
-      <!-- Header (Jakob: Gmail-like select-all + count) -->
-      <div class="px-6 py-3 border-b border-gray-100 flex items-center gap-3">
+      <!-- Header (Jakob: select-all + filter + count) -->
+      <div class="px-6 py-3 border-b border-gray-100 flex items-center gap-3 flex-wrap">
         <input
           type="checkbox"
           x-show="reports.length > 0"
-          :checked="reports.length > 0 && selectedIds.length === reports.length"
-          :indeterminate="selectedIds.length > 0 && selectedIds.length < reports.length"
-          @change="toggleSelectAll($event.target.checked)"
+          :checked="reports.length > 0 && selectedIds.length === visibleReportIds().length && selectedIds.length > 0"
+          :indeterminate="selectedIds.length > 0 && selectedIds.length < visibleReportIds().length"
+          @change="toggleSelectAllVisible($event.target.checked)"
           class="w-4 h-4 rounded border-gray-300 text-coral focus:ring-coral cursor-pointer"
-          aria-label="Select all reports"
+          aria-label="Select all visible reports"
         />
         <h2 class="text-base font-semibold text-charcoal">Active reports</h2>
-        <span class="text-xs text-gray-500 ml-auto" x-text="reports.length === 0 ? '' : reports.length + ' active'"></span>
+
+        <!-- Filter input (Recognition + Hick): filter by filename, client, or period -->
+        <div class="relative ml-2" x-show="reports.length > 3">
+          <svg class="w-4 h-4 absolute left-2.5 top-2 text-gray-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+          </svg>
+          <input
+            type="text"
+            x-model="filter"
+            placeholder="Filter…"
+            class="pl-8 pr-2 py-1.5 text-xs border border-gray-200 rounded-lg w-44 focus:outline-none focus:ring-2 focus:ring-coral focus:border-transparent"
+          />
+        </div>
+
+        <span class="text-xs text-gray-500 ml-auto" x-text="reportsCountLabel()"></span>
+
+        <!-- Expand/collapse all (only useful with multiple groups) -->
+        <button
+          x-show="groupedReports().length > 1"
+          @click="toggleAllGroups()"
+          class="text-xs text-gray-500 hover:text-coral transition-colors"
+          x-text="anyGroupCollapsed() ? 'Expand all' : 'Collapse all'"
+        ></button>
       </div>
 
       <!-- Bulk action bar (Von Restorff: appears only when ≥1 selected) -->
@@ -393,67 +461,133 @@ const defaultPeriod = `${FR_MONTHS[now.getMonth()]}-${now.getFullYear()}`;
         </div>
       </template>
 
-      <div class="divide-y divide-gray-100">
-        <template x-for="r in reports" :key="r.id">
+      <!-- Empty after filter (Aesthetic-Usability: friendly empty state) -->
+      <template x-if="reports.length > 0 && groupedReports().length === 0">
+        <div class="px-6 py-12 text-center">
+          <p class="text-sm text-gray-500">No reports match "<span x-text="filter"></span>".</p>
+          <button @click="filter = ''" class="text-xs text-coral hover:underline mt-2">Clear filter</button>
+        </div>
+      </template>
+
+      <!-- Tree: Client > Period > Reports -->
+      <template x-for="group in groupedReports()" :key="group.client">
+        <div>
+          <!-- Client folder (level 1) -->
           <div
-            class="px-6 py-4 flex items-center gap-4 transition-colors duration-1000"
-            :class="{
-              'bg-emerald-50': justPublishedIds.includes(r.id),
-              'bg-coral/5':    selectedIds.includes(r.id) && !justPublishedIds.includes(r.id),
-            }"
+            @click="toggleClientExpand(group.client)"
+            class="px-6 py-3 bg-gray-50 border-t border-gray-100 flex items-center gap-3 cursor-pointer hover:bg-gray-100 transition-colors select-none"
           >
-            <!-- Checkbox (Fitts: padded hit area) -->
-            <label class="flex items-center justify-center w-6 h-6 cursor-pointer shrink-0" @click.stop>
-              <input
-                type="checkbox"
-                :checked="selectedIds.includes(r.id)"
-                @change="toggleSelect(r.id)"
-                class="w-4 h-4 rounded border-gray-300 text-coral focus:ring-coral cursor-pointer"
-                :aria-label="'Select ' + r.filename"
-              />
-            </label>
-
-            <div class="flex-1 min-w-0">
-              <div class="flex items-center gap-2 mb-1 flex-wrap">
-                <span class="text-sm font-medium text-charcoal" x-text="r.filename"></span>
-                <span class="text-xs px-2 py-0.5 rounded bg-gray-100 text-gray-600" x-text="r.client_label"></span>
-                <span class="text-xs px-2 py-0.5 rounded bg-gray-100 text-gray-600" x-text="r.period_label"></span>
-              </div>
-              <div class="text-xs text-gray-500 flex items-center gap-1.5 flex-wrap">
-                <span x-text="'Published ' + new Date(r.published_at).toLocaleDateString('fr-FR')"></span>
-                <span class="text-gray-300">·</span>
-                <span x-text="'Expires ' + new Date(r.expires_at).toLocaleDateString('fr-FR')"></span>
-                <span class="text-gray-300">·</span>
-                <span x-text="(r.file_size / 1024).toFixed(1) + ' kB'"></span>
-              </div>
-              <div class="text-xs text-gray-500 font-mono mt-1.5 truncate" :title="r.url" x-text="r.url"></div>
-            </div>
-
-            <div class="flex items-center gap-2 shrink-0">
-              <button
-                @click="copyUrl(r.url, $event)"
-                class="px-3 py-1.5 rounded-lg border border-gray-200 text-charcoal-light hover:border-coral hover:text-coral transition-all text-xs"
-              >
-                Copy URL
-              </button>
-              <a
-                :href="r.url"
-                target="_blank"
-                rel="noopener"
-                class="px-3 py-1.5 rounded-lg border border-gray-200 text-charcoal-light hover:border-coral hover:text-coral transition-all text-xs"
-              >
-                Open
-              </a>
-              <button
-                @click="unpublish(r)"
-                class="px-3 py-1.5 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 hover:border-red-300 transition-all text-xs"
-              >
-                Unpublish
-              </button>
-            </div>
+            <svg
+              class="w-4 h-4 text-gray-400 transition-transform shrink-0"
+              :class="isClientExpanded(group.client) ? 'rotate-90' : ''"
+              fill="none" stroke="currentColor" viewBox="0 0 24 24"
+            >
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+            </svg>
+            <svg class="w-5 h-5 text-amber-500 shrink-0" fill="currentColor" viewBox="0 0 20 20">
+              <path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z"/>
+            </svg>
+            <span class="text-sm font-semibold text-charcoal" x-text="group.client"></span>
+            <span class="text-xs text-gray-500" x-text="group.totalCount + ' · ' + group.totalSizeKb + ' kB'"></span>
           </div>
-        </template>
-      </div>
+
+          <!-- Periods inside client -->
+          <template x-if="isClientExpanded(group.client)">
+            <div>
+              <template x-for="periodGroup in group.periods" :key="group.client + '/' + periodGroup.period">
+                <div>
+                  <!-- Period folder (level 2) -->
+                  <div
+                    @click="togglePeriodExpand(group.client, periodGroup.period)"
+                    class="pl-12 pr-6 py-2.5 bg-white border-t border-gray-100 flex items-center gap-3 cursor-pointer hover:bg-gray-50 transition-colors select-none"
+                  >
+                    <svg
+                      class="w-3.5 h-3.5 text-gray-400 transition-transform shrink-0"
+                      :class="isPeriodExpanded(group.client, periodGroup.period) ? 'rotate-90' : ''"
+                      fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                    >
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+                    </svg>
+                    <svg class="w-4 h-4 text-gray-400 shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                      <path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z"/>
+                    </svg>
+                    <span class="text-sm text-charcoal" x-text="periodGroup.period"></span>
+                    <span class="text-xs text-gray-500" x-text="periodGroup.totalCount + ' · ' + periodGroup.totalSizeKb + ' kB'"></span>
+                    <button
+                      @click.stop="prefill(group.client, periodGroup.period)"
+                      class="ml-auto text-xs text-gray-500 hover:text-coral transition-colors px-2 py-1 rounded hover:bg-coral/5"
+                      title="Pre-fill the upload form for this folder"
+                    >
+                      + Add to this folder
+                    </button>
+                  </div>
+
+                  <!-- Reports inside period (level 3) -->
+                  <template x-if="isPeriodExpanded(group.client, periodGroup.period)">
+                    <div>
+                      <template x-for="r in periodGroup.items" :key="r.id">
+                        <div
+                          class="pl-12 pr-6 py-3 border-t border-gray-100 flex items-center gap-4 transition-colors duration-1000"
+                          :class="{
+                            'bg-emerald-50': justPublishedIds.includes(r.id),
+                            'bg-coral/5':    selectedIds.includes(r.id) && !justPublishedIds.includes(r.id),
+                          }"
+                        >
+                          <!-- Checkbox -->
+                          <label class="flex items-center justify-center w-6 h-6 cursor-pointer shrink-0" @click.stop>
+                            <input
+                              type="checkbox"
+                              :checked="selectedIds.includes(r.id)"
+                              @change="toggleSelect(r.id)"
+                              class="w-4 h-4 rounded border-gray-300 text-coral focus:ring-coral cursor-pointer"
+                              :aria-label="'Select ' + r.filename"
+                            />
+                          </label>
+
+                          <div class="flex-1 min-w-0">
+                            <div class="text-sm font-medium text-charcoal truncate" x-text="r.filename"></div>
+                            <div class="text-xs text-gray-500 flex items-center gap-1.5 flex-wrap mt-0.5">
+                              <span x-text="'Published ' + new Date(r.published_at).toLocaleDateString('fr-FR')"></span>
+                              <span class="text-gray-300">·</span>
+                              <span x-text="'Expires ' + new Date(r.expires_at).toLocaleDateString('fr-FR')"></span>
+                              <span class="text-gray-300">·</span>
+                              <span x-text="(r.file_size / 1024).toFixed(1) + ' kB'"></span>
+                            </div>
+                            <div class="text-xs text-gray-500 font-mono mt-1 truncate" :title="r.url" x-text="r.url"></div>
+                          </div>
+
+                          <div class="flex items-center gap-2 shrink-0">
+                            <button
+                              @click="copyUrl(r.url, $event)"
+                              class="px-3 py-1.5 rounded-lg border border-gray-200 text-charcoal-light hover:border-coral hover:text-coral transition-all text-xs"
+                            >
+                              Copy URL
+                            </button>
+                            <a
+                              :href="r.url"
+                              target="_blank"
+                              rel="noopener"
+                              class="px-3 py-1.5 rounded-lg border border-gray-200 text-charcoal-light hover:border-coral hover:text-coral transition-all text-xs"
+                            >
+                              Open
+                            </a>
+                            <button
+                              @click="unpublish(r)"
+                              class="px-3 py-1.5 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 hover:border-red-300 transition-all text-xs"
+                            >
+                              Unpublish
+                            </button>
+                          </div>
+                        </div>
+                      </template>
+                    </div>
+                  </template>
+                </div>
+              </template>
+            </div>
+          </template>
+        </div>
+      </template>
     </div>
   </div>
 
@@ -473,6 +607,10 @@ const defaultPeriod = `${FR_MONTHS[now.getMonth()]}-${now.getFullYear()}`;
         justPublishedIds: [],
         selectedIds: [],
         bulkDeleting: false,
+        filter: '',
+        expandedClients: [],
+        expandedPeriods: [],
+        _expandStorageKey: 'sen-ai-reports-expand-v1',
         toast: { visible: false, kind: 'success', title: '', body: '' },
         _toastTimer: null,
         conflictDialog: {
@@ -728,6 +866,175 @@ const defaultPeriod = `${FR_MONTHS[now.getMonth()]}-${now.getFullYear()}`;
           }
         },
 
+        // ── Live match indicator (Recognition: prevent typo-induced zombie folders) ──
+        slugifyJS(s) {
+          return (s || '').toString().toLowerCase()
+            .normalize('NFD')
+            .replace(/[̀-ͯ]/g, '')
+            .replace(/[^a-z0-9]+/g, '-')
+            .replace(/^-+|-+$/g, '');
+        },
+        clientMatchInfo() {
+          const typed = this.slugifyJS(this.client);
+          if (!typed) return { state: 'empty' };
+          const matching = this.reports.filter(r =>
+            !r.unpublished_at && this.slugifyJS(r.client_label) === typed
+          );
+          if (matching.length > 0) return { state: 'existing', count: matching.length };
+          return { state: 'new' };
+        },
+        periodMatchInfo() {
+          const typedC = this.slugifyJS(this.client);
+          const typedP = this.slugifyJS(this.period);
+          if (!typedP) return { state: 'empty' };
+          if (!typedC) return { state: 'new' };
+          const matching = this.reports.filter(r =>
+            !r.unpublished_at
+            && this.slugifyJS(r.client_label) === typedC
+            && this.slugifyJS(r.period_label) === typedP
+          );
+          if (matching.length > 0) return { state: 'existing', count: matching.length };
+          return { state: 'new' };
+        },
+
+        // ── Grouping & filter (Jakob + Proximity + Progressive disclosure) ──
+        init() {
+          this._restoreExpand();
+        },
+        groupedReports() {
+          const q = this.filter.trim().toLowerCase();
+          let filtered = this.reports;
+          if (q) {
+            filtered = this.reports.filter(r =>
+              r.filename.toLowerCase().includes(q) ||
+              (r.client_label || '').toLowerCase().includes(q) ||
+              (r.period_label || '').toLowerCase().includes(q)
+            );
+          }
+          const map = new Map();
+          for (const r of filtered) {
+            const c = r.client_label || '(no client)';
+            const p = r.period_label || '(no period)';
+            if (!map.has(c)) map.set(c, new Map());
+            const periodMap = map.get(c);
+            if (!periodMap.has(p)) periodMap.set(p, []);
+            periodMap.get(p).push(r);
+          }
+          const groups = [];
+          for (const [client, periodMap] of [...map.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+            const periods = [];
+            for (const [period, items] of [...periodMap.entries()].sort((a, b) => b[0].localeCompare(a[0]))) {
+              const sortedItems = [...items].sort((a, b) => new Date(b.published_at) - new Date(a.published_at));
+              const totalBytes = items.reduce((s, x) => s + x.file_size, 0);
+              periods.push({
+                period,
+                items: sortedItems,
+                totalCount: items.length,
+                totalSizeKb: (totalBytes / 1024).toFixed(1),
+              });
+            }
+            const totalCount = periods.reduce((s, p) => s + p.totalCount, 0);
+            const totalBytes = periods.reduce((s, p) => s + p.items.reduce((ss, x) => ss + x.file_size, 0), 0);
+            groups.push({
+              client,
+              periods,
+              totalCount,
+              totalSizeKb: (totalBytes / 1024).toFixed(1),
+            });
+          }
+          return groups;
+        },
+        isClientExpanded(client) {
+          return this.expandedClients.includes(client);
+        },
+        toggleClientExpand(client) {
+          const i = this.expandedClients.indexOf(client);
+          if (i === -1) this.expandedClients.push(client);
+          else this.expandedClients.splice(i, 1);
+          this._persistExpand();
+        },
+        isPeriodExpanded(client, period) {
+          return this.expandedPeriods.includes(client + ' ' + period);
+        },
+        togglePeriodExpand(client, period) {
+          const key = client + ' ' + period;
+          const i = this.expandedPeriods.indexOf(key);
+          if (i === -1) this.expandedPeriods.push(key);
+          else this.expandedPeriods.splice(i, 1);
+          this._persistExpand();
+        },
+        anyGroupCollapsed() {
+          const groups = this.groupedReports();
+          for (const g of groups) {
+            if (!this.isClientExpanded(g.client)) return true;
+            for (const p of g.periods) {
+              if (!this.isPeriodExpanded(g.client, p.period)) return true;
+            }
+          }
+          return false;
+        },
+        toggleAllGroups() {
+          if (this.anyGroupCollapsed()) {
+            // Expand everything
+            const groups = this.groupedReports();
+            this.expandedClients = groups.map(g => g.client);
+            this.expandedPeriods = [];
+            for (const g of groups) {
+              for (const p of g.periods) {
+                this.expandedPeriods.push(g.client + ' ' + p.period);
+              }
+            }
+          } else {
+            this.expandedClients = [];
+            this.expandedPeriods = [];
+          }
+          this._persistExpand();
+        },
+        _persistExpand() {
+          try {
+            localStorage.setItem(this._expandStorageKey, JSON.stringify({
+              c: this.expandedClients,
+              p: this.expandedPeriods,
+            }));
+          } catch {}
+        },
+        _restoreExpand() {
+          try {
+            const s = localStorage.getItem(this._expandStorageKey);
+            if (s) {
+              const data = JSON.parse(s);
+              this.expandedClients = Array.isArray(data.c) ? data.c : [];
+              this.expandedPeriods = Array.isArray(data.p) ? data.p : [];
+              return;
+            }
+          } catch {}
+          // First visit: auto-expand if there's only 1 client (and 1 period inside)
+          const groups = this.groupedReports();
+          if (groups.length === 1) {
+            this.expandedClients = [groups[0].client];
+            if (groups[0].periods.length === 1) {
+              this.expandedPeriods = [groups[0].client + ' ' + groups[0].periods[0].period];
+            }
+          }
+        },
+        prefill(client, period) {
+          this.client = client;
+          this.period = period;
+          // Scroll to drop zone
+          const dropZone = document.querySelector('[role="button"][tabindex="0"]');
+          if (dropZone) dropZone.scrollIntoView({ block: 'center', behavior: 'smooth' });
+          this.showToast('Form pre-filled', `Drop files for ${client} / ${period}`, 'success', 2200);
+        },
+        reportsCountLabel() {
+          if (this.reports.length === 0) return '';
+          const filtered = this.groupedReports().reduce((sum, g) => sum + g.totalCount, 0);
+          if (this.filter && filtered !== this.reports.length) return `${filtered} of ${this.reports.length}`;
+          return `${this.reports.length} active`;
+        },
+        visibleReportIds() {
+          return this.groupedReports().flatMap(g => g.periods.flatMap(p => p.items.map(r => r.id)));
+        },
+
         // ── Selection (Jakob: Gmail-style) ──────────────────────────────
         toggleSelect(id) {
           const i = this.selectedIds.indexOf(id);
@@ -736,6 +1043,9 @@ const defaultPeriod = `${FR_MONTHS[now.getMonth()]}-${now.getFullYear()}`;
         },
         toggleSelectAll(checked) {
           this.selectedIds = checked ? this.reports.map(r => r.id) : [];
+        },
+        toggleSelectAllVisible(checked) {
+          this.selectedIds = checked ? this.visibleReportIds() : [];
         },
         selectedSizeKb() {
           const total = this.reports

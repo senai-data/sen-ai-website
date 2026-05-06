@@ -15,6 +15,7 @@ from sqlalchemy.orm.attributes import flag_modified
 
 from config import settings
 from models import Scan, ClientBrand, ScanBrandClassification
+from schemas import DomainBrief, validate_object
 
 logger = logging.getLogger(__name__)
 
@@ -67,10 +68,11 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
 
     client = openai.OpenAI(api_key=api_key, timeout=60)
     prompt = BRIEF_PROMPT.format(domain=domain)
+    model = settings.task_models["generate_domain_brief"]
 
     try:
         response = client.responses.create(
-            model="gpt-4.1-mini",
+            model=model,
             tools=[{"type": "web_search"}],
             input=prompt,
             temperature=0.3,
@@ -113,6 +115,11 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
     if not brief:
         logger.error(f"Could not parse brief JSON from response ({len(text)} chars): {text[:500]}")
         raise ValueError(f"Could not parse domain brief from OpenAI response ({len(text)} chars)")
+
+    # Pydantic validation: normalizes shape (string vs dict competitors, missing fields)
+    # Raises RuntimeError on validation failure → C2 refunds credits.
+    brief_validated = validate_object(brief, DomainBrief, "generate_domain_brief")
+    brief = brief_validated.model_dump()
 
     logger.info(f"Brief generated for {domain}: {brief.get('company', '?')} — {brief.get('industry', '?')}")
 

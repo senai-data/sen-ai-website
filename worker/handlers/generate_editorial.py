@@ -12,6 +12,9 @@ from datetime import datetime
 import httpx
 from sqlalchemy.orm import Session
 
+from schemas import EditorialSummary, validate_object
+from utils import max_tokens_for
+
 logger = logging.getLogger(__name__)
 
 EDITORIAL_PROMPT = """Tu es un expert en visibilité digitale qui écrit pour des marketeurs juniors (zéro jargon SEO).
@@ -126,20 +129,26 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
 
     # Call Claude
     import time as _time
+    model = settings.task_models["generate_editorial"]
     _t0 = _time.time()
-    editorial = asyncio.run(_call_claude(prompt, settings.anthropic_api_key))
+    editorial = asyncio.run(_call_claude(prompt, settings.anthropic_api_key, model=model))
     _dur = int((_time.time() - _t0) * 1000)
 
     # Log LLM usage
     from adapters.llm_logger import log_llm_usage
     _usage = editorial.pop("_usage", {})
     log_llm_usage(
-        db, provider="anthropic", model="claude-sonnet-4-6",
+        db, provider="anthropic", model=model,
         operation="generate_editorial", duration_ms=_dur,
         scan_id=scan_id, client_id=str(scan.client_id),
         input_tokens=_usage.get("input_tokens", 0),
         output_tokens=_usage.get("output_tokens", 0),
     )
+
+    # Pydantic validation on editorial structure
+    editorial = validate_object(
+        editorial, EditorialSummary, "generate_editorial"
+    ).model_dump()
 
     # Store editorial in scan summary (must reassign for JSONB change detection)
     from sqlalchemy.orm.attributes import flag_modified
@@ -154,7 +163,7 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
     return {"editorial": editorial}
 
 
-async def _call_claude(prompt: str, api_key: str) -> dict:
+async def _call_claude(prompt: str, api_key: str, model: str) -> dict:
     url = "https://api.anthropic.com/v1/messages"
     headers = {
         "x-api-key": api_key,
@@ -162,8 +171,8 @@ async def _call_claude(prompt: str, api_key: str) -> dict:
         "content-type": "application/json",
     }
     payload = {
-        "model": "claude-sonnet-4-6",
-        "max_tokens": 2048,
+        "model": model,
+        "max_tokens": max_tokens_for(model, cap=2048),
         "temperature": 0.5,
         "messages": [{"role": "user", "content": prompt}],
     }

@@ -13,6 +13,9 @@ from datetime import datetime
 import httpx
 from sqlalchemy.orm import Session
 
+from schemas import QuestionGenerated, validate_items
+from utils import max_tokens_for
+
 logger = logging.getLogger(__name__)
 
 QUESTION_TYPES = ["basique", "validation", "comparative", "technique", "urgente"]
@@ -53,7 +56,7 @@ Pour le site **{domain}**, génère EXACTEMENT {nb_questions} questions de test 
 }}"""
 
 
-async def _call_claude(prompt: str, api_key: str) -> dict:
+async def _call_claude(prompt: str, api_key: str, model: str) -> dict:
     """Call Claude Haiku for fast question generation."""
     async with httpx.AsyncClient(timeout=60) as client:
         resp = await client.post(
@@ -64,8 +67,8 @@ async def _call_claude(prompt: str, api_key: str) -> dict:
                 "content-type": "application/json",
             },
             json={
-                "model": "claude-haiku-4-5-20251001",
-                "max_tokens": 4096,
+                "model": model,
+                "max_tokens": max_tokens_for(model, cap=4096),
                 "temperature": 0.5,
                 "messages": [{"role": "user", "content": prompt}],
             },
@@ -135,33 +138,35 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
         per_type=QUESTIONS_PER_TYPE,
     )
 
+    model = settings.task_models["generate_persona_questions"]
     start = time.time()
-    result = asyncio.run(_call_claude(prompt, settings.anthropic_api_key))
+    result = asyncio.run(_call_claude(prompt, settings.anthropic_api_key, model=model))
     duration_ms = int((time.time() - start) * 1000)
 
     # Log LLM usage
     from adapters.llm_logger import log_llm_usage
     _usage = result.pop("_usage", {})
     log_llm_usage(
-        db, provider="anthropic", model="claude-haiku-4-5-20251001",
+        db, provider="anthropic", model=model,
         operation="generate_questions", duration_ms=duration_ms,
         input_tokens=_usage.get("input_tokens", 0),
         output_tokens=_usage.get("output_tokens", 0),
         scan_id=scan_id, client_id=str(scan.client_id),
     )
 
-    questions = result.get("questions", [])
+    raw_questions = result.get("questions", [])
+    # Pydantic validation: drop malformed items, fail if all invalid
+    questions_validated = validate_items(
+        raw_questions, QuestionGenerated, "generate_persona_questions.questions"
+    )
+
     created = 0
-    for q in questions:
-        q_text = q.get("question", "").strip()
-        q_type = q.get("type_question", "basique")
-        if not q_text:
-            continue
+    for q in questions_validated:
         db.add(ScanQuestion(
             scan_id=scan_id,
             persona_id=persona_id,
-            question=q_text,
-            type_question=q_type,
+            question=q.question,
+            type_question=q.type_question,
             is_active=True,
         ))
         created += 1

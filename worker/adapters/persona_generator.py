@@ -11,6 +11,10 @@ import time
 
 import httpx
 
+from config import settings
+from schemas import PersonaGenerated, validate_items
+from utils import max_tokens_for
+
 logger = logging.getLogger(__name__)
 
 # 5 question types × 3 each = 15 canonical questions per persona
@@ -198,7 +202,8 @@ async def generate_all_topics(
     }
 
 
-async def _call_claude(prompt: str, api_key: str, model: str = "claude-haiku-4-5-20251001") -> dict:
+async def _call_claude(prompt: str, api_key: str, model: str | None = None) -> dict:
+    model = model or settings.task_models["generate_personas"]
     url = "https://api.anthropic.com/v1/messages"
     headers = {
         "x-api-key": api_key,
@@ -207,7 +212,7 @@ async def _call_claude(prompt: str, api_key: str, model: str = "claude-haiku-4-5
     }
     payload = {
         "model": model,
-        "max_tokens": 16384,
+        "max_tokens": max_tokens_for(model),
         "temperature": 0.5,
         "messages": [{"role": "user", "content": prompt}],
     }
@@ -251,6 +256,13 @@ async def _call_claude(prompt: str, api_key: str, model: str = "claude-haiku-4-5
     if parsed is None:
         logger.error(f"JSON extraction failed\nRaw ({len(text)} chars): {text[:2000]}")
         raise ValueError(f"Could not extract JSON from Claude response ({len(text)} chars)")
+
+    # Pydantic validation on personas (cascades to nested questions)
+    raw_personas = parsed.get("personas", [])
+    personas_validated = validate_items(
+        raw_personas, PersonaGenerated, "generate_personas.personas"
+    )
+    parsed["personas"] = [p.model_dump() for p in personas_validated]
 
     return {
         **parsed,

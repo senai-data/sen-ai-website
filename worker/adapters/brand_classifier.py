@@ -13,6 +13,10 @@ import time
 
 import httpx
 
+from config import settings
+from schemas import BrandClassification, validate_items
+from utils import max_tokens_for
+
 logger = logging.getLogger(__name__)
 
 BRAND_CLEANUP_PROMPT = """Here is a list of brand names detected in AI responses about the website {domain}.
@@ -78,6 +82,7 @@ async def classify_brands(domain: str, site_brand: str,
     )
 
     start = time.time()
+    model = settings.task_models["cleanup_brands"]
 
     url = "https://api.anthropic.com/v1/messages"
     headers = {
@@ -86,8 +91,8 @@ async def classify_brands(domain: str, site_brand: str,
         "content-type": "application/json",
     }
     payload = {
-        "model": "claude-sonnet-4-6",
-        "max_tokens": 4096,
+        "model": model,
+        "max_tokens": max_tokens_for(model, cap=4096),
         "temperature": 0.2,
         "messages": [{"role": "user", "content": prompt}],
     }
@@ -104,7 +109,13 @@ async def classify_brands(domain: str, site_brand: str,
         text = text.rsplit("```", 1)[0].strip()
 
     result = json.loads(text)
-    brands = result.get("brands", [])
+    raw_brands = result.get("brands", [])
+
+    # Pydantic validation: drop malformed items, log warnings
+    brands_validated = validate_items(
+        raw_brands, BrandClassification, "cleanup_brands.brands"
+    )
+    brands = [b.model_dump() for b in brands_validated]
 
     duration = int((time.time() - start) * 1000)
     logger.info(f"Brand cleanup: {len(unclassified)} → {len([b for b in brands if b.get('category') != 'ignore'])} brands, "

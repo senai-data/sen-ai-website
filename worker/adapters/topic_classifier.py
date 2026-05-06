@@ -11,6 +11,10 @@ from urllib.parse import urlparse
 
 import httpx
 
+from config import settings
+from schemas import BrandDetected, TopicGenerated, validate_items
+from utils import max_tokens_for
+
 logger = logging.getLogger(__name__)
 
 CLASSIFICATION_PROMPT = """Analyse l'arborescence et les mots-clés SEO du site {domain}. Classifie chaque SECTION du site dans un topic thématique SPÉCIFIQUE.
@@ -361,8 +365,9 @@ async def classify_urls_into_topics(domain: str, keywords: list[dict],
     }
 
 
-async def _call_claude(prompt: str, api_key: str, model: str = "claude-haiku-4-5-20251001") -> dict:
+async def _call_claude(prompt: str, api_key: str, model: str | None = None) -> dict:
     """Call Claude API."""
+    model = model or settings.task_models["classify_topics"]
     url = "https://api.anthropic.com/v1/messages"
     headers = {
         "x-api-key": api_key,
@@ -371,7 +376,7 @@ async def _call_claude(prompt: str, api_key: str, model: str = "claude-haiku-4-5
     }
     payload = {
         "model": model,
-        "max_tokens": 16384,
+        "max_tokens": max_tokens_for(model),
         "temperature": 0.3,
         "messages": [{"role": "user", "content": prompt}],
     }
@@ -423,14 +428,22 @@ async def _call_claude(prompt: str, api_key: str, model: str = "claude-haiku-4-5
         logger.error(f"JSON extraction failed\nRaw ({len(text)} chars): {text[:2000]}")
         raise ValueError(f"Could not extract JSON from Claude response ({len(text)} chars)")
 
-    topics = parsed.get("topics", [])
-    if not topics:
+    raw_topics = parsed.get("topics", [])
+    if not raw_topics:
         raise ValueError(f"No topics in response: {text[:500]}")
+
+    # Pydantic validation: drop malformed items, log warnings, fail if all invalid
+    topics_validated = validate_items(raw_topics, TopicGenerated, "classify_topics.topics")
+    topics = [t.model_dump() for t in topics_validated]
+
+    raw_marques = parsed.get("marques_detectees", [])
+    marques_validated = validate_items(raw_marques, BrandDetected, "classify_topics.marques")
+    marques = [m.model_dump() for m in marques_validated]
 
     return {
         "topics": topics,
         "mapping": parsed.get("mapping", {}),
-        "marques_detectees": parsed.get("marques_detectees", []),
+        "marques_detectees": marques,
         "model": model,
         "input_tokens": usage.get("input_tokens", 0),
         "output_tokens": usage.get("output_tokens", 0),

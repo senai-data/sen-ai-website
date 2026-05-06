@@ -33,6 +33,8 @@ class Settings(BaseSettings):
     model_generate_persona_questions: str = "claude-haiku-4-5-20251001"
     model_cleanup_brands: str = "claude-sonnet-4-6"
     model_generate_domain_brief: str = "gpt-4.1-mini"
+    model_generate_domain_brief_gemini: str = "gemini-2.5-flash"
+    model_generate_domain_brief_claude: str = "claude-sonnet-4-6"
     model_generate_editorial: str = "claude-sonnet-4-6"
     model_scan_test_openai: str = "gpt-4.1-mini"
     model_scan_test_gemini: str = "gemini-2.5-flash"
@@ -47,6 +49,8 @@ class Settings(BaseSettings):
             "generate_persona_questions": self.model_generate_persona_questions,
             "cleanup_brands": self.model_cleanup_brands,
             "generate_domain_brief": self.model_generate_domain_brief,
+            "generate_domain_brief_gemini": self.model_generate_domain_brief_gemini,
+            "generate_domain_brief_claude": self.model_generate_domain_brief_claude,
             "generate_editorial": self.model_generate_editorial,
             "scan_test_openai": self.model_scan_test_openai,
             "scan_test_gemini": self.model_scan_test_gemini,

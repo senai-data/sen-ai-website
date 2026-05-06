@@ -285,10 +285,12 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
                     errors += 1
                     completed += 1
 
-        # Progress update per batch (not per test — reduces DB writes)
-        scan.progress_pct = int(completed / total_tests * 100)
-        scan.progress_message = f"Scan LLM: {completed}/{total_tests} tests..."
-        db.commit()
+                # Per-test progress update (Goal-Gradient: user sees 1/6, 2/6, 3/6...
+                # rather than waiting for whole batch). Tests take ~5-15s each so
+                # the extra commits are negligible vs LLM call cost.
+                scan.progress_pct = int(completed / total_tests * 100)
+                scan.progress_message = f"Scan LLM: {completed}/{total_tests} tests..."
+                db.commit()
 
     # --- Final ---
     success = max(completed - errors, 1)

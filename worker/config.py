@@ -20,10 +20,6 @@ class Settings(BaseSettings):
     google_client_id: str = ""
     google_client_secret: str = ""
 
-    # Google Ads API
-    google_ads_developer_token: str = ""
-    google_ads_api_version: str = "v23"
-
     # Worker
     worker_id: str = "worker-1"
     poll_interval: int = 2

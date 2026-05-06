@@ -1,8 +1,8 @@
 """OAuth delegation endpoints — connect external accounts (Phase 0).
 
 Flow:
-  1. User clicks "Connect Google Ads" in /app/settings/connections
-  2. Frontend → GET /api/oauth/google/authorize?product=google_ads&client_id=X
+  1. User clicks "Connect Google Sheets" in /app/settings/connections
+  2. Frontend → GET /api/oauth/google/authorize?product=sheets&client_id=X
   3. API signs a state JWT and redirects to Google consent screen
   4. Google redirects to GET /api/oauth/google/callback?code=X&state=Y
   5. API exchanges code → tokens, encrypts, stores in oauth_connections
@@ -75,7 +75,7 @@ def _check_client_access(user, client_id: str, db: Session, require_role: str = 
 @router.get("/{provider}/authorize")
 async def oauth_authorize(
     provider: str,
-    product: str = Query(..., description="Product to connect, e.g. google_ads"),
+    product: str = Query(..., description="Product to connect, e.g. sheets"),
     client_id: str = Query(...),
     user=Depends(get_current_user),
     db: Session = Depends(get_db),

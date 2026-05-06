@@ -194,8 +194,6 @@ function timeAgo(iso: string) {
         <div class="space-y-3">
           {[
             { key: 'ai_scan', label: 'AI Scan', icon: 'search' },
-            { key: 'google_ads', label: 'Google Ads', icon: 'chart' },
-            { key: 'search_console', label: 'Search Console', icon: 'globe' },
             { key: 'local_business', label: 'Local Business', icon: 'tag' },
           ].map(mod => {
             const count = modules[mod.key] || 0;

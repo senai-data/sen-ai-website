@@ -129,11 +129,11 @@ async def admin_list_users(
     return out
 
 
-VALID_APP_KEYS = {"ai_scan", "google_ads", "local_business", "search_console"}
+VALID_APP_KEYS = {"ai_scan", "local_business"}
 
 
 class AppToggleRequest(BaseModel):
-    app_key: str          # e.g. "google_ads"
+    app_key: str          # e.g. "ai_scan"
     enabled: bool = True
     config: dict | None = None  # optional app-specific config
 
@@ -249,7 +249,7 @@ async def admin_dashboard(
 
     # Count clients per module (from apps JSONB)
     all_clients = db.query(Client.apps).all()
-    module_counts = {"ai_scan": 0, "google_ads": 0, "search_console": 0, "local_business": 0}
+    module_counts = {"ai_scan": 0, "local_business": 0}
     for (apps,) in all_clients:
         if apps:
             for key in module_counts:

@@ -16,12 +16,10 @@ from config import settings
 
 PRODUCT_SCOPES: dict[str, list[str]] = {
     # Google
-    "google_ads": ["https://www.googleapis.com/auth/adwords"],
     "ga4": ["https://www.googleapis.com/auth/analytics.readonly"],
     "gbp": ["https://www.googleapis.com/auth/business.manage"],
     "sheets": ["https://www.googleapis.com/auth/spreadsheets"],
     "drive": ["https://www.googleapis.com/auth/drive.file"],
-    "search_console": ["https://www.googleapis.com/auth/webmasters.readonly"],
     # Microsoft (stub)
     "sharepoint": ["Files.Read", "Sites.Read.All", "offline_access"],
     "onedrive": ["Files.Read", "offline_access"],
@@ -31,12 +29,10 @@ PRODUCT_SCOPES: dict[str, list[str]] = {
 
 # Maps a product to its parent provider.
 PRODUCT_PROVIDER: dict[str, str] = {
-    "google_ads": "google",
     "ga4": "google",
     "gbp": "google",
     "sheets": "google",
     "drive": "google",
-    "search_console": "google",
     "sharepoint": "microsoft",
     "onedrive": "microsoft",
     "notion": "notion",
@@ -44,7 +40,7 @@ PRODUCT_PROVIDER: dict[str, str] = {
 
 # Valid products per provider (for request validation).
 PROVIDER_PRODUCTS: dict[str, list[str]] = {
-    "google": ["google_ads", "ga4", "gbp", "sheets", "drive", "search_console"],
+    "google": ["ga4", "gbp", "sheets", "drive"],
     "microsoft": ["sharepoint", "onedrive"],
     "notion": ["notion"],
 }

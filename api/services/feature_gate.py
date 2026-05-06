@@ -4,12 +4,12 @@ Usage in a router:
 
     from services.feature_gate import require_app
 
-    @router.get("/campaigns")
-    async def list_campaigns(
-        client=Depends(require_app("google_ads")),
+    @router.get("/scans")
+    async def list_scans(
+        client=Depends(require_app("ai_scan")),
         ...
     ):
-        # client is the Client row, guaranteed to have google_ads enabled
+        # client is the Client row, guaranteed to have ai_scan enabled
         ...
 
 Returns the Client object so downstream code can read client.id, client.apps, etc.

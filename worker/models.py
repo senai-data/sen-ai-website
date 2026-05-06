@@ -97,7 +97,7 @@ class ClientModule(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     client_id = Column(UUID(as_uuid=True), ForeignKey("clients.id"), nullable=False)
-    module_key = Column(String(50), nullable=False)  # "ai_scan", "store_impact", "google_ads"
+    module_key = Column(String(50), nullable=False)  # "ai_scan", "store_impact"
     is_active = Column(Boolean, default=True)
     activated_at = Column(DateTime, default=datetime.utcnow)
 
@@ -429,25 +429,6 @@ class LlmUsageLog(Base):
     scan_id = Column(UUID(as_uuid=True), ForeignKey("scans.id", ondelete="SET NULL"))
     client_id = Column(UUID(as_uuid=True), ForeignKey("clients.id", ondelete="SET NULL"))
     error = Column(Boolean, nullable=False, default=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
-
-
-class SyncRun(Base):
-    """Tracks each data sync operation."""
-    __tablename__ = "sync_runs"
-
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    client_id = Column(UUID(as_uuid=True), ForeignKey("clients.id", ondelete="CASCADE"), nullable=False)
-    connection_id = Column(UUID(as_uuid=True), ForeignKey("oauth_connections.id", ondelete="CASCADE"), nullable=False)
-    sync_type = Column(String(50), nullable=False)
-    status = Column(String(20), nullable=False, default="pending")
-    date_from = Column(DateTime)
-    date_to = Column(DateTime)
-    config = Column(JSONB, default={})
-    stats = Column(JSONB, default={})
-    started_at = Column(DateTime)
-    completed_at = Column(DateTime)
-    error_message = Column(Text)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 

@@ -188,9 +188,13 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
     # B.2: coherence checks on the new questions (off_topic + duplicates).
     # Run on the validated list combined with the persona context (mots_cles_associes
     # come from persona.data which was set when the persona was created).
+    persona_data = persona.data or {}
     persona_dict = {
         "nom": persona.name,
-        "mots_cles_associes": (persona.data or {}).get("mots_cles_associes", []),
+        "segment_principal": topic_name,
+        "mots_cles_associes": persona_data.get("mots_cles_associes", []),
+        "intentions_recherche": persona_data.get("intentions_recherche", []),
+        "points_douleur": persona_data.get("points_douleur", []),
     }
     validated_dicts = [{"question": q.question, "type_question": q.type_question}
                        for q in questions_validated]
@@ -199,6 +203,27 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
         + detect_duplicate_questions(persona_dict, validated_dicts)
     )
     new_warnings = type_warnings + coherence_warnings
+
+    # Tag warnings with topic name + priority based on topic traffic share
+    # (Angle B: weight by business value lost on noisy/duplicate questions).
+    if persona.topic_id:
+        topic_traffic = sum((k.traffic or 0) for k in db.query(ScanKeyword).filter(
+            ScanKeyword.scan_id == scan_id, ScanKeyword.topic_id == persona.topic_id,
+        ).all())
+        scan_total_traffic = sum((k.traffic or 0) for k in db.query(ScanKeyword).filter(
+            ScanKeyword.scan_id == scan_id,
+        ).all()) or 1
+        share = topic_traffic / scan_total_traffic
+        priority = "critical" if share >= 0.20 else "medium" if share >= 0.05 else "low"
+    else:
+        topic_traffic = 0
+        share = 0
+        priority = "low"
+    for w in new_warnings:
+        w["topic"] = topic_name
+        w["topic_traffic"] = topic_traffic
+        w["topic_share_pct"] = round(share * 100, 1)
+        w["priority"] = priority
 
     # Append (NOT replace) to scan.summary["warnings"] — this handler runs for
     # ONE custom persona; replacing would lose warnings from the bulk generator.

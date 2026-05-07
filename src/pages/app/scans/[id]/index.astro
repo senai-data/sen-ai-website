@@ -1027,15 +1027,24 @@ const isReviewing = effectiveView !== null && (
         <p class="text-sm text-charcoal-light mb-4"><span class="font-medium text-charcoal-dark">Review and toggle off</span> what you don't need. Each active question counts as 1 scan credit when you launch.</p>
 
         {/* Heuristic warnings (B.1 type inferences + B.2 coherence checks).
-            Non-blocking: shows ratio (X of Y) with severity color + per-warning Dismiss
-            + Dismiss-all bulk action. User can hide noise to focus on real signals. */}
+            Sorted by priority (critical → medium → low based on topic traffic share).
+            Filter pills + per-warning Dismiss + bulk Dismiss. Non-blocking. */}
         {(() => {
-          const warnings = (scan.summary && Array.isArray(scan.summary.warnings)) ? scan.summary.warnings : [];
-          if (warnings.length === 0) return null;
+          const warningsRaw = (scan.summary && Array.isArray(scan.summary.warnings)) ? scan.summary.warnings : [];
+          if (warningsRaw.length === 0) return null;
           const totalQ = personasData?.totals?.total_questions || 0;
+          // Priority order: critical > medium > low. Stable sort preserves order within group.
+          const prioRank: any = { critical: 0, medium: 1, low: 2 };
+          const warnings = [...warningsRaw].sort((a: any, b: any) =>
+            (prioRank[a.priority] ?? 3) - (prioRank[b.priority] ?? 3)
+          );
           const ratio = totalQ > 0 ? warnings.length / totalQ : 0;
-          // Severity color: <10% emerald, 10-30% amber, >30% red
-          const severity = ratio < 0.1 ? 'emerald' : ratio < 0.3 ? 'amber' : 'red';
+          // Critical-count drives panel severity color (not just ratio): even 5%
+          // critical warnings = red panel because they touch high-value topics.
+          const critCount = warnings.filter((w: any) => w.priority === 'critical').length;
+          const medCount = warnings.filter((w: any) => w.priority === 'medium').length;
+          const lowCount = warnings.filter((w: any) => w.priority === 'low').length;
+          const severity = critCount > 0 ? 'red' : (ratio >= 0.1 || medCount > 0) ? 'amber' : 'emerald';
           const colors: any = {
             emerald: { bg: 'bg-emerald-50/60', border: 'border-emerald-200', icon: 'text-emerald-600', text: 'text-emerald-900', subtext: 'text-emerald-700', innerBg: 'bg-white/40 border-emerald-200', hover: 'hover:bg-emerald-50' },
             amber:   { bg: 'bg-amber-50/60',   border: 'border-amber-200',   icon: 'text-amber-600',   text: 'text-amber-900',   subtext: 'text-amber-700',   innerBg: 'bg-white/40 border-amber-200',   hover: 'hover:bg-amber-50' },
@@ -1050,9 +1059,28 @@ const isReviewing = effectiveView !== null && (
             duplicate: 'duplicate',
           };
           const summaryText = Object.entries(counts).map(([t, n]) => `${n} ${labels[t] || t}`).join(' · ');
+          // Pre-compute priority for each warning index (for x-show filter)
+          const warningPrios = warnings.map((w: any) => w.priority || 'low');
           return (
             <details class:list={['mb-6 rounded-lg overflow-hidden group border', c.bg, c.border]}
-                     x-data={`{ dismissed: {}, total: ${warnings.length}, get visible() { return this.total - Object.keys(this.dismissed).filter(k => this.dismissed[k]).length; } }`}>
+                     x-data={`{
+                       dismissed: {},
+                       filter: 'all',
+                       total: ${warnings.length},
+                       prios: ${JSON.stringify(warningPrios)},
+                       passes(i) {
+                         if (this.dismissed[i]) return false;
+                         if (this.filter === 'all') return true;
+                         if (this.filter === 'critical_plus') return ['critical', 'medium'].includes(this.prios[i]);
+                         if (this.filter === 'critical') return this.prios[i] === 'critical';
+                         return true;
+                       },
+                       get visible() {
+                         let n = 0;
+                         for (let i = 0; i < this.total; i++) if (this.passes(i)) n++;
+                         return n;
+                       }
+                     }`}>
               <summary class:list={['px-4 py-2.5 cursor-pointer transition-colors flex items-center gap-2.5', c.hover]}>
                 <svg class:list={['w-4 h-4 shrink-0 transition-transform group-open:rotate-90', c.icon]} fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
@@ -1065,53 +1093,87 @@ const isReviewing = effectiveView !== null && (
                 </span>
                 <span class:list={['text-xs ml-auto', c.subtext]}>{summaryText}</span>
               </summary>
-              <div class:list={['border-t px-4 py-3 max-h-80 overflow-y-auto', c.innerBg]}>
-                <div class="flex items-center justify-between mb-3 gap-3">
-                  <p class:list={['text-[11px]', c.subtext]}>
-                    Heuristic checks — not errors. Dismiss noise to focus on real issues; toggle off questions in the list below if you don't want to spend credits on them.
-                  </p>
+              <div class:list={['border-t px-4 py-3 max-h-96 overflow-y-auto', c.innerBg]}>
+                {/* Priority filter pills + Dismiss-all */}
+                <div class="flex items-center justify-between mb-3 gap-3 flex-wrap">
+                  <div class="flex items-center gap-1.5">
+                    {[
+                      { key: 'all',           label: 'All',          n: warnings.length },
+                      { key: 'critical_plus', label: 'Critical +',   n: critCount + medCount },
+                      { key: 'critical',      label: 'Critical only', n: critCount },
+                    ].map(p => (
+                      <button type="button"
+                              @click={`filter = '${p.key}'`}
+                              :class={`filter === '${p.key}' ? 'bg-charcoal-dark text-white' : 'bg-white/70 text-charcoal-light hover:bg-white'`}
+                              class="text-[11px] px-2 py-1 rounded border border-gray-200 transition-colors flex items-center gap-1">
+                        <span>{p.label}</span>
+                        <span class="text-[10px] opacity-70">({p.n})</span>
+                      </button>
+                    ))}
+                  </div>
                   <button type="button"
-                          @click="dismissed = Object.fromEntries(Array.from({length: total}, (_, i) => [i, true]))"
+                          @click="for (let i = 0; i < total; i++) if (passes(i)) dismissed[i] = true"
                           x-show="visible > 0"
                           class:list={['shrink-0 text-[11px] px-2 py-1 rounded transition-colors whitespace-nowrap', 'bg-white/70 hover:bg-white border', c.border, c.subtext]}>
-                    Dismiss all
+                    Dismiss visible
                   </button>
                 </div>
+                <p class:list={['text-[10px] mb-2 italic', c.subtext]}>
+                  Priority weighted by topic traffic share (high-traffic topics → critical). Dismiss noise to focus.
+                </p>
                 <ul class="space-y-2">
-                  {warnings.map((w: any, i: number) => (
-                    <li class="text-xs text-charcoal-dark flex gap-2 items-start group/row" x-show={`!dismissed[${i}]`}>
-                      <span class:list={['shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium uppercase tracking-wide', {
-                        'bg-orange-100 text-orange-700': w.type === 'duplicate',
-                        'bg-amber-100 text-amber-700': w.type === 'off_topic',
-                        'bg-blue-100 text-blue-700': w.type === 'type_inferred',
-                      }]}>{labels[w.type] || w.type}</span>
-                      <div class="min-w-0 flex-1">
-                        <p class="text-charcoal-light text-[10px]">
-                          <span class="font-medium">{w.persona || '?'}</span>
-                          {w.topic && <span> · {w.topic}</span>}
-                          {w.jaccard && <span> · Jaccard {w.jaccard}</span>}
-                          {w.inferred && <span> · inferred as <span class="font-mono">{w.inferred}</span></span>}
-                        </p>
-                        {w.question && <p class="text-charcoal-dark/80 truncate" title={w.question}>{w.question}</p>}
-                        {w.question_a && (
-                          <div class="space-y-0.5 mt-0.5">
-                            <p class="text-charcoal-dark/80 truncate" title={w.question_a}>A: {w.question_a}</p>
-                            <p class="text-charcoal-dark/80 truncate" title={w.question_b}>B: {w.question_b}</p>
-                          </div>
-                        )}
-                        {w.reason && <p class:list={['text-[10px] italic', c.subtext]}>{w.reason}</p>}
-                      </div>
-                      <button type="button"
-                              @click={`dismissed[${i}] = true`}
-                              title="Dismiss this warning"
-                              class="shrink-0 w-5 h-5 rounded text-charcoal-light hover:bg-gray-200 hover:text-charcoal-dark opacity-0 group-hover/row:opacity-100 transition-opacity flex items-center justify-center">
-                        <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
-                      </button>
-                    </li>
-                  ))}
+                  {warnings.map((w: any, i: number) => {
+                    const prioColors: any = {
+                      critical: 'border-red-300 bg-red-50/40',
+                      medium:   'border-amber-300 bg-amber-50/40',
+                      low:      'border-gray-200 bg-white/40',
+                    };
+                    const prioPill: any = {
+                      critical: 'bg-red-100 text-red-700',
+                      medium:   'bg-amber-100 text-amber-700',
+                      low:      'bg-gray-100 text-gray-600',
+                    };
+                    return (
+                      <li class:list={['text-xs text-charcoal-dark flex gap-2 items-start group/row border rounded-md px-2 py-1.5', prioColors[w.priority || 'low']]}
+                          x-show={`passes(${i})`}>
+                        <span class={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium uppercase tracking-wide ${prioPill[w.priority || 'low']}`}
+                              title={`Topic share: ${w.topic_share_pct ?? '?'}% — ${w.priority || 'low'} priority`}>
+                          {w.priority || 'low'}
+                        </span>
+                        <span class:list={['shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium uppercase tracking-wide', {
+                          'bg-orange-100 text-orange-700': w.type === 'duplicate',
+                          'bg-amber-100 text-amber-700': w.type === 'off_topic',
+                          'bg-blue-100 text-blue-700': w.type === 'type_inferred',
+                        }]}>{labels[w.type] || w.type}</span>
+                        <div class="min-w-0 flex-1">
+                          <p class="text-charcoal-light text-[10px]">
+                            <span class="font-medium">{w.persona || '?'}</span>
+                            {w.topic && <span> · {w.topic}</span>}
+                            {w.topic_share_pct !== undefined && <span> · {w.topic_share_pct}% traffic share</span>}
+                            {w.jaccard && <span> · Jaccard {w.jaccard}</span>}
+                            {w.inferred && <span> · inferred as <span class="font-mono">{w.inferred}</span></span>}
+                          </p>
+                          {w.question && <p class="text-charcoal-dark/80 truncate" title={w.question}>{w.question}</p>}
+                          {w.question_a && (
+                            <div class="space-y-0.5 mt-0.5">
+                              <p class="text-charcoal-dark/80 truncate" title={w.question_a}>A: {w.question_a}</p>
+                              <p class="text-charcoal-dark/80 truncate" title={w.question_b}>B: {w.question_b}</p>
+                            </div>
+                          )}
+                          {w.reason && <p class:list={['text-[10px] italic', c.subtext]}>{w.reason}</p>}
+                        </div>
+                        <button type="button"
+                                @click={`dismissed[${i}] = true`}
+                                title="Dismiss this warning"
+                                class="shrink-0 w-5 h-5 rounded text-charcoal-light hover:bg-gray-200 hover:text-charcoal-dark opacity-0 group-hover/row:opacity-100 transition-opacity flex items-center justify-center">
+                          <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+                        </button>
+                      </li>
+                    );
+                  })}
                 </ul>
                 <p class:list={['text-[11px] mt-3 italic', c.subtext]} x-show="visible === 0">
-                  All warnings dismissed.
+                  No warnings match the current filter.
                 </p>
               </div>
             </details>

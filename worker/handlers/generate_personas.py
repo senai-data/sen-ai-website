@@ -165,6 +165,28 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
     for topic_result in result.get("topics", []):
         all_warnings.extend(topic_result.get("warnings", []) or [])
 
+    # Angle B: enrich each warning with priority based on its topic's traffic share.
+    # `traffic` already accounts for position via CTR (HaloScan-computed), so weighting
+    # by traffic alone gives us the right "business value lost" signal — questions on
+    # a high-share topic matter more than on a niche topic.
+    topic_traffic_map = {
+        t["name"]: sum((k.get("traffic") or 0) for k in t["keywords"])
+        for t in topics_with_keywords
+    }
+    scan_total_traffic = sum(topic_traffic_map.values()) or 1
+    for w in all_warnings:
+        topic = w.get("topic", "")
+        topic_t = topic_traffic_map.get(topic, 0)
+        share = topic_t / scan_total_traffic
+        if share >= 0.20:
+            w["priority"] = "critical"
+        elif share >= 0.05:
+            w["priority"] = "medium"
+        else:
+            w["priority"] = "low"
+        w["topic_traffic"] = topic_t
+        w["topic_share_pct"] = round(share * 100, 1)
+
     summary = dict(scan.summary or {})
     summary["warnings"] = all_warnings
     scan.summary = summary

@@ -95,6 +95,37 @@ if (canSeePersonas) {
 }
 const hasPersonas = personasData && (personasData.totals?.total_personas || 0) > 0;
 
+// Pick a real example for the personas info banner — from the user's actual scan data.
+// Prefer NON-BRANDED examples since the whole point of the AI scan is to measure whether
+// the brand gets recommended on generic conversational questions (branded examples would
+// mislead the user about what we're really testing).
+//   - Question  : prefer type_question === 'basique' (Claude prompt explicitly forbids
+//                 brand mentions in this type)
+//   - Keyword   : prefer lowercase entries (brand product names are typically capitalised
+//                 like "Effaclar"; generic SEO keywords like "acné inflammatoire" are not)
+const personaBannerExample = (() => {
+  if (!personasData?.topics) return null;
+  for (const t of personasData.topics) {
+    for (const p of (t.personas || [])) {
+      if (!p.is_active || !p.data?.mots_cles_associes?.length || !p.questions?.length) continue;
+      const basique = (p.questions || []).find((q: any) => q?.type_question === 'basique' && q?.is_active !== false);
+      const question = basique?.question || p.questions[0]?.question;
+      if (!question) continue;
+      const lowercaseKw = (p.data.mots_cles_associes || []).find(
+        (k: any) => typeof k === 'string' && k.length > 0 && k === k.toLowerCase()
+      );
+      const keyword = lowercaseKw || p.data.mots_cles_associes[0];
+      return {
+        personaName: p.name,
+        topicName: t.topic_name,
+        keyword,
+        question,
+      };
+    }
+  }
+  return null;
+})();
+
 // Fetch domain brief
 let briefData: any = null;
 try {
@@ -1026,6 +1057,35 @@ const isReviewing = effectiveView !== null && (
         <p class="text-charcoal-light mb-2">For each topic, we generated personas — real people who'd ask questions about it — and the typical questions they'd ask an AI.</p>
         <p class="text-sm text-charcoal-light mb-4"><span class="font-medium text-charcoal-dark">Review and toggle off</span> what you don't need. Each active question counts as 1 scan credit when you launch.</p>
 
+        {/* Pedagogical info banner: closes the trust gap for first-time users
+            who might think "6 keywords per persona" feels too thin or arbitrary.
+            Explains the design philosophy: persona = ONE archetype, questions
+            cover semantic variations, not literal keyword bashing. */}
+        <details class="mb-5 bg-blue-50/50 border border-blue-100 rounded-lg overflow-hidden group">
+          <summary class="px-4 py-2.5 cursor-pointer hover:bg-blue-50 transition-colors flex items-center gap-2">
+            <svg class="w-4 h-4 text-blue-500 shrink-0 transition-transform group-open:rotate-90" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
+            </svg>
+            <svg class="w-4 h-4 text-blue-500 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>
+            </svg>
+            <span class="text-sm font-medium text-blue-900">Why these personas matter for your brand</span>
+          </summary>
+          <div class="px-4 py-3 border-t border-blue-100 text-xs text-blue-900/90 leading-relaxed space-y-2">
+            <p>Each <strong>persona</strong> belongs to a <strong>topic</strong> and represents one type of user who'd ask ChatGPT or Gemini about that topic. The keywords show what they search for; the 15 questions test how they'd actually chat with AI — and whether <strong>your brand gets recommended</strong>.</p>
+            {personaBannerExample ? (
+              <p class="bg-white/60 rounded px-2.5 py-1.5 border border-blue-100">
+                <span class="font-medium">Example from your scan</span> · For the topic <span class="font-medium">{personaBannerExample.topicName}</span>, the persona <span class="font-medium">{personaBannerExample.personaName}</span> might type <span class="font-mono">"{personaBannerExample.keyword}"</span> in a Google search. But on ChatGPT, the same persona asks <span class="font-mono">"{personaBannerExample.question}"</span> — without naming a single brand. We measure whether AI <strong>spontaneously recommends your brand</strong> in that kind of conversation.
+              </p>
+            ) : (
+              <p class="bg-white/60 rounded px-2.5 py-1.5 border border-blue-100 italic text-blue-800/70">
+                Generate at least one persona to see a real example from your own scan here.
+              </p>
+            )}
+            <p>One persona = one angle on your topic. Click <span class="font-medium">+ Add persona</span> on a topic to test more types of users.</p>
+          </div>
+        </details>
+
         {/* Heuristic warnings (B.1 type inferences + B.2 coherence checks).
             Sorted by priority (critical → medium → low based on topic traffic share).
             Filter pills + per-warning Dismiss + bulk Dismiss. Non-blocking. */}
@@ -1136,6 +1196,28 @@ const isReviewing = effectiveView !== null && (
                     // Inline x-show condition with direct prop access — most reliable Alpine reactivity.
                     // The row's priority is server-side known, so we just compare filter to that constant.
                     const prio = w.priority || 'low';
+                    // Resolve the persona's actual context (keywords + intentions + pains) to surface
+                    // as a tooltip on the warning reason text — gives user the data behind the heuristic
+                    // without forcing them to scroll down to find the persona.
+                    const personaCtx = (() => {
+                      if (!personasData?.topics) return null;
+                      for (const t of personasData.topics) {
+                        const p = (t.personas || []).find((pp: any) => pp.name === w.persona);
+                        if (p) return p.data || null;
+                      }
+                      return null;
+                    })();
+                    const reasonTooltip = (() => {
+                      if (!personaCtx) return w.reason || '';
+                      const parts = [];
+                      const kws = personaCtx.mots_cles_associes;
+                      if (kws?.length) parts.push(`KEYWORDS (${kws.length}): ${kws.join(', ')}`);
+                      const intents = personaCtx.intentions_recherche;
+                      if (intents?.length) parts.push(`INTENTIONS: ${intents.join(' · ')}`);
+                      const pains = personaCtx.points_douleur;
+                      if (pains?.length) parts.push(`PAIN POINTS: ${pains.join(' · ')}`);
+                      return parts.length ? parts.join('\n\n') : (w.reason || '');
+                    })();
                     return (
                       <li class:list={['text-xs text-charcoal-dark flex gap-2 items-start group/row border rounded-md px-2 py-1.5', prioColors[prio]]}
                           x-show={`!dismissed[${i}] && (filter === 'all' || filter === '${prio}')`}>
@@ -1163,7 +1245,12 @@ const isReviewing = effectiveView !== null && (
                               <p class="text-charcoal-dark/80 truncate" title={w.question_b}>B: {w.question_b}</p>
                             </div>
                           )}
-                          {w.reason && <p class:list={['text-[10px] italic', c.subtext]}>{w.reason}</p>}
+                          {w.reason && (
+                            <p class:list={['text-[10px] italic cursor-help underline decoration-dotted decoration-1 underline-offset-2', c.subtext]}
+                               title={reasonTooltip}>
+                              {w.reason}
+                            </p>
+                          )}
                         </div>
                         <button type="button"
                                 @click={`dismissed = {...dismissed, [${i}]: true}`}
@@ -1297,13 +1384,67 @@ const isReviewing = effectiveView !== null && (
                       </svg>
                     </div>
 
-                    <!-- Expanded: questions grouped by type (Miller's Law: ~4 groups vs 15 flat items) -->
-                    <div x-show="expandedPersona[persona.id]" x-transition class="border-t border-gray-100 px-3 py-3 space-y-2">
+                    <!-- Expanded: persona context + questions grouped by type (Miller's Law: ~4 groups vs 15 flat items) -->
+                    <div x-show="expandedPersona[persona.id]" x-transition class="border-t border-gray-100 px-3 py-3 space-y-3">
                       <!-- Generating spinner -->
                       <div x-show="generatingPersonaId === persona.id" class="flex items-center gap-2 py-3 justify-center">
                         <svg class="animate-spin h-4 w-4 text-coral" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
                         <span class="text-xs text-charcoal-light">Generating 15 questions...</span>
                       </div>
+
+                      <!-- Persona context (Recognition over Recall + Aesthetic-Usability):
+                           shows what shaped this persona before the user reviews questions -->
+                      <div x-show="persona.data && (persona.data.mots_cles_associes?.length || persona.data.intentions_recherche?.length || persona.data.points_douleur?.length)"
+                           class="rounded-lg bg-gray-50/70 border border-gray-100 px-3 py-2.5 space-y-2.5">
+
+                        <!-- Keywords as chips: visible anchor between persona and topic -->
+                        <template x-if="persona.data?.mots_cles_associes?.length">
+                          <div>
+                            <div class="flex items-baseline justify-between gap-2 mb-1.5">
+                              <p class="text-[10px] uppercase tracking-wide text-charcoal-light font-semibold">Keywords that shaped this persona</p>
+                              <p class="text-[10px] text-charcoal-light/70 italic">
+                                <span x-text="persona.data.mots_cles_associes.length"></span><span> of </span><span x-text="topic.keyword_count || '?'"></span><span> in topic</span>
+                              </p>
+                            </div>
+                            <div class="flex flex-wrap gap-1">
+                              <template x-for="kw in persona.data.mots_cles_associes" :key="kw">
+                                <span class="inline-flex items-center text-[10px] px-1.5 py-0.5 rounded bg-white border border-gray-200 text-charcoal-dark" x-text="kw"></span>
+                              </template>
+                            </div>
+                          </div>
+                        </template>
+
+                        <!-- Intentions de recherche: what the persona is trying to do -->
+                        <template x-if="persona.data?.intentions_recherche?.length">
+                          <div>
+                            <p class="text-[10px] uppercase tracking-wide text-charcoal-light font-semibold mb-1">Intentions de recherche</p>
+                            <ul class="space-y-0.5">
+                              <template x-for="intent in persona.data.intentions_recherche" :key="intent">
+                                <li class="text-[11px] text-charcoal-dark leading-snug flex gap-1.5">
+                                  <span class="text-charcoal-light/60 shrink-0">·</span>
+                                  <span x-text="intent"></span>
+                                </li>
+                              </template>
+                            </ul>
+                          </div>
+                        </template>
+
+                        <!-- Points de douleur: what bothers them today (drives urgency) -->
+                        <template x-if="persona.data?.points_douleur?.length">
+                          <div>
+                            <p class="text-[10px] uppercase tracking-wide text-charcoal-light font-semibold mb-1">Points de douleur</p>
+                            <ul class="space-y-0.5">
+                              <template x-for="pain in persona.data.points_douleur" :key="pain">
+                                <li class="text-[11px] text-charcoal-dark leading-snug flex gap-1.5">
+                                  <span class="text-charcoal-light/60 shrink-0">·</span>
+                                  <span x-text="pain"></span>
+                                </li>
+                              </template>
+                            </ul>
+                          </div>
+                        </template>
+                      </div>
+
                       <!-- Law of Common Region: each type group in its own container -->
                       <template x-for="group in groupQuestionsByType(persona.questions)" :key="group.type">
                         <div class="rounded-lg border border-gray-100 overflow-hidden">

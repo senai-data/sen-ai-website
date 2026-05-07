@@ -1321,6 +1321,7 @@ async def get_personas(scan_id: str, user=Depends(get_current_user), db: Session
             "topic_id": str(t.id),
             "topic_name": t.name,
             "topic_is_active": bool(t.is_active),
+            "keyword_count": t.keyword_count or 0,  # exposed for personas UI ("X of N keywords in topic")
             "personas": t_personas_serialized,
             "stats": {
                 "total_personas": len(t_personas_serialized),

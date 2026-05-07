@@ -158,6 +158,19 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
                 ))
                 stored_questions += 1
 
+    # Aggregate per-topic warnings (B.1 type inference + B.2 coherence checks)
+    # Stored in scan.summary["warnings"] for UI surfacing on Personas page.
+    # Replaces any prior warnings since this handler regenerates all personas.
+    all_warnings = []
+    for topic_result in result.get("topics", []):
+        all_warnings.extend(topic_result.get("warnings", []) or [])
+
+    summary = dict(scan.summary or {})
+    summary["warnings"] = all_warnings
+    scan.summary = summary
+    from sqlalchemy.orm.attributes import flag_modified
+    flag_modified(scan, "summary")
+
     # Update scan status
     scan.status = "personas_ready"
     scan.progress_pct = 100
@@ -167,13 +180,14 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
 
     logger.info(
         f"Generated {stored_personas} personas + {stored_questions} questions "
-        f"in {result.get('duration_ms')}ms (parallel)"
+        f"in {result.get('duration_ms')}ms (parallel) — {len(all_warnings)} warnings"
     )
 
     return {
         "personas_count": stored_personas,
         "questions_count": stored_questions,
         "questions_per_persona": QUESTIONS_PER_PERSONA,
+        "warnings_count": len(all_warnings),
         "duration_ms": result.get("duration_ms"),
         "total_tokens": result.get("input_tokens", 0) + result.get("output_tokens", 0),
     }

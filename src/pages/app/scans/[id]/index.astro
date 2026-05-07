@@ -1024,7 +1024,68 @@ const isReviewing = effectiveView !== null && (
       <div x-data={`personasWizard(${JSON.stringify(personasData)}, '${id}', ${JSON.stringify((scan.config || {}).providers || ['openai'])})`}>
         <h2 class="text-xl font-bold text-charcoal-dark mb-2">Personas & Questions on <span class="text-coral">{scan.domain}</span></h2>
         <p class="text-charcoal-light mb-2">For each topic, we generated personas — real people who'd ask questions about it — and the typical questions they'd ask an AI.</p>
-        <p class="text-sm text-charcoal-light mb-6"><span class="font-medium text-charcoal-dark">Review and toggle off</span> what you don't need. Each active question counts as 1 scan credit when you launch.</p>
+        <p class="text-sm text-charcoal-light mb-4"><span class="font-medium text-charcoal-dark">Review and toggle off</span> what you don't need. Each active question counts as 1 scan credit when you launch.</p>
+
+        {/* Heuristic warnings (B.1 type inferences + B.2 coherence checks).
+            Shown collapsed by default; user can expand to review off-topic / duplicate /
+            inferred-type questions before spending credits to scan them.
+            Non-blocking: just surfaces info, doesn't disable any question. */}
+        {(() => {
+          const warnings = (scan.summary && Array.isArray(scan.summary.warnings)) ? scan.summary.warnings : [];
+          if (warnings.length === 0) return null;
+          const counts: any = {};
+          for (const w of warnings) { const t = w.type || 'unknown'; counts[t] = (counts[t] || 0) + 1; }
+          const labels: any = {
+            type_inferred: 'type inferred',
+            off_topic: 'off-topic',
+            duplicate: 'duplicate',
+          };
+          const summaryText = Object.entries(counts).map(([t, n]) => `${n} ${labels[t] || t}`).join(' · ');
+          return (
+            <details class="mb-6 bg-amber-50/60 border border-amber-200 rounded-lg overflow-hidden group">
+              <summary class="px-4 py-2.5 cursor-pointer hover:bg-amber-50 transition-colors flex items-center gap-2.5">
+                <svg class="w-4 h-4 text-amber-600 shrink-0 transition-transform group-open:rotate-90" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
+                </svg>
+                <svg class="w-4 h-4 text-amber-600 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+                </svg>
+                <span class="text-sm font-medium text-amber-900">{warnings.length} question{warnings.length > 1 ? 's' : ''} flagged for review</span>
+                <span class="text-xs text-amber-700 ml-auto">{summaryText}</span>
+              </summary>
+              <div class="border-t border-amber-200 px-4 py-3 max-h-80 overflow-y-auto bg-white/40">
+                <p class="text-[11px] text-amber-800 mb-3">Heuristic checks — not errors. Review these and edit / disable any that aren't worth a scan credit.</p>
+                <ul class="space-y-2">
+                  {warnings.map((w: any, i: number) => (
+                    <li class="text-xs text-charcoal-dark flex gap-2">
+                      <span class={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium uppercase tracking-wide ${
+                        w.type === 'duplicate' ? 'bg-orange-100 text-orange-700' :
+                        w.type === 'off_topic' ? 'bg-amber-100 text-amber-700' :
+                        'bg-blue-100 text-blue-700'
+                      }`}>{labels[w.type] || w.type}</span>
+                      <div class="min-w-0 flex-1">
+                        <p class="text-charcoal-light text-[10px]">
+                          <span class="font-medium">{w.persona || '?'}</span>
+                          {w.topic && <span> · {w.topic}</span>}
+                          {w.jaccard && <span> · Jaccard {w.jaccard}</span>}
+                          {w.inferred && <span> · inferred as <span class="font-mono">{w.inferred}</span></span>}
+                        </p>
+                        {w.question && <p class="text-charcoal-dark/80 truncate" title={w.question}>{w.question}</p>}
+                        {w.question_a && (
+                          <div class="space-y-0.5 mt-0.5">
+                            <p class="text-charcoal-dark/80 truncate" title={w.question_a}>A: {w.question_a}</p>
+                            <p class="text-charcoal-dark/80 truncate" title={w.question_b}>B: {w.question_b}</p>
+                          </div>
+                        )}
+                        {w.reason && <p class="text-amber-700 text-[10px] italic">{w.reason}</p>}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </details>
+          );
+        })()}
 
         <!-- Topic cards (same UX as Gate 1 Topics screen) -->
         <div class="space-y-2 mb-6">

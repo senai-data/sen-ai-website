@@ -12,6 +12,7 @@ import time
 import httpx
 
 from config import settings
+from heuristics import normalize_question_types, validate_question_coherence
 from schemas import PersonaGenerated, validate_items
 from utils import max_tokens_for
 
@@ -113,6 +114,11 @@ async def generate_for_topic(
         f"{sum(len(p.get('questions', [])) for p in personas)} questions in {duration_ms}ms"
     )
 
+    # Tag warnings with the topic so the UI can group them later
+    topic_warnings = []
+    for w in result.get("warnings", []) or []:
+        topic_warnings.append({**w, "topic": topic_name})
+
     return {
         "topic_name": topic_name,
         "personas": personas,
@@ -120,6 +126,7 @@ async def generate_for_topic(
         "input_tokens": result.get("input_tokens", 0),
         "output_tokens": result.get("output_tokens", 0),
         "duration_ms": duration_ms,
+        "warnings": topic_warnings,
     }
 
 
@@ -257,16 +264,27 @@ async def _call_claude(prompt: str, api_key: str, model: str | None = None) -> d
         logger.error(f"JSON extraction failed\nRaw ({len(text)} chars): {text[:2000]}")
         raise ValueError(f"Could not extract JSON from Claude response ({len(text)} chars)")
 
-    # Pydantic validation on personas (cascades to nested questions)
+    # Pydantic validation on personas (cascades to nested questions).
+    # Pre-step (B.1): infer missing/invalid type_question values via heuristic so
+    # they don't get dropped by Literal validation. Returns warnings about each
+    # inference for audit/UI surfacing.
     raw_personas = parsed.get("personas", [])
+    type_warnings = normalize_question_types(raw_personas)
+
     personas_validated = validate_items(
         raw_personas, PersonaGenerated, "generate_personas.personas"
     )
     parsed["personas"] = [p.model_dump() for p in personas_validated]
+
+    # Post-step (B.2): coherence checks on validated personas
+    # (off_topic + duplicate Jaccard >0.7). Warnings are non-blocking — surfaced
+    # in the UI Personas page so the user can review/edit before launching scan.
+    coherence_warnings = validate_question_coherence(parsed["personas"])
 
     return {
         **parsed,
         "model": model,
         "input_tokens": usage.get("input_tokens", 0),
         "output_tokens": usage.get("output_tokens", 0),
+        "warnings": type_warnings + coherence_warnings,
     }

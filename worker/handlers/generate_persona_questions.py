@@ -13,6 +13,11 @@ from datetime import datetime
 import httpx
 from sqlalchemy.orm import Session
 
+from heuristics import (
+    detect_duplicate_questions,
+    detect_off_topic_questions,
+    normalize_question_types,
+)
 from schemas import QuestionGenerated, validate_items
 from utils import max_tokens_for
 
@@ -155,6 +160,15 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
     )
 
     raw_questions = result.get("questions", [])
+
+    # B.1: infer missing/invalid type_question via heuristic so the item isn't
+    # dropped by Pydantic Literal validation. We wrap each question dict in a
+    # fake "persona" so normalize_question_types can mutate it in place.
+    type_warnings = normalize_question_types([{
+        "nom": persona.name,
+        "questions": raw_questions,
+    }])
+
     # Pydantic validation: drop malformed items, fail if all invalid
     questions_validated = validate_items(
         raw_questions, QuestionGenerated, "generate_persona_questions.questions"
@@ -171,9 +185,34 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
         ))
         created += 1
 
+    # B.2: coherence checks on the new questions (off_topic + duplicates).
+    # Run on the validated list combined with the persona context (mots_cles_associes
+    # come from persona.data which was set when the persona was created).
+    persona_dict = {
+        "nom": persona.name,
+        "mots_cles_associes": (persona.data or {}).get("mots_cles_associes", []),
+    }
+    validated_dicts = [{"question": q.question, "type_question": q.type_question}
+                       for q in questions_validated]
+    coherence_warnings = (
+        detect_off_topic_questions(persona_dict, validated_dicts)
+        + detect_duplicate_questions(persona_dict, validated_dicts)
+    )
+    new_warnings = type_warnings + coherence_warnings
+
+    # Append (NOT replace) to scan.summary["warnings"] — this handler runs for
+    # ONE custom persona; replacing would lose warnings from the bulk generator.
+    if new_warnings:
+        from sqlalchemy.orm.attributes import flag_modified
+        summary = dict(scan.summary or {})
+        existing = list(summary.get("warnings", []) or [])
+        summary["warnings"] = existing + new_warnings
+        scan.summary = summary
+        flag_modified(scan, "summary")
+
     db.commit()
     logger.info(
         f"Generated {created} questions for persona '{persona.name}' "
-        f"(scan {scan_id}) in {duration_ms}ms"
+        f"(scan {scan_id}) in {duration_ms}ms — {len(new_warnings)} warnings"
     )
-    return {"created": created, "duration_ms": duration_ms}
+    return {"created": created, "warnings_count": len(new_warnings), "duration_ms": duration_ms}

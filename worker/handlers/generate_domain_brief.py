@@ -238,8 +238,9 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
             f"OpenAI did not produce a usable brief for {domain}, "
             f"falling back to Gemini ({gemini_model}) with grounding"
         )
+        gemini_key = gemini_pool.next_key()
         try:
-            parsed, raw, usage = _try_gemini(domain, gemini_pool.next_key(), gemini_model)
+            parsed, raw, usage = _try_gemini(domain, gemini_key, gemini_model)
             raw_texts["gemini"] = raw
             if parsed:
                 brief = parsed
@@ -258,6 +259,9 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
                     f"Raw start: {raw[:200]}"
                 )
         except Exception as e:
+            err = str(e)
+            if "429" in err or "rate" in err.lower() or "RESOURCE_EXHAUSTED" in err:
+                gemini_pool.mark_rate_limited(gemini_key)
             logger.warning(f"Gemini request threw exception for {domain}: {e}")
 
     # ── Tier 3: Claude (training only, no web) ──────────────────────────

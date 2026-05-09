@@ -280,9 +280,10 @@ def execute(job_payload: dict, scan_id: str | None, db: Session) -> dict:
         logger.warning(
             f"Falling back to Gemini ({gemini_model}) for client brief {client_id}"
         )
+        gemini_key = gemini_pool.next_key()
         try:
             parsed, raw, usage = _try_gemini(client.name, primary_brands_block,
-                                             gemini_pool.next_key(), gemini_model)
+                                             gemini_key, gemini_model)
             raw_texts["gemini"] = raw
             if parsed:
                 brief = parsed
@@ -296,6 +297,9 @@ def execute(job_payload: dict, scan_id: str | None, db: Session) -> dict:
                     client_id=client_id,
                 )
         except Exception as e:
+            err = str(e)
+            if "429" in err or "rate" in err.lower() or "RESOURCE_EXHAUSTED" in err:
+                gemini_pool.mark_rate_limited(gemini_key)
             logger.warning(f"Gemini brief failed for client {client_id}: {e}")
 
     # ── Tier 3: Claude (training only) ──────────────────────────────────

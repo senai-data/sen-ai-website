@@ -52,6 +52,10 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
     # --- Build LLM clients ---
     # For Gemini, draw the key from GeminiKeyPool (round-robin across GEMINI_API_KEYS).
     # Single-key deployments still work: the pool falls back to GEMINI_API_KEY.
+    # NOTE: the key is drawn ONCE per scan and reused across all tests, so
+    # mark_rate_limited() can't be wired here cleanly — a 429 mid-scan is
+    # handled inside seo_llm.LLMClient retry loop. With multi-key pools,
+    # rotation kicks in on the NEXT scan, which is the practical use case.
     providers = job_payload.get("providers", ["openai"])
     gemini_pool = get_gemini_pool()
     llm_clients = {}

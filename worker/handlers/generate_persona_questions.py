@@ -32,6 +32,7 @@ Pour le site **{domain}**, génère EXACTEMENT {nb_questions} questions de test 
 
 **Persona** : {persona_name}
 **Topic** : {topic_name}
+{persona_context}
 
 ## Mots-clés du topic (triés par traffic) :
 {keywords_text}
@@ -134,10 +135,36 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
                     f"{k.keyword} ({k.traffic or '?'})" for k in kws
                 )
 
+    # Build optional persona_context block from persona.data — when the user
+    # filled the rich Add-persona modal, we feed those fields into the prompt
+    # so questions are tailored to that profile rather than generic-topic.
+    # Empty fields stay omitted (legacy quick-add behavior preserved).
+    pdata = persona.data or {}
+    ctx_parts: list[str] = []
+    profile = pdata.get("profil_demographique") or {}
+    if profile:
+        bits = []
+        if profile.get("age"): bits.append(f"âge {profile['age']}")
+        if profile.get("situation_professionnelle"): bits.append(profile["situation_professionnelle"])
+        if profile.get("niveau_expertise"): bits.append(f"niveau {profile['niveau_expertise']}")
+        if bits:
+            ctx_parts.append(f"**Profil** : {', '.join(bits)}")
+    intents = pdata.get("intentions_recherche") or []
+    if intents:
+        ctx_parts.append("**Intentions de recherche** :\n" + "\n".join(f"- {x}" for x in intents))
+    pains = pdata.get("points_douleur") or []
+    if pains:
+        ctx_parts.append("**Points de douleur** :\n" + "\n".join(f"- {x}" for x in pains))
+    user_kws = pdata.get("mots_cles_associes") or []
+    if user_kws:
+        ctx_parts.append("**Mots-clés associés (fournis par l'utilisateur)** : " + ", ".join(user_kws))
+    persona_context = ("\n\n## Profil de cette persona\n" + "\n\n".join(ctx_parts)) if ctx_parts else ""
+
     prompt = QUESTIONS_PROMPT.format(
         domain=scan.domain,
         persona_name=persona.name,
         topic_name=topic_name,
+        persona_context=persona_context,
         keywords_text=keywords_text,
         nb_questions=NB_QUESTIONS,
         per_type=QUESTIONS_PER_TYPE,

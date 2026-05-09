@@ -1735,6 +1735,121 @@ const isReviewing = effectiveView !== null && (
             </button>
           )}
         </div>
+
+        {/* + Add persona modal — replaces the legacy prompt() with a structured form.
+            Quick-add stays one field (just name); power users can expand "Optional context"
+            to pre-fill profile / intentions / pain points / keywords. Empty optional
+            fields → worker generates questions from topic context only (legacy behavior). */}
+        <div x-show="addPersonaModal.open"
+             x-cloak
+             @keydown.escape.window="closeAddPersonaModal()"
+             class="fixed inset-0 z-50 flex items-start justify-center p-4 sm:p-8 bg-charcoal-dark/40 backdrop-blur-sm overflow-y-auto"
+             @click.self="closeAddPersonaModal()">
+          <div class="bg-white rounded-xl shadow-xl w-full max-w-lg my-8 overflow-hidden"
+               @click.stop>
+            <div class="px-5 py-3.5 border-b border-gray-100 flex items-center justify-between">
+              <div class="min-w-0">
+                <h3 class="text-base font-bold text-charcoal-dark">Add a custom persona</h3>
+                <p class="text-xs text-charcoal-light mt-0.5">
+                  on topic <span class="font-medium text-charcoal-dark" x-text="addPersonaModal.topic?.topic_name"></span>
+                </p>
+              </div>
+              <button type="button" @click="closeAddPersonaModal()"
+                      class="shrink-0 w-7 h-7 rounded-md text-charcoal-light hover:bg-gray-100 hover:text-charcoal-dark transition-colors flex items-center justify-center">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+              </button>
+            </div>
+
+            <form @submit.prevent="submitAddPersona()" class="px-5 py-4 space-y-4">
+              {/* Required: name */}
+              <div>
+                <label for="add-persona-name-input" class="text-[10px] uppercase tracking-wide text-charcoal-light font-semibold">Name <span class="text-red-500">*</span></label>
+                <input id="add-persona-name-input"
+                       type="text"
+                       x-model="addPersonaModal.name"
+                       required
+                       placeholder="e.g. Marie, busy mom, dry-skin baby"
+                       class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 mt-1 outline-none focus:border-coral" />
+                <p class="text-[10px] text-charcoal-light/70 mt-1">A short identity — first name + 1-line description works well.</p>
+              </div>
+
+              {/* Optional context — collapsible to keep quick-add fast */}
+              <div class="rounded-lg border border-gray-100 bg-gray-50/40">
+                <button type="button" @click="addPersonaModal.showOptional = !addPersonaModal.showOptional"
+                        class="w-full px-3 py-2 flex items-center gap-2 text-xs text-charcoal-dark hover:bg-gray-100/60 transition-colors rounded-lg">
+                  <svg class="w-3 h-3 text-charcoal-light shrink-0 transition-transform"
+                       :class="addPersonaModal.showOptional ? 'rotate-90' : ''"
+                       fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
+                  </svg>
+                  <span class="font-medium">Optional context</span>
+                  <span class="text-[10px] text-charcoal-light/80">— helps generate more relevant questions</span>
+                </button>
+
+                <div x-show="addPersonaModal.showOptional" x-collapse class="px-3 pb-3 pt-1 space-y-3">
+                  {/* Profil démo: 3 inline fields */}
+                  <div>
+                    <label class="text-[10px] uppercase tracking-wide text-charcoal-light font-semibold">Profile</label>
+                    <div class="grid grid-cols-3 gap-2 mt-1">
+                      <input type="text" x-model="addPersonaModal.age" placeholder="Age (e.g. 28)"
+                             class="text-xs border border-gray-200 rounded-md px-2 py-1.5 outline-none focus:border-coral" />
+                      <input type="text" x-model="addPersonaModal.situation" placeholder="Situation (e.g. mère 2 enfants)"
+                             class="text-xs border border-gray-200 rounded-md px-2 py-1.5 outline-none focus:border-coral" />
+                      <select x-model="addPersonaModal.niveau"
+                              class="text-xs border border-gray-200 rounded-md px-2 py-1.5 outline-none focus:border-coral bg-white">
+                        <option value="debutant">Débutant</option>
+                        <option value="intermediaire">Intermédiaire</option>
+                        <option value="expert">Expert</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Intentions de recherche */}
+                  <div>
+                    <label class="text-[10px] uppercase tracking-wide text-charcoal-light font-semibold">Intentions de recherche</label>
+                    <textarea x-model="addPersonaModal.intentions" rows="2"
+                              placeholder="One per line — e.g.&#10;Trouver une crème adaptée&#10;Comprendre les actifs hydratants"
+                              class="w-full text-xs border border-gray-200 rounded-md px-2 py-1.5 mt-1 outline-none focus:border-coral resize-y font-mono"></textarea>
+                  </div>
+
+                  {/* Points de douleur */}
+                  <div>
+                    <label class="text-[10px] uppercase tracking-wide text-charcoal-light font-semibold">Points de douleur</label>
+                    <textarea x-model="addPersonaModal.pain" rows="2"
+                              placeholder="One per line — e.g.&#10;Peau qui tire après la douche&#10;Routine trop compliquée"
+                              class="w-full text-xs border border-gray-200 rounded-md px-2 py-1.5 mt-1 outline-none focus:border-coral resize-y font-mono"></textarea>
+                  </div>
+
+                  {/* Keywords */}
+                  <div>
+                    <label class="text-[10px] uppercase tracking-wide text-charcoal-light font-semibold">Keywords (comma-separated)</label>
+                    <input type="text" x-model="addPersonaModal.keywords"
+                           placeholder="crème hydratante, peau sèche, acide hyaluronique"
+                           class="w-full text-xs border border-gray-200 rounded-md px-2 py-1.5 mt-1 outline-none focus:border-coral" />
+                  </div>
+
+                  <p class="text-[10px] text-charcoal-light/80 italic pt-1">
+                    Leave any field empty if you don't have data — empty fields are simply ignored when generating the 15 questions.
+                  </p>
+                </div>
+              </div>
+            </form>
+
+            <div class="px-5 py-3 border-t border-gray-100 flex items-center justify-end gap-2">
+              <button type="button" @click="closeAddPersonaModal()"
+                      class="text-sm text-charcoal-light hover:text-charcoal-dark px-3 py-1.5 rounded-md hover:bg-gray-50 transition-colors">
+                Cancel
+              </button>
+              <button type="button" @click="submitAddPersona()"
+                      :disabled="!addPersonaModal.name.trim() || addPersonaModal.submitting"
+                      :class="(!addPersonaModal.name.trim() || addPersonaModal.submitting) ? 'opacity-50 cursor-not-allowed' : 'hover:bg-coral-dark'"
+                      class="text-sm bg-coral text-white px-4 py-1.5 rounded-md font-medium transition-colors">
+                <span x-show="!addPersonaModal.submitting">Add persona &amp; generate questions</span>
+                <span x-show="addPersonaModal.submitting">Adding...</span>
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
     )}
 
@@ -2122,6 +2237,23 @@ const isReviewing = effectiveView !== null && (
         generatingPersonaId: null,
         expandedTypeGroups: {},  // { 'personaId:type': true }
 
+        // "+ Add persona" modal — replaces the old prompt() with a structured form
+        // so users can OPTIONALLY pre-fill profile / intentions / pain points / keywords.
+        // Empty optional fields → questions generated from topic context only (legacy behavior).
+        addPersonaModal: {
+          open: false,
+          topic: null,           // the topic object we're adding to (carries name + topic_id)
+          name: '',
+          showOptional: false,   // collapsed by default — quick add stays one-field
+          age: '',
+          situation: '',
+          niveau: 'intermediaire',
+          intentions: '',        // multiline, 1 per line
+          pain: '',              // multiline, 1 per line
+          keywords: '',          // comma-separated
+          submitting: false,
+        },
+
         get canLaunch() {
           return this.totals.active_personas > 0 && this.totals.active_questions > 0 && this.selectedProviders.length > 0;
         },
@@ -2359,36 +2491,94 @@ const isReviewing = effectiveView !== null && (
           } catch (e) { alert('Delete failed: ' + e.message); }
         },
 
-        // --- Add persona (with auto-gen 15 questions) ---
-        async addPersona(topic) {
-          const name = prompt('Persona name:');
-          if (!name || !name.trim()) return;
+        // --- Add persona — opens the modal, real submission lives in submitAddPersona() ---
+        addPersona(topic) {
+          this.addPersonaModal.open = true;
+          this.addPersonaModal.topic = topic;
+          this.addPersonaModal.name = '';
+          this.addPersonaModal.showOptional = false;
+          this.addPersonaModal.age = '';
+          this.addPersonaModal.situation = '';
+          this.addPersonaModal.niveau = 'intermediaire';
+          this.addPersonaModal.intentions = '';
+          this.addPersonaModal.pain = '';
+          this.addPersonaModal.keywords = '';
+          this.addPersonaModal.submitting = false;
+          // Focus name field on next tick
+          this.$nextTick(() => {
+            const el = document.getElementById('add-persona-name-input');
+            if (el) el.focus();
+          });
+        },
+
+        closeAddPersonaModal() {
+          this.addPersonaModal.open = false;
+          this.addPersonaModal.topic = null;
+        },
+
+        // Build the persona.data dict from form fields. Only includes optional fields
+        // that the user actually filled — empty fields stay omitted so the worker can
+        // distinguish "user explicitly left blank" from "user provided context".
+        _buildPersonaDataFromModal() {
+          const m = this.addPersonaModal;
+          const name = m.name.trim();
+          const data = { nom: name, segment_principal: m.topic.topic_name };
+          // Profil démographique : only include if at least one subfield filled
+          const profile = {};
+          if (m.age.trim()) profile.age = m.age.trim();
+          if (m.situation.trim()) profile.situation_professionnelle = m.situation.trim();
+          if (m.niveau && m.niveau !== 'intermediaire') profile.niveau_expertise = m.niveau;
+          if (Object.keys(profile).length > 0) data.profil_demographique = profile;
+          // Multiline → array, drop empty lines
+          const splitLines = (txt) => txt.split('\n').map(s => s.trim()).filter(Boolean);
+          const intents = splitLines(m.intentions);
+          if (intents.length) data.intentions_recherche = intents;
+          const pains = splitLines(m.pain);
+          if (pains.length) data.points_douleur = pains;
+          // Keywords: comma-separated → array
+          const kws = m.keywords.split(',').map(s => s.trim()).filter(Boolean);
+          if (kws.length) data.mots_cles_associes = kws;
+          return data;
+        },
+
+        async submitAddPersona() {
+          const m = this.addPersonaModal;
+          const name = m.name.trim();
+          if (!name) { alert('Persona name is required'); return; }
+          m.submitting = true;
+          const topic = m.topic;
+          const data = this._buildPersonaDataFromModal();
           try {
             const res = await fetch('/api/scans/' + this.scanId + '/personas', {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 topic_id: topic.topic_id,
-                name: name.trim(),
-                data: { nom: name.trim(), segment_principal: topic.topic_name },
+                name: name,
+                data: data,
               }),
             });
             if (!res.ok) throw new Error('HTTP ' + res.status);
-            const data = await res.json();
+            const responseData = await res.json();
             const newPersona = {
-              id: data.id, name: data.name, topic_id: topic.topic_id,
+              id: responseData.id, name: responseData.name, topic_id: topic.topic_id,
               is_active: true,
-              data: { nom: name.trim(), segment_principal: topic.topic_name },
+              data: data,
               questions: [], stats: { total_questions: 0, active_questions: 0 },
             };
             topic.personas.push(newPersona);
             this._recomputeStats();
-            this.expandedPersona[data.id] = true;
+            this.expandedPersona[responseData.id] = true;
+            this.closeAddPersonaModal();
             // Auto-generate 15 questions via worker
-            this.generatingPersonaId = data.id;
-            fetch('/api/scans/' + this.scanId + '/personas/' + data.id + '/generate-questions', { method: 'POST' })
-              .then(() => this._pollQuestions(data.id, newPersona))
+            this.generatingPersonaId = responseData.id;
+            fetch('/api/scans/' + this.scanId + '/personas/' + responseData.id + '/generate-questions', { method: 'POST' })
+              .then(() => this._pollQuestions(responseData.id, newPersona))
               .catch(e => { this.generatingPersonaId = null; console.error(e); });
-          } catch (e) { alert('Add failed: ' + e.message); }
+          } catch (e) {
+            alert('Add failed: ' + e.message);
+          } finally {
+            this.addPersonaModal.submitting = false;
+          }
         },
 
         _pollQuestions(personaId, personaObj) {

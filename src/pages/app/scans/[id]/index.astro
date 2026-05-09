@@ -2590,6 +2590,19 @@ const isReviewing = effectiveView !== null && (
               for (const t of (data.topics || [])) {
                 const p = t.personas.find(p => p.id === personaId);
                 if (p && p.questions && p.questions.length > 0) {
+                  // Replace the persona IN PLACE in the local topics array via splice so
+                  // Alpine's array proxy detects the change and re-renders the row.
+                  // Mutating personaObj.questions directly doesn't propagate reliably
+                  // (objects pushed manually into a tracked array are not always
+                  // recursively proxied in Alpine v3).
+                  for (const localTopic of this.topics) {
+                    const localIdx = localTopic.personas.findIndex(x => x.id === personaId);
+                    if (localIdx !== -1) {
+                      localTopic.personas.splice(localIdx, 1, p);
+                      break;
+                    }
+                  }
+                  // Also update personaObj for any caller still holding the original ref.
                   personaObj.questions = p.questions;
                   personaObj.stats = p.stats;
                   this.generatingPersonaId = null;

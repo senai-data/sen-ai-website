@@ -130,7 +130,12 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
                         continue
                     seen_all.add(key)
                     all_brands.append(c.name)
-                all_brands = all_brands[:30]  # Limit for token budget
+                # Limit competitor brands sent to BrandAnalyzer. Was 30 — caused JSON
+                # truncation on dense responses (28 brands → output > 20K tokens →
+                # Gemini cuts off mid-string → JSON parse fails → BrandAnalyzer skips).
+                # 15 keeps coverage of the most-mentioned competitors while staying
+                # well within the 30K-token output budget (see brand_analyzer.py:381).
+                all_brands = all_brands[:15]
 
                 if target_brands and settings.gemini_api_key:
                     from seo_llm.src.brand_analyzer import BrandAnalyzer

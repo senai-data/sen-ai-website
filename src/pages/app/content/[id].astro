@@ -1,0 +1,598 @@
+---
+/**
+ * Content Item Validation/Detail page — `/app/content/{id}`
+ *
+ * Single-item review screen for one ScanContentItem (FAQ or article).
+ * Sister page to /app/content (Kanban). Reached by clicking a card.
+ *
+ * UX Laws applied :
+ * - Fitts's Law: sticky header carries the primary CTA, always visible while scrolling
+ * - Peak-End: contextual primary CTA changes per status (Approve / Mark published / Reload)
+ * - Doherty Threshold: auto-save 2s after last keystroke + persistent save indicator
+ * - Hick's Law: ONE primary CTA at a time, secondary actions visually de-emphasized
+ * - Law of Proximity: Source / Brand promotion / Content / Workflow grouped as 4 cards
+ * - Miller's Law: source shows 5 fields max, rest behind "Show more"
+ * - Postel's: Visual/HTML toggle for content editor (liberal display, conservative storage)
+ * - Jakob's: breadcrumb navigation matches webapp convention
+ * - Goal-Gradient: activity timeline shows journey done + step ahead
+ * - Aesthetic-Usability: confirmation modal for destructive actions (Reject)
+ */
+export const prerender = false;
+import DashboardLayout from '../../../layouts/DashboardLayout.astro';
+
+const token = Astro.cookies.get('token')?.value;
+if (!token) return Astro.redirect('/login');
+
+const { id: itemId } = Astro.params;
+
+let item: any = null;
+let notFound = false;
+
+try {
+  const res = await fetch(`http://api:8000/api/content-items/${itemId}`, {
+    headers: { Cookie: `token=${token}` },
+    signal: AbortSignal.timeout(5000),
+  });
+  if (res.status === 404) {
+    notFound = true;
+  } else if (res.ok) {
+    item = await res.json();
+  }
+} catch (e) {}
+
+// Lifecycle/status meta
+function statusLabel(s: string): string {
+  const m: Record<string, string> = {
+    identified: 'IDENTIFIED', generating: 'GENERATING',
+    draft: 'DRAFT', in_review: 'IN REVIEW',
+    approved: 'APPROVED', published: 'PUBLISHED', rejected: 'REJECTED',
+  };
+  return m[s] || (s || '').toUpperCase();
+}
+function statusBadge(s: string): string {
+  if (s === 'identified' || s === 'generating') return 'bg-red-100 text-red-700';
+  if (s === 'draft' || s === 'in_review') return 'bg-amber-100 text-amber-700';
+  if (s === 'approved') return 'bg-blue-100 text-blue-700';
+  if (s === 'published') return 'bg-emerald-100 text-emerald-700';
+  if (s === 'rejected') return 'bg-gray-200 text-gray-600';
+  return 'bg-gray-100 text-gray-600';
+}
+function priorityClass(p: string): string {
+  if (p === 'critique') return 'bg-red-100 text-red-700';
+  if (p === 'haute') return 'bg-amber-100 text-amber-700';
+  if (p === 'moyenne') return 'bg-blue-100 text-blue-700';
+  return 'bg-gray-100 text-gray-600';
+}
+function typeLabel(t: string): string {
+  if (t === 'faq') return 'FAQ';
+  if (t === 'netlinking_article') return 'ARTICLE';
+  return t || '—';
+}
+function fmtDate(iso: string | null): string {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+---
+
+<DashboardLayout title="Content item" activeSection="content">
+
+{notFound ? (
+  <div class="p-8 max-w-3xl">
+    <h1 class="text-xl font-bold text-charcoal-dark mb-2">Content item not found</h1>
+    <p class="text-sm text-charcoal-light mb-6">This item may have been deleted, or the URL is wrong.</p>
+    <a href="/app/content" class="inline-flex items-center gap-2 px-4 py-2 bg-coral text-white rounded-lg text-sm font-medium hover:bg-coral-dark">
+      ← Back to Content pipeline
+    </a>
+  </div>
+) : item ? (
+  <div x-data={`contentItem(${JSON.stringify(item)})`}
+       @keydown.window={`(e.target.tagName !== 'TEXTAREA' && e.target.tagName !== 'INPUT') && handleShortcut(e)`}>
+
+    {/* ═══════ STICKY HEADER (Fitts's + Peak-End) ═══════ */}
+    <div class="sticky top-0 z-20 bg-white border-b border-gray-200 shadow-sm">
+      <div class="px-8 py-3 max-w-7xl">
+        {/* Breadcrumb (Jakob's) */}
+        <div class="flex items-center gap-2 text-xs text-charcoal-light mb-2">
+          <a href="/app/content" class="hover:text-coral">Content</a>
+          <span>›</span>
+          <span x-text={`'${typeLabel(item.content_type)}'`}></span>
+          <span>›</span>
+          <span class="text-charcoal-dark truncate max-w-md" x-text={`item.topic_name || 'Untitled'`}></span>
+        </div>
+
+        {/* Status row + primary CTA + save indicator */}
+        <div class="flex items-center justify-between gap-4 flex-wrap">
+          <div class="flex items-center gap-3 flex-wrap">
+            <span class={`text-[10px] font-bold rounded px-2 py-1 ${statusBadge(item.status)}`}
+                  x-text={`statusLabelOf(item.status)`}></span>
+            {item.priority && (
+              <span class={`text-[10px] font-bold rounded px-2 py-1 ${priorityClass(item.priority)}`}>
+                {item.priority?.toUpperCase()}
+              </span>
+            )}
+            <span class="text-xs text-charcoal-light">
+              <span class="font-medium text-charcoal-dark" x-text="item.scan_domain"></span>
+              <span class="mx-1">·</span>
+              <a href={`/app/scans/${item.scan_id}/results`} class="text-coral hover:underline" x-text={`'scan: ' + (item.scan_name || 'untitled')`}></a>
+            </span>
+          </div>
+
+          <div class="flex items-center gap-3">
+            {/* Save indicator (Doherty) */}
+            <span class="text-[11px] tabular-nums" :class="saveStateClass()" x-text="saveStateLabel()"></span>
+
+            {/* Primary CTA — contextual per status (Hick's + Peak-End) */}
+            <template x-if="item.status === 'draft' || item.status === 'in_review'">
+              <button @click="approve()" :disabled="saving"
+                      :class="saving ? 'opacity-50 cursor-not-allowed' : 'hover:bg-coral-dark hover:shadow-md'"
+                      class="px-4 py-2 bg-coral text-white rounded-lg text-sm font-semibold transition-all flex items-center gap-2"
+                      title="A">
+                ✓ Approve
+              </button>
+            </template>
+            <template x-if="item.status === 'approved'">
+              <button @click="openPublishModal = true" :disabled="saving"
+                      class="px-4 py-2 bg-coral text-white rounded-lg text-sm font-semibold hover:bg-coral-dark hover:shadow-md transition-all flex items-center gap-2">
+                📤 Mark as published
+              </button>
+            </template>
+            <template x-if="item.status === 'published'">
+              <button class="px-4 py-2 bg-gray-100 text-gray-400 rounded-lg text-sm font-semibold cursor-not-allowed flex items-center gap-2"
+                      disabled
+                      title="Position tracking refresh — coming soon">
+                🔄 Reload metrics
+              </button>
+            </template>
+            <template x-if="item.status === 'identified' || item.status === 'generating'">
+              <button class="px-4 py-2 bg-gray-100 text-gray-400 rounded-lg text-sm font-semibold cursor-not-allowed flex items-center gap-2"
+                      disabled
+                      title="Generate FAQ / Article — coming in Phase B/C">
+                ⚡ Generate (Phase B/C)
+              </button>
+            </template>
+            <template x-if="item.status === 'rejected'">
+              <span class="text-xs text-gray-500 italic">Rejected · no further action</span>
+            </template>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {/* ═══════ MAIN GRID ═══════ */}
+    <div class="px-8 py-6 max-w-7xl grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+      {/* Left column (2/3): source + content + workflow */}
+      <div class="lg:col-span-2 space-y-6">
+
+        {/* Source (Miller's Law: 5 fields max visible, rest collapsed) */}
+        <section class="bg-white rounded-xl border border-gray-200 p-5">
+          <h2 class="text-sm font-semibold text-charcoal-dark mb-3 flex items-center justify-between">
+            <span>Source</span>
+            <button @click="showMore = !showMore" class="text-[11px] text-coral hover:underline" x-text="showMore ? 'Show less' : 'Show more'"></button>
+          </h2>
+          <dl class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3 text-sm">
+            <div>
+              <dt class="text-[10px] uppercase tracking-wide text-charcoal-light">Topic</dt>
+              <dd class="text-charcoal-dark mt-0.5" x-text="item.topic_name || '—'"></dd>
+            </div>
+            <div>
+              <dt class="text-[10px] uppercase tracking-wide text-charcoal-light">Persona</dt>
+              <dd class="text-charcoal-dark mt-0.5" x-text="item.persona_name || '—'"></dd>
+            </div>
+            <div class="sm:col-span-2">
+              <dt class="text-[10px] uppercase tracking-wide text-charcoal-light">Question</dt>
+              <dd class="text-charcoal-dark mt-0.5 italic" x-text="item.target_question || '—'"></dd>
+            </div>
+            <div class="sm:col-span-2">
+              <dt class="text-[10px] uppercase tracking-wide text-charcoal-light">Target URL</dt>
+              <dd class="mt-0.5">
+                <template x-if="item.target_url">
+                  <a :href="item.target_url" target="_blank" rel="noopener" class="text-coral hover:underline break-all" x-text="item.target_url"></a>
+                </template>
+                <template x-if="!item.target_url">
+                  <span class="text-charcoal-light">—</span>
+                </template>
+              </dd>
+            </div>
+            <div>
+              <dt class="text-[10px] uppercase tracking-wide text-charcoal-light">Opportunity score</dt>
+              <dd class="text-charcoal-dark font-semibold mt-0.5" x-text="item.opportunity_score != null ? Math.round(item.opportunity_score) : '—'"></dd>
+            </div>
+            <div>
+              <dt class="text-[10px] uppercase tracking-wide text-charcoal-light">Brand position (before)</dt>
+              <dd class="text-charcoal-dark mt-0.5" x-text="item.brand_position != null ? item.brand_position.toFixed(1) : '—'"></dd>
+            </div>
+
+            {/* Show more (collapsed by default) */}
+            <template x-if="showMore">
+              <div>
+                <dt class="text-[10px] uppercase tracking-wide text-charcoal-light">Best competitor</dt>
+                <dd class="text-charcoal-dark mt-0.5" x-text="item.best_competitor || '—'"></dd>
+              </div>
+            </template>
+            <template x-if="showMore">
+              <div>
+                <dt class="text-[10px] uppercase tracking-wide text-charcoal-light">Competitors cited</dt>
+                <dd class="text-charcoal-dark mt-0.5" x-text="item.nb_competitors_cited != null ? item.nb_competitors_cited : '—'"></dd>
+              </div>
+            </template>
+            <template x-if="showMore && item.estimated_price != null">
+              <div>
+                <dt class="text-[10px] uppercase tracking-wide text-charcoal-light">Estimated price</dt>
+                <dd class="text-charcoal-dark mt-0.5" x-text="'€' + item.estimated_price.toFixed(0)"></dd>
+              </div>
+            </template>
+            <template x-if="showMore && item.platform_link">
+              <div>
+                <dt class="text-[10px] uppercase tracking-wide text-charcoal-light">Platform link</dt>
+                <dd class="mt-0.5"><a :href="item.platform_link" target="_blank" rel="noopener" class="text-coral hover:underline" x-text="item.platform_link"></a></dd>
+              </div>
+            </template>
+          </dl>
+        </section>
+
+        {/* Content editor (Postel's Law: Visual/HTML toggle) */}
+        <section class="bg-white rounded-xl border border-gray-200">
+          <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
+            <h2 class="text-sm font-semibold text-charcoal-dark">Content</h2>
+            <div class="flex items-center gap-1 bg-gray-100 rounded-md p-0.5">
+              <button @click="editorMode = 'visual'"
+                      :class="editorMode === 'visual' ? 'bg-white text-charcoal-dark shadow-sm' : 'text-charcoal-light'"
+                      class="px-3 py-1 text-[11px] rounded font-medium transition-all">Visual</button>
+              <button @click="editorMode = 'html'"
+                      :class="editorMode === 'html' ? 'bg-white text-charcoal-dark shadow-sm' : 'text-charcoal-light'"
+                      class="px-3 py-1 text-[11px] rounded font-medium transition-all">&lt;/&gt; HTML</button>
+            </div>
+          </div>
+          <div class="p-5">
+            <template x-if="!item.content_html && !item.content_text">
+              <div class="text-center py-12">
+                <p class="text-sm text-charcoal-light italic">No content generated yet</p>
+                <p class="text-[11px] text-charcoal-light mt-1">Phase B/C will populate this when content is generated for this opportunity.</p>
+              </div>
+            </template>
+
+            <template x-if="item.content_html || item.content_text">
+              <div>
+                <div x-show="editorMode === 'visual'" class="prose prose-sm max-w-none border border-gray-100 rounded-lg p-4 min-h-[300px] focus:outline-none focus:border-coral"
+                     contenteditable="true"
+                     x-ref="visualEditor"
+                     x-html="item.content_html || '<p>' + (item.content_text || '') + '</p>'"
+                     @input.debounce.500ms="onVisualEdit($event)"></div>
+                <div x-show="editorMode === 'html'">
+                  <textarea x-model="item.content_html"
+                            @input.debounce.500ms="markUnsaved(); scheduleSave()"
+                            rows="20"
+                            class="w-full font-mono text-xs border border-gray-200 rounded-lg p-3 focus:outline-none focus:border-coral"
+                            placeholder="<h2>Question…</h2>&#10;<p>Answer…</p>"></textarea>
+                </div>
+              </div>
+            </template>
+          </div>
+        </section>
+
+        {/* Workflow buttons (Hick's: secondary actions de-emphasized) */}
+        <section class="bg-white rounded-xl border border-gray-200 p-5">
+          <h2 class="text-sm font-semibold text-charcoal-dark mb-3">Workflow</h2>
+          <p class="text-[11px] text-charcoal-light mb-4">
+            Validation: <span class="font-medium text-charcoal-dark" x-text="item.validation || 'pending'"></span>
+            <template x-if="item.validated_by"><span> · by <span x-text="item.validated_by"></span> on <span x-text="fmtDateOf(item.validated_at)"></span></span></template>
+          </p>
+          <div class="flex items-center gap-2 flex-wrap">
+            <template x-if="item.status !== 'approved' && item.status !== 'published' && item.status !== 'rejected'">
+              <button @click="approve()" :disabled="saving"
+                      class="px-3 py-1.5 bg-emerald-50 text-emerald-700 rounded-md text-xs font-medium hover:bg-emerald-100 border border-emerald-200">
+                ✓ Approve <span class="opacity-60">(A)</span>
+              </button>
+            </template>
+            <template x-if="item.status !== 'rejected'">
+              <button @click="setValidation('needs_revision')" :disabled="saving"
+                      class="px-3 py-1.5 bg-amber-50 text-amber-700 rounded-md text-xs font-medium hover:bg-amber-100 border border-amber-200">
+                ↺ Request revision
+              </button>
+            </template>
+            <template x-if="item.status !== 'rejected' && item.status !== 'published'">
+              <button @click="openRejectModal = true" :disabled="saving"
+                      class="px-3 py-1.5 bg-red-50 text-red-700 rounded-md text-xs font-medium hover:bg-red-100 border border-red-200">
+                ✗ Reject <span class="opacity-60">(R)</span>
+              </button>
+            </template>
+            {item.gdrive_doc_url && (
+              <a href={item.gdrive_doc_url} target="_blank" rel="noopener"
+                 class="ml-auto text-[11px] text-coral hover:underline">📄 Google Doc ↗</a>
+            )}
+          </div>
+        </section>
+      </div>
+
+      {/* Right column (1/3): brand promotion + activity timeline */}
+      <div class="space-y-6">
+
+        {/* Brand promotion (Law of Proximity) */}
+        <section class="bg-white rounded-xl border border-gray-200 p-5">
+          <h2 class="text-sm font-semibold text-charcoal-dark mb-1">Brand promotion</h2>
+          <p class="text-[11px] text-charcoal-light mb-3 italic">Audit trail — brands the system was instructed to promote when this content was generated</p>
+          <template x-if="item.promoted_brand_names && item.promoted_brand_names.length > 0">
+            <div class="space-y-1.5">
+              <template x-for="(name, idx) in item.promoted_brand_names" :key="idx">
+                <div class="flex items-center gap-2">
+                  <span class="w-5 h-5 rounded-full bg-coral text-white text-[10px] font-bold flex items-center justify-center flex-shrink-0" x-text="idx + 1"></span>
+                  <span class="text-xs text-charcoal-dark" x-text="name"></span>
+                  <span x-show="idx === 0" class="text-[9px] uppercase tracking-wide text-coral font-bold ml-auto">lead</span>
+                </div>
+              </template>
+            </div>
+          </template>
+          <template x-if="!item.promoted_brand_names || item.promoted_brand_names.length === 0">
+            <p class="text-xs text-charcoal-light italic">No brands promoted on this item yet (will be set when content is generated by Phase B/C).</p>
+          </template>
+        </section>
+
+        {/* Published URL + position tracking (only on published items) */}
+        <template x-if="item.status === 'published'">
+          <section class="bg-white rounded-xl border border-gray-200 p-5">
+            <h2 class="text-sm font-semibold text-charcoal-dark mb-3">Live URL</h2>
+            <template x-if="item.published_url">
+              <a :href="item.published_url" target="_blank" rel="noopener" class="text-xs text-coral hover:underline break-all" x-text="item.published_url"></a>
+            </template>
+            <template x-if="!item.published_url">
+              <p class="text-xs text-charcoal-light italic">No URL set</p>
+            </template>
+            <template x-if="item.latest_position != null">
+              <div class="mt-3 pt-3 border-t border-gray-100">
+                <p class="text-[10px] uppercase tracking-wide text-charcoal-light">Latest position</p>
+                <p class="text-lg font-bold text-charcoal-dark" x-text="item.latest_position?.toFixed(1)"></p>
+                <template x-if="item.position_delta != null">
+                  <p class="text-[11px] font-medium" :class="item.position_delta > 0 ? 'text-emerald-600' : item.position_delta < 0 ? 'text-red-500' : 'text-charcoal-light'"
+                     x-text="(item.position_delta > 0 ? '+' : '') + item.position_delta.toFixed(1) + ' vs before'"></p>
+                </template>
+              </div>
+            </template>
+          </section>
+        </template>
+
+        {/* Activity timeline (Goal-Gradient) */}
+        <section class="bg-white rounded-xl border border-gray-200 p-5">
+          <h2 class="text-sm font-semibold text-charcoal-dark mb-3">Timeline</h2>
+          <ol class="relative border-l border-gray-200 ml-2 space-y-3 text-xs">
+            <li class="ml-4">
+              <span class="absolute -left-[5px] w-2.5 h-2.5 bg-emerald-500 rounded-full"></span>
+              <p class="text-charcoal-dark">Identified</p>
+              <p class="text-[10px] text-charcoal-light" x-text="fmtDateOf(item.identified_at)"></p>
+            </li>
+            <template x-if="item.ordered_at">
+              <li class="ml-4">
+                <span class="absolute -left-[5px] w-2.5 h-2.5 bg-emerald-500 rounded-full"></span>
+                <p class="text-charcoal-dark">In review</p>
+                <p class="text-[10px] text-charcoal-light" x-text="fmtDateOf(item.ordered_at)"></p>
+              </li>
+            </template>
+            <template x-if="item.validated_at">
+              <li class="ml-4">
+                <span class="absolute -left-[5px] w-2.5 h-2.5 bg-emerald-500 rounded-full"></span>
+                <p class="text-charcoal-dark" x-text="'Validation: ' + (item.validation || '?')"></p>
+                <p class="text-[10px] text-charcoal-light" x-text="(item.validated_by || '?') + ' · ' + fmtDateOf(item.validated_at)"></p>
+              </li>
+            </template>
+            <template x-if="item.published_at">
+              <li class="ml-4">
+                <span class="absolute -left-[5px] w-2.5 h-2.5 bg-emerald-500 rounded-full"></span>
+                <p class="text-charcoal-dark">Published</p>
+                <p class="text-[10px] text-charcoal-light" x-text="fmtDateOf(item.published_at)"></p>
+              </li>
+            </template>
+            <template x-if="item.status !== 'published' && item.status !== 'rejected'">
+              <li class="ml-4 opacity-50">
+                <span class="absolute -left-[5px] w-2.5 h-2.5 border border-gray-300 bg-white rounded-full"></span>
+                <p class="text-charcoal-light italic" x-text="nextStepHint()"></p>
+              </li>
+            </template>
+          </ol>
+        </section>
+
+        {/* Keyboard shortcuts hint */}
+        <div class="text-[10px] text-charcoal-light px-2">
+          Shortcuts: <kbd class="px-1 py-0.5 bg-gray-100 border border-gray-200 rounded text-[9px] font-mono">A</kbd> approve · <kbd class="px-1 py-0.5 bg-gray-100 border border-gray-200 rounded text-[9px] font-mono">R</kbd> reject · <kbd class="px-1 py-0.5 bg-gray-100 border border-gray-200 rounded text-[9px] font-mono">E</kbd> edit · <kbd class="px-1 py-0.5 bg-gray-100 border border-gray-200 rounded text-[9px] font-mono">Esc</kbd> back
+        </div>
+      </div>
+    </div>
+
+    {/* ═══════ REJECT CONFIRMATION MODAL ═══════ */}
+    <div x-show="openRejectModal" x-cloak
+         class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+         @click.self="openRejectModal = false"
+         @keydown.escape.window="openRejectModal = false">
+      <div class="bg-white rounded-xl max-w-md w-full p-6 shadow-xl">
+        <h3 class="text-lg font-bold text-charcoal-dark mb-2">Reject this content?</h3>
+        <p class="text-sm text-charcoal-light mb-6">This will permanently mark the item as rejected and remove it from active workflow. Are you sure?</p>
+        <div class="flex justify-end gap-3">
+          <button @click="openRejectModal = false" class="px-4 py-2 text-sm text-charcoal-dark hover:bg-gray-50 rounded-md">Cancel</button>
+          <button @click="reject()" :disabled="saving"
+                  class="px-4 py-2 bg-red-500 text-white text-sm font-medium rounded-md hover:bg-red-600">
+            Yes, reject
+          </button>
+        </div>
+      </div>
+    </div>
+
+    {/* ═══════ MARK PUBLISHED MODAL (asks for URL) ═══════ */}
+    <div x-show="openPublishModal" x-cloak
+         class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+         @click.self="openPublishModal = false"
+         @keydown.escape.window="openPublishModal = false">
+      <div class="bg-white rounded-xl max-w-md w-full p-6 shadow-xl">
+        <h3 class="text-lg font-bold text-charcoal-dark mb-2">Mark as published</h3>
+        <p class="text-sm text-charcoal-light mb-4">Enter the live URL where this content was published:</p>
+        <input type="url" x-model="publishUrl"
+               placeholder="https://your-site.com/article-url"
+               class="w-full text-sm border border-gray-200 rounded-md px-3 py-2 mb-6 focus:outline-none focus:border-coral" />
+        <div class="flex justify-end gap-3">
+          <button @click="openPublishModal = false" class="px-4 py-2 text-sm text-charcoal-dark hover:bg-gray-50 rounded-md">Cancel</button>
+          <button @click="publish()" :disabled="!publishUrl.trim() || saving"
+                  :class="(!publishUrl.trim() || saving) ? 'opacity-50 cursor-not-allowed' : 'hover:bg-coral-dark'"
+                  class="px-4 py-2 bg-coral text-white text-sm font-medium rounded-md">
+            Mark published
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+) : (
+  <div class="p-8 max-w-3xl">
+    <h1 class="text-xl font-bold text-charcoal-dark mb-2">Couldn't load content item</h1>
+    <p class="text-sm text-charcoal-light mb-6">Network or permission error.</p>
+    <a href="/app/content" class="inline-flex items-center gap-2 px-4 py-2 bg-coral text-white rounded-lg text-sm font-medium hover:bg-coral-dark">← Back to Content pipeline</a>
+  </div>
+)}
+
+  <style>
+    [x-cloak] { display: none !important; }
+    .prose h2 { font-size: 1.05rem; font-weight: 600; margin: 1rem 0 0.5rem; }
+    .prose p { margin: 0.5rem 0; line-height: 1.5; }
+  </style>
+
+  <script is:inline>
+    document.addEventListener('alpine:init', () => {
+      window.Alpine.data('contentItem', (initial) => ({
+        item: initial,
+        editorMode: 'visual',
+        showMore: false,
+        saveState: 'idle',  // 'idle' | 'unsaved' | 'saving' | 'saved' | 'error'
+        savedAt: null,
+        saving: false,
+        saveTimer: null,
+        openRejectModal: false,
+        openPublishModal: false,
+        publishUrl: '',
+
+        statusLabelOf(s) {
+          const m = { identified: 'IDENTIFIED', generating: 'GENERATING', draft: 'DRAFT', in_review: 'IN REVIEW', approved: 'APPROVED', published: 'PUBLISHED', rejected: 'REJECTED' };
+          return m[s] || (s || '').toUpperCase();
+        },
+        fmtDateOf(iso) {
+          if (!iso) return '—';
+          return new Date(iso).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+        },
+        saveStateClass() {
+          return {
+            'text-charcoal-light': this.saveState === 'idle',
+            'text-amber-600 font-medium': this.saveState === 'unsaved' || this.saveState === 'saving',
+            'text-emerald-600': this.saveState === 'saved',
+            'text-red-600 font-medium': this.saveState === 'error',
+          };
+        },
+        saveStateLabel() {
+          if (this.saveState === 'idle') return '';
+          if (this.saveState === 'unsaved') return '⚠ Unsaved changes';
+          if (this.saveState === 'saving') return '💾 Saving…';
+          if (this.saveState === 'saved') {
+            if (!this.savedAt) return '✓ Saved';
+            const sec = Math.floor((Date.now() - this.savedAt) / 1000);
+            if (sec < 5) return '✓ Just saved';
+            if (sec < 60) return '✓ Saved ' + sec + 's ago';
+            return '✓ Saved ' + Math.floor(sec / 60) + 'm ago';
+          }
+          if (this.saveState === 'error') return '⚠ Save failed';
+          return '';
+        },
+
+        nextStepHint() {
+          const s = this.item.status;
+          if (s === 'identified' || s === 'generating') return 'Awaiting content generation (Phase B/C)';
+          if (s === 'draft' || s === 'in_review') return 'Awaiting your approval';
+          if (s === 'approved') return 'Awaiting publish — set the live URL';
+          return '';
+        },
+
+        markUnsaved() { this.saveState = 'unsaved'; },
+
+        scheduleSave() {
+          if (this.saveTimer) clearTimeout(this.saveTimer);
+          this.saveTimer = setTimeout(() => this.save(), 2000);
+        },
+
+        onVisualEdit(e) {
+          // Capture HTML from contenteditable and stash on item
+          this.item.content_html = e.target.innerHTML;
+          this.markUnsaved();
+          this.scheduleSave();
+        },
+
+        async save(extraPatch) {
+          if (this.saving) return;
+          this.saving = true;
+          this.saveState = 'saving';
+          const body = {
+            content_html: this.item.content_html,
+            content_text: this.item.content_text,
+            ...(extraPatch || {}),
+          };
+          try {
+            const r = await fetch('/api/content-items/' + this.item.id, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(body),
+            });
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            const updated = await r.json();
+            this.item = updated;
+            this.saveState = 'saved';
+            this.savedAt = Date.now();
+          } catch (e) {
+            this.saveState = 'error';
+            console.error('save failed', e);
+          } finally {
+            this.saving = false;
+          }
+        },
+
+        async approve() {
+          await this.save({ validation: 'approved', status: 'approved' });
+        },
+        async setValidation(v) {
+          await this.save({ validation: v });
+        },
+        async reject() {
+          await this.save({ validation: 'rejected', status: 'rejected' });
+          this.openRejectModal = false;
+        },
+        async publish() {
+          if (!this.publishUrl.trim()) return;
+          await this.save({ published_url: this.publishUrl.trim(), status: 'published' });
+          this.openPublishModal = false;
+          this.publishUrl = '';
+        },
+
+        handleShortcut(e) {
+          if (e.key === 'a' || e.key === 'A') {
+            if (this.item.status === 'draft' || this.item.status === 'in_review') {
+              e.preventDefault();
+              this.approve();
+            }
+          } else if (e.key === 'r' || e.key === 'R') {
+            if (this.item.status !== 'rejected' && this.item.status !== 'published') {
+              e.preventDefault();
+              this.openRejectModal = true;
+            }
+          } else if (e.key === 'e' || e.key === 'E') {
+            e.preventDefault();
+            this.editorMode = 'html';
+            setTimeout(() => {
+              const ta = document.querySelector('textarea[x-model="item.content_html"]');
+              if (ta) ta.focus();
+            }, 50);
+          } else if (e.key === 'Escape') {
+            window.location.href = '/app/content';
+          }
+        },
+      }));
+    });
+
+    // Refresh "Saved Xs ago" label every 10s for liveness
+    setInterval(() => {
+      const ev = new CustomEvent('save-tick');
+      window.dispatchEvent(ev);
+    }, 10000);
+  </script>
+
+</DashboardLayout>

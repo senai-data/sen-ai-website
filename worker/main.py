@@ -4,11 +4,52 @@ import logging
 import time
 from datetime import datetime, timedelta
 
+import httpx
 from sqlalchemy import desc, text
 from sqlalchemy.orm import Session
 
 from config import settings
 from models import ClientCredit, Job, SessionLocal
+
+
+def _format_user_error(exc: Exception) -> str:
+    """Convert a raw exception into a user-facing scan.error_message.
+
+    httpx.HTTPStatusError stringifies as 'Client error 'XYZ' for url ...' which
+    is meaningless to end users. Most provider errors carry a JSON body with a
+    human-readable message (`{"error": {"type": ..., "message": ...}}`) — we
+    extract it and prepend the provider name so the user knows where to act.
+
+    Special-cases the common billing/quota error so it reads as a clear billing
+    issue rather than a vague rate-limit-y message.
+    """
+    if isinstance(exc, httpx.HTTPStatusError):
+        try:
+            body = exc.response.json()
+            err = body.get("error", {}) if isinstance(body, dict) else {}
+            provider_msg = (err.get("message") or "").strip()
+            err_type = err.get("type", "")
+            url = str(exc.request.url).lower()
+            if "anthropic.com" in url:
+                provider = "Anthropic (Claude)"
+            elif "openai.com" in url:
+                provider = "OpenAI"
+            elif "googleapis.com" in url or "generativelanguage" in url:
+                provider = "Gemini"
+            else:
+                provider = "AI provider"
+            msg_lower = provider_msg.lower()
+            if any(kw in msg_lower for kw in ("credit balance", "billing", "quota", "insufficient_quota")):
+                return (
+                    f"{provider} billing/quota issue: {provider_msg}\n"
+                    f"Recharge your {provider} account, then click Retry."
+                )
+            if exc.response.status_code == 429:
+                return f"{provider} rate-limited: {provider_msg or 'too many requests'} — try again in a few minutes."
+            return f"{provider} error ({err_type or exc.response.status_code}): {provider_msg[:300]}"
+        except Exception:
+            pass
+    return str(exc)[:500]
 
 # H4: stuck-job sweep config. The longest legitimate handler is run_llm_tests
 # (LLM calls per question × providers — can run 30-60 min for big scans).
@@ -258,15 +299,16 @@ def poll_and_execute():
             job_obj = db.query(Job).filter(Job.id == job_id).first()
             if job_obj:
                 if (job_obj.attempts or 0) >= (job_obj.max_attempts or 3):
+                    user_msg = _format_user_error(e)
                     job_obj.status = "failed"
-                    job_obj.result = {"error": str(e)}
+                    job_obj.result = {"error": str(e), "user_message": user_msg}
 
                     # Also mark scan as failed
                     from models import Scan
                     scan = db.query(Scan).filter(Scan.id == job_obj.scan_id).first()
                     if scan:
                         scan.status = "failed"
-                        scan.error_message = str(e)
+                        scan.error_message = user_msg
                         scan.updated_at = datetime.utcnow()
 
                     # Auto-refund any credits debited for this scan so the

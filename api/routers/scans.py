@@ -1522,6 +1522,75 @@ async def launch_scan(request: Request, scan_id: str, user=Depends(get_current_u
     return {"status": "scanning", "credits_used": active_questions, "credits_remaining": balance - active_questions}
 
 
+@router.post("/{scan_id}/retry")
+@limiter.limit("10/minute")
+async def retry_scan(request: Request, scan_id: str,
+                     user=Depends(get_current_user), db: Session = Depends(get_db)):
+    """Re-enqueue failed jobs for a scan instead of starting from scratch.
+
+    When a scan fails — typically because a downstream Claude/OpenAI call hits
+    an API outage or quota limit — the worker marks the scan failed and
+    auto-refunds credits. This endpoint reverses that: pending jobs that ran
+    successfully (e.g., run_llm_tests, generate_opportunities) keep their
+    completed state, and only the actually-failed jobs are reset to pending.
+    Scan status flips back to whatever it should be given the job state.
+
+    Note on credits: when a scan is auto-refunded, retrying gets the deferred
+    work for free. We accept this small leak — the case is rare (only when
+    upstream succeeded but downstream failed) and the user already paid the
+    cost in waiting / dealing with a failure they didn't cause. Re-debiting
+    here would require knowing how much was refunded, which means scanning
+    the credit ledger — overkill for a recovery path.
+    """
+    scan = _check_scan_access(scan_id, user, db, role="editor")
+
+    if scan.status != "failed":
+        raise HTTPException(400, {
+            "error": "scan_not_failed",
+            "message": f"Scan is in status '{scan.status}', nothing to retry",
+        })
+
+    failed_jobs = (
+        db.query(Job)
+        .filter(Job.scan_id == scan_id, Job.status == "failed")
+        .all()
+    )
+    if not failed_jobs:
+        raise HTTPException(400, {
+            "error": "no_failed_jobs",
+            "message": "Scan is marked failed but has no failed jobs to retry",
+        })
+
+    # Reset failed jobs so the worker picks them up next poll
+    for j in failed_jobs:
+        j.status = "pending"
+        j.attempts = 0
+        j.completed_at = None
+        j.started_at = None
+        j.result = None
+
+    # Did upstream succeed? If run_llm_tests is completed, the scan is
+    # essentially done — only the chained post-processing failed. Status
+    # should be "scanning" so the UI shows progress (worker flips it to
+    # completed once all chained jobs finish, in run_llm_tests' final step).
+    # If run_llm_tests itself failed, status stays "scanning" too — same flow.
+    scan.status = "scanning"
+    scan.error_message = None
+    scan.updated_at = datetime.utcnow()
+
+    audit_log(db, action="scan.retry", user_id=str(user.id),
+              target_type="scan", target_id=scan_id,
+              ip=request.client.host if request.client else None,
+              details={"reset_jobs": [j.job_type for j in failed_jobs]})
+    db.commit()
+
+    return {
+        "status": "scanning",
+        "reset_jobs": [j.job_type for j in failed_jobs],
+        "message": f"Re-queued {len(failed_jobs)} failed job(s)",
+    }
+
+
 # --- Results ---
 
 @router.get("/{scan_id}/results")

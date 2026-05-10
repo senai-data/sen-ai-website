@@ -41,36 +41,29 @@ from config import settings
 logger = logging.getLogger(__name__)
 
 
-# ─── geo_content_generator stub ────────────────────────────────────────
+# ─── geo_content_generator stub (vertical-agnostic) ────────────────────
 # faq_content_generator.py:26 does `from .geo_content_generator import BRAND_MAP`.
 # Loading the real geo_content_generator pulls Pillow / PyMuPDF / PyGithub /
-# playwright / readability-lxml / etc. — 200+ MB of deps we don't need at
-# runtime here. We inject a minimal stub module providing just BRAND_MAP so
-# the FAQ generator's import resolves without the heavy chain.
+# playwright / readability-lxml / etc. — 200+ MB of CLI tooling we don't need
+# at runtime. We inject a minimal stub module providing just BRAND_MAP so the
+# FAQ generator's import resolves without the heavy chain.
 #
-# When Phase B brand bias lands, the BrandResolver hook will read primary
-# brands from the DB rather than this static map. Until then this map gives
-# Pierre Fabre brands their proper "name" lookup from "site" (used by
-# faq_content_generator._generate_faq line 547).
-_BRAND_MAP_STUB = {
-    "ave": {"name": "Avène (Eau Thermale Avène)", "site": "www.eau-thermale-avene.fr", "category": "dermo-cosmétique", "is_own": True},
-    "duc": {"name": "Ducray", "site": "www.ducray.com", "category": "dermo-cosmétique", "is_own": True},
-    "ade": {"name": "A-Derma", "site": "www.aderma.fr", "category": "dermo-cosmétique", "is_own": True},
-    "klo": {"name": "Klorane", "site": "www.klorane.com", "category": "soin capillaire et végétal", "is_own": True},
-    "rft": {"name": "René Furterer", "site": "www.renefurterer.com", "category": "soin capillaire", "is_own": True},
-    "elg": {"name": "Elgydium", "site": "www.pierrefabre-oralcare.com", "category": "soin bucco-dentaire", "is_own": True},
-    "elu": {"name": "Eluday", "site": "www.pierrefabre-oralcare.com", "category": "soin bucco-dentaire", "is_own": True},
-    "art": {"name": "Arthrodont", "site": "www.pierrefabre-oralcare.com", "category": "soin bucco-dentaire", "is_own": True},
-    "ina": {"name": "Inava", "site": "www.pierrefabre-oralcare.com", "category": "soin bucco-dentaire", "is_own": True},
-    "vic": {"name": "Vichy", "site": "www.vichy.fr", "category": "dermo-cosmétique", "is_own": False},
-    "lrp": {"name": "La Roche-Posay", "site": "www.laroche-posay.fr", "category": "dermo-cosmétique", "is_own": False},
-    "bio": {"name": "Bioderma", "site": "www.bioderma.fr", "category": "dermo-cosmétique", "is_own": False},
-    "uri": {"name": "Uriage", "site": "www.uriage.com", "category": "dermo-cosmétique", "is_own": False},
-    "mus": {"name": "Mustela", "site": "www.mustela.fr", "category": "dermo-cosmétique", "is_own": False},
-    "cer": {"name": "CeraVe", "site": "www.cerave.fr", "category": "dermo-cosmétique", "is_own": False},
-    "euc": {"name": "Eucerin", "site": "www.eucerin.fr", "category": "dermo-cosmétique", "is_own": False},
-    "nux": {"name": "Nuxe", "site": "fr.nuxe.com", "category": "dermo-cosmétique", "is_own": False},
-}
+# IMPORTANT: BRAND_MAP must stay EMPTY in the SaaS. seo_llm shipped a hardcoded
+# map of Pierre Fabre brands + French dermo-cosmetic competitors because it was
+# a CLI for one customer. sen-ai is multi-tenant + multi-vertical (cosmetics,
+# automotive, finance, B2B services, …) — vertical/customer-specific data in
+# code is forbidden (project_migration_seollm_to_aiscan.md invariants #1, #3).
+#
+# Empty BRAND_MAP works because faq_content_generator._generate_faq has a
+# `brand_name = target_site` fallback (line 546): when no map entry matches,
+# it uses the bare domain as brand_name. The LLM is then smart enough to pick
+# up the proper brand name from page scraping + web_search context. Smoke
+# tested on ducray.com — even WITH the empty map, the generated FAQ correctly
+# names "Ducray" / "Sensinol" by reading the scraped page.
+#
+# Brand bias for content gen will land via BrandResolver.resolve_promotion()
+# (next session), reading primary_brand_ids from the DB per-client. NOT here.
+_BRAND_MAP_STUB: dict = {}
 
 
 def _install_geo_stub() -> None:

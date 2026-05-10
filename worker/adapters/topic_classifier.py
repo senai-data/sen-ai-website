@@ -26,15 +26,20 @@ CLASSIFICATION_PROMPT = """Analyse l'arborescence et les mots-clés SEO du site 
 
 ## TÂCHE
 
-1. Crée des topics SPÉCIFIQUES basés sur les sections du site.
-   BIEN : "Eczéma & dermatite atopique", "Acné & imperfections", "Rougeurs & rosacée"
-   MAL : "Conditions cutanées" (trop vague, fourre-tout)
+1. Crée des topics SPÉCIFIQUES basés sur les sections du site et l'industrie réelle (lis attentivement le Domain Context ci-dessus).
+   PRINCIPE : un topic = une thématique claire, suffisamment précise pour qu'un persona puisse se reconnaître dedans.
+   BIEN (exemples cross-vertical) :
+     - Site cosmétique : "Soin anti-âge peau mature", "Routine peau sensible"
+     - Site SaaS B2B : "Onboarding équipes commerciales", "Reporting financier temps réel"
+     - Site auto : "Citadines hybrides urbaines", "SUV familial 7 places"
+     - Site finance : "Crédit immobilier primo-accédant", "Épargne enfant fiscalité"
+   MAL : "Produits", "Services", "Catégories" (trop vague, fourre-tout)
 2. Assigne chaque SECTION à exactement UN topic.
 
 Réponds UNIQUEMENT en JSON :
 {{
   "topics": [
-    {{"nom": "Nom spécifique", "description": "1 phrase descriptive"}}
+    {{"nom": "Nom spécifique au domaine", "description": "1 phrase descriptive"}}
   ],
   "mapping": {{
     "/section/path": "Nom du topic",
@@ -60,14 +65,14 @@ CONTRAINTES :
 - Chaque marque DOIT avoir au moins 1 topic dans "topics" (le topic où ses mots-clés apparaissent)
 - La marque principale (site_brand) apparaît généralement dans TOUS les topics
 
-JSON final :
+JSON final (exemples cross-vertical pour montrer le format, adapte au domaine analysé) :
 {{
   "topics": [...],
   "mapping": {{...}},
   "marques_detectees": [
-    {{"name": "Avène", "category": "site_brand", "topics": ["Eczéma & dermatite atopique", "Acné & imperfections"]}},
-    {{"name": "Cicalfate", "category": "site_gamme", "topics": ["Eczéma & dermatite atopique"]}},
-    {{"name": "La Roche-Posay", "category": "competitor", "topics": ["Acné & imperfections", "Rougeurs & rosacée"]}}
+    {{"name": "<MarqueDuSite>", "category": "site_brand", "topics": ["Topic A", "Topic B"]}},
+    {{"name": "<GammeDuSite>", "category": "site_gamme", "topics": ["Topic A"]}},
+    {{"name": "<MarqueConcurrente>", "category": "competitor", "topics": ["Topic B"]}}
   ]
 }}"""
 

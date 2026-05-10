@@ -1550,6 +1550,15 @@ async def retry_scan(request: Request, scan_id: str,
             "message": f"Scan is in status '{scan.status}', nothing to retry",
         })
 
+    # Permanent failures (e.g., HaloScan has no data for the domain) are
+    # flagged at handler level via PermanentScanError. Retrying would just
+    # re-fail with the same message — block it.
+    if (scan.summary or {}).get("retryable") is False:
+        raise HTTPException(400, {
+            "error": "permanent_failure",
+            "message": "This scan can't be retried — the failure is permanent (e.g., the domain has no data). Start a new scan with different inputs.",
+        })
+
     failed_jobs = (
         db.query(Job)
         .filter(Job.scan_id == scan_id, Job.status == "failed")

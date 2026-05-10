@@ -23,8 +23,17 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
     # Run async HaloScan call
     positions = asyncio.run(fetch_domain_positions(domain, limit=max_urls))
 
+    from exceptions import PermanentScanError
+
+    _no_data_msg = (
+        f"No Google France SEO data found for {domain}. "
+        f"This scanner uses HaloScan (google.fr only) — it can only analyze "
+        f"sites that rank on Google France. Try a different domain that has "
+        f"French SEO presence (e.g. *.fr or sites with content optimized for FR)."
+    )
+
     if not positions:
-        raise RuntimeError(f"No positions data returned for {domain}")
+        raise PermanentScanError(_no_data_msg)
 
     # HaloScan wraps results in a dict with metadata
     if isinstance(positions, dict):
@@ -33,7 +42,7 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
         results = positions
 
     if not results:
-        raise RuntimeError(f"No results in HaloScan response for {domain}")
+        raise PermanentScanError(_no_data_msg)
 
     # Import here to avoid circular imports at module level
     from models import ScanKeyword, Scan

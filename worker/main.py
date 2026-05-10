@@ -295,21 +295,39 @@ def poll_and_execute():
             db.rollback()
             logger.exception(f"Job {job_obj.id} failed: {e}")
 
+            # PermanentScanError signals "retrying won't help" — typically a
+            # data-availability issue on user input (e.g., HaloScan has no
+            # ranking data for the domain). Skip the retry loop, fail fast,
+            # and tell the UI to hide the retry button.
+            from exceptions import PermanentScanError
+            is_permanent = isinstance(e, PermanentScanError)
+
             # Re-fetch job after rollback
             job_obj = db.query(Job).filter(Job.id == job_id).first()
             if job_obj:
-                if (job_obj.attempts or 0) >= (job_obj.max_attempts or 3):
-                    user_msg = _format_user_error(e)
+                if is_permanent or (job_obj.attempts or 0) >= (job_obj.max_attempts or 3):
+                    user_msg = str(e) if is_permanent else _format_user_error(e)
                     job_obj.status = "failed"
-                    job_obj.result = {"error": str(e), "user_message": user_msg}
+                    job_obj.attempts = job_obj.max_attempts  # block any further retry
+                    job_obj.result = {
+                        "error": str(e),
+                        "user_message": user_msg,
+                        "permanent": is_permanent,
+                    }
 
-                    # Also mark scan as failed
+                    # Also mark scan as failed + flag retryable for the UI
                     from models import Scan
+                    from sqlalchemy.orm.attributes import flag_modified
                     scan = db.query(Scan).filter(Scan.id == job_obj.scan_id).first()
                     if scan:
                         scan.status = "failed"
                         scan.error_message = user_msg
                         scan.updated_at = datetime.utcnow()
+                        if is_permanent:
+                            summary = dict(scan.summary or {})
+                            summary["retryable"] = False
+                            scan.summary = summary
+                            flag_modified(scan, "summary")
 
                     # Auto-refund any credits debited for this scan so the
                     # user is not charged for a job that never delivered.

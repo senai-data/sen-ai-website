@@ -296,8 +296,11 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
     from models import Job
     db.add(Job(scan_id=scan_id, job_type="detect_competitors"))
     # Also pre-enqueue cleanup_brands to classify the brands Claude just detected above
-    # (don't wait for detect_competitors to chain it — saves ~10s sequential wait)
-    db.add(Job(scan_id=scan_id, job_type="cleanup_brands"))
+    # (don't wait for detect_competitors to chain it — saves ~10s sequential wait).
+    # Conditional on new_brands > 0: skip if Claude didn't detect any brands in
+    # keywords — otherwise the job runs as a no-op (~20ms wasted poll cycle).
+    if new_brands > 0:
+        db.add(Job(scan_id=scan_id, job_type="cleanup_brands"))
 
     db.commit()
 

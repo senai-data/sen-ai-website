@@ -84,6 +84,44 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
     avg_position = round(sum(positions) / len(positions), 1) if positions else None
     providers = list({r.provider for r in results})
 
+    # Position distribution (C.1) — buckets the rank at which the focus brand
+    # appears among all brands cited in each AI response. top1 = best (first
+    # brand mentioned), top6plus = worst-ranked. Mentioned-but-unranked rolls
+    # into top6plus conservatively (rare; happens when BrandAnalyzer detects
+    # the mention without an ordering signal).
+    position_dist = {"top1": 0, "top2_3": 0, "top4_5": 0, "top6plus": 0, "not_cited": 0}
+    for r in results:
+        ba = r.brand_analysis or {}
+        if not ba.get("marque_cible_mentionnee"):
+            position_dist["not_cited"] += 1
+            continue
+        pos = ba.get("position_marque_cible")
+        if pos is None or pos <= 0:
+            position_dist["top6plus"] += 1
+        elif pos == 1:
+            position_dist["top1"] += 1
+        elif pos in (2, 3):
+            position_dist["top2_3"] += 1
+        elif pos in (4, 5):
+            position_dist["top4_5"] += 1
+        else:
+            position_dist["top6plus"] += 1
+    position_dist["total"] = total
+
+    # Delta vs parent scan (only if parent persisted a position_distribution).
+    # Compare percentages — parent and current may have different total_tests.
+    position_dist_delta = None
+    if scan.parent_scan_id:
+        parent = db.query(Scan).filter(Scan.id == scan.parent_scan_id).first()
+        parent_dist = (parent.summary or {}).get("position_distribution") if parent else None
+        if parent_dist and parent_dist.get("total"):
+            position_dist_delta = {}
+            par_total = parent_dist["total"]
+            for k in ("top1", "top2_3", "top4_5", "top6plus", "not_cited"):
+                curr_pct = (position_dist[k] / total * 100) if total else 0
+                par_pct = (parent_dist.get(k, 0) / par_total * 100) if par_total else 0
+                position_dist_delta[k] = round(curr_pct - par_pct, 1)
+
     # Persona summary
     personas = db.query(ScanPersona).filter(ScanPersona.scan_id == scan_id).all()
     persona_lines = []
@@ -150,10 +188,14 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
         editorial, EditorialSummary, "generate_editorial"
     ).model_dump()
 
-    # Store editorial in scan summary (must reassign for JSONB change detection)
+    # Store editorial + position distribution in scan summary
+    # (must reassign for JSONB change detection)
     from sqlalchemy.orm.attributes import flag_modified
     summary = dict(scan.summary or {})
     summary["editorial"] = editorial
+    summary["position_distribution"] = position_dist
+    if position_dist_delta is not None:
+        summary["position_distribution_delta"] = position_dist_delta
     scan.summary = summary
     flag_modified(scan, "summary")
     scan.updated_at = datetime.utcnow()

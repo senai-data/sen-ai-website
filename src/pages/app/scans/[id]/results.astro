@@ -171,6 +171,17 @@ const topicChartColors = topics.map(t => t.rate >= 30 ? '#10b981' : t.rate > 0 ?
 // Chart 3: Visibility donut
 const mentionedCount = o?.target_cited ?? 0;
 const notMentionedCount = (o?.total_tests ?? 0) - mentionedCount;
+
+// Position distribution (C.1) — bucketed rank of focus brand among brands cited
+const posDist: any = o?.position_distribution || null;
+const posDistDelta: any = o?.position_distribution_delta || {};
+const posBuckets = [
+  { key: 'top1',      label: 'Cited 1st',   text: 'text-emerald-600' },
+  { key: 'top2_3',    label: 'Cited 2-3rd', text: 'text-lime-600' },
+  { key: 'top4_5',    label: 'Cited 4-5th', text: 'text-amber-500' },
+  { key: 'top6plus',  label: 'Cited 6th+',  text: 'text-orange-500' },
+  { key: 'not_cited', label: 'Not cited',   text: 'text-red-500' },
+];
 ---
 
 <ScanResultsLayout scanId={scanId} activeTab="overview">
@@ -213,6 +224,41 @@ const notMentionedCount = (o?.total_tests ?? 0) - mentionedCount;
           <p class="text-xs text-charcoal-light mt-1">{o.providers?.join(' + ')} · {o.scan_date?.split('T')[0]}</p>
         </div>
       </div>
+
+      {/* ═══════ POSITION DISTRIBUTION (rank among brands cited) ═══════ */}
+      {posDist && posDist.total > 0 && (
+        <div class="bg-white rounded-xl shadow-sm p-5 mb-8">
+          <div class="flex items-baseline justify-between mb-4">
+            <h2 class="text-sm font-semibold text-charcoal-dark">Position when cited</h2>
+            <p class="text-[11px] text-charcoal-light italic">Rank among brands the AI mentioned in its answer</p>
+          </div>
+          <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+            {posBuckets.map((b: any) => {
+              const count = posDist[b.key] || 0;
+              const pct = posDist.total ? Math.round(count / posDist.total * 1000) / 10 : 0;
+              const delta = posDistDelta[b.key];
+              const isPositiveBucket = b.key !== 'not_cited' && b.key !== 'top6plus';
+              const hasDelta = delta != null && delta !== 0;
+              const deltaIsGood = hasDelta && (isPositiveBucket ? delta > 0 : delta < 0);
+              const deltaColor = !hasDelta ? 'text-charcoal-light' : deltaIsGood ? 'text-emerald-600' : 'text-red-500';
+              return (
+                <div class="bg-gray-50 rounded-lg p-3">
+                  <p class="text-[10px] uppercase tracking-wide text-charcoal-light mb-1">{b.label}</p>
+                  <div class="flex items-baseline gap-1.5">
+                    <span class={`text-2xl font-bold ${b.text}`}>{count}</span>
+                    <span class="text-[11px] text-charcoal-light">{pct}%</span>
+                  </div>
+                  {hasDelta && (
+                    <p class={`text-[10px] mt-1 font-medium ${deltaColor}`}>
+                      {delta > 0 ? '+' : ''}{delta} pts
+                    </p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* ═══════ BRAND INSIGHT KPIs (from brand_mentions data) ═══════ */}
       {totalBrandMentions > 0 && (

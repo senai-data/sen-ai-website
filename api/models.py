@@ -185,6 +185,9 @@ class Scan(Base):
     # Lets the user say "on this scan promote ONLY Avène" even if their workspace
     # default is [Avène, Aderma, Ducray]. See worker/services/brand_resolver.py.
     promotion_brand_ids = Column(ARRAY(UUID(as_uuid=True)), nullable=True)
+    # User-declared intent at scan creation. 'own_brand' / 'competitor_audit' /
+    # NULL (= pre-migration, downstream heuristics apply). See migration 022.
+    scan_type = Column(Text)
     parent_scan_id = Column(UUID(as_uuid=True), ForeignKey("scans.id", ondelete="SET NULL"))
     schedule = Column(String(20), default="manual")  # manual | weekly | monthly
     next_run_at = Column(DateTime)

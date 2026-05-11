@@ -74,6 +74,11 @@ class ScanCreate(BaseModel):
     max_position: int = 50               # Top N positions to keep (10, 30, 50)
     max_urls: int = 2000                 # Max keywords to fetch from HaloScan
     config: dict = {}
+    # User-declared scan intent. 'own_brand' = measuring my own brand visibility,
+    # 'competitor_audit' = auditing a competitor's visibility. None = legacy /
+    # wizard didn't ask — downstream falls back to the domain-vs-primary-brands
+    # heuristic in is_competitor_scan().
+    scan_type: str | None = None
 
 
 class ScanUpdate(BaseModel):
@@ -281,6 +286,11 @@ async def create_scan(request: Request, req: ScanCreate, user=Depends(get_curren
         raise HTTPException(400, "max_position must be 10, 30 or 50")
     if req.max_urls < 100 or req.max_urls > 5000:
         raise HTTPException(400, "max_urls must be between 100 and 5000")
+    if req.scan_type is not None and req.scan_type not in ("own_brand", "competitor_audit"):
+        raise HTTPException(
+            400,
+            "scan_type must be 'own_brand', 'competitor_audit', or omitted",
+        )
 
     clean_domain = req.domain.strip().lower().removeprefix("https://").removeprefix("http://").rstrip("/")
     config = {
@@ -295,6 +305,7 @@ async def create_scan(request: Request, req: ScanCreate, user=Depends(get_curren
         name=strip_tags(req.name) or clean_domain,
         domain=clean_domain,
         config=config,
+        scan_type=req.scan_type,
         created_by=user.id,
         run_index=1,
     )

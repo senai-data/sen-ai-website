@@ -303,6 +303,7 @@ try {
                 max_position: this.maxPosition,
                 max_urls: this.maxUrls,
                 target_domains: this.scanType === 'competitor' ? [] : [this.domain],
+                scan_type: this.scanType === 'competitor' ? 'competitor_audit' : 'own_brand',
                 config: {
                   country: this.country,
                   personas_per_topic: this.depth === 'light' ? 1 : this.depth === 'deep' ? 6 : 3,

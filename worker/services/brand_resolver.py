@@ -191,25 +191,32 @@ def resolve_promotion(scan, db: Session) -> PromotionResolution:
 
 
 def is_competitor_scan(scan, db: Session) -> bool:
-    """Return True when the scanned domain does NOT belong to any brand in
-    `client.primary_brand_ids` — i.e. the user is auditing a competitor.
+    """Return True when the scanned domain is a competitor's, not the user's.
 
-    Uses workspace primary brands as the stable signal — NOT the merged
-    resolution chain. The merged chain pulls in per-scan SBC `my_brand`
-    classifications which auto-include the scanned domain itself (Uriage on
-    a Uriage scan gets tagged my_brand by classify_topics), creating a
-    circular check : "is uriage.fr a competitor of me? No — because uriage
-    is in my_brand promote list... because I scanned uriage.fr." Wrong.
+    Three-tier resolution :
 
-    By keying off `client.primary_brand_ids` directly, the helper answers
-    the workspace-level question : "is this domain one of MY brands?"
+      1. `scan.scan_type` — user-declared intent at wizard. Authoritative
+         when set ('competitor_audit' → True, 'own_brand' → False).
+      2. Domain comparison against `client.primary_brand_ids[*].domain` —
+         fallback when scan_type is NULL (pre-migration scans, anonymous
+         launches). Stable workspace signal; ignores per-scan SBC pollution.
+      3. False when both are absent — conservative default, preserves the
+         legacy user-owned behavior.
 
-    Returns False (conservative) when the client has no primary brands set —
-    we don't know what's user vs competitor, so don't punish the scan.
+    Note: this helper used to delegate to resolve_promotion's merged chain,
+    which created a circular check (the chain includes per-scan SBC, which
+    classify_topics fills with the scanned site's brand → competitor was
+    seen as "in my promote list" → wrongly classified as not-a-competitor).
+    Keep the helper independent of the chain.
     """
     if not scan or not scan.domain:
         return False
 
+    # Tier 1: user-declared intent wins
+    if getattr(scan, "scan_type", None):
+        return scan.scan_type == "competitor_audit"
+
+    # Tier 2: domain comparison against workspace primary brands
     from models import Client, ClientBrand
 
     client = db.query(Client).filter(Client.id == scan.client_id).first()

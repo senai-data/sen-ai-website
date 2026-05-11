@@ -140,6 +140,9 @@ class Scan(Base):
         # → scanning → completed | failed
     focus_brand_id = Column(UUID(as_uuid=True), ForeignKey("client_brands.id", ondelete="SET NULL"))
     promotion_brand_ids = Column(ARRAY(UUID(as_uuid=True)), nullable=True)  # per-scan override of client.primary_brand_ids
+    # User-declared scan intent: own_brand | competitor_audit | NULL.
+    # See migration 022 + worker/services/brand_resolver.py is_competitor_scan().
+    scan_type = Column(Text)
     parent_scan_id = Column(UUID(as_uuid=True), ForeignKey("scans.id", ondelete="SET NULL"))
     schedule = Column(String(20), default="manual")  # manual | weekly | monthly
     next_run_at = Column(DateTime)

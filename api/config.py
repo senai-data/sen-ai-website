@@ -31,6 +31,10 @@ class Settings(BaseSettings):
     # Frontend
     frontend_url: str = "https://sen-ai.fr"
 
+    # Registration toggle - set to True to reopen account creation
+    # (audit-gratuit form remains open regardless - it's a separate flow without account)
+    registration_open: bool = False
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
 

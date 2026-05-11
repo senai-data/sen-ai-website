@@ -103,6 +103,10 @@ def _send_verification_email(email: str, verify_url: str) -> bool:
 @router.post("/register", response_model=TokenResponse)
 @limiter.limit("5/minute")
 async def register(request: Request, req: RegisterRequest, response: Response, db: Session = Depends(get_db)):
+    # Registration kill-switch (config flag). The audit-gratuit form stays open
+    # since it does not create an account.
+    if not settings.registration_open:
+        raise HTTPException(503, "Registrations are temporarily closed. Request a free audit instead at https://sen-ai.fr/#engagement")
     _validate_password(req.password)
     if db.query(User).filter(User.email == req.email).first():
         raise HTTPException(400, "Registration failed. If you already have an account, try logging in.")
@@ -674,6 +678,10 @@ async def google_callback(code: str, state: str = "", response: Response = None,
             if not user.is_email_verified:
                 user.is_email_verified = True
         else:
+            # Registration kill-switch: refuse to auto-create new accounts via Google.
+            # Existing accounts (already in DB) continue to work and can link Google.
+            if not settings.registration_open:
+                return RedirectResponse(f"{settings.frontend_url}/register?error=closed")
             is_new_user = True
             user = User(
                 email=userinfo["email"],

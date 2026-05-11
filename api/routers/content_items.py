@@ -158,11 +158,19 @@ def _resolve_primary_brand_domains(client_id: str, db: Session) -> list[str]:
         .all()
     )
     by_id = {b.id: b for b in rows}
+    seen: set[str] = set()
     domains: list[str] = []
     for bid in client.primary_brand_ids:
         b = by_id.get(bid)
-        if b and b.domain:
-            domains.append(b.domain.lower())
+        if not b or not b.domain:
+            continue
+        normalized = b.domain.lower().strip()
+        if normalized.startswith("www."):
+            normalized = normalized[4:]
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        domains.append(normalized)
     return domains
 
 

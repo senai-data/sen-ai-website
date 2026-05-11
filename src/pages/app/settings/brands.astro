@@ -160,8 +160,14 @@ if (clientId) {
                   <span class="text-[10px] font-mono text-charcoal-light w-5 text-center">
                     <span x-text="i + 1"></span>
                   </span>
-                  <span class="text-sm font-medium text-charcoal-dark flex-1 truncate" x-text="b.name"></span>
-                  <span x-show="b.domain" class="text-[10px] text-charcoal-light/70 truncate max-w-[200px]" x-text="b.domain"></span>
+                  <span class="text-sm font-medium text-charcoal-dark truncate min-w-[120px] max-w-[200px]" x-text="b.name"></span>
+                  <input type="text"
+                         :value="b.domain || ''"
+                         @blur="saveDomain(b, $event.target.value)"
+                         @keydown.enter="$event.target.blur()"
+                         :placeholder="i === 0 ? 'e.g. eau-thermale-avene.fr (lead — used for FAQ auto-suggest)' : 'e.g. ducray.com'"
+                         class="flex-1 text-[11px] text-charcoal-light bg-transparent border border-transparent hover:border-gray-200 focus:border-coral focus:bg-white rounded px-2 py-1 outline-none min-w-0" />
+                  <span x-show="domainSaveState[b.id]" class="text-[9px]" :class="domainSaveState[b.id] === 'saving' ? 'text-amber-600' : domainSaveState[b.id] === 'saved' ? 'text-emerald-600' : 'text-red-600'" x-text="domainSaveState[b.id] === 'saving' ? '...' : domainSaveState[b.id] === 'saved' ? '✓' : '✗'"></span>
                   <span x-show="i === 0" class="shrink-0 text-[9px] uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded bg-coral/10 text-coral">Lead</span>
                   <div class="flex items-center gap-0.5 opacity-0 group-hover/row:opacity-100 transition-opacity">
                     <button type="button" @click="moveUp(i)" :disabled="i === 0"
@@ -251,6 +257,7 @@ if (clientId) {
         selected: [],
         search: '',
         saving: false,
+        domainSaveState: {},  // brand_id → 'saving' | 'saved' | 'error'
 
         init() {
           // Build selected from is_primary in initial order
@@ -324,6 +331,30 @@ if (clientId) {
             alert('Save failed : ' + e.message);
           } finally {
             this.saving = false;
+          }
+        },
+
+        async saveDomain(brand, newValue) {
+          // Normalize: trim, drop leading scheme + www, drop trailing slash/path
+          let domain = (newValue || '').trim().toLowerCase();
+          domain = domain.replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0];
+          if (domain === (brand.domain || '')) return;  // no change
+
+          this.domainSaveState[brand.id] = 'saving';
+          try {
+            const res = await fetch(`/api/clients/${this.clientId}/brands/${brand.id}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ domain: domain || null }),
+            });
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            // Mutate the in-memory brand record so all references reflect the new domain
+            brand.domain = domain || null;
+            this.domainSaveState[brand.id] = 'saved';
+            setTimeout(() => { delete this.domainSaveState[brand.id]; }, 1500);
+          } catch (e) {
+            this.domainSaveState[brand.id] = 'error';
+            console.error('domain save failed', e);
           }
         },
       }));

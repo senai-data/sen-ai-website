@@ -233,6 +233,16 @@ function fmtDate(iso: string | null): string {
                       ✨ Auto-suggested — review & edit if needed
                     </span>
                   </template>
+                  {/* Diversity warning : same URL targeted by N other items in this scan.
+                       SEO best practice = one FAQ per page (Google's guidance). Surface
+                       the conflict so the user can either pick a different page or
+                       consolidate the items elsewhere. */}
+                  <template x-if="item.is_target_url_shared">
+                    <span class="text-[10px] text-amber-800 bg-amber-50 px-1.5 py-0.5 rounded"
+                          :title="(item.target_url_share_count) + ' other item(s) target this same page. Consider a different URL for SEO (one FAQ per page).'">
+                      🔗 Also picked by <span x-text="item.target_url_share_count"></span> other item<span x-show="item.target_url_share_count > 1">s</span>
+                    </span>
+                  </template>
                   <template x-if="item.target_url_source === 'user_input'">
                     <span class="text-[10px] text-gray-500">
                       ✏ Set by you

@@ -69,12 +69,17 @@ def _check_client_access(client_id: str, user, db: Session):
 
 
 def _serialize_item(item: ScanContentItem, brand_names: dict[str, str] | None = None,
-                    primary_brand_domains: list[str] | None = None) -> dict:
+                    primary_brand_domains: list[str] | None = None,
+                    target_url_share_count: int = 0) -> dict:
     """Convert a ScanContentItem ORM row into the dict shape the UI consumes.
 
     `primary_brand_domains` is the list of domains from the client's
     `primary_brand_ids` — used client-side to validate user-edited target_url
     against the brands the user is meant to promote.
+
+    `target_url_share_count` is how many OTHER content items in this scan
+    target the same URL. >0 means the user should consider diversifying
+    (one FAQ per page is the SEO best practice).
     """
     promoted_names: list[str] = []
     if item.promoted_brand_ids and brand_names:
@@ -86,6 +91,8 @@ def _serialize_item(item: ScanContentItem, brand_names: dict[str, str] | None = 
     scan = item.scan
     return {
         "primary_brand_domains": primary_brand_domains or [],
+        "target_url_share_count": target_url_share_count,
+        "is_target_url_shared": target_url_share_count > 0,
         "id": str(item.id),
         "scan_id": str(item.scan_id),
         "scan_domain": scan.domain if scan else None,
@@ -220,7 +227,27 @@ async def list_content_items(
     brand_names = _resolve_brand_names(client_id, all_brand_ids, db)
     primary_domains = _resolve_primary_brand_domains(client_id, db)
 
-    serialized = [_serialize_item(it, brand_names, primary_domains) for it in items]
+    # Build per-scan target_url frequency map so each card knows whether its
+    # URL is shared with sibling items (SEO best-practice : one FAQ per page).
+    from collections import Counter
+    per_scan_url_counts: dict[str, Counter] = {}
+    for it in items:
+        if it.target_url:
+            per_scan_url_counts.setdefault(str(it.scan_id), Counter())[it.target_url] += 1
+
+    def _share_count_for(it: ScanContentItem) -> int:
+        if not it.target_url:
+            return 0
+        counter = per_scan_url_counts.get(str(it.scan_id))
+        if not counter:
+            return 0
+        # "Other items sharing this URL" — exclude self
+        return max(0, counter[it.target_url] - 1)
+
+    serialized = [
+        _serialize_item(it, brand_names, primary_domains, _share_count_for(it))
+        for it in items
+    ]
 
     # Pre-bucket by Kanban column for the UI (saves a JS reduce pass)
     by_column: dict[str, list[dict]] = {
@@ -262,7 +289,28 @@ async def get_content_item(item_id: str, user=Depends(get_current_user),
         db,
     )
     primary_domains = _resolve_primary_brand_domains(client_id_str, db)
-    return _serialize_item(item, brand_names, primary_domains)
+    share_count = _count_sibling_items_at_url(item, db)
+    return _serialize_item(item, brand_names, primary_domains, share_count)
+
+
+def _count_sibling_items_at_url(item: ScanContentItem, db: Session) -> int:
+    """How many OTHER ContentItems in this scan target the same URL.
+
+    0 = unique target_url (or item has no target_url). >0 triggers the
+    "consider a different page" warning chip in the validation UI.
+    """
+    if not item.target_url:
+        return 0
+    n = (
+        db.query(ScanContentItem)
+        .filter(
+            ScanContentItem.scan_id == item.scan_id,
+            ScanContentItem.target_url == item.target_url,
+            ScanContentItem.id != item.id,
+        )
+        .count()
+    )
+    return max(0, n)
 
 
 class ContentItemPatch(BaseModel):
@@ -379,7 +427,8 @@ async def update_content_item(item_id: str, patch: ContentItemPatch,
         db,
     )
     primary_domains = _resolve_primary_brand_domains(client_id_str, db)
-    return _serialize_item(item, brand_names, primary_domains)
+    share_count = _count_sibling_items_at_url(item, db)
+    return _serialize_item(item, brand_names, primary_domains, share_count)
 
 
 @router.post("/content-items/{item_id}/generate")

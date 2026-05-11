@@ -171,9 +171,28 @@ def _auto_match_target_urls(items: list, scan, db) -> dict:
                 "target_page_url": _strip_tracking_params(url),
                 "target_page_title": (r.get("target_page_title") or "").strip() or None,
             }
+
+    # SEO best-practice : one FAQ per page. When the matcher returns the same
+    # URL for multiple semantically-similar questions (common — a brand's
+    # XERACALM AD product page is the canonical answer for half a dozen baby-
+    # atopic-skin questions), the user will eventually want to either merge
+    # them or pick alternate pages. We log the dups here so it's visible in
+    # worker logs, and the API surfaces `is_target_url_shared` per item so
+    # the validation UI can prompt the user.
+    from collections import Counter
+    url_counts = Counter(v["target_page_url"] for v in out.values())
+    dups = {u: c for u, c in url_counts.items() if c > 1}
+    if dups:
+        for url, count in dups.items():
+            logger.info(
+                f"materialize: target_url collision — {count} items share {url!r}; "
+                f"validation UI will prompt the user to diversify"
+            )
+
     logger.info(
         f"materialize: auto-suggest results: {len(out)}/{len(items)} matched, "
-        f"{len(items) - len(out)} fall back to pending_user"
+        f"{len(items) - len(out)} fall back to pending_user, "
+        f"{len(dups)} duplicate URL group(s)"
     )
     return out
 

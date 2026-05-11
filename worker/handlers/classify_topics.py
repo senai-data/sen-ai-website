@@ -95,12 +95,31 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
         "site_gamme": "target_gamme",
         "competitor": "competitor",
     }
-    # Map legacy category → new SBC classification vocabulary
-    sbc_classification_map = {
-        "target_brand": "my_brand",
-        "target_gamme": "my_brand",
-        "competitor": "competitor",
-    }
+    # Map legacy category → new SBC classification vocabulary.
+    #
+    # Claude tags brands on the scanned page : site_brand / site_gamme are
+    # "the brand and product gammes of the SITE being analyzed". Whether
+    # those are MY brands or COMPETITOR brands depends on whether the user
+    # owns that site — which is determined by checking the scan's domain
+    # against client.primary_brand_ids. On a competitor audit (PF user
+    # scanning uriage.fr), the site_brand IS the competitor, so we flip the
+    # mapping accordingly. Without this check, the SBC table tags Uriage
+    # as my_brand and the FAQ generator promotes it. Wrong.
+    from services.brand_resolver import is_competitor_scan
+    competitor_audit = is_competitor_scan(scan, db)
+
+    if competitor_audit:
+        sbc_classification_map = {
+            "target_brand": "competitor",
+            "target_gamme": "competitor",
+            "competitor": "competitor",
+        }
+    else:
+        sbc_classification_map = {
+            "target_brand": "my_brand",
+            "target_gamme": "my_brand",
+            "competitor": "competitor",
+        }
 
     now = datetime.utcnow()
     # Track brand_ids + their Claude category for parent-child linking after the loop

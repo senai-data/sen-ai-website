@@ -10,15 +10,18 @@ La Roche-Posay.
 Resolution chain (highest priority first) :
 
   1. scan.promotion_brand_ids                      (per-scan explicit override)
-  2. ScanBrandClassification(my_brand) for scan    (auto-detected on this scan)
-  3. client.primary_brand_ids                      (cross-scan workspace default)
-  4. raise PromotionUnsetError                     (UI prompts user to set defaults)
+  2. client.primary_brand_ids                      (cross-scan workspace default)
+  3. raise PromotionUnsetError                     (UI prompts user to set defaults)
 
-The merge between #1/#2 and #3 is a UNION preserving the priority order — if
-the scan auto-detected `[Avène]` as my_brand but the workspace default is
-`[Avène, Aderma, Ducray]`, the result is `[Avène, Aderma, Ducray]` so we don't
-arbitrarily lose Aderma/Ducray just because they weren't mentioned in this
-particular scan's LLM responses.
+ScanBrandClassification(my_brand) used to be step 2 but has been dropped from
+the promote chain : on a competitor audit (Pierre Fabre user scanning
+uriage.fr), classify_topics tags Uriage and its product gammes (Xémose,
+Hyséac, …) as `my_brand` because they're the dominant brands on the scanned
+SITE. Merging that into the promote chain pollutes the FAQ generator's
+prompt with competitor names — exact opposite of the bias we want. SBC
+classifications remain stored for analytics and for the Phase E side-by-side
+view, but the canonical "what to promote" is now answered by workspace
+primary brands alone (with explicit per-scan override available).
 
 Returned alongside the promote list :
 - the *competitor* brands (from ScanBrandClassification.classification='competitor')
@@ -95,43 +98,21 @@ def resolve_promotion(scan, db: Session) -> PromotionResolution:
         promote_ids = list(scan.promotion_brand_ids)
         resolved_via = "scan_override"
 
-    # ── Step 2: ScanBrandClassification(my_brand) for this scan ───────────
-    sbc_brand_ids: list[UUID] = []
-    sbc_rows = (
-        db.query(ScanBrandClassification.brand_id)
-        .filter(
-            ScanBrandClassification.scan_id == scan.id,
-            ScanBrandClassification.classification == "my_brand",
-        )
-        .all()
-    )
-    sbc_brand_ids = [r.brand_id for r in sbc_rows]
-
-    # ── Step 3: client.primary_brand_ids (workspace default) ──────────────
-    client = db.query(Client).filter(Client.id == scan.client_id).first()
-    client_primary_ids: list[UUID] = list(client.primary_brand_ids) if (client and client.primary_brand_ids) else []
-
-    # ── Merge with priority order, preserving uniqueness ──────────────────
+    # ── Step 2: client.primary_brand_ids (workspace default) ──────────────
+    # NOTE: SBC `my_brand` is intentionally NOT merged here — see module
+    # docstring. classify_topics tags the scanned site's dominant brand as
+    # my_brand by construction, which pollutes the promote chain on
+    # competitor audits.
     if not promote_ids:
-        # No explicit override → take SBC + client primaries (union, SBC first to honor scan-level signals)
-        seen = set()
-        merged: list[UUID] = []
-        for bid in sbc_brand_ids + client_primary_ids:
-            if bid not in seen:
-                seen.add(bid)
-                merged.append(bid)
-        promote_ids = merged
-        if sbc_brand_ids and client_primary_ids:
-            resolved_via = "merged(scan_classifications + client_primary)"
-        elif sbc_brand_ids:
-            resolved_via = "scan_classifications"
-        elif client_primary_ids:
+        client = db.query(Client).filter(Client.id == scan.client_id).first()
+        if client and client.primary_brand_ids:
+            promote_ids = list(client.primary_brand_ids)
             resolved_via = "client_primary"
 
     if not promote_ids:
         raise PromotionUnsetError(
-            f"No brand to promote for scan {scan.id}: no per-scan override, "
-            f"no my_brand classifications, no client.primary_brand_ids set. "
+            f"No brand to promote for scan {scan.id}: no per-scan override "
+            f"and no client.primary_brand_ids set. "
             f"Resolve by setting primary brands in workspace settings."
         )
 
@@ -210,35 +191,51 @@ def resolve_promotion(scan, db: Session) -> PromotionResolution:
 
 
 def is_competitor_scan(scan, db: Session) -> bool:
-    """Return True when the scanned domain does not belong to any of the
-    client's promoted brands — i.e. we're scanning a competitor.
+    """Return True when the scanned domain does NOT belong to any brand in
+    `client.primary_brand_ids` — i.e. the user is auditing a competitor.
 
-    Used by `materialize_content_items` to decide whether `target_url` should
-    be auto-filled from the scan (user-owned domain → yes) or left NULL for
-    the user to pick a page on their own site (competitor → A2 manual pick).
+    Uses workspace primary brands as the stable signal — NOT the merged
+    resolution chain. The merged chain pulls in per-scan SBC `my_brand`
+    classifications which auto-include the scanned domain itself (Uriage on
+    a Uriage scan gets tagged my_brand by classify_topics), creating a
+    circular check : "is uriage.fr a competitor of me? No — because uriage
+    is in my_brand promote list... because I scanned uriage.fr." Wrong.
 
-    Returns False (the conservative default) on any resolution failure so we
-    don't accidentally block a legitimate user-owned scan from auto-filling.
+    By keying off `client.primary_brand_ids` directly, the helper answers
+    the workspace-level question : "is this domain one of MY brands?"
+
+    Returns False (conservative) when the client has no primary brands set —
+    we don't know what's user vs competitor, so don't punish the scan.
     """
     if not scan or not scan.domain:
         return False
-    try:
-        resolution = resolve_promotion(scan, db)
-    except PromotionUnsetError:
-        # No brand resolves at all → we don't know what's user vs competitor.
-        # Treat as user-owned (status quo behavior, conservative).
+
+    from models import Client, ClientBrand
+
+    client = db.query(Client).filter(Client.id == scan.client_id).first()
+    if not client or not client.primary_brand_ids:
+        return False  # can't determine, default to user-owned behavior
+
+    primary_brand_rows = (
+        db.query(ClientBrand)
+        .filter(ClientBrand.id.in_(client.primary_brand_ids))
+        .all()
+    )
+
+    def _normalize(d: str) -> str:
+        d = (d or "").lower().strip()
+        if d.startswith("www."):
+            d = d[4:]
+        return d
+
+    scan_domain_lc = _normalize(scan.domain)
+    if not scan_domain_lc:
         return False
 
-    scan_domain_lc = scan.domain.lower().strip()
-    if scan_domain_lc.startswith("www."):
-        scan_domain_lc = scan_domain_lc[4:]
-
-    for b in resolution.promote_brands:
-        if not b.domain:
+    for b in primary_brand_rows:
+        b_domain_lc = _normalize(b.domain or "")
+        if not b_domain_lc:
             continue
-        b_domain_lc = b.domain.lower().strip()
-        if b_domain_lc.startswith("www."):
-            b_domain_lc = b_domain_lc[4:]
         # Match either direction so subdomain scans (eu.avene.com vs avene.com)
         # are still treated as user-owned.
         if scan_domain_lc == b_domain_lc:

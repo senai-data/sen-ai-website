@@ -216,16 +216,34 @@ function fmtDate(iso: string | null): string {
                        @input="item.target_url = $event.target.value; markUnsaved(); scheduleSave();"
                        :disabled="item.status === 'published' || item.status === 'rejected'"
                        class="w-full text-sm border rounded px-2 py-1.5 focus:outline-none focus:border-coral disabled:bg-gray-50 disabled:text-gray-500"
-                       :class="item.target_url ? 'border-gray-200' : 'border-amber-300'" />
-                <template x-if="item.target_url">
-                  <a :href="item.target_url" target="_blank" rel="noopener"
-                     class="text-[11px] text-coral hover:underline inline-flex items-center gap-1">
-                    Open page in new tab ↗
-                  </a>
+                       :class="urlValidation().borderClass" />
+                {/* Inline validation hint (client-side, Doherty <400ms) — Postel + Aesthetic-Usability */}
+                <template x-if="item.target_url && urlValidation().message">
+                  <p class="text-[11px] leading-snug" :class="urlValidation().textClass" x-text="urlValidation().message"></p>
                 </template>
-                <template x-if="item.target_url_source">
-                  <span class="text-[10px] text-gray-400 italic" x-text="'Source: ' + item.target_url_source.replace('_', ' ')"></span>
-                </template>
+                <div class="flex items-center gap-3 flex-wrap">
+                  <template x-if="item.target_url">
+                    <a :href="item.target_url" target="_blank" rel="noopener"
+                       class="text-[11px] text-coral hover:underline inline-flex items-center gap-1">
+                      Open page in new tab ↗
+                    </a>
+                  </template>
+                  <template x-if="item.target_url_source === 'auto_suggest'">
+                    <span class="text-[10px] text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded">
+                      ✨ Auto-suggested — review & edit if needed
+                    </span>
+                  </template>
+                  <template x-if="item.target_url_source === 'user_input'">
+                    <span class="text-[10px] text-gray-500">
+                      ✏ Set by you
+                    </span>
+                  </template>
+                  <template x-if="item.target_url_source === 'scan_result'">
+                    <span class="text-[10px] text-gray-500">
+                      From scan results
+                    </span>
+                  </template>
+                </div>
               </dd>
             </div>
             <div>
@@ -531,6 +549,73 @@ function fmtDate(iso: string | null): string {
           }
           if (this.saveState === 'error') return '⚠ Save failed';
           return '';
+        },
+
+        // Client-side URL validation — three signals, no LLM call.
+        // Returns { level, message, borderClass, textClass } for the URL input.
+        // 'ok'    : deep page on a primary brand domain
+        // 'warn'  : valid URL but off-brand or shallow path
+        // 'error' : doesn't parse
+        // 'empty' : no URL set yet (banner handles this)
+        urlValidation() {
+          const url = (this.item.target_url || '').trim();
+          if (!url) {
+            return { level: 'empty', message: '', borderClass: 'border-amber-300', textClass: '' };
+          }
+          // Parse
+          let parsed;
+          try {
+            parsed = new URL(url);
+            if (!parsed.protocol.startsWith('http')) throw new Error('non-http');
+          } catch (_) {
+            return {
+              level: 'error',
+              message: '⚠ Doesn\'t look like a valid URL — must start with https://',
+              borderClass: 'border-red-400',
+              textClass: 'text-red-700',
+            };
+          }
+          const host = parsed.hostname.toLowerCase().replace(/^www\./, '');
+          const path = parsed.pathname.replace(/^\/+|\/+$/g, '');
+          const segments = path ? path.split('/').filter(Boolean) : [];
+
+          // Brand domain match (case-insensitive, ignoring www.)
+          const brandDomains = (this.item.primary_brand_domains || []).map(d =>
+            (d || '').toLowerCase().replace(/^www\./, '')
+          );
+          const matchesBrand = brandDomains.length === 0
+            ? null  // can't check, skip the warning
+            : brandDomains.some(d => host === d || host.endsWith('.' + d));
+
+          if (matchesBrand === false) {
+            const list = brandDomains.slice(0, 3).join(', ');
+            return {
+              level: 'warn',
+              message: '⚠ This URL isn\'t on your brand site (' + list + '). The FAQ promotes your brand only if it\'s hosted on your own pages.',
+              borderClass: 'border-amber-300',
+              textClass: 'text-amber-800',
+            };
+          }
+
+          // Depth check
+          if (segments.length < 2) {
+            return {
+              level: 'warn',
+              message: '⚠ Looks like a homepage or top-level category. FAQ works best on a specific topic page (deeper URL with ≥ 2 path segments).',
+              borderClass: 'border-amber-300',
+              textClass: 'text-amber-800',
+            };
+          }
+
+          // All checks pass
+          return {
+            level: 'ok',
+            message: matchesBrand === null
+              ? '✓ Deep page detected. Add primary brands in workspace settings to enable on-brand check.'
+              : '✓ Looks good — deep page on your brand domain.',
+            borderClass: 'border-emerald-200',
+            textClass: 'text-emerald-700',
+          };
         },
 
         nextStepHint() {

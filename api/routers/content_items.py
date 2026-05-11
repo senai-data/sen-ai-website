@@ -68,8 +68,14 @@ def _check_client_access(client_id: str, user, db: Session):
         raise HTTPException(403, "Access denied")
 
 
-def _serialize_item(item: ScanContentItem, brand_names: dict[str, str] | None = None) -> dict:
-    """Convert a ScanContentItem ORM row into the dict shape the UI consumes."""
+def _serialize_item(item: ScanContentItem, brand_names: dict[str, str] | None = None,
+                    primary_brand_domains: list[str] | None = None) -> dict:
+    """Convert a ScanContentItem ORM row into the dict shape the UI consumes.
+
+    `primary_brand_domains` is the list of domains from the client's
+    `primary_brand_ids` — used client-side to validate user-edited target_url
+    against the brands the user is meant to promote.
+    """
     promoted_names: list[str] = []
     if item.promoted_brand_ids and brand_names:
         for bid in item.promoted_brand_ids:
@@ -79,6 +85,7 @@ def _serialize_item(item: ScanContentItem, brand_names: dict[str, str] | None = 
 
     scan = item.scan
     return {
+        "primary_brand_domains": primary_brand_domains or [],
         "id": str(item.id),
         "scan_id": str(item.scan_id),
         "scan_domain": scan.domain if scan else None,
@@ -130,6 +137,35 @@ def _resolve_brand_names(client_id: str, item_brand_ids: set[str], db: Session) 
     return {str(b.id): b.name for b in rows}
 
 
+def _resolve_primary_brand_domains(client_id: str, db: Session) -> list[str]:
+    """Return the domains of the client's primary brands, ordered by primary_brand_ids.
+
+    Used by the UI to validate user-edited target_url against the brands the
+    user is meant to promote. Empty list when the client has no primary brand
+    configured yet (legitimate state — the UI then skips off-brand warnings).
+    """
+    from models import Client
+
+    client = db.query(Client).filter(Client.id == client_id).first()
+    if not client or not client.primary_brand_ids:
+        return []
+    rows = (
+        db.query(ClientBrand)
+        .filter(
+            ClientBrand.client_id == client_id,
+            ClientBrand.id.in_(client.primary_brand_ids),
+        )
+        .all()
+    )
+    by_id = {b.id: b for b in rows}
+    domains: list[str] = []
+    for bid in client.primary_brand_ids:
+        b = by_id.get(bid)
+        if b and b.domain:
+            domains.append(b.domain.lower())
+    return domains
+
+
 # ── Endpoints ───────────────────────────────────────────────────────────
 
 @router.get("/clients/{client_id}/content-items")
@@ -174,8 +210,9 @@ async def list_content_items(
         for bid in (it.promoted_brand_ids or []):
             all_brand_ids.add(str(bid))
     brand_names = _resolve_brand_names(client_id, all_brand_ids, db)
+    primary_domains = _resolve_primary_brand_domains(client_id, db)
 
-    serialized = [_serialize_item(it, brand_names) for it in items]
+    serialized = [_serialize_item(it, brand_names, primary_domains) for it in items]
 
     # Pre-bucket by Kanban column for the UI (saves a JS reduce pass)
     by_column: dict[str, list[dict]] = {
@@ -210,12 +247,14 @@ async def get_content_item(item_id: str, user=Depends(get_current_user),
     # RBAC via parent scan
     _check_scan_access(str(item.scan_id), user, db)
 
+    client_id_str = str(item.scan.client_id)
     brand_names = _resolve_brand_names(
-        str(item.scan.client_id),
+        client_id_str,
         {str(b) for b in (item.promoted_brand_ids or [])},
         db,
     )
-    return _serialize_item(item, brand_names)
+    primary_domains = _resolve_primary_brand_domains(client_id_str, db)
+    return _serialize_item(item, brand_names, primary_domains)
 
 
 class ContentItemPatch(BaseModel):
@@ -325,12 +364,14 @@ async def update_content_item(item_id: str, patch: ContentItemPatch,
     db.commit()
     db.refresh(item)
 
+    client_id_str = str(item.scan.client_id)
     brand_names = _resolve_brand_names(
-        str(item.scan.client_id),
+        client_id_str,
         {str(b) for b in (item.promoted_brand_ids or [])},
         db,
     )
-    return _serialize_item(item, brand_names)
+    primary_domains = _resolve_primary_brand_domains(client_id_str, db)
+    return _serialize_item(item, brand_names, primary_domains)
 
 
 @router.post("/content-items/{item_id}/generate")

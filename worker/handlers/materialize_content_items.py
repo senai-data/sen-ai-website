@@ -13,17 +13,36 @@ keeps the Kanban readable (Miller's Law, ~5-10 cards per scan) and aligns
 with the Phase B scope (only `generate_faq` handler is wired). Article and
 netlinking materialization come later when their handlers ship (Phase C).
 
-## target_url policy (A2 stepping stone — see project_roadmap_content_port.md)
+## target_url policy — auto-suggest via FAQPageMatcher + manual fallback
 
-Every materialized ContentItem starts with `target_url = NULL` and
-`target_url_source = 'pending_user'`. The user picks the URL on the
-validation page before generation can run. The Kanban surfaces this as a
-"Needs URL" badge on the card.
+We reuse `seo_llm.src.faq_page_matcher.FAQPageMatcher` (same code seo-llm
+CLI shipped with) to web_search the user's lead brand domain and pick the
+most relevant deep page per question. Outcomes :
 
-`is_competitor_scan(scan, db)` is computed here so the validation page can
-show the right banner copy. We don't gate on it for target_url — even on
-user-owned scans the system doesn't yet know which page should host the FAQ
-(Phase D sitemap index will auto-suggest, but for now the user always picks).
+  - Match found  → target_url set, target_url_source='auto_suggest'.
+                   User can override on the validation page (flips to
+                   'user_input').
+  - Match empty  → target_url NULL, target_url_source='pending_user'.
+                   The validation page surfaces the URL input with a banner
+                   so the user can pick a page manually (A2 fallback).
+  - No primary
+    brand on
+    client       → target_url NULL, target_url_source='pending_user'.
+                   Same UX as match empty.
+
+The `target_site` for matching is **always the user's lead primary brand
+domain**, never the scanned domain — this is the key fix for competitor
+scans. On a user-owned scan, lead brand = scan.domain naturally, so the
+matcher behaves the seo-llm-canonical way. On a competitor scan (uriage.fr
+for a Pierre Fabre user), lead brand = e.g. eau-thermale-avene.fr, so the
+matcher finds Avène pages — not Uriage's.
+
+We deliberately read `client.primary_brand_ids` instead of going through
+BrandResolver's full resolution chain. The merged chain (scan SBC +
+client primary) gets polluted on competitor scans by per-scan
+classifications, sometimes including the competitor itself as 'my_brand'
+(observed: 98 brands resolved on uriage.fr scan). Workspace primary brands
+are the stable signal.
 
 ## Idempotency
 
@@ -46,6 +65,117 @@ logger = logging.getLogger(__name__)
 # but behind competitor. 'moyenne' opportunities are skipped because the user
 # already ranks reasonably and the ROI of producing a FAQ is unclear.
 _FAQ_PRIORITIES = ("critique", "haute")
+
+
+def _resolve_target_site(scan, db) -> tuple[str | None, str | None]:
+    """Pick the domain to point FAQPageMatcher at.
+
+    Returns (target_site, lead_brand_name). target_site is None when no
+    primary brand has a domain set — caller then skips auto-suggest and the
+    user picks manually.
+
+    We use `client.primary_brand_ids` rather than BrandResolver's full chain
+    because per-scan SBC classifications can spuriously include the scanned
+    competitor itself as 'my_brand' (observed: 98 brands resolved on a
+    uriage.fr scan). Workspace primary brands are the more stable signal.
+
+    The 'lead' is the first primary brand *whose domain is set*. PF workspace
+    has 190 primary brands but only ~10 have domains — taking strictly [0]
+    fails when [0] is domain-less. Iterating finds the first usable one.
+    Workspace settings is where to clean up the list to keep [0] meaningful.
+    """
+    from models import Client, ClientBrand
+
+    client = db.query(Client).filter(Client.id == scan.client_id).first()
+    if not client or not client.primary_brand_ids:
+        return None, None
+
+    brands = (
+        db.query(ClientBrand)
+        .filter(ClientBrand.id.in_(client.primary_brand_ids))
+        .all()
+    )
+    by_id = {b.id: b for b in brands}
+
+    for bid in client.primary_brand_ids:
+        b = by_id.get(bid)
+        if b and b.domain and b.domain.strip():
+            return b.domain.strip(), b.name
+
+    return None, None
+
+
+def _auto_match_target_urls(items: list, scan, db) -> dict:
+    """Run FAQPageMatcher on a list of (item, question_text) pairs.
+
+    Returns a dict {item_id_str: {"target_page_url": str, "target_page_title": str}}
+    for items where a match was found. Items missing from the dict get
+    pending_user fallback.
+
+    Failures are swallowed (logged) — the manual A2 path is always available
+    as the final fallback, so a transient web_search outage doesn't block
+    the scan pipeline.
+    """
+    if not items:
+        return {}
+
+    target_site, lead_name = _resolve_target_site(scan, db)
+    if not target_site:
+        logger.info(
+            f"materialize: skipping auto-suggest for scan {scan.id} — "
+            f"no primary brand with a domain set on the client. "
+            f"Fix: set client.primary_brand_ids[0..N] to brands that have "
+            f"a domain field populated. User picks URLs manually meanwhile."
+        )
+        return {}
+
+    logger.info(
+        f"materialize: auto-suggest target_url for {len(items)} items "
+        f"on target_site='{target_site}' (lead brand: {lead_name})"
+    )
+
+    # Install the geo_content_generator stub so faq_page_matcher imports cleanly
+    # (matches the same pattern used in generate_faq handler).
+    from handlers.generate_faq import _install_geo_stub
+    _install_geo_stub()
+
+    try:
+        import pandas as pd
+        from seo_llm.src.faq_page_matcher import FAQPageMatcher
+    except Exception as e:
+        logger.warning(f"materialize: FAQPageMatcher unavailable ({e}) — falling back to manual")
+        return {}
+
+    rows = []
+    for item, question_text, source_name in items:
+        rows.append({
+            "faq_opportunity_id": str(item.id),
+            "target_site": target_site,
+            "question_text": question_text,
+            "source_name": source_name or "",
+        })
+
+    df = pd.DataFrame(rows)
+    try:
+        matcher = FAQPageMatcher(max_workers=3)  # conservative: rate-limited to ~1/s anyway
+        df = matcher.match_pages(df)
+    except Exception as e:
+        logger.warning(f"materialize: FAQPageMatcher.match_pages crashed ({e}) — falling back to manual")
+        return {}
+
+    out: dict = {}
+    for _, r in df.iterrows():
+        url = (r.get("target_page_url") or "").strip()
+        if url:
+            out[r["faq_opportunity_id"]] = {
+                "target_page_url": url,
+                "target_page_title": (r.get("target_page_title") or "").strip() or None,
+            }
+    logger.info(
+        f"materialize: auto-suggest results: {len(out)}/{len(items)} matched, "
+        f"{len(items) - len(out)} fall back to pending_user"
+    )
+    return out
 
 
 def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
@@ -74,7 +204,7 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
     )
     if not opps:
         logger.info(f"materialize_content_items: 0 FAQ opportunities for scan {scan_id}")
-        return {"materialized": 0, "skipped_existing": 0, "is_competitor_scan": False}
+        return {"materialized": 0, "skipped_existing": 0, "auto_matched": 0, "is_competitor_scan": False}
 
     competitor = is_competitor_scan(scan, db)
     logger.info(
@@ -95,7 +225,9 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
         (item.target_question or "").strip().lower() for item in existing if item.target_question
     }
 
-    materialized = 0
+    # Phase 1: create ContentItem rows (without target_url yet) so they get UUIDs
+    # we can key the matcher results on.
+    new_items: list = []  # list of (item, question_text, source_name)
     skipped = 0
 
     for opp in opps:
@@ -104,39 +236,72 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
             logger.debug(f"materialize: skip opp {opp.id} — no question text")
             continue
 
-        q_key = question.question.strip().lower()
+        q_text = question.question.strip()
+        q_key = q_text.lower()
         if q_key in existing_questions:
             skipped += 1
             continue
 
-        db.add(ScanContentItem(
+        item = ScanContentItem(
             scan_id=scan_id,
             content_type="faq",
             topic_name=opp.topic_name,
             persona_name=opp.persona_name,
             target_url=None,
             target_url_source="pending_user",
-            target_question=question.question.strip(),
+            target_question=q_text,
             priority=opp.priority,
             opportunity_score=opp.opportunity_score,
             brand_position=opp.brand_position,
             best_competitor=opp.best_competitor_name,
             nb_competitors_cited=opp.nb_competitors_cited,
             status="identified",
-        ))
+        )
+        db.add(item)
+        new_items.append((item, q_text, opp.topic_name))
         existing_questions.add(q_key)
-        materialized += 1
+
+    if not new_items:
+        db.commit()
+        logger.info(
+            f"materialize_content_items done: scan={scan_id}, "
+            f"materialized=0, skipped_existing={skipped}, auto_matched=0"
+        )
+        return {
+            "materialized": 0,
+            "skipped_existing": skipped,
+            "auto_matched": 0,
+            "is_competitor_scan": competitor,
+        }
+
+    # Flush so the new items get UUIDs assigned, which the matcher needs as keys.
+    db.flush()
+
+    # Phase 2: auto-suggest target_url via FAQPageMatcher on the user's lead brand.
+    matches = _auto_match_target_urls(new_items, scan, db)
+    auto_matched = 0
+    for item, _, _ in new_items:
+        m = matches.get(str(item.id))
+        if m and m.get("target_page_url"):
+            item.target_url = m["target_page_url"]
+            item.target_url_source = "auto_suggest"
+            if m.get("target_page_title"):
+                item.target_page_title = m["target_page_title"]
+            auto_matched += 1
 
     db.commit()
 
     logger.info(
         f"materialize_content_items done: scan={scan_id}, "
-        f"materialized={materialized}, skipped_existing={skipped}, "
+        f"materialized={len(new_items)}, skipped_existing={skipped}, "
+        f"auto_matched={auto_matched}, "
+        f"pending_user={len(new_items) - auto_matched}, "
         f"is_competitor_scan={competitor}"
     )
 
     return {
-        "materialized": materialized,
+        "materialized": len(new_items),
         "skipped_existing": skipped,
+        "auto_matched": auto_matched,
         "is_competitor_scan": competitor,
     }

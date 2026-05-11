@@ -395,9 +395,12 @@ async def generate_content(item_id: str, user=Depends(get_current_user),
     Status transitions: identified → generating (set by handler) → draft (on
     success) or back to identified (on failure, allowing retry from Kanban).
 
-    NOTE: credit debit not yet wired here. Phase B pricing = 1 content_credit
-    per FAQ — to be added in a follow-up commit alongside the Stripe content
-    credits flow.
+    Credit policy : 1 `content_credit` debited at enqueue time. If the user
+    doesn't have enough credits, returns 402 with a friendly message. Refund
+    on permanent failure is a known follow-up (the centralized
+    `_refund_scan_credits` path in worker/main.py would over-refund the
+    parent scan's scan_credits, so a content-scoped refund helper needs
+    writing — out of scope for this debit-only commit).
     """
     item = (
         db.query(ScanContentItem)
@@ -449,6 +452,28 @@ async def generate_content(item_id: str, user=Depends(get_current_user),
                 "ok": True, "job_id": str(j.id), "status": j.status,
                 "message": "Generation already in flight",
             }
+
+    # Debit 1 content_credit before enqueuing. Locks the client row to
+    # serialize against concurrent debits (re-entrant within this txn).
+    # The debit row is tied to scan_id so audit queries can reconstruct
+    # which scan triggered which content gen.
+    from routers.stripe import add_credits
+    try:
+        add_credits(
+            client_id=str(item.scan.client_id),
+            credit_type="content",
+            amount=-1,
+            description=f"FAQ generation: {item_id}",
+            db=db,
+            scan_id=str(item.scan_id),
+        )
+    except ValueError as e:
+        raise HTTPException(402, {
+            "error": "insufficient_credits",
+            "message": "You don't have enough content credits to generate this FAQ. "
+                       "Buy more on the Settings page, then come back.",
+            "detail": str(e),
+        })
 
     job = Job(
         scan_id=item.scan_id,

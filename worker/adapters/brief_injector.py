@@ -98,6 +98,28 @@ def format_workspace_brief(client_apps: dict | None) -> str:
     return "\n".join(lines)
 
 
+def format_analysis_context(scan_config: dict | None, client_apps: dict | None) -> str:
+    """Combine domain + workspace briefs for analysis-stage prompts.
+
+    Analysers (classify_topics, generate_personas, generate_editorial, …)
+    benefit from BOTH briefs : the domain brief tells the LLM what the
+    scanned site is, the workspace brief tells it whose perspective to
+    adopt. Without the latter, analysers default to "neutral observer"
+    framing, which loses the SaaS angle — the user's own brand context.
+
+    Returns "" if neither brief exists. Concatenates with a blank line
+    separator when both are present.
+    """
+    parts: list[str] = []
+    db_block = format_brief_context(scan_config)
+    if db_block:
+        parts.append(db_block)
+    wb_block = format_workspace_brief(client_apps)
+    if wb_block:
+        parts.append(wb_block)
+    return "\n\n".join(parts)
+
+
 def format_promoted_brands_block(promoted_brand_names: list[str]) -> str:
     """Format the brands-to-promote list as a high-priority injection block.
 

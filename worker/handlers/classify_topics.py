@@ -33,13 +33,18 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
     scan.progress_message = "Classification des URLs en topics (Claude)..."
     db.commit()
 
-    # Step 1: Claude classifies URLs into topics (with domain brief context if available)
-    from adapters.brief_injector import format_brief_context
+    # Step 1: Claude classifies URLs into topics. Inject both the domain brief
+    # (what's the scanned site?) and the workspace brief (whose perspective?)
+    # so Claude can distinguish user-owned brands from competitors without
+    # guessing from the URL alone.
+    from adapters.brief_injector import format_analysis_context
+    from models import Client as _Client
+    _client = db.query(_Client).filter(_Client.id == scan.client_id).first()
     result = asyncio.run(classify_urls_into_topics(
         domain=scan.domain,
         keywords=kw_data,
         anthropic_api_key=settings.anthropic_api_key,
-        domain_context=format_brief_context(scan.config),
+        domain_context=format_analysis_context(scan.config, _client.apps if _client else None),
     ))
 
     # Step 2: Create topics and build URL → topic_id mapping

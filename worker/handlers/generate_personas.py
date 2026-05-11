@@ -66,13 +66,15 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
     scan.progress_pct = 10
     db.commit()
 
-    from adapters.brief_injector import format_brief_context
+    from adapters.brief_injector import format_analysis_context
+    from models import Client as _Client
+    _client = db.query(_Client).filter(_Client.id == scan.client_id).first()
     result = asyncio.run(generate_all_topics(
         domain=scan.domain,
         topics_with_keywords=topics_with_keywords,
         nb_personas=nb_personas,
         anthropic_api_key=settings.anthropic_api_key,
-        domain_context=format_brief_context(scan.config),
+        domain_context=format_analysis_context(scan.config, _client.apps if _client else None),
     ))
 
     # Log LLM usage for cost monitoring (aggregate across all topic calls)

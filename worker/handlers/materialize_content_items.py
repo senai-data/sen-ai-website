@@ -168,7 +168,7 @@ def _auto_match_target_urls(items: list, scan, db) -> dict:
         url = (r.get("target_page_url") or "").strip()
         if url:
             out[r["faq_opportunity_id"]] = {
-                "target_page_url": url,
+                "target_page_url": _strip_tracking_params(url),
                 "target_page_title": (r.get("target_page_title") or "").strip() or None,
             }
     logger.info(
@@ -176,6 +176,65 @@ def _auto_match_target_urls(items: list, scan, db) -> dict:
         f"{len(items) - len(out)} fall back to pending_user"
     )
     return out
+
+
+# Tracking parameter classifiers. We keep these generic so we drop anything
+# any search/citation tool (OpenAI web_search, Gemini grounding, Bing, Serper,
+# Google Ads click IDs, Facebook click IDs, mailing campaigns, etc.) injects.
+# Add more as we see them in the wild — but PREFIX-based rules cover most
+# `utm_*` variants automatically.
+_TRACKING_PARAM_PREFIXES = ("utm_", "mc_", "ga_")
+_TRACKING_PARAM_EXACT = {
+    "gclid",      # Google Ads click ID
+    "fbclid",     # Facebook click ID
+    "msclkid",    # Microsoft Ads click ID
+    "yclid",      # Yandex click ID
+    "wbraid",     # Google Ads attribution
+    "gbraid",     # Google Ads attribution
+    "ref",        # Generic referral
+    "ref_src",
+    "src",        # Twitter / generic source
+    "_hsenc",     # HubSpot
+    "_hsmi",      # HubSpot
+}
+
+
+def _is_tracking_param(name: str) -> bool:
+    n = (name or "").lower()
+    if n in _TRACKING_PARAM_EXACT:
+        return True
+    return any(n.startswith(p) for p in _TRACKING_PARAM_PREFIXES)
+
+
+def _strip_tracking_params(url: str) -> str:
+    """Strip tracking params from a URL so target_url matches the canonical
+    page address.
+
+    Citation tools (OpenAI web_search, Gemini grounding, etc.) inject their
+    own tracking params (utm_source=openai, utm_source=gemini, ...) into
+    returned URLs. Google Ads / Facebook / Microsoft Ads / mailers / HubSpot
+    do the same. None of these belong in the FAQ target_url — the user
+    expects to publish on the clean canonical URL.
+
+    Uses urlparse + query-key matching (prefix-based for utm_*, ga_*, mc_*;
+    exact for click-id-style params). Path/fragment preserved as-is.
+    Idempotent + safe on malformed URLs (returns input on parse failure).
+    """
+    if not url:
+        return url
+    from urllib.parse import urlparse, parse_qsl, urlencode, urlunparse
+    try:
+        parsed = urlparse(url)
+        if not parsed.query:
+            return url
+        kept = [
+            (k, v) for k, v in parse_qsl(parsed.query, keep_blank_values=True)
+            if not _is_tracking_param(k)
+        ]
+        new_query = urlencode(kept)
+        return urlunparse(parsed._replace(query=new_query))
+    except Exception:
+        return url
 
 
 def execute(job_payload: dict, scan_id: str, db: Session) -> dict:

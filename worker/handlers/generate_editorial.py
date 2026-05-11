@@ -151,10 +151,12 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
             sentiment = (r.brand_analysis or {}).get("sentiment_marque_cible", "?")
             cited_lines.append(f"- [{r.provider}] sentiment={sentiment} | {p.name if p else '?'} | {q.question[:80] if q else '?'}")
 
-    from adapters.brief_injector import format_brief_context
+    from adapters.brief_injector import format_analysis_context
+    from models import Client as _Client
+    _client = db.query(_Client).filter(_Client.id == scan.client_id).first()
     prompt = EDITORIAL_PROMPT.format(
         domain=scan.domain,
-        domain_context=format_brief_context(scan.config),
+        domain_context=format_analysis_context(scan.config, _client.apps if _client else None),
         citation_rate=citation_rate,
         target_cited=brand_mentioned,
         total_tests=total,

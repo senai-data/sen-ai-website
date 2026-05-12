@@ -27,7 +27,7 @@ from sqlalchemy import desc
 from sqlalchemy.orm import Session, joinedload
 
 from models import (
-    ClientBrand, Job, Scan, ScanContentItem, UserClient, get_db,
+    ClientBrand, Job, Scan, ScanBrandClassification, ScanContentItem, UserClient, get_db,
 )
 from routers.scans import _check_scan_access
 from services.audit import audit_log
@@ -68,9 +68,67 @@ def _check_client_access(client_id: str, user, db: Session):
         raise HTTPException(403, "Access denied")
 
 
+def _resolve_scan_brand_groups(scan_id: str, db: Session) -> dict[str, list[str]]:
+    """Pull all brand names per SBC classification for a scan.
+
+    Used by the validation UI to color-code brand mentions in the rendered
+    content : own brands = coral chip (promotion working), competitors = red
+    chip (leak warning). Also exposes 'all_known' (raw brand + aliases) so
+    the matcher catches product-line variants like 'XERACALM A.D' without
+    needing them in promoted_brand_ids.
+
+    Returns {"my_brand": [...], "competitor": [...], "all_known": [...]}.
+    Aliases are flattened into all_known so the matching picks them up too.
+    """
+    rows = (
+        db.query(ScanBrandClassification, ClientBrand)
+        .join(ClientBrand, ClientBrand.id == ScanBrandClassification.brand_id)
+        .filter(ScanBrandClassification.scan_id == scan_id)
+        .all()
+    )
+    out: dict[str, list[str]] = {"my_brand": [], "competitor": [], "all_known": []}
+    seen_my: set[str] = set()
+    seen_comp: set[str] = set()
+    seen_all: set[str] = set()
+    for sbc, brand in rows:
+        name = (brand.name or "").strip()
+        if not name:
+            continue
+        key = name.lower()
+        if sbc.classification == "my_brand" and key not in seen_my:
+            seen_my.add(key)
+            out["my_brand"].append(name)
+        elif sbc.classification == "competitor" and key not in seen_comp:
+            seen_comp.add(key)
+            out["competitor"].append(name)
+        # all_known includes my_brand + competitor + ignored + aliases. The UI
+        # falls back on this when promoted_brand_names is empty (older items).
+        if key not in seen_all:
+            seen_all.add(key)
+            out["all_known"].append(name)
+        for alias in (brand.aliases or []):
+            a = (alias or "").strip()
+            if not a:
+                continue
+            akey = a.lower()
+            if akey in seen_all:
+                continue
+            seen_all.add(akey)
+            out["all_known"].append(a)
+            # Aliases inherit the parent classification for color-coding.
+            if sbc.classification == "my_brand" and akey not in seen_my:
+                seen_my.add(akey)
+                out["my_brand"].append(a)
+            elif sbc.classification == "competitor" and akey not in seen_comp:
+                seen_comp.add(akey)
+                out["competitor"].append(a)
+    return out
+
+
 def _serialize_item(item: ScanContentItem, brand_names: dict[str, str] | None = None,
                     primary_brand_domains: list[str] | None = None,
-                    target_url_share_count: int = 0) -> dict:
+                    target_url_share_count: int = 0,
+                    scan_brand_groups: dict[str, list[str]] | None = None) -> dict:
     """Convert a ScanContentItem ORM row into the dict shape the UI consumes.
 
     `primary_brand_domains` is the list of domains from the client's
@@ -89,10 +147,17 @@ def _serialize_item(item: ScanContentItem, brand_names: dict[str, str] | None = 
                 promoted_names.append(name)
 
     scan = item.scan
+    groups = scan_brand_groups or {"my_brand": [], "competitor": [], "all_known": []}
     return {
         "primary_brand_domains": primary_brand_domains or [],
         "target_url_share_count": target_url_share_count,
         "is_target_url_shared": target_url_share_count > 0,
+        # Per-scan brand classifications for inline color-coded highlights :
+        # own brands = coral (promotion landing), competitors = red (leak alarm).
+        # Aliases inherited from the brand catalog so gammes/variants resolve too.
+        "own_brand_names": list(groups.get("my_brand") or []),
+        "competitor_brand_names": list(groups.get("competitor") or []),
+        "all_known_brand_names": list(groups.get("all_known") or []),
         "id": str(item.id),
         "scan_id": str(item.scan_id),
         "scan_domain": scan.domain if scan else None,
@@ -104,6 +169,7 @@ def _serialize_item(item: ScanContentItem, brand_names: dict[str, str] | None = 
         "target_url_source": item.target_url_source,
         "target_page_title": item.target_page_title,
         "target_question": item.target_question,
+        "rejected_target_urls": list(item.rejected_target_urls or []),
         "content_html": item.content_html,
         "content_text": item.content_text,
         "article_outline": item.article_outline,
@@ -290,7 +356,8 @@ async def get_content_item(item_id: str, user=Depends(get_current_user),
     )
     primary_domains = _resolve_primary_brand_domains(client_id_str, db)
     share_count = _count_sibling_items_at_url(item, db)
-    return _serialize_item(item, brand_names, primary_domains, share_count)
+    groups = _resolve_scan_brand_groups(str(item.scan_id), db)
+    return _serialize_item(item, brand_names, primary_domains, share_count, groups)
 
 
 def _count_sibling_items_at_url(item: ScanContentItem, db: Session) -> int:
@@ -320,6 +387,13 @@ class ContentItemPatch(BaseModel):
     content_text: str | None = None
     published_url: str | None = None
     target_url: str | None = None
+    # Per-item override of the workspace-level primary_brand_ids order. First
+    # entry = LEAD for this item only. Set by the validation-page Brand
+    # promotion picker so the user can say "for THIS opportunity, promote
+    # Aderma not Avène" without changing the workspace default that applies
+    # to every other item. Validated against the client's primary_brand_ids
+    # set so users can't inject brands the system isn't tracking.
+    promoted_brand_ids: list[str] | None = None
 
 
 VALID_STATUSES = {
@@ -361,9 +435,19 @@ async def update_content_item(item_id: str, patch: ContentItemPatch,
                 item.ordered_at = datetime.utcnow()
 
     if patch.validation is not None:
-        if patch.validation not in VALID_VALIDATIONS:
+        if patch.validation == "":
+            # Empty string sentinel = clear validation. Used by the
+            # "Regenerate from rejected" path so the rejection audit row
+            # is reset (validation/validated_by/at all to NULL) but the
+            # event remains in the audit_log timeline as a trail.
+            if item.validation is not None:
+                changes["validation"] = {"old": item.validation, "new": None}
+                item.validation = None
+                item.validated_by = None
+                item.validated_at = None
+        elif patch.validation not in VALID_VALIDATIONS:
             raise HTTPException(400, f"Invalid validation: {patch.validation}")
-        if patch.validation != item.validation:
+        elif patch.validation != item.validation:
             changes["validation"] = {"old": item.validation, "new": patch.validation}
             item.validation = patch.validation
             item.validated_by = user.email
@@ -393,6 +477,58 @@ async def update_content_item(item_id: str, patch: ContentItemPatch,
             item.status = "published"
             if not item.published_at:
                 item.published_at = datetime.utcnow()
+
+    if patch.promoted_brand_ids is not None:
+        # Validate : every ID must be in the client's primary_brand_ids set
+        # (no smuggling random brands per-item — those go through workspace
+        # settings). Also dedupe + preserve order.
+        from models import Client
+        client = db.query(Client).filter(Client.id == item.scan.client_id).first()
+        workspace_primary = {str(bid) for bid in (client.primary_brand_ids or []) if client}
+        seen = set()
+        deduped: list[str] = []
+        invalid: list[str] = []
+        for bid in (patch.promoted_brand_ids or []):
+            bid_str = str(bid).strip()
+            if not bid_str:
+                continue
+            if bid_str not in workspace_primary:
+                invalid.append(bid_str)
+                continue
+            if bid_str in seen:
+                continue
+            seen.add(bid_str)
+            deduped.append(bid_str)
+        if invalid:
+            raise HTTPException(400, {
+                "error": "invalid_brand_ids",
+                "message": "Some brand IDs aren't in this workspace's primary brands. "
+                           "Add them in /app/settings/brands first.",
+                "invalid": invalid[:5],
+            })
+        # Compare to current (item.promoted_brand_ids is list[UUID] from DB).
+        current = [str(bid) for bid in (item.promoted_brand_ids or [])]
+        if deduped != current:
+            old_lead = current[0] if current else None
+            new_lead = deduped[0] if deduped else None
+            changes["promoted_brand_ids"] = {"old": current, "new": deduped}
+            # Persist as list of UUID strings — SQLAlchemy ARRAY(UUID) accepts
+            # either UUID objects or strings, the casting happens on flush.
+            from uuid import UUID
+            try:
+                item.promoted_brand_ids = [UUID(b) for b in deduped]
+            except ValueError as e:
+                raise HTTPException(400, f"Malformed UUID in promoted_brand_ids: {e}")
+            # Lead change → the rejected URLs were collected on the OLD lead's
+            # domain, so they're irrelevant for matching on the new lead's site.
+            # Clear them so the next "Find a different page" gets a clean budget.
+            if old_lead != new_lead and (item.rejected_target_urls or []):
+                changes["rejected_target_urls"] = {
+                    "old_count": len(item.rejected_target_urls or []),
+                    "new_count": 0,
+                    "reason": "lead_brand_changed",
+                }
+                item.rejected_target_urls = []
 
     if patch.target_url is not None:
         # Normalize: empty string from the input becomes NULL (clearing the field)
@@ -540,6 +676,105 @@ async def generate_content(item_id: str, user=Depends(get_current_user),
         action="content_item.generate",
         target_type="content_item", target_id=item_id,
         details={"handler": handler, "job_id": str(job.id)},
+    )
+
+    return {"ok": True, "job_id": str(job.id), "status": "pending"}
+
+
+# Hard cap on user-triggered FAQPageMatcher reruns per item.
+# Each attempt = one OpenAI web_search call (~$0.02). Spam-clicking would
+# blow the budget quickly with no real signal past ~10 tries — at that point
+# the brand site genuinely doesn't have a fitting page and the user should
+# fall back to manual picking. UI mirrors this constant for symmetric UX.
+# When this lives in more than one place, hoist into config.py.
+REMATCH_MAX_ATTEMPTS_PER_ITEM = 10
+
+
+@router.post("/content-items/{item_id}/rematch-target-url")
+async def rematch_target_url(item_id: str, user=Depends(get_current_user),
+                             db: Session = Depends(get_db)):
+    """Enqueue a rematch job: re-run FAQPageMatcher excluding URLs already
+    rejected by the user (the current target_url is implicitly rejected).
+
+    Free operation (no content_credit debit) — iteration cost on a single
+    web_search is small and we want zero friction so users converge on a
+    page they're happy with. Capped at REMATCH_MAX_ATTEMPTS_PER_ITEM to
+    bound LLM spend if a user spam-clicks.
+
+    Returns {ok, job_id}. Frontend polls GET /content-items/{id} until
+    target_url or target_url_source changes, then refreshes the UI.
+    """
+    item = (
+        db.query(ScanContentItem)
+        .options(joinedload(ScanContentItem.scan))
+        .filter(ScanContentItem.id == item_id)
+        .first()
+    )
+    if not item:
+        raise HTTPException(404, "Content item not found")
+
+    _check_scan_access(str(item.scan_id), user, db)
+
+    if item.status not in ("identified", "draft"):
+        raise HTTPException(409, {
+            "error": "invalid_status",
+            "message": f"Item is in status '{item.status}' — rematch only available on "
+                       f"'identified' or 'draft'. Once content is generated, edit the "
+                       f"URL manually instead.",
+        })
+
+    # Hard cap : the matcher genuinely runs out of useful candidates after
+    # ~10 attempts on a normal brand site. Past that, route to manual.
+    # 429 chosen over 402 because this isn't a credit issue, it's a per-item
+    # rate cap. The UI surfaces the same condition client-side.
+    rejected_count = len(item.rejected_target_urls or [])
+    if rejected_count >= REMATCH_MAX_ATTEMPTS_PER_ITEM:
+        raise HTTPException(429, {
+            "error": "rematch_cap_reached",
+            "message": f"You've tried {rejected_count} pages on this item without finding "
+                       f"a better match. The matcher has explored what your brand site offers — "
+                       f"please pick a URL manually below.",
+            "attempts_used": rejected_count,
+            "cap": REMATCH_MAX_ATTEMPTS_PER_ITEM,
+        })
+
+    # Dedupe in-flight rematch for the same item (double-click guard).
+    in_flight = (
+        db.query(Job)
+        .filter(
+            Job.scan_id == item.scan_id,
+            Job.job_type == "rematch_target_url",
+            Job.status.in_(["pending", "running"]),
+        )
+        .all()
+    )
+    for j in in_flight:
+        if (j.payload or {}).get("item_id") == item_id:
+            return {
+                "ok": True, "job_id": str(j.id), "status": j.status,
+                "message": "Rematch already in flight",
+            }
+
+    job = Job(
+        scan_id=item.scan_id,
+        job_type="rematch_target_url",
+        status="pending",
+        payload={"item_id": item_id},
+        max_attempts=2,
+    )
+    db.add(job)
+    db.commit()
+    db.refresh(job)
+
+    audit_log(
+        db, user_id=str(user.id),
+        action="content_item.rematch_target_url",
+        target_type="content_item", target_id=item_id,
+        details={
+            "job_id": str(job.id),
+            "previous_target_url": item.target_url,
+            "rejected_count": len(item.rejected_target_urls or []),
+        },
     )
 
     return {"ok": True, "job_id": str(job.id), "status": "pending"}

@@ -91,13 +91,18 @@ function fmtDate(iso: string | null): string {
     {/* ═══════ STICKY HEADER (Fitts's + Peak-End) ═══════ */}
     <div class="sticky top-0 z-20 bg-white border-b border-gray-200 shadow-sm">
       <div class="px-8 py-3 max-w-7xl">
-        {/* Breadcrumb (Jakob's) */}
+        {/* Breadcrumb (Jakob's) — each level is clickable + scoped to current
+             type/scan so user can navigate up without losing context. */}
         <div class="flex items-center gap-2 text-xs text-charcoal-light mb-2">
           <a href="/app/content" class="hover:text-coral">Content</a>
           <span>›</span>
-          <span x-text={`'${typeLabel(item.content_type)}'`}></span>
+          <a :href="'/app/content?content_type=' + (item.content_type || 'faq')"
+             class="hover:text-coral"
+             x-text={`'${typeLabel(item.content_type)}'`}></a>
           <span>›</span>
-          <span class="text-charcoal-dark truncate max-w-md" x-text={`item.topic_name || 'Untitled'`}></span>
+          <a :href="'/app/content?content_type=' + (item.content_type || 'faq') + '&scan_id=' + item.scan_id"
+             class="text-charcoal-dark hover:text-coral truncate max-w-md"
+             x-text={`item.topic_name || 'Untitled'`}></a>
         </div>
 
         {/* Status row + primary CTA + save indicator */}
@@ -121,14 +126,35 @@ function fmtDate(iso: string | null): string {
             {/* Save indicator (Doherty) */}
             <span class="text-[11px] tabular-nums" :class="saveStateClass()" x-text="saveStateLabel()"></span>
 
-            {/* Primary CTA — contextual per status (Hick's + Peak-End) */}
+            {/* Three-action cluster on draft/in_review (Hick's hierarchy
+                 preserved : Approve is the SINGLE primary action, Reject +
+                 Regenerate are de-emphasized outlines). Regenerate gives the
+                 user a re-roll without going through Reject first — common
+                 case when the LLM output is off but the opportunity is fine
+                 (Postel's, Goal-Gradient). Order = destructive | undo | accept,
+                 from left = "softest" risk to right = "commits forward". */}
             <template x-if="item.status === 'draft' || item.status === 'in_review'">
-              <button @click="approve()" :disabled="saving"
-                      :class="saving ? 'opacity-50 cursor-not-allowed' : 'hover:bg-coral-dark hover:shadow-md'"
-                      class="px-4 py-2 bg-coral text-white rounded-lg text-sm font-semibold transition-all flex items-center gap-2"
-                      title="A">
-                ✓ Approve
-              </button>
+              <span class="inline-flex items-center gap-2">
+                <button @click="openRejectModal = true" :disabled="saving"
+                        class="px-3 py-2 text-sm font-medium text-red-600 bg-white border border-red-200 rounded-lg hover:bg-red-50 hover:border-red-300 transition-all flex items-center gap-1.5"
+                        title="R">
+                  ✗ Reject
+                </button>
+                <button @click="regenerate()"
+                        :disabled="saving || generating || !item.target_url"
+                        :class="(saving || generating || !item.target_url) ? 'bg-gray-50 text-gray-400 border-gray-200 cursor-not-allowed' : 'text-coral border-coral/30 hover:bg-coral/10 hover:border-coral/50'"
+                        class="px-3 py-2 text-sm font-medium bg-white border rounded-lg transition-all flex items-center gap-1.5"
+                        :title="!item.target_url ? 'Set a target URL first' : 'Regenerate FAQ from scratch. Costs 1 content credit. Current content will be overwritten — use this when the output is off-brand or low quality but the question is still worth answering.'">
+                  <span x-show="!generating">🔄 Regenerate</span>
+                  <span x-show="generating">⏳ Regenerating…</span>
+                </button>
+                <button @click="approve()" :disabled="saving"
+                        :class="saving ? 'opacity-50 cursor-not-allowed' : 'hover:bg-coral-dark hover:shadow-md'"
+                        class="px-4 py-2 bg-coral text-white rounded-lg text-sm font-semibold transition-all flex items-center gap-2"
+                        title="A">
+                  ✓ Approve
+                </button>
+              </span>
             </template>
             <template x-if="item.status === 'approved'">
               <button @click="openPublishModal = true" :disabled="saving"
@@ -144,14 +170,37 @@ function fmtDate(iso: string | null): string {
               </button>
             </template>
             <template x-if="(item.status === 'identified' || item.status === 'generating') && item.content_type === 'faq'">
-              <button @click="generate()"
-                      :disabled="generating || !item.target_url || item.status === 'generating'"
-                      :class="(generating || !item.target_url) ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-coral text-white hover:bg-coral-dark hover:shadow-md'"
-                      class="px-4 py-2 rounded-lg text-sm font-semibold transition-all flex items-center gap-2"
-                      :title="!item.target_url ? 'Set a target URL first' : (generating ? 'Generation in progress…' : 'Generate FAQ content (~60s)')">
-                <span x-show="!generating">⚡ Generate FAQ</span>
-                <span x-show="generating">⏳ Generating…</span>
-              </button>
+              <span class="inline-flex items-center gap-3">
+                <button @click="generate()"
+                        :disabled="generating || !item.target_url || item.status === 'generating'"
+                        :class="(generating || !item.target_url) ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-coral text-white hover:bg-coral-dark hover:shadow-md'"
+                        class="px-4 py-2 rounded-lg text-sm font-semibold transition-all flex items-center gap-2"
+                        :title="!item.target_url ? 'Set a target URL first' : (generating ? 'Generation in progress…' : 'Generate FAQ content (~60s)')">
+                  <span x-show="!generating">⚡ Generate FAQ</span>
+                  <span x-show="generating">⏳ Generating…</span>
+                </button>
+                {/* Live progress indicator (Doherty Threshold + Goal-Gradient).
+                     FAQ generation = ~60s typical. We tick a 1s counter and
+                     show elapsed / expected with a thin animated bar so the
+                     user feels progress even before the result lands. The bar
+                     soft-caps at 100% with a colour change ("slower than
+                     usual") to set expectations without claiming failure. */}
+                <template x-if="generating">
+                  <span class="inline-flex flex-col gap-0.5 min-w-[140px]">
+                    <span class="text-[10px] tabular-nums text-charcoal-light flex items-center justify-between gap-2">
+                      <span x-text="generateElapsedSec + 's elapsed'"></span>
+                      <span class="text-charcoal-light/70" x-text="generateExpectedSec + 's typical'"></span>
+                    </span>
+                    <span class="block h-1 w-full bg-gray-100 rounded-full overflow-hidden">
+                      <span class="block h-full rounded-full transition-all duration-1000 ease-linear"
+                            :class="generateElapsedSec >= generateExpectedSec ? 'bg-amber-500' : 'bg-coral'"
+                            :style="'width: ' + Math.min(100, (generateElapsedSec / generateExpectedSec) * 100) + '%'"></span>
+                    </span>
+                    <span x-show="generateElapsedSec >= generateExpectedSec"
+                          class="text-[10px] text-amber-700 italic">Slower than usual — hold on.</span>
+                  </span>
+                </template>
+              </span>
             </template>
             <template x-if="(item.status === 'identified' || item.status === 'generating') && item.content_type !== 'faq'">
               <button class="px-4 py-2 bg-gray-100 text-gray-400 rounded-lg text-sm font-semibold cursor-not-allowed flex items-center gap-2"
@@ -163,8 +212,23 @@ function fmtDate(iso: string | null): string {
             <template x-if="generateError">
               <div class="text-[11px] text-red-700 bg-red-50 border border-red-200 rounded px-2 py-1 max-w-xs" x-text="generateError"></div>
             </template>
+            {/* Rejected items still have valid source data — same Regenerate
+                 entry-point as on draft/in_review, just unified through the
+                 single regenerate() method (it detects rejected state and
+                 resets validation transparently). Peak-End : the page ends
+                 on a hopeful CTA, not a dead-end. */}
             <template x-if="item.status === 'rejected'">
-              <span class="text-xs text-gray-500 italic">Rejected · no further action</span>
+              <span class="inline-flex items-center gap-2">
+                <span class="text-xs text-gray-500 italic">Rejected</span>
+                <button @click="regenerate()"
+                        :disabled="generating || !item.target_url"
+                        :class="(generating || !item.target_url) ? 'bg-gray-50 text-gray-400 border-gray-200 cursor-not-allowed' : 'text-coral border-coral/30 hover:bg-coral/10 hover:border-coral/50'"
+                        class="px-3 py-2 text-sm font-medium bg-white border rounded-lg transition-all flex items-center gap-1.5"
+                        :title="!item.target_url ? 'Pick a target URL first (edit in Source above)' : 'Reopen this item and generate a fresh FAQ. Costs 1 content credit. The previous rejection stays in the audit timeline.'">
+                  <span x-show="!generating">🔄 Regenerate</span>
+                  <span x-show="generating">⏳ Regenerating…</span>
+                </button>
+              </span>
             </template>
           </div>
         </div>
@@ -177,12 +241,13 @@ function fmtDate(iso: string | null): string {
       {/* Left column (2/3): source + content + workflow */}
       <div class="lg:col-span-2 space-y-6">
 
-        {/* Source (Miller's Law: 5 fields max visible, rest collapsed) */}
+        {/* Source — flat, no Show more toggle. Previously the toggle only
+             revealed Best competitor + Competitors cited (rest is null on
+             FAQ items), which the user flagged as no-value friction. With
+             those two fields always shown the section has 7-8 fields, within
+             Miller's 5-9 range and clearer at-a-glance. */}
         <section class="bg-white rounded-xl border border-gray-200 p-5">
-          <h2 class="text-sm font-semibold text-charcoal-dark mb-3 flex items-center justify-between">
-            <span>Source</span>
-            <button @click="showMore = !showMore" class="text-[11px] text-coral hover:underline" x-text="showMore ? 'Show less' : 'Show more'"></button>
-          </h2>
+          <h2 class="text-sm font-semibold text-charcoal-dark mb-3">Source</h2>
           <dl class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3 text-sm">
             <div>
               <dt class="text-[10px] uppercase tracking-wide text-charcoal-light">Topic</dt>
@@ -228,6 +293,39 @@ function fmtDate(iso: string | null): string {
                       Open page in new tab ↗
                     </a>
                   </template>
+                  {/* Find a different page — Postel + Tesler + Hick's Law.
+                       Visible whenever the system has skin in the game (current
+                       auto_suggest OR prior rejections). Hard-capped at
+                       MAX_REMATCHES to bound LLM cost and route the user to
+                       manual picking once the brand's pages are exhausted.
+                       The ⓘ tooltip carries the explanation so the action
+                       speaks for itself (Jakob's Law - standard help pattern). */}
+                  <template x-if="canRematch()">
+                    <span class="inline-flex items-center gap-1.5">
+                      <button @click="rematchUrl()"
+                              :disabled="rematching || item.status === 'generating' || !canRematchMore()"
+                              :class="(rematching || !canRematchMore()) ? 'bg-gray-50 text-gray-400 border-gray-200 cursor-not-allowed' : 'text-coral hover:bg-coral/10 border-coral/30'"
+                              class="text-[11px] px-2 py-0.5 border rounded inline-flex items-center gap-1 transition-colors"
+                              :title="rematchTooltip()">
+                        <span x-show="!rematching && canRematchMore()">🔄 Find a different page</span>
+                        <span x-show="!rematching && !canRematchMore()">🔄 Matcher exhausted</span>
+                        <span x-show="rematching">⏳ Searching…</span>
+                      </button>
+                      {/* Attempts counter (Tesler's : surface the budget so user
+                           knows when to stop, not after the cap fires). */}
+                      <template x-if="rematchCount() > 0">
+                        <span class="text-[10px] tabular-nums"
+                              :class="rematchAttemptsLeft() === 0 ? 'text-red-600 font-medium' : (rematchAttemptsLeft() <= 3 ? 'text-amber-700' : 'text-charcoal-light')"
+                              x-text="rematchCount() + '/' + MAX_REMATCHES + ' tried'"></span>
+                      </template>
+                      {/* Info icon - Jakob's. Hover-only, no modal. */}
+                      <span class="text-[11px] text-charcoal-light cursor-help select-none"
+                            :title="rematchTooltip()">ⓘ</span>
+                    </span>
+                  </template>
+                  <template x-if="rematchError">
+                    <span class="text-[11px] text-red-700 bg-red-50 border border-red-200 rounded px-2 py-0.5" x-text="rematchError"></span>
+                  </template>
                   <template x-if="item.target_url_source === 'auto_suggest'">
                     <span class="text-[10px] text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded">
                       ✨ Auto-suggested — review & edit if needed
@@ -265,26 +363,23 @@ function fmtDate(iso: string | null): string {
               <dd class="text-charcoal-dark mt-0.5" x-text="item.brand_position != null ? item.brand_position.toFixed(1) : '—'"></dd>
             </div>
 
-            {/* Show more (collapsed by default) */}
-            <template x-if="showMore">
-              <div>
-                <dt class="text-[10px] uppercase tracking-wide text-charcoal-light">Best competitor</dt>
-                <dd class="text-charcoal-dark mt-0.5" x-text="item.best_competitor || '—'"></dd>
-              </div>
-            </template>
-            <template x-if="showMore">
-              <div>
-                <dt class="text-[10px] uppercase tracking-wide text-charcoal-light">Competitors cited</dt>
-                <dd class="text-charcoal-dark mt-0.5" x-text="item.nb_competitors_cited != null ? item.nb_competitors_cited : '—'"></dd>
-              </div>
-            </template>
-            <template x-if="showMore && item.estimated_price != null">
+            {/* Always visible scan-context fields (replace prior Show more toggle) */}
+            <div>
+              <dt class="text-[10px] uppercase tracking-wide text-charcoal-light">Best competitor</dt>
+              <dd class="text-charcoal-dark mt-0.5" x-text="item.best_competitor || '—'"></dd>
+            </div>
+            <div>
+              <dt class="text-[10px] uppercase tracking-wide text-charcoal-light">Competitors cited</dt>
+              <dd class="text-charcoal-dark mt-0.5" x-text="item.nb_competitors_cited != null ? item.nb_competitors_cited : '—'"></dd>
+            </div>
+            {/* Article-only fields — surface only when present (FAQ items leave them null) */}
+            <template x-if="item.estimated_price != null">
               <div>
                 <dt class="text-[10px] uppercase tracking-wide text-charcoal-light">Estimated price</dt>
                 <dd class="text-charcoal-dark mt-0.5" x-text="'€' + item.estimated_price.toFixed(0)"></dd>
               </div>
             </template>
-            <template x-if="showMore && item.platform_link">
+            <template x-if="item.platform_link">
               <div>
                 <dt class="text-[10px] uppercase tracking-wide text-charcoal-light">Platform link</dt>
                 <dd class="mt-0.5"><a :href="item.platform_link" target="_blank" rel="noopener" class="text-coral hover:underline" x-text="item.platform_link"></a></dd>
@@ -296,7 +391,14 @@ function fmtDate(iso: string | null): string {
         {/* Content editor (Postel's Law: Visual/HTML toggle) */}
         <section class="bg-white rounded-xl border border-gray-200">
           <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
-            <h2 class="text-sm font-semibold text-charcoal-dark">Content</h2>
+            <h2 class="text-sm font-semibold text-charcoal-dark flex items-center gap-1.5">
+              <span>Content</span>
+              {/* ⓘ tooltip — Jakob's. Explains the SEO/GEO writing rules so
+                   the user understands what they're reviewing without leaving
+                   the page. Hover-only, no modal (Doherty Threshold). */}
+              <span class="text-[11px] text-charcoal-light cursor-help select-none font-normal"
+                    title="How this FAQ is written for SEO + AI-search (GEO):&#10;&#10;• Schema.org FAQPage markup — Google needs this to surface the FAQ in rich results.&#10;• Each Q wrapped in itemprop=&quot;name&quot;, each A in itemprop=&quot;acceptedAnswer&quot; > itemprop=&quot;text&quot;. Same structure the seo-llm CLI ships.&#10;• 0% hallucination — every &quot;Source&quot; link is verified via web search before injection. No fake URLs.&#10;• Brand voice — your workspace brief is injected so the answer sounds like your brand even on competitor scans.&#10;• Your brands woven in naturally where the answer fits (highlighted in coral below). Never the competitors.&#10;• Quality score auto-audited (target ≥ 80/100 on schema validity + length + brand presence).&#10;&#10;Edit anywhere — switch to HTML view to see/tweak the raw microdata.">ⓘ</span>
+            </h2>
             <div class="flex items-center gap-1 bg-gray-100 rounded-md p-0.5">
               <button @click="editorMode = 'visual'"
                       :class="editorMode === 'visual' ? 'bg-white text-charcoal-dark shadow-sm' : 'text-charcoal-light'"
@@ -316,10 +418,13 @@ function fmtDate(iso: string | null): string {
 
             <template x-if="item.content_html || item.content_text">
               <div>
-                <div x-show="editorMode === 'visual'" class="prose prose-sm max-w-none border border-gray-100 rounded-lg p-4 min-h-[300px] focus:outline-none focus:border-coral"
+                <div x-show="editorMode === 'visual'" class="prose prose-sm max-w-none faq-rendered border border-gray-100 rounded-lg p-4 min-h-[300px] focus:outline-none focus:border-coral"
                      contenteditable="true"
                      x-ref="visualEditor"
-                     x-html="item.content_html || '<p>' + (item.content_text || '') + '</p>'"
+                     x-html="renderedContentHtml()"
+                     @focusin="visualEditingActive = true"
+                     @focusout="visualEditingActive = false"
+                     @click="onContentClick($event)"
                      @input.debounce.500ms="onVisualEdit($event)"></div>
                 <div x-show="editorMode === 'html'">
                   <textarea x-model="item.content_html"
@@ -370,23 +475,109 @@ function fmtDate(iso: string | null): string {
       {/* Right column (1/3): brand promotion + activity timeline */}
       <div class="space-y-6">
 
-        {/* Brand promotion (Law of Proximity) */}
+        {/* Brand promotion (Law of Proximity + Goal-Gradient + per-item override).
+             Star toggle mirrors Gate 3 scan-classifier focus-star pattern
+             (scans/[id]/index.astro:903-908) — Jakob's Law : same gesture, same
+             meaning across the app. Star clickable only while the item is still
+             in flight (identified/draft/in_review/rejected). Locked once
+             approved/published — frozen audit trail. */}
         <section class="bg-white rounded-xl border border-gray-200 p-5">
-          <h2 class="text-sm font-semibold text-charcoal-dark mb-1">Brand promotion</h2>
-          <p class="text-[11px] text-charcoal-light mb-3 italic">Audit trail — brands the system was instructed to promote when this content was generated</p>
+          <h2 class="text-sm font-semibold text-charcoal-dark mb-1 flex items-center gap-1.5">
+            <span>Brand promotion</span>
+            <span class="text-[11px] text-charcoal-light cursor-help select-none font-normal"
+                  title="The system pre-selects your workspace LEAD brand (from /app/settings/brands) as the brand to push in this FAQ. Click the ☆ next to another brand to override the LEAD for THIS item only — useful when one of your other brands is more relevant to this specific topic (e.g. Aderma's Exomega for eczema, Avène's XERACALM for atopic skin). The workspace default isn't touched. After overriding, click 🔄 Find a different page in Source to refresh the target URL on the new brand's site.">ⓘ</span>
+          </h2>
+          <p class="text-[11px] text-charcoal-light mb-3 italic">Brands instructed to promote &mdash; with how many times each is actually mentioned in the current content (Von Restorff highlight in the body).</p>
+
+          {/* Contextual banner after a LEAD change : tells the user the URL
+               on Source is now mismatched with the new LEAD's brand site, and
+               links them straight to the rematch action (Goal-Gradient). The
+               banner self-clears after a successful re-match (rejected_target_urls
+               gets reset, see backend) or when the user dismisses. */}
+          <template x-if="leadJustChanged">
+            <div class="mb-3 p-2.5 bg-amber-50 border border-amber-200 rounded text-[11px] text-amber-900 leading-relaxed">
+              <strong>Lead changed to <span x-text="leadJustChanged"></span>.</strong>
+              The Target URL still points to the previous brand's site. Click
+              <em>🔄 Find a different page</em> in the Source section above to
+              rematch on <span x-text="leadJustChanged"></span>'s domain.
+              <button @click="leadJustChanged = null"
+                      class="ml-1 text-amber-700 underline hover:text-amber-900">Dismiss</button>
+            </div>
+          </template>
+
           <template x-if="item.promoted_brand_names && item.promoted_brand_names.length > 0">
             <div class="space-y-1.5">
-              <template x-for="(name, idx) in item.promoted_brand_names" :key="idx">
-                <div class="flex items-center gap-2">
+              <template x-for="(name, idx) in item.promoted_brand_names" :key="name">
+                <div class="flex items-center gap-2 group/brandrow">
                   <span class="w-5 h-5 rounded-full bg-coral text-white text-[10px] font-bold flex items-center justify-center flex-shrink-0" x-text="idx + 1"></span>
-                  <span class="text-xs text-charcoal-dark" x-text="name"></span>
-                  <span x-show="idx === 0" class="text-[9px] uppercase tracking-wide text-coral font-bold ml-auto">lead</span>
+                  {/* Star toggle — Gate 3 mirror.
+                       Lead row : filled ★ yellow, no action (already lead).
+                       Other rows : outline ☆ gray, click to promote.
+                       Locked when canEditLead() is false (approved/published). */}
+                  <template x-if="idx === 0">
+                    <span class="text-yellow-400 text-base leading-none shrink-0"
+                          title="LEAD brand for this content item">★</span>
+                  </template>
+                  <template x-if="idx !== 0">
+                    <button @click="setLead(idx)"
+                            :disabled="!canEditLead() || leadSaving"
+                            :class="canEditLead() && !leadSaving ? 'text-gray-300 hover:text-yellow-400 cursor-pointer' : 'text-gray-200 cursor-not-allowed'"
+                            class="text-base leading-none shrink-0 transition-colors"
+                            :title="canEditLead() ? ('Make ' + name + ' the LEAD for this item. Your workspace default stays the same.') : 'Locked — lead can only be changed before the item is approved.'">☆</button>
+                  </template>
+                  <span class="text-xs text-charcoal-dark flex-1 truncate" x-text="name"></span>
+                  {/* Per-brand mention count : 0 = amber tag (promotion missed),
+                       1+ = emerald chip (Goal-Gradient achievement signal). */}
+                  <template x-if="(brandMentionCounts()[name] || 0) === 0">
+                    <span class="text-[9px] font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5"
+                          title="Not mentioned in the current content — consider editing to weave this brand in.">0 mentions</span>
+                  </template>
+                  <template x-if="(brandMentionCounts()[name] || 0) > 0">
+                    <span class="text-[9px] font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-1.5 py-0.5"
+                          :title="brandMentionCounts()[name] + ' mention(s) detected in the content body.'"
+                          x-text="(brandMentionCounts()[name]) + 'x'"></span>
+                  </template>
+                  <span x-show="idx === 0" class="text-[9px] uppercase tracking-wide text-coral font-bold">lead</span>
                 </div>
+              </template>
+              <template x-if="leadSaving">
+                <p class="text-[10px] text-charcoal-light italic mt-1">Saving new lead…</p>
               </template>
             </div>
           </template>
           <template x-if="!item.promoted_brand_names || item.promoted_brand_names.length === 0">
             <p class="text-xs text-charcoal-light italic">No brands promoted on this item yet (will be set when content is generated by Phase B/C).</p>
+          </template>
+          {/* Competitor leak panel — only meaningful once content actually
+               exists. Showing "promotion is clean" on an empty item is
+               nonsensical (there's nothing to be clean about), so we gate
+               on content_html OR content_text. Status === 'generating' also
+               implies no content yet, the gate catches both.
+               Peak-End : reassurance when clean (emerald), alarm when
+               leaked (red + per-brand count). */}
+          <template x-if="(item.content_html || item.content_text) && item.competitor_brand_names && item.competitor_brand_names.length > 0">
+            <div class="mt-4 pt-3 border-t border-gray-100">
+              <p class="text-[10px] uppercase tracking-wide font-semibold text-charcoal-light mb-2">Competitor leak check</p>
+              <template x-if="!hasCompetitorLeaks()">
+                <p class="text-[11px] text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-2 py-1.5 leading-relaxed">
+                  ✓ No competitors mentioned in the content. Promotion is clean.
+                </p>
+              </template>
+              <template x-if="hasCompetitorLeaks()">
+                <div class="space-y-1.5">
+                  <p class="text-[11px] text-red-800 bg-red-50 border border-red-200 rounded px-2 py-1.5 leading-relaxed">
+                    ⚠ <strong>Competitor leak detected.</strong> Edit the FAQ to remove these mentions — they shouldn't appear in your branded content.
+                  </p>
+                  <template x-for="(count, name) in competitorLeakCounts()" :key="name">
+                    <div class="flex items-center gap-2 text-[11px]">
+                      <span class="font-medium text-red-800 truncate flex-1" x-text="name"></span>
+                      <span class="text-[9px] font-medium text-orange-700 bg-orange-100 border border-orange-200 rounded px-1.5 py-0.5"
+                            x-text="count + 'x'"></span>
+                    </div>
+                  </template>
+                </div>
+              </template>
+            </div>
           </template>
         </section>
 
@@ -507,10 +698,77 @@ function fmtDate(iso: string | null): string {
   </div>
 )}
 
-  <style>
+  {/* is:global because the brand-mention <mark> elements are injected at
+       runtime by Alpine's x-html (renderedContentHtml), not at build time.
+       Astro's default scoping appends a hash to selectors AND to elements at
+       compile time — dynamically-created nodes never get that hash, so scoped
+       selectors miss them. Without is:global the <mark>s fall back to the
+       browser's default yellow highlight (the bug screenshot showed). */}
+  <style is:global>
     [x-cloak] { display: none !important; }
-    .prose h2 { font-size: 1.05rem; font-weight: 600; margin: 1rem 0 0.5rem; }
-    .prose p { margin: 0.5rem 0; line-height: 1.5; }
+    /* --- FAQ-rendered content (Schema.org FAQPage microdata) ---
+       Visual hierarchy mirrors the semantic structure :
+       - section > h2     = FAQ block title  (Law of Proximity)
+       - div mainEntity   = Q/A card         (Common Region)
+       - h3 itemprop name = Question         (Aesthetic-Usability)
+       - acceptedAnswer p = Answer           (Doherty - readable density)
+       - mark.brand-mention = highlighted    (Von Restorff)
+    */
+    .faq-rendered.prose { font-size: 0.875rem; color: #2d2d2d; }
+    .faq-rendered.prose section[itemtype*="FAQPage"] > h2 {
+      font-size: 1rem; font-weight: 600; color: #2d2d2d;
+      margin: 0 0 1rem; padding-bottom: 0.5rem;
+      border-bottom: 1px solid #e5e7eb;
+    }
+    .faq-rendered.prose div[itemprop="mainEntity"] {
+      margin: 0 0 1rem;
+      padding: 0.85rem 1rem;
+      background-color: #fafafa;
+      border-left: 3px solid #ff7066; /* coral */
+      border-radius: 0.375rem;
+    }
+    .faq-rendered.prose div[itemprop="mainEntity"]:hover {
+      background-color: #f5f5f5;
+    }
+    .faq-rendered.prose h3[itemprop="name"] {
+      font-size: 0.92rem; font-weight: 600; color: #1a1a1a;
+      margin: 0 0 0.5rem; line-height: 1.35;
+    }
+    .faq-rendered.prose div[itemprop="acceptedAnswer"] p,
+    .faq-rendered.prose div[itemprop="acceptedAnswer"] {
+      font-size: 0.875rem; color: #4a4a4a;
+      line-height: 1.65; margin: 0;
+    }
+    .faq-rendered.prose div[itemprop="acceptedAnswer"] a {
+      color: #ff7066; text-decoration: underline;
+      font-size: 0.78rem; margin-left: 0.15rem;
+      font-weight: 500;
+    }
+    .faq-rendered.prose div[itemprop="acceptedAnswer"] a::after { content: " ↗"; }
+    /* Two-class brand highlight scheme — matches the Citations module
+       colour code so users see the same signal everywhere :
+        • own     = green chip "your brand is here, promotion landing"
+        • competitor = orange chip "a competitor leaked — leak alarm"
+       !important defeats both browser-default mark{bg:yellow} and any
+       Tailwind Typography prose-mark rule that might override. */
+    .faq-rendered.prose mark.brand-mention.own,
+    .faq-rendered.prose mark.brand-mention {  /* default = own when no class */
+      background-color: #d1fae5 !important;  /* emerald-100 */
+      color: #065f46 !important;             /* emerald-800 */
+      padding: 0.05rem 0.3rem;
+      border-radius: 0.2rem;
+      font-weight: 600;
+    }
+    .faq-rendered.prose mark.brand-mention.competitor {
+      background-color: #ffedd5 !important;  /* orange-100 */
+      color: #9a3412 !important;             /* orange-800 */
+      padding: 0.05rem 0.3rem;
+      border-radius: 0.2rem;
+      font-weight: 600;
+    }
+    /* Non-FAQ fallback (plain p / headings for non-Schema.org content) */
+    .prose:not(.faq-rendered) h2 { font-size: 1.05rem; font-weight: 600; margin: 1rem 0 0.5rem; }
+    .prose:not(.faq-rendered) p { margin: 0.5rem 0; line-height: 1.5; }
   </style>
 
   <script is:inline>
@@ -518,7 +776,6 @@ function fmtDate(iso: string | null): string {
       window.Alpine.data('contentItem', (initial) => ({
         item: initial,
         editorMode: 'visual',
-        showMore: false,
         saveState: 'idle',  // 'idle' | 'unsaved' | 'saving' | 'saved' | 'error'
         savedAt: null,
         saving: false,
@@ -529,6 +786,27 @@ function fmtDate(iso: string | null): string {
         generating: false,
         generateError: '',
         generatePollTimer: null,
+        generateStartedAt: null,
+        generateElapsedSec: 0,
+        generateTickTimer: null,
+        // Typical Generate-FAQ wall time. Based on prod smoke (~55s on the
+        // Avène scan). Used as the progress bar denominator — overshoot
+        // doesn't fail, just flips the bar amber to set expectation.
+        generateExpectedSec: 60,
+        rematching: false,
+        rematchError: '',
+        rematchPollTimer: null,
+        rematchTimeoutTimer: null,
+        visualEditingActive: false,
+        // Hard cap on automatic rematch attempts per item. Each click costs
+        // one OpenAI web_search call (~$0.01-0.02) and 5-10s of latency, so
+        // we bound the search budget and route the user to manual picking
+        // once the matcher has clearly exhausted the brand's eligible pages.
+        // Server-side enforces the same limit (defense in depth).
+        MAX_REMATCHES: 10,
+        // Per-item LEAD picker state (Brand promotion star toggle).
+        leadSaving: false,
+        leadJustChanged: null,  // brand name : shows the "rematch URL" banner
 
         statusLabelOf(s) {
           const m = { identified: 'IDENTIFIED', generating: 'GENERATING', draft: 'DRAFT', in_review: 'IN REVIEW', approved: 'APPROVED', published: 'PUBLISHED', rejected: 'REJECTED' };
@@ -648,11 +926,234 @@ function fmtDate(iso: string | null): string {
           this.saveTimer = setTimeout(() => this.save(), 2000);
         },
 
+        // contenteditable swallows clicks on <a> by default — the browser
+        // places the caret instead of following the link. We intercept and
+        // open in a new tab so Source citations behave like real links in
+        // Visual mode. Edits to the link element (drag, double-click to
+        // select word) still work because we only act on plain clicks.
+        onContentClick(e) {
+          const a = e.target.closest && e.target.closest('a[href]');
+          if (!a) return;
+          // Allow keyboard / middle-click / modifier defaults (open in tab,
+          // copy link, etc.) so power users keep their muscle memory.
+          if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
+          e.preventDefault();
+          e.stopPropagation();
+          window.open(a.href, '_blank', 'noopener,noreferrer');
+        },
+
         onVisualEdit(e) {
-          // Capture HTML from contenteditable and stash on item
-          this.item.content_html = e.target.innerHTML;
+          // Brand-mention marks are a render-time overlay only — strip them
+          // before persisting back to state so item.content_html stays clean
+          // (idempotent : the next render re-injects from promoted_brand_names).
+          this.item.content_html = this.stripBrandMarks(e.target.innerHTML);
           this.markUnsaved();
           this.scheduleSave();
+        },
+
+        // --- Brand mention highlighting (Von Restorff)
+        // Wraps occurrences of promoted_brand_names in <mark class="brand-mention">
+        // so the user sees where the LLM placed the brand at a glance. DOM-based
+        // walk avoids tag attributes (e.g. won't touch text inside href="...").
+        // Marks are NEVER persisted : strip on save, re-inject on render.
+        _escapeRegex(s) {
+          return (s || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        },
+        stripBrandMarks(html) {
+          if (!html) return html;
+          // Only strip our own class to avoid disturbing other <mark> usage
+          return html.replace(/<mark\s+class="brand-mention">([\s\S]*?)<\/mark>/g, '$1');
+        },
+        // Names treated as the user's own brands for the green highlight.
+        // Union of the workspace-level signal (promoted_brand_names from
+        // client.primary_brand_ids — stable, edited via settings) AND the
+        // per-scan signal (own_brand_names from SBC classification 'my_brand'
+        // — covers gammes/children like XERACALM A.D + aliases that aren't
+        // primary brands themselves). Workspace wins on conflicts; per-scan
+        // enriches.
+        _ownBrandNames() {
+          const seen = new Set();
+          const out = [];
+          const collect = (arr) => {
+            for (const n of (arr || [])) {
+              if (!n || n.length < 2) continue;
+              const k = n.toLowerCase();
+              if (seen.has(k)) continue;
+              seen.add(k);
+              out.push(n);
+            }
+          };
+          collect(this.item.promoted_brand_names);
+          collect(this.item.own_brand_names);
+          return out;
+        },
+        // Competitor list filtered to exclude anything classified as own at
+        // the workspace level OR per-scan. Prevents an old/wrongly-classified
+        // SBC row (e.g. a user's own brand mis-tagged as competitor on a
+        // pre-fix scan) from triggering a false "leak" alarm. Authority
+        // hierarchy : promoted_brand_names + own_brand_names always win.
+        _competitorBrandNames() {
+          const ownSet = new Set(this._ownBrandNames().map(n => n.toLowerCase()));
+          return (this.item.competitor_brand_names || [])
+            .filter(n => n && n.length >= 2 && !ownSet.has(n.toLowerCase()));
+        },
+        renderedContentHtml() {
+          const raw = this.item.content_html || ('<p>' + (this.item.content_text || '') + '</p>');
+          // While the editor has focus, skip mark injection so typing doesn't
+          // cause cursor jumps from reactive re-renders. Marks come back on
+          // blur, when the user is reviewing again.
+          if (this.visualEditingActive) return this.stripBrandMarks(raw);
+          const own = this._ownBrandNames();
+          const competitor = this._competitorBrandNames();
+          if (own.length === 0 && competitor.length === 0) return this.stripBrandMarks(raw);
+          try {
+            const dom = new DOMParser().parseFromString(this.stripBrandMarks(raw), 'text/html');
+            const walker = document.createTreeWalker(
+              dom.body, NodeFilter.SHOW_TEXT, null
+            );
+            const targets = [];
+            let n; while ((n = walker.nextNode())) targets.push(n);
+            // Reuse the Citations module's regex pattern : sort by length desc
+            // so "XERACALM A.D" wins over "AD", word-boundary not enforced (gammes
+            // contain dots/spaces). Two passes (own first, then competitor) so
+            // ambiguous names — same word in both lists — get the "own" class.
+            const buildPattern = (names) => {
+              if (!names.length) return null;
+              const sorted = names.slice().sort((a, b) => b.length - a.length);
+              return new RegExp(
+                '(' + sorted.map(s => this._escapeRegex(s)).join('|') + ')',
+                'gi'
+              );
+            };
+            const passes = [
+              { pat: buildPattern(own), cls: 'brand-mention own' },
+              { pat: buildPattern(competitor), cls: 'brand-mention competitor' },
+            ];
+            for (const node of targets) {
+              if (!node.parentNode) continue;
+              const parentTag = (node.parentNode.tagName || '').toLowerCase();
+              if (parentTag === 'mark' || parentTag === 'a') continue;
+              let text = node.textContent;
+              let changed = false;
+              for (const { pat, cls } of passes) {
+                if (!pat) continue;
+                pat.lastIndex = 0;
+                if (!pat.test(text)) continue;
+                pat.lastIndex = 0;
+                text = text.replace(pat, '<mark class="' + cls + '">$1</mark>');
+                changed = true;
+              }
+              if (changed) {
+                const wrapper = dom.createElement('span');
+                wrapper.innerHTML = text;
+                node.replaceWith(...wrapper.childNodes);
+              }
+            }
+            return dom.body.innerHTML;
+          } catch (e) {
+            console.warn('brand-mark inject failed', e);
+            return raw;
+          }
+        },
+        // Per-brand mention count for the audit panel (Goal-Gradient :
+        // shows the user the promotion is actually landing in the content).
+        brandMentionCounts() {
+          const out = {};
+          const names = (this.item.promoted_brand_names || []).filter(n => n && n.length >= 2);
+          if (names.length === 0) return out;
+          const text = (this.item.content_html || this.item.content_text || '')
+            .replace(/<[^>]+>/g, ' ');  // strip tags so attribute text doesn't count
+          for (const name of names) {
+            const re = new RegExp('\\b' + this._escapeRegex(name) + '\\b', 'gi');
+            const m = text.match(re);
+            out[name] = m ? m.length : 0;
+          }
+          return out;
+        },
+        // Competitor leak detection : count occurrences of each competitor
+        // brand in the rendered content. Any count > 0 is a leak signal
+        // (Von Restorff red chip in the Brand promotion panel below).
+        competitorLeakCounts() {
+          const out = {};
+          const names = this._competitorBrandNames();
+          if (names.length === 0) return out;
+          const text = (this.item.content_html || this.item.content_text || '')
+            .replace(/<[^>]+>/g, ' ');
+          for (const name of names) {
+            const re = new RegExp('\\b' + this._escapeRegex(name) + '\\b', 'gi');
+            const m = text.match(re);
+            if (m && m.length > 0) out[name] = m.length;
+          }
+          return out;
+        },
+        hasCompetitorLeaks() {
+          return Object.keys(this.competitorLeakCounts()).length > 0;
+        },
+
+        // --- Per-item LEAD brand picker ----------------------------------
+        // Star toggle mirrors Gate 3 focus-star pattern (scans/[id]). Click
+        // ☆ on a non-lead brand → reorders promoted_brand_ids client-side
+        // (optimistic), PATCHes the new order, surfaces a banner inviting
+        // the user to re-match the target URL on the new LEAD's domain.
+        //
+        // Why locked on approved/published : the promoted_brand_ids array
+        // is the audit trail of WHAT WAS PROMOTED at gen time. Once the
+        // content is shipped, that record must stay immutable.
+        canEditLead() {
+          const s = this.item.status;
+          return s === 'identified' || s === 'draft'
+              || s === 'in_review' || s === 'rejected';
+        },
+        async setLead(idx) {
+          if (!this.canEditLead()) return;
+          if (this.leadSaving) return;
+          if (idx === 0) return;  // already lead, no-op
+          const names = (this.item.promoted_brand_names || []).slice();
+          const ids = (this.item.promoted_brand_ids || []).slice();
+          if (idx < 0 || idx >= names.length || idx >= ids.length) return;
+
+          // Optimistic reorder : pull the clicked brand to position 0,
+          // everyone else shifts down by one (preserves the rest of the
+          // priority order). Mirrors how Gate 3 toggleFocus reassigns the
+          // is_focus flag — exclusive lead.
+          const newName = names.splice(idx, 1)[0];
+          const newId = ids.splice(idx, 1)[0];
+          names.unshift(newName);
+          ids.unshift(newId);
+          this.item.promoted_brand_names = names;
+          this.item.promoted_brand_ids = ids;
+
+          this.leadSaving = true;
+          try {
+            const r = await fetch('/api/content-items/' + this.item.id, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ promoted_brand_ids: ids }),
+            });
+            if (!r.ok) {
+              const body = await r.json().catch(() => ({}));
+              const msg = body.detail?.message || body.detail || ('HTTP ' + r.status);
+              throw new Error(msg);
+            }
+            const updated = await r.json();
+            this.item = updated;
+            // Show the "URL still on old brand" banner so the user can act
+            // on the Goal-Gradient (lead changed → next step is rematch).
+            this.leadJustChanged = newName;
+          } catch (e) {
+            // Rollback : reverse the optimistic reorder.
+            const restoredNames = (this.item.promoted_brand_names || []).slice();
+            const restoredIds = (this.item.promoted_brand_ids || []).slice();
+            const movedName = restoredNames.shift();
+            const movedId = restoredIds.shift();
+            restoredNames.splice(idx, 0, movedName);
+            restoredIds.splice(idx, 0, movedId);
+            this.item.promoted_brand_names = restoredNames;
+            this.item.promoted_brand_ids = restoredIds;
+            alert('Failed to change lead: ' + (e.message || 'unknown'));
+          } finally {
+            this.leadSaving = false;
+          }
         },
 
         async save(extraPatch) {
@@ -688,6 +1189,132 @@ function fmtDate(iso: string | null): string {
           await this.save({ validation: 'approved', status: 'approved' });
         },
 
+        canRematch() {
+          // Hidden once item is past 'identified'/'draft' — manual override only.
+          if (this.item.status !== 'identified' && this.item.status !== 'draft') return false;
+          // Show whenever the system has skin in the game : either a current
+          // auto-suggestion to replace, or rejected URLs already accumulated.
+          if (this.item.target_url_source === 'auto_suggest') return true;
+          if ((this.item.rejected_target_urls || []).length > 0) return true;
+          return false;
+        },
+        rematchCount() {
+          return (this.item.rejected_target_urls || []).length;
+        },
+        rematchAttemptsLeft() {
+          return Math.max(0, this.MAX_REMATCHES - this.rematchCount());
+        },
+        canRematchMore() {
+          // Hard cap : once the user has exhausted the budget, the button
+          // disables and we route them to the manual-pick path. Mirrors the
+          // 429 the API endpoint will return as defense in depth.
+          return this.rematchAttemptsLeft() > 0;
+        },
+        rematchTooltip() {
+          const n = this.rematchCount();
+          const left = this.rematchAttemptsLeft();
+          const base = 'Searches Google on your brand site (site:yourbrand.com + this question) for the most relevant page to answer it, skipping URLs already proposed. Takes 5-10s. ';
+          if (n === 0) return base + 'Capped at ' + this.MAX_REMATCHES + ' attempts per item — past that, pick a URL manually.';
+          if (left === 0) return n + '/' + this.MAX_REMATCHES + ' attempts used. We\'ve explored what your brand site offers — please pick a URL manually below.';
+          return n + '/' + this.MAX_REMATCHES + ' attempts used, ' + left + ' left. ' + base;
+        },
+        async rematchUrl() {
+          if (this.rematching) return;
+          if (this.item.status !== 'identified' && this.item.status !== 'draft') return;
+          this.rematching = true;
+          this.rematchError = '';
+          const previousUrl = this.item.target_url || '';
+          const previousSource = this.item.target_url_source || '';
+          try {
+            const r = await fetch('/api/content-items/' + this.item.id + '/rematch-target-url', {
+              method: 'POST',
+            });
+            if (!r.ok) {
+              const body = await r.json().catch(() => ({}));
+              this.rematchError = body.detail?.message || body.detail || ('HTTP ' + r.status);
+              this.rematching = false;
+              return;
+            }
+            // Poll for change: either target_url moved OR source flipped to
+            // pending_user (matcher exhausted). Hard stop at 45s — web_search
+            // shouldn't take that long; if it does, surface as a soft error.
+            const startedAt = Date.now();
+            const poll = async () => {
+              try {
+                const pr = await fetch('/api/content-items/' + this.item.id);
+                if (pr.ok) {
+                  const d = await pr.json();
+                  const moved = (d.target_url || '') !== previousUrl
+                                || (d.target_url_source || '') !== previousSource;
+                  if (moved) {
+                    this.item = d;
+                    this.rematching = false;
+                    if (this.rematchTimeoutTimer) clearTimeout(this.rematchTimeoutTimer);
+                    if (!d.target_url && d.target_url_source === 'pending_user') {
+                      this.rematchError = 'No alternative page found — pick a URL manually.';
+                    }
+                    return;
+                  }
+                }
+              } catch (_) {}
+              if (Date.now() - startedAt < 45000) {
+                this.rematchPollTimer = setTimeout(poll, 1500);
+              }
+            };
+            this.rematchPollTimer = setTimeout(poll, 1500);
+            this.rematchTimeoutTimer = setTimeout(() => {
+              if (this.rematching) {
+                this.rematching = false;
+                this.rematchError = 'Search timed out — try again or pick a URL manually.';
+              }
+            }, 45000);
+          } catch (e) {
+            this.rematchError = e.message || 'Request failed';
+            this.rematching = false;
+          }
+        },
+
+        _stopGenerateTimers() {
+          if (this.generateTickTimer) { clearInterval(this.generateTickTimer); this.generateTickTimer = null; }
+          if (this.generatePollTimer) { clearTimeout(this.generatePollTimer); this.generatePollTimer = null; }
+        },
+        // Unified regenerate path : works from draft, in_review, OR rejected.
+        // The user might trigger this when (a) the LLM output is poor and
+        // they want a second roll, (b) they changed the target_url and want
+        // a fresh FAQ matching the new page, or (c) the item was rejected
+        // and they want to reopen it. Costs 1 content credit regardless of
+        // origin (it's a fresh LLM call).
+        async regenerate() {
+          if (!this.item.target_url) return;
+          if (this.generating || this.saving) return;
+          const wasRejected = this.item.status === 'rejected';
+          const hasContent = !!(this.item.content_html || this.item.content_text);
+          let prompt = "Regenerate this FAQ from scratch?\n\n• Costs 1 content credit\n";
+          if (wasRejected) {
+            prompt += "• Reopens the item — previous rejection stays in the timeline\n";
+          } else if (hasContent) {
+            prompt += "• Current content will be overwritten\n";
+          }
+          prompt += "• Make sure the Target URL above is the page you actually want this FAQ for";
+          if (!confirm(prompt)) return;
+          // Reset the item so the generate endpoint accepts the call.
+          // identified is the only status the generate API allows alongside
+          // draft, but starting from draft also works — the worker re-runs
+          // and overwrites content_html on success. Empty-string validation
+          // is the API sentinel for "clear field" (added in the same patch).
+          const patch = { status: 'identified' };
+          if (this.item.validation) {
+            patch.validation = '';  // clear any prior approve/needs_revision/reject
+          }
+          try {
+            await this.save(patch);
+          } catch (e) {
+            this.generateError = 'Failed to reset: ' + (e.message || 'unknown');
+            return;
+          }
+          await this.generate();
+        },
+
         async generate() {
           if (this.generating || !this.item.target_url) return;
           // Flush any pending URL edit so the worker sees the committed target_url.
@@ -696,6 +1323,13 @@ function fmtDate(iso: string | null): string {
           }
           this.generating = true;
           this.generateError = '';
+          this.generateStartedAt = Date.now();
+          this.generateElapsedSec = 0;
+          // Tick once per second so the elapsed counter + progress bar update
+          // in real time (Doherty Threshold). Cheap, no fetch.
+          this.generateTickTimer = setInterval(() => {
+            this.generateElapsedSec = Math.floor((Date.now() - this.generateStartedAt) / 1000);
+          }, 1000);
           try {
             const r = await fetch('/api/content-items/' + this.item.id + '/generate', {
               method: 'POST',
@@ -705,6 +1339,7 @@ function fmtDate(iso: string | null): string {
               const msg = body.detail?.message || body.detail || ('HTTP ' + r.status);
               this.generateError = msg;
               this.generating = false;
+              this._stopGenerateTimers();
               return;
             }
             // Poll item every 3s — when status flips away from generating/identified, reload.
@@ -716,6 +1351,7 @@ function fmtDate(iso: string | null): string {
                   this.item = d;
                   if (d.status !== 'identified' && d.status !== 'generating') {
                     this.generating = false;
+                    this._stopGenerateTimers();
                     window.location.reload();
                     return;
                   }
@@ -727,6 +1363,7 @@ function fmtDate(iso: string | null): string {
           } catch (e) {
             this.generateError = e.message || 'Request failed';
             this.generating = false;
+            this._stopGenerateTimers();
           }
         },
         async setValidation(v) {

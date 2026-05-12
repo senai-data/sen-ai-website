@@ -391,6 +391,10 @@ class ScanContentItem(Base):
     latest_position = Column(Float)
     position_delta = Column(Float)
 
+    # URLs the user has explicitly rejected via "Find a different page".
+    # FAQPageMatcher reruns skip these so the same page never re-suggests.
+    rejected_target_urls = Column(JSONB, nullable=False, default=list)
+
     created_at = Column(DateTime, default=datetime.utcnow)
 
     scan = relationship("Scan", back_populates="content_items")

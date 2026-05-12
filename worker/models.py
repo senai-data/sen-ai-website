@@ -344,6 +344,9 @@ class ScanContentItem(Base):
     latest_position = Column(Float)
     position_delta = Column(Float)
 
+    # Rejected target URLs (accumulated across "Find a different page" clicks)
+    rejected_target_urls = Column(JSONB, nullable=False, default=list)
+
     created_at = Column(DateTime, default=datetime.utcnow)
 
     scan = relationship("Scan", back_populates="content_items")

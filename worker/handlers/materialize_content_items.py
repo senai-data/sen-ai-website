@@ -67,24 +67,49 @@ logger = logging.getLogger(__name__)
 _FAQ_PRIORITIES = ("critique", "haute")
 
 
-def _resolve_target_site(scan, db) -> tuple[str | None, str | None]:
+def _resolve_target_site(scan, db, item=None) -> tuple[str | None, str | None]:
     """Pick the domain to point FAQPageMatcher at.
 
     Returns (target_site, lead_brand_name). target_site is None when no
     primary brand has a domain set — caller then skips auto-suggest and the
     user picks manually.
 
-    We use `client.primary_brand_ids` rather than BrandResolver's full chain
-    because per-scan SBC classifications can spuriously include the scanned
-    competitor itself as 'my_brand' (observed: 98 brands resolved on a
-    uriage.fr scan). Workspace primary brands are the more stable signal.
+    **Item-level override priority** : when `item.promoted_brand_ids` is set
+    (the user picked a non-workspace-default LEAD on the validation page via
+    the star toggle), we prefer THAT brand's domain. This makes rematch
+    respect the per-item override : if user said "for this opportunity, push
+    Aderma not Avène", re-running the matcher must search aderma.fr, not
+    eau-thermale-avene.fr. Falls back to workspace default if the item's
+    LEAD brand has no domain set (defensive — user might pick a brand with
+    a NULL domain in workspace settings).
 
-    The 'lead' is the first primary brand *whose domain is set*. PF workspace
-    has 190 primary brands but only ~10 have domains — taking strictly [0]
-    fails when [0] is domain-less. Iterating finds the first usable one.
-    Workspace settings is where to clean up the list to keep [0] meaningful.
+    Workspace default uses `client.primary_brand_ids` rather than the full
+    BrandResolver chain because per-scan SBC classifications can spuriously
+    include the scanned competitor itself as 'my_brand' (observed: 98 brands
+    resolved on a uriage.fr scan). Workspace primary brands = stable signal.
+
+    The 'lead' iteration finds the first brand whose `domain` field is set
+    — PF workspace has 190 primary brands but only ~10 carry domains, so
+    strict [0] would fail when [0] is domain-less. Workspace settings UI
+    is where the user keeps [0] meaningful.
     """
     from models import Client, ClientBrand
+
+    # Per-item override : the user's explicit choice for THIS content item.
+    if item is not None and getattr(item, "promoted_brand_ids", None):
+        item_ids = list(item.promoted_brand_ids)
+        item_brands = (
+            db.query(ClientBrand)
+            .filter(ClientBrand.id.in_(item_ids))
+            .all()
+        )
+        by_id_item = {b.id: b for b in item_brands}
+        for bid in item_ids:
+            b = by_id_item.get(bid)
+            if b and b.domain and b.domain.strip():
+                return b.domain.strip(), b.name
+        # Override set but no brand has a domain → fall through to workspace
+        # default rather than aborting the rematch.
 
     client = db.query(Client).filter(Client.id == scan.client_id).first()
     if not client or not client.primary_brand_ids:

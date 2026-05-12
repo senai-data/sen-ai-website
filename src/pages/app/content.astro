@@ -26,6 +26,11 @@ if (!token) return Astro.redirect('/login');
 // Read filter from query params for SSR-friendly state (browser back/forward)
 const ctParam = Astro.url.searchParams.get('content_type') || 'all';
 const scanParam = Astro.url.searchParams.get('scan_id') || '';
+// "show_rejected=1" surfaces the Rejected column. Off by default — rejected
+// is a soft-delete signal so most users don't want noise. But we MUST expose
+// the column on demand because Reject is reversible (Regenerate from validation
+// page), and otherwise the only way to find a rejected item is the direct URL.
+const showRejected = Astro.url.searchParams.get('show_rejected') === '1';
 
 let clientId: string | null = null;
 let kanban: any = { items: [], by_column: {}, counts: {}, total: 0 };
@@ -53,6 +58,7 @@ try {
     const params = new URLSearchParams();
     if (ctParam !== 'all') params.set('content_type', ctParam);
     if (scanParam) params.set('scan_id', scanParam);
+    if (showRejected) params.set('include_rejected', 'true');
     const qs = params.toString();
     const url = `http://api:8000/api/clients/${clientId}/content-items${qs ? '?' + qs : ''}`;
     const itemsRes = await fetch(url, {
@@ -65,7 +71,7 @@ try {
   }
 } catch (e) {}
 
-const columns = [
+const baseColumns = [
   {
     key: 'to_create',
     label: 'To create',
@@ -95,6 +101,14 @@ const columns = [
     helpMsg: 'Click a card to see latest position metrics.',
   },
 ];
+const rejectedColumn = {
+  key: 'rejected',
+  label: 'Rejected',
+  badge: 'bg-gray-200 text-gray-600',
+  emptyMsg: 'No rejected items.',
+  helpMsg: 'Click a card to regenerate (gives the LLM another shot) or leave as-is.',
+};
+const columns = showRejected ? [...baseColumns, rejectedColumn] : baseColumns;
 
 const totalAcrossAll = (kanban.counts?.to_create || 0) + (kanban.counts?.in_review || 0)
   + (kanban.counts?.approved || 0) + (kanban.counts?.published || 0);
@@ -181,6 +195,20 @@ function ageLabel(iso: string | null): string {
                class="w-full text-sm border border-gray-200 rounded-md px-3 py-1.5 focus:outline-none focus:border-coral" />
       </div>
 
+      {/* Show rejected toggle — Postel's : let users opt into seeing the
+           soft-deleted items so they can regenerate or audit. Off by default
+           (Hick's : reduce columns shown). */}
+      <a href={(() => {
+            const u = new URL(Astro.url);
+            if (showRejected) u.searchParams.delete('show_rejected');
+            else u.searchParams.set('show_rejected', '1');
+            return u.pathname + (u.searchParams.toString() ? '?' + u.searchParams.toString() : '');
+          })()}
+         title={showRejected ? 'Hide rejected items' : 'Show rejected items (regenerable from their detail page)'}
+         class={`text-[11px] px-2 py-1 rounded-md font-medium border transition-colors ${showRejected ? 'bg-gray-200 text-charcoal-dark border-gray-300' : 'bg-white text-charcoal-light border-gray-200 hover:border-gray-300'}`}>
+        {showRejected ? '✓ Showing rejected' : 'Show rejected'}
+      </a>
+
       <div class="text-[11px] text-charcoal-light">
         <strong class="text-charcoal-dark">{totalAcrossAll}</strong> total
       </div>
@@ -199,8 +227,8 @@ function ageLabel(iso: string | null): string {
         </a>
       </div>
     ) : (
-      <!-- Kanban grid -->
-      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <!-- Kanban grid — 4 cols default, 5 when Rejected toggle is on -->
+      <div class={`grid grid-cols-1 md:grid-cols-2 ${showRejected ? 'lg:grid-cols-5' : 'lg:grid-cols-4'} gap-4`}>
         {columns.map(col => {
           const items = (kanban.by_column?.[col.key] || []) as any[];
           const count = items.length;

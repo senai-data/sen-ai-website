@@ -405,14 +405,20 @@ _SCIENTIFIC_ALLOWLIST = (
     # French health authorities
     "has-sante.fr", "ameli.fr", "vidal.fr", "ansm.sante.fr",
     "santepubliquefrance.fr", "inserm.fr", "doctolib.fr",
-    # International medical / scientific
+    "e-cancer.fr", "frm.org",
+    # International medical / scientific authorities
     "nih.gov", "pubmed.ncbi.nlm.nih.gov", "ncbi.nlm.nih.gov",
     "who.int", "europa.eu", "ema.europa.eu", "fda.gov",
+    "cdc.gov", "cancer.gov", "nice.org.uk",
     "cochrane.org", "mayoclinic.org", "clevelandclinic.org",
     "nhs.uk", "medlineplus.gov", "uptodate.com", "merckmanuals.com",
+    # Peer-reviewed journals & academic publishers
     "sciencedirect.com", "nature.com", "thelancet.com", "nejm.org",
     "bmj.com", "jamanetwork.com",
-    # Encyclopedic / educational (low promotional risk)
+    "springer.com", "wiley.com", "mdpi.com",
+    "frontiersin.org", "plos.org", "biomedcentral.com",
+    # Research news & encyclopedic (low promotional risk)
+    "sciencedaily.com",
     "wikipedia.org", "wikimedia.org",
 )
 

@@ -128,6 +128,7 @@ def execute(job_payload: dict, scan_id: str | None, db: Session) -> dict:
     from adapters.brief_injector import format_workspace_brief, format_promoted_brands_block
     from services.brand_resolver import resolve_promotion, PromotionUnsetError
     from services.trust_sources import get_trust_sources_for_client
+    from services.competitor_domains import get_competitor_domains_for_scan
 
     # ── Resolve workspace context for vertical specialization ────────────
     # client.apps['client_brief'] = industry / voice / positioning / audience
@@ -175,12 +176,12 @@ def execute(job_payload: dict, scan_id: str | None, db: Session) -> dict:
             + ", ".join(excluded_brand_names[:10])
         )
 
-    # ── Resolve the per-client trust source allowlist ─────────────────
-    # Used by the scientific_context subclass override to drop URLs that
-    # aren't on a recognised authority/journal/society for the client's
-    # industry. Empty until the first discover_trust_sources job runs —
-    # in that case we fall back to UNIVERSAL_REFERENCES + TLD patterns
-    # (still blocks Uriage/LRP product pages, just narrower coverage).
+    # ── Resolve trust sources (SOFT prefer-signal) ───────────────────────
+    # Trust sources are no longer a hard filter — they're a prefer-hint
+    # injected into the scientific_context search prompt so OpenAI biases
+    # toward authoritative domains. URLs NOT on the trust list still pass
+    # the filter (the hard filter is the competitor denylist + universal
+    # e-commerce/social patterns, see services.url_filter).
     trust_domains: list[str] = []
     if client:
         try:
@@ -188,7 +189,23 @@ def execute(job_payload: dict, scan_id: str | None, db: Session) -> dict:
         except Exception:
             logger.exception(
                 f"get_trust_sources_for_client failed for client {client.id} "
-                f"— FAQ will use UNIVERSAL_REFERENCES baseline only"
+                f"— FAQ will run without prefer-hint (filter still applies)"
+            )
+
+    # ── Resolve competitor domains (HARD denylist) ───────────────────────
+    # Per-scan brands classified as 'competitor' in scan_brand_classifications.
+    # Joined with client_brands.domain to yield the bare domain set we drop
+    # from web_search outputs no matter what. This is the strategic
+    # differentiator's enforcement mechanism : guaranteed clean on
+    # competitor scans, deterministic and DB-backed (not LLM-dependent).
+    competitor_domains: set[str] = set()
+    if item.scan and item.scan.id:
+        try:
+            competitor_domains = get_competitor_domains_for_scan(item.scan.id, db)
+        except Exception:
+            logger.exception(
+                f"get_competitor_domains_for_scan failed for scan {item.scan.id} "
+                f"— FAQ will run with universal e-commerce/social denylist only"
             )
 
     # Build a row-compatible dict — the generator calls `row.get(key)` so a
@@ -216,6 +233,7 @@ def execute(job_payload: dict, scan_id: str | None, db: Session) -> dict:
             excluded_section=excluded_section,
             promoted_lead_brand=(promoted_brand_names[0] if promoted_brand_names else ""),
             trust_domains=trust_domains,
+            competitor_domains=competitor_domains,
             writing_provider="openai",
             model=settings.task_models.get("generate_faq") if hasattr(settings, "task_models") else None,
             max_workers=1,
@@ -301,6 +319,7 @@ def _make_workspace_aware_class():
         def __init__(self, workspace_brief_text: str = "", promoted_brands_text: str = "",
                      excluded_section: str = "", promoted_lead_brand: str = "",
                      trust_domains: list[str] | None = None,
+                     competitor_domains: set[str] | None = None,
                      **kwargs):
             super().__init__(**kwargs)
             self._workspace_brief_text = workspace_brief_text
@@ -308,6 +327,13 @@ def _make_workspace_aware_class():
             self._excluded_section = excluded_section
             self._promoted_lead_brand = promoted_lead_brand
             self._trust_domains = list(trust_domains or [])
+            # HARD denylist : per-scan competitor brand domains. Source of
+            # truth = scan_brand_classifications (deterministic, DB-backed,
+            # NOT LLM-discovered). This is the mechanism that enforces the
+            # strategic differentiator "no competitor citation on competitor
+            # scans". Universal e-commerce / social patterns are layered on
+            # top inside services.url_filter.is_excluded_url().
+            self._competitor_domains: set[str] = set(competitor_domains or set())
 
         def _fetch_brand_context(self, target_site, question_text):
             # Parent's _fetch_brand_context uses a loose natural-language prompt
@@ -344,27 +370,72 @@ def _make_workspace_aware_class():
             return filtered_content, filtered_urls
 
         def _fetch_scientific_context(self, question_text, source_name):
-            # Same root cause as _fetch_brand_context but on a different code
-            # path : seo_llm's scientific web_search ("trouve des sources
-            # scientifiques sur {topic}") routinely returns competitor brand
-            # product pages because OpenAI interprets it as "find the best
-            # products for the condition". Observed live on 2026-05-12 : a
-            # regen on a clean Avène target_url cited 3 Uriage Xémose product
-            # pages as "scientific sources". The LLM then wrote "la gamme
-            # XEMOSE C8+ d'Uriage propose..." in the FAQ output.
+            # Two-layer strategy :
             #
-            # We allowlist : recognized scientific/medical domains only
-            # (regulators, public health agencies, journals, encyclopedias).
-            # The user's own brand domain comes through brand_urls/content
-            # in _fetch_brand_context — scientific_context shouldn't carry
-            # it back. Defense in depth : the verified_urls list passed to
-            # the LLM (= brand_urls + scientific_urls) stays bounded to
-            # on-brand + trusted scientific, no competitor product pages.
-            raw_content, raw_urls = super()._fetch_scientific_context(question_text, source_name)
-            return _filter_scientific_context_by_allowlist(
-                raw_content, raw_urls, target_site="",
-                trust_list=self._trust_domains,
+            # 1. SOFT prefer-signal : inject the per-client trust source
+            #    domains into the question text so OpenAI's web_search prompt
+            #    biases toward authoritative sites (HAS, ANSM, journals, …).
+            #    The LLM still surfaces other relevant URLs — we don't lose
+            #    coverage when the trust list is incomplete (the historical
+            #    pain : allowlist dropped ameli.fr / vidal.fr / inserm.fr
+            #    that weren't on the discovered list, leaving 1 citation
+            #    and quality_score 72).
+            #
+            # 2. HARD post-filter denylist : drop URLs on per-scan competitor
+            #    brand domains (from scan_brand_classifications) + universal
+            #    e-commerce / cart / social / blog patterns. This is the
+            #    deterministic, auditable enforcement of the brand-bias
+            #    promise — guaranteed clean regardless of what the LLM
+            #    decides to retrieve.
+            #
+            # Combined : high recall on legitimate scientific sources +
+            # strict prevention of competitor citations. Replaces the prior
+            # allowlist approach (2026-05-12 → 2026-05-13) which traded
+            # recall for false-strict precision.
+            from services.url_filter import partition_urls, format_drop_summary
+
+            augmented_question = question_text
+            if self._trust_domains:
+                # Only the first ~8 domains — keep the prompt tight; the
+                # rest are universal TLD patterns which OpenAI naturally
+                # prefers anyway for queries about health / public-sector
+                # / regulated topics.
+                domains_str = ", ".join(self._trust_domains[:8])
+                augmented_question = (
+                    f"{question_text}\n\n"
+                    f"PRIORITISE authoritative sources from these reference "
+                    f"domains when available : {domains_str}. Other "
+                    f"government, regulatory or peer-reviewed sources are "
+                    f"also acceptable. AVOID commercial product pages, brand "
+                    f"e-commerce sites, blogs and forums."
+                )
+
+            raw_content, raw_urls = super()._fetch_scientific_context(
+                augmented_question, source_name
             )
+
+            safe_urls, dropped = partition_urls(
+                raw_urls, competitor_domains=self._competitor_domains,
+            )
+            if dropped:
+                logger.warning(
+                    f"scientific_context denylist filter: kept={len(safe_urls)} / "
+                    f"raw={len(raw_urls or [])} — dropped: {format_drop_summary(dropped)}"
+                )
+            else:
+                logger.info(
+                    f"scientific_context denylist filter: kept={len(safe_urls)} / "
+                    f"raw={len(raw_urls or [])} — no drops"
+                )
+
+            # Rebuild content body keeping only sections whose URL passed.
+            # Mirror the parent's Serper-block format on the way back so
+            # downstream FAQ prompt stitching is unchanged.
+            safe_set = set(safe_urls)
+            filtered_content = _strip_blocks_by_url(raw_content, safe_set) \
+                if raw_content else ""
+
+            return filtered_content, safe_urls
 
         def _generate_faq(self, row, page_content, brand_content, scientific_content, verified_urls):
             """Override to substitute `target_site` in row with our promoted lead brand domain.
@@ -409,95 +480,49 @@ def _get_workspace_aware_class():
     return _WorkspaceAwareFAQGenerator
 
 
-# Scientific-context filter for `_fetch_scientific_context`.
+# Block-level filter helper for `_fetch_scientific_context`.
 #
-# Without this gate, OpenAI's web_search ("trouve des sources scientifiques sur
-# la peau atopique") routinely returns competitor brand product pages
-# (uriage.fr/produits/xemose-..., laroche-posay.fr/...) which seo_llm treats
-# as legitimate citations — the LLM then writes "selon Uriage Xémose, ...".
-# Observed live on 2026-05-12 : 3/4 sources cited in a regen were Uriage
-# product pages even with the brand_context filter in place.
+# Parent's _fetch_scientific_context (Serper mode) formats output as repeated
+# "URL: <url>\n<scraped body>" blocks. After we've decided which URLs to keep
+# (via services.url_filter.partition_urls applied with the per-scan competitor
+# denylist + universal e-commerce/social patterns), we need to also strip the
+# scraped body of any rejected URL so its content doesn't bleed into the FAQ
+# prompt's "## SOURCES SCIENTIFIQUES" block.
 #
-# The trust list is per-client, vertical-aware, and discovered on demand by
-# `services.trust_sources.discover_trust_sources` (1 OpenAI web_search call,
-# cached 90 days on `client.apps['trust_sources']`). It always includes the
-# universal Wikipedia + government-TLD baseline as a fallback even before
-# discovery has run — so a client without a brief still benefits from some
-# competitor protection. See `worker/services/trust_sources.py` for the
-# discovery prompt, refresh policy, and merge rules.
+# The OpenAI-path output isn't structured the same way — it's free text with
+# URL citations referenced inline. In that case the kept_urls list is what
+# gets passed to the FAQ generation prompt as `verified_urls`, and the
+# content text is kept as-is if any URL passed (we don't try to surgically
+# remove competitor mentions from free-form text — defense in depth comes
+# from the verified_urls bound).
 
 
-def _filter_scientific_context_by_allowlist(content: str, urls: list[str],
-                                            target_site: str,
-                                            trust_list: list[str] | None = None,
-                                            ) -> tuple[str, list[str]]:
-    """Drop URLs (and their scraped-text blocks when present) that aren't on
-    `target_site` AND aren't in the client's `trust_list` AND don't match a
-    universal authority TLD (.gov / .gouv.fr / .europa.eu / .int / …).
+def _strip_blocks_by_url(content: str, safe_urls: set[str]) -> str:
+    """Keep only "URL: ...\\n<body>" blocks whose URL is in `safe_urls`.
 
-    Mirrors _filter_brand_context_by_site but with a broader pass criterion :
-    scientific context legitimately spans medical/regulatory sources outside
-    the user's brand domain. Competitor product pages (uriage.fr,
-    laroche-posay.fr, …) get dropped because they're neither on target_site
-    nor in the discovered authoritative-source list nor under a public-sector
-    TLD.
-
-    `trust_list` is the merged output of `get_trust_sources_for_client` —
-    UNIVERSAL_REFERENCES + discovered domains + user extras. When omitted
-    or empty, the universal baseline still applies via the TLD pattern check.
-
-    Same dual-path handling as the brand filter : Serper structured blocks
-    parse cleanly, OpenAI free-form text keeps the body if at least one
-    citation passes (otherwise drops to avoid contamination).
+    If the content doesn't look like Serper-format blocks (no "URL:" marker),
+    returns the content as-is when at least one URL passed, else empty string.
+    Defensive on parse failure : returns empty rather than risk leak.
     """
-    from urllib.parse import urlparse
-    from services.trust_sources import is_trusted_domain
-
-    def _domain_of(u: str) -> str:
-        try:
-            h = (urlparse(u or "").netloc or "").lower()
-            return h[4:] if h.startswith("www.") else h
-        except Exception:
-            return ""
-
-    ts = (target_site or "").lower()
-    if ts.startswith("www."):
-        ts = ts[4:]
-
-    tlist = list(trust_list or [])
-
-    def _accepted(u: str) -> bool:
-        d = _domain_of(u)
-        if not d:
-            return False
-        if ts and (d == ts or d.endswith("." + ts)):
-            return True
-        return is_trusted_domain(d, tlist)
-
-    safe_urls = [u for u in (urls or []) if _accepted(u)]
-
     if not content:
-        return "", safe_urls
+        return ""
+    if "URL:" not in content:
+        return content if safe_urls else ""
 
-    if "URL:" in content:
-        try:
-            chunks = content.split("URL:")
-            kept = []
-            for chunk in chunks[1:]:
-                first_nl = chunk.find("\n")
-                if first_nl < 0:
-                    continue
-                url_line = chunk[:first_nl].strip()
-                body = chunk[first_nl:]
-                if _accepted(url_line):
-                    kept.append(f"URL: {url_line}{body}")
-            return "\n\n".join(kept), safe_urls
-        except Exception:
-            return "", safe_urls
-
-    if safe_urls:
-        return content, safe_urls
-    return "", []
+    try:
+        chunks = content.split("URL:")
+        kept: list[str] = []
+        for chunk in chunks[1:]:
+            first_nl = chunk.find("\n")
+            if first_nl < 0:
+                continue
+            url_line = chunk[:first_nl].strip()
+            body = chunk[first_nl:]
+            if url_line in safe_urls:
+                kept.append(f"URL: {url_line}{body}")
+        return "\n\n".join(kept)
+    except Exception:
+        return ""
 
 
 def _filter_brand_context_by_site(content: str, urls: list[str], target_site: str) -> tuple[str, list[str]]:

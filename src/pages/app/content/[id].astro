@@ -390,7 +390,7 @@ function fmtDate(iso: string | null): string {
 
         {/* Content editor (Postel's Law: Visual/HTML toggle) */}
         <section class="bg-white rounded-xl border border-gray-200">
-          <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
+          <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between gap-3">
             <h2 class="text-sm font-semibold text-charcoal-dark flex items-center gap-1.5">
               <span>Content</span>
               {/* ⓘ tooltip — Jakob's. Explains the SEO/GEO writing rules so
@@ -399,13 +399,25 @@ function fmtDate(iso: string | null): string {
               <span class="text-[11px] text-charcoal-light cursor-help select-none font-normal"
                     title="How this FAQ is written for SEO + AI-search (GEO):&#10;&#10;• Schema.org FAQPage markup — Google needs this to surface the FAQ in rich results.&#10;• Each Q wrapped in itemprop=&quot;name&quot;, each A in itemprop=&quot;acceptedAnswer&quot; > itemprop=&quot;text&quot;. Same structure the seo-llm CLI ships.&#10;• 0% hallucination — every &quot;Source&quot; link is verified via web search before injection. No fake URLs.&#10;• Brand voice — your workspace brief is injected so the answer sounds like your brand even on competitor scans.&#10;• Your brands woven in naturally where the answer fits (highlighted in coral below). Never the competitors.&#10;• Quality score auto-audited (target ≥ 80/100 on schema validity + length + brand presence).&#10;&#10;Edit anywhere — switch to HTML view to see/tweak the raw microdata.">ⓘ</span>
             </h2>
-            <div class="flex items-center gap-1 bg-gray-100 rounded-md p-0.5">
-              <button @click="editorMode = 'visual'"
-                      :class="editorMode === 'visual' ? 'bg-white text-charcoal-dark shadow-sm' : 'text-charcoal-light'"
-                      class="px-3 py-1 text-[11px] rounded font-medium transition-all">Visual</button>
-              <button @click="editorMode = 'html'"
-                      :class="editorMode === 'html' ? 'bg-white text-charcoal-dark shadow-sm' : 'text-charcoal-light'"
-                      class="px-3 py-1 text-[11px] rounded font-medium transition-all">&lt;/&gt; HTML</button>
+            <div class="flex items-center gap-2">
+              {/* Quality score chip — Von Restorff colour coding by tier.
+                   Only rendered when the worker has populated content_metadata
+                   (i.e. on items generated post-migration 024). Old items
+                   surface no chip rather than a confusing "0/100". */}
+              <template x-if="item.content_metadata && (item.content_metadata.quality_score || item.content_metadata.quality_score === 0) && item.content_metadata.faq_count">
+                <span class="text-[11px] font-semibold px-2 py-1 rounded border select-none"
+                      :class="qualityBadgeClass()"
+                      :title="qualityBadgeTooltip()"
+                      x-text="'Quality ' + item.content_metadata.quality_score + '/100'"></span>
+              </template>
+              <div class="flex items-center gap-1 bg-gray-100 rounded-md p-0.5">
+                <button @click="editorMode = 'visual'"
+                        :class="editorMode === 'visual' ? 'bg-white text-charcoal-dark shadow-sm' : 'text-charcoal-light'"
+                        class="px-3 py-1 text-[11px] rounded font-medium transition-all">Visual</button>
+                <button @click="editorMode = 'html'"
+                        :class="editorMode === 'html' ? 'bg-white text-charcoal-dark shadow-sm' : 'text-charcoal-light'"
+                        class="px-3 py-1 text-[11px] rounded font-medium transition-all">&lt;/&gt; HTML</button>
+              </div>
             </div>
           </div>
           <div class="p-5">
@@ -438,6 +450,69 @@ function fmtDate(iso: string | null): string {
             </template>
           </div>
         </section>
+
+        {/* Sources cited (Law of Common Region + Von Restorff for the
+             brand-bias transparency signal). Lists the exact URLs the FAQ
+             generator was allowed to use as grounding, with each source's
+             org name and type tag. The "Brand-bias filter" banner makes
+             the strategic differentiator visible : the user can see, on
+             every regen, that competitor URLs were either dropped from
+             the LLM context (denylist) or never even returned (prefer-hint
+             worked). */}
+        <template x-if="item.content_metadata && Array.isArray(item.content_metadata.sources_used) && item.content_metadata.sources_used.length > 0">
+          <section class="bg-white rounded-xl border border-gray-200">
+            <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between gap-3">
+              <h2 class="text-sm font-semibold text-charcoal-dark flex items-center gap-1.5">
+                <span>Sources</span>
+                <span class="text-[11px] text-charcoal-light font-normal" x-text="'(' + item.content_metadata.sources_used.length + ')'"></span>
+                <span class="text-[11px] text-charcoal-light cursor-help select-none font-normal"
+                      title="Sources cited in the generated FAQ. Every URL was verified by web search before being injected — no fake links.&#10;&#10;Brand-bias defense (the strategic differentiator) :&#10;• HARD denylist drops URLs on competitor brand domains (per-scan from scan_brand_classifications) plus universal e-commerce / cart / social patterns.&#10;• SOFT prefer-hint biases the search toward your client's discovered authoritative sources (HAS, ANSM, SFD, …) — non-listed authoritative URLs still pass when relevant.&#10;&#10;The 'kept N / dropped M' counters below show what the filter actually saw on this run. 0 drops doesn't mean no protection — it means the prefer-hint was strong enough that no competitor URLs were surfaced in the first place.">ⓘ</span>
+              </h2>
+            </div>
+            <div class="p-5 space-y-3">
+              {/* Brand-bias diagnostic banner */}
+              <template x-if="item.content_metadata.competitor_drops > 0">
+                <div class="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-[12px] text-emerald-800 flex items-start gap-2">
+                  <span aria-hidden="true">🛡</span>
+                  <span><span class="font-semibold" x-text="item.content_metadata.competitor_drops"></span>
+                    competitor URL(s) blocked before reaching the generator —
+                    your FAQ stays on-brand by design.</span>
+                </div>
+              </template>
+              <template x-if="item.content_metadata.competitor_drops === 0 && item.content_metadata.scientific_raw > 0">
+                <div class="rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-[12px] text-charcoal-light flex items-start gap-2">
+                  <span aria-hidden="true">✓</span>
+                  <span>Brand-bias filter active.
+                    <span x-text="item.content_metadata.scientific_kept"></span> /
+                    <span x-text="item.content_metadata.scientific_raw"></span>
+                    candidate URLs passed — no competitor citations were surfaced.</span>
+                </div>
+              </template>
+              {/* Source cards */}
+              <ul class="space-y-2">
+                <template x-for="(s, i) in item.content_metadata.sources_used" :key="(s.url || '') + '-' + i">
+                  <li class="border border-gray-100 rounded-md p-3 hover:border-gray-200 transition-colors">
+                    <div class="flex items-start justify-between gap-3">
+                      <div class="min-w-0 flex-1">
+                        <div class="flex items-center gap-2 flex-wrap">
+                          <span class="text-[12px] font-semibold text-charcoal-dark" x-text="s.org || s.domain || 'Source'"></span>
+                          <span class="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded border"
+                                :class="sourceTypeClass(s.type)"
+                                x-text="sourceTypeLabel(s.type)"></span>
+                        </div>
+                        <a :href="s.url" target="_blank" rel="noopener"
+                           class="block text-[11px] text-charcoal-light hover:text-coral break-all mt-1"
+                           x-text="s.url"></a>
+                      </div>
+                      <a :href="s.url" target="_blank" rel="noopener"
+                         class="text-[11px] text-coral hover:underline shrink-0">↗</a>
+                    </div>
+                  </li>
+                </template>
+              </ul>
+            </div>
+          </section>
+        </template>
 
         {/* Workflow buttons (Hick's: secondary actions de-emphasized) */}
         <section class="bg-white rounded-xl border border-gray-200 p-5">
@@ -838,6 +913,63 @@ function fmtDate(iso: string | null): string {
           }
           if (this.saveState === 'error') return '⚠ Save failed';
           return '';
+        },
+
+        // ─── content_metadata renderers (migration 024, generator v1) ────
+        // qualityBadgeClass / qualityBadgeTooltip / sourceTypeClass /
+        // sourceTypeLabel are pure derived state — they read item.content_metadata
+        // and return Tailwind class strings or labels. No side effects.
+        qualityBadgeClass() {
+          const q = (this.item && this.item.content_metadata && this.item.content_metadata.quality_score) || 0;
+          if (q >= 80) return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+          if (q >= 60) return 'bg-amber-50 text-amber-700 border-amber-200';
+          return 'bg-red-50 text-red-700 border-red-200';
+        },
+        qualityBadgeTooltip() {
+          const md = (this.item && this.item.content_metadata) || {};
+          const q = md.quality_score || 0;
+          const sources = md.sources_count || 0;
+          const tier = q >= 80 ? '✓ on target' : (q >= 60 ? '⚠ acceptable but below target' : '⚠ below target');
+          const dur = md.duration_ms ? Math.round(md.duration_ms / 100) / 10 : null;
+          const lines = [
+            'Quality score : ' + q + '/100 — ' + tier,
+            'Computed by seo_llm: schema validity + Q/A length + brand presence + source diversity.',
+            '',
+            'This run : ' + sources + ' source(s) cited, ' +
+              (md.faq_count || 0) + ' Q/R generated' +
+              (dur ? ' in ' + dur + 's' : '') + '.',
+          ];
+          if (md.competitor_drops > 0) {
+            lines.push('Brand-bias filter blocked ' + md.competitor_drops + ' competitor URL(s) before generation.');
+          }
+          return lines.join('\n');
+        },
+        sourceTypeClass(t) {
+          // Pastel-pop palette matching the rest of the design — coral/emerald/sky/amber.
+          // Distinct enough on a glance, never aggressive (Von Restorff applied
+          // sparingly so the badges don't fight the prose).
+          const map = {
+            authority: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+            society: 'bg-sky-50 text-sky-700 border-sky-200',
+            journal: 'bg-violet-50 text-violet-700 border-violet-200',
+            research: 'bg-amber-50 text-amber-700 border-amber-200',
+            reference: 'bg-gray-50 text-gray-700 border-gray-200',
+            brand_site: 'bg-coral/10 text-coral border-coral/30',
+            other: 'bg-gray-50 text-gray-500 border-gray-200',
+          };
+          return map[t] || map.other;
+        },
+        sourceTypeLabel(t) {
+          const map = {
+            authority: 'Authority',
+            society: 'Society',
+            journal: 'Journal',
+            research: 'Research',
+            reference: 'Reference',
+            brand_site: 'Brand',
+            other: 'Other',
+          };
+          return map[t] || 'Source';
         },
 
         // Client-side URL validation — three signals, no LLM call.

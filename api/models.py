@@ -394,6 +394,10 @@ class ScanContentItem(Base):
     # URLs the user has explicitly rejected via "Find a different page".
     # FAQPageMatcher reruns skip these so the same page never re-suggests.
     rejected_target_urls = Column(JSONB, nullable=False, default=list)
+    # Audit payload written by the worker on every successful generation —
+    # quality_score, sources cited (with org names), denylist drops. Migration
+    # 024. Shape documented in 024_content_metadata.sql.
+    content_metadata = Column(JSONB, nullable=False, default=dict)
 
     created_at = Column(DateTime, default=datetime.utcnow)
 

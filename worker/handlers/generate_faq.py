@@ -259,14 +259,76 @@ def execute(job_payload: dict, scan_id: str | None, db: Session) -> dict:
         item.promoted_brand_ids = promoted_brand_ids
         flag_modified(item, "promoted_brand_ids")
 
-    # Stash sources + quality in a structured payload on content_text? No, we
-    # don't have a JSONB column for FAQ metadata. For Phase B we drop them
-    # into content_text suffix as commented HTML. Phase C will likely add a
-    # `metadata JSONB` column to ScanContentItem for this kind of audit data.
     sources_json = result.get("sources_used", "[]")
     quality_score = result.get("quality_score", 0)
-    quality_details = result.get("quality_details", "{}")
     faq_count = result.get("faq_count", 0)
+    try:
+        sources_raw = json.loads(sources_json) if sources_json else []
+    except Exception:
+        sources_raw = []
+
+    # ── Persist generation audit on item.content_metadata (migration 024) ──
+    # quality_score, sources cited (enriched with org names so the UI can
+    # show "Société Française de Dermatologie" instead of "sfd.asso.fr"),
+    # plus the scientific_context denylist diagnostic (raw vs kept, drop
+    # reasons). The latter makes the brand-bias defense auditable from the
+    # UI — "0 sources dropped as competitors" is exactly the transparency
+    # the strategic differentiator promises.
+    trust_details_by_domain: dict[str, dict] = {}
+    if client:
+        trust_payload = (client.apps or {}).get("trust_sources") or {}
+        for entry in trust_payload.get("details") or []:
+            d = (entry.get("domain") or "").strip().lower()
+            if d:
+                trust_details_by_domain[d] = entry
+
+    target_site = (row.get("target_site") or "").lower()
+    if target_site.startswith("www."):
+        target_site = target_site[4:]
+    primary_lead_brand = promoted_brand_names[0] if promoted_brand_names else ""
+
+    def _enrich_source(url: str) -> dict:
+        from urllib.parse import urlparse
+        try:
+            netloc = (urlparse(url).netloc or "").lower()
+        except Exception:
+            netloc = ""
+        if netloc.startswith("www."):
+            netloc = netloc[4:]
+        if target_site and (netloc == target_site or netloc.endswith("." + target_site)):
+            return {"url": url, "domain": netloc, "org": primary_lead_brand or netloc,
+                    "type": "brand_site"}
+        match = trust_details_by_domain.get(netloc)
+        if not match:
+            # try parent-domain match (e.g. sub.domain.tld → domain.tld)
+            parts = netloc.split(".")
+            for i in range(len(parts) - 1):
+                cand = ".".join(parts[i + 1:])
+                if cand in trust_details_by_domain:
+                    match = trust_details_by_domain[cand]
+                    break
+        if match:
+            return {"url": url, "domain": netloc, "org": match.get("org") or netloc,
+                    "type": match.get("type") or "reference"}
+        return {"url": url, "domain": netloc, "org": netloc, "type": "other"}
+
+    sources_enriched = [_enrich_source(u) for u in sources_raw if u]
+    sci_diag = getattr(generator, "scientific_diagnostic", {}) or {}
+
+    item.content_metadata = {
+        "quality_score": int(quality_score) if quality_score is not None else 0,
+        "faq_count": int(faq_count) if faq_count is not None else 0,
+        "sources_used": sources_enriched,
+        "sources_count": len(sources_enriched),
+        "competitor_drops": int(sci_diag.get("drop_reasons", {}).get("competitor", 0)),
+        "drop_reasons": sci_diag.get("drop_reasons", {}),
+        "scientific_kept": int(sci_diag.get("kept_count", 0)),
+        "scientific_raw": int(sci_diag.get("raw_count", 0)),
+        "generated_at": datetime.utcnow().isoformat(),
+        "duration_ms": duration_ms,
+        "generator_version": "denylist-prefer-hint-v1",
+    }
+    flag_modified(item, "content_metadata")
 
     db.commit()
 
@@ -334,6 +396,9 @@ def _make_workspace_aware_class():
             # scans". Universal e-commerce / social patterns are layered on
             # top inside services.url_filter.is_excluded_url().
             self._competitor_domains: set[str] = set(competitor_domains or set())
+            # Per-call diagnostic captured by _fetch_scientific_context and
+            # surfaced in execute() so it lands in scan_content_items.content_metadata.
+            self.scientific_diagnostic: dict = {}
 
         def _fetch_brand_context(self, target_site, question_text):
             # Parent's _fetch_brand_context uses a loose natural-language prompt
@@ -417,6 +482,14 @@ def _make_workspace_aware_class():
             safe_urls, dropped = partition_urls(
                 raw_urls, competitor_domains=self._competitor_domains,
             )
+            # Stash structured diagnostic for execute() to persist on the
+            # item. Counts only — full dropped URL lists stay in the log to
+            # keep the JSONB payload small.
+            self.scientific_diagnostic = {
+                "raw_count": len(raw_urls or []),
+                "kept_count": len(safe_urls),
+                "drop_reasons": {k: len(v) for k, v in dropped.items()},
+            }
             if dropped:
                 logger.warning(
                     f"scientific_context denylist filter: kept={len(safe_urls)} / "

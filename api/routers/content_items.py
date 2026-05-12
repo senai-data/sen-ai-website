@@ -170,6 +170,7 @@ def _serialize_item(item: ScanContentItem, brand_names: dict[str, str] | None = 
         "target_page_title": item.target_page_title,
         "target_question": item.target_question,
         "rejected_target_urls": list(item.rejected_target_urls or []),
+        "content_metadata": dict(item.content_metadata or {}),
         "content_html": item.content_html,
         "content_text": item.content_text,
         "article_outline": item.article_outline,

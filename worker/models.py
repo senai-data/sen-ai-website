@@ -346,6 +346,10 @@ class ScanContentItem(Base):
 
     # Rejected target URLs (accumulated across "Find a different page" clicks)
     rejected_target_urls = Column(JSONB, nullable=False, default=list)
+    # Audit payload written by the worker on every successful generation —
+    # quality_score, sources cited (with org names), denylist drops. Migration
+    # 024.
+    content_metadata = Column(JSONB, nullable=False, default=dict)
 
     created_at = Column(DateTime, default=datetime.utcnow)
 

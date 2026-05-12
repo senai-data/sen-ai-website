@@ -1,6 +1,7 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
+from services.rate_limit import limiter
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -92,7 +93,13 @@ class PromotionUpdate(BaseModel):
 
 @router.get("/{client_id}/promotion")
 async def get_client_promotion(client_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
-    """Return current promotion settings + all client brands + auto-detected suggestions."""
+    """Return current promotion settings + all client brands + auto-detected suggestions.
+
+    Brands are nested : children (gammes / product lines linked via parent_id)
+    appear inside their parent's `children` array rather than as flat entries.
+    Mirrors the GET /scans/{id}/brands shape so the workspace settings UI can
+    reuse the same hierarchical drag-drop pattern (Gate 3).
+    """
     _check_client_access(client_id, user, db)
     client = db.query(Client).filter(Client.id == client_id).first()
     if not client:
@@ -122,27 +129,111 @@ async def get_client_promotion(client_id: str, user=Depends(get_current_user), d
     suggested_id_set = {str(r.brand_id) for r in suggested_rows}
 
     by_id = {str(b.id): b for b in all_brands}
+
+    def _to_dict(b: ClientBrand) -> dict:
+        return {
+            "id": str(b.id),
+            "name": b.name,
+            "domain": b.domain,
+            "parent_id": str(b.parent_id) if b.parent_id else None,
+            "is_primary": str(b.id) in primary_id_set,
+            "is_suggested": str(b.id) in suggested_id_set,
+            "children": [],
+        }
+
+    # Children-by-parent map (only for nesting under a primary OR another root).
+    # Children are not added to the root flat list; they live inside parent.children.
+    child_ids_to_skip: set[str] = set()
+    children_by_parent: dict[str, list[dict]] = {}
+    for b in all_brands:
+        if not b.parent_id:
+            continue
+        pid_str = str(b.parent_id)
+        children_by_parent.setdefault(pid_str, []).append(_to_dict(b))
+        child_ids_to_skip.add(str(b.id))
+
+    # Emit roots in deterministic order : primary brands first (in primary_ids
+    # order = drag-reorder authority), then everything else alphabetical.
     serialized: list[dict] = []
     for bid in primary_ids:
         bid_str = str(bid)
         b = by_id.get(bid_str)
-        if b:
-            serialized.append({
-                "id": bid_str, "name": b.name, "domain": b.domain,
-                "is_primary": True, "is_suggested": bid_str in suggested_id_set,
-            })
+        if not b or bid_str in child_ids_to_skip:
+            continue
+        d = _to_dict(b)
+        d["children"] = children_by_parent.get(bid_str, [])
+        serialized.append(d)
     for b in all_brands:
         bid_str = str(b.id)
         if bid_str in primary_id_set:
             continue
-        serialized.append({
-            "id": bid_str, "name": b.name, "domain": b.domain,
-            "is_primary": False, "is_suggested": bid_str in suggested_id_set,
-        })
+        if bid_str in child_ids_to_skip:
+            continue
+        d = _to_dict(b)
+        d["children"] = children_by_parent.get(bid_str, [])
+        serialized.append(d)
 
     return {
         "primary_brand_ids": [str(bid) for bid in primary_ids],
         "all_brands": serialized,
+    }
+
+
+class BrandParentUpdate(BaseModel):
+    parent_id: str | None = None  # null = detach (top-level)
+
+
+@router.patch("/{client_id}/brands/{brand_id}/parent")
+async def update_brand_parent(client_id: str, brand_id: str, req: BrandParentUpdate,
+                              user=Depends(get_current_user),
+                              db: Session = Depends(get_db)):
+    """Set or clear the parent_id on a client_brand.
+
+    Used by the workspace-settings drag-drop UI : when the user drops a brand
+    onto a primary brand, we PATCH parent_id; when they detach a child to the
+    Available column, we PATCH parent_id=NULL.
+
+    Same brand graph the per-scan classifier (Gate 3) uses — a brand has at
+    most one parent, children can't have grand-children (enforced here).
+    """
+    _check_client_access(client_id, user, db)
+    brand = (
+        db.query(ClientBrand)
+        .filter(ClientBrand.id == brand_id, ClientBrand.client_id == client_id)
+        .first()
+    )
+    if not brand:
+        raise HTTPException(404, "Brand not found")
+
+    new_parent_id = req.parent_id
+    if new_parent_id is None or new_parent_id == "":
+        brand.parent_id = None
+        db.commit()
+        return {"ok": True, "brand_id": str(brand.id), "parent_id": None}
+
+    if new_parent_id == brand_id:
+        raise HTTPException(400, "A brand cannot be its own parent")
+
+    parent = (
+        db.query(ClientBrand)
+        .filter(ClientBrand.id == new_parent_id, ClientBrand.client_id == client_id)
+        .first()
+    )
+    if not parent:
+        raise HTTPException(400, "Parent brand not found in this client")
+
+    # Prevent grand-children : if `parent` is itself a child, refuse.
+    if parent.parent_id is not None:
+        raise HTTPException(400, {
+            "error": "grand_child_disallowed",
+            "message": "Can't make a gamme a parent. Attach to the top-level brand instead.",
+        })
+
+    brand.parent_id = parent.id
+    db.commit()
+    return {
+        "ok": True, "brand_id": str(brand.id),
+        "parent_id": str(parent.id), "parent_name": parent.name,
     }
 
 
@@ -188,17 +279,34 @@ class BriefUpdate(BaseModel):
 @router.get("/{client_id}/brief")
 async def get_client_brief(client_id: str, user=Depends(get_current_user),
                            db: Session = Depends(get_db)):
-    """Return the workspace brief, or null if not yet generated."""
+    """Return the workspace brief + regen budget, or null brief if not yet generated."""
     _check_client_access(client_id, user, db)
     client = db.query(Client).filter(Client.id == client_id).first()
     if not client:
         raise HTTPException(404, "Client not found")
     apps = client.apps or {}
-    return {"brief": apps.get("client_brief")}
+    brief = apps.get("client_brief")
+    used = int((brief or {}).get("generations_count") or 0)
+    return {
+        "brief": brief,
+        "generations_used": used,
+        "generations_cap": MAX_CLIENT_BRIEF_GENERATIONS,
+        "can_regenerate": used < MAX_CLIENT_BRIEF_GENERATIONS,
+    }
+
+
+# Hard cap on per-client workspace brief regenerations. Each call fires
+# OpenAI web_search (~$0.02-0.05). Workspace brief is regenerated rarely
+# in practice (1-2x to seed, then user edits). 5 leaves room for LLM
+# garbage on a brand-new workspace without enabling spam.
+# See feedback_cap_user_triggered_llm_ops.
+MAX_CLIENT_BRIEF_GENERATIONS = 5
 
 
 @router.post("/{client_id}/brief/generate")
-async def generate_client_brief(client_id: str, user=Depends(get_current_user),
+@limiter.limit("5/minute")
+async def generate_client_brief(request: Request, client_id: str,
+                                user=Depends(get_current_user),
                                 db: Session = Depends(get_db)):
     """Enqueue a generate_client_brief worker job. Returns the job id for polling."""
     _check_client_access(client_id, user, db)
@@ -216,6 +324,19 @@ async def generate_client_brief(client_id: str, user=Depends(get_current_user),
             "Brief has been manually edited — delete edited_by_user via PUT before regenerating",
         )
 
+    # Hard cap : 429 once the workspace brief has burned the regen budget.
+    # Counter incremented in worker on success (failed runs don't count).
+    used = int(existing.get("generations_count") or 0)
+    if used >= MAX_CLIENT_BRIEF_GENERATIONS:
+        raise HTTPException(429, {
+            "error": "client_brief_regen_cap_reached",
+            "message": f"Workspace brief has been generated {used} times "
+                       f"(max {MAX_CLIENT_BRIEF_GENERATIONS}). Edit the brief manually "
+                       f"in workspace settings — further regenerations are blocked.",
+            "generations_used": used,
+            "cap": MAX_CLIENT_BRIEF_GENERATIONS,
+        })
+
     # Avoid duplicate in-flight jobs
     in_flight = (
         db.query(Job)
@@ -228,7 +349,8 @@ async def generate_client_brief(client_id: str, user=Depends(get_current_user),
     )
     if in_flight:
         return {"ok": True, "job_id": str(in_flight.id), "status": in_flight.status,
-                "message": "Already in flight"}
+                "message": "Already in flight",
+                "generations_used": used, "cap": MAX_CLIENT_BRIEF_GENERATIONS}
 
     job = Job(
         client_id=client_id,
@@ -240,7 +362,8 @@ async def generate_client_brief(client_id: str, user=Depends(get_current_user),
     db.add(job)
     db.commit()
     db.refresh(job)
-    return {"ok": True, "job_id": str(job.id), "status": "pending"}
+    return {"ok": True, "job_id": str(job.id), "status": "pending",
+            "generations_used": used, "cap": MAX_CLIENT_BRIEF_GENERATIONS}
 
 
 @router.put("/{client_id}/brief")

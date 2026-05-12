@@ -340,6 +340,10 @@ def execute(job_payload: dict, scan_id: str | None, db: Session) -> dict:
     brief["edited_by_user"] = False
 
     apps = dict(client.apps or {})
+    # Carry over regen counter (success-only, see API cap in clients router +
+    # feedback_cap_user_triggered_llm_ops).
+    prev = apps.get("client_brief") or {}
+    brief["generations_count"] = int(prev.get("generations_count") or 0) + 1
     apps["client_brief"] = brief
     client.apps = apps
     flag_modified(client, "apps")

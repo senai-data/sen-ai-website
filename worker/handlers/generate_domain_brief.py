@@ -323,7 +323,12 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
     )
 
     # ── Persist + pre-populate Gate 2 ───────────────────────────────────
+    # Increment the regen counter (success-only — failed runs don't burn the
+    # budget). API endpoint caps at MAX_DOMAIN_BRIEF_GENERATIONS via the same
+    # field. See feedback_cap_user_triggered_llm_ops.
     config = dict(scan.config or {})
+    prev_brief = config.get("domain_brief") or {}
+    brief["generations_count"] = int(prev_brief.get("generations_count") or 0) + 1
     config["domain_brief"] = brief
     config["domain_brief_provider"] = used_provider  # for audit/debug
     scan.config = config

@@ -420,11 +420,35 @@ async def update_scan_config(scan_id: str, req: ScanConfigUpdate, user=Depends(g
 
 # --- Domain Brief ---
 
+# Hard cap on per-scan brief regenerations. Each call fires OpenAI web_search
+# (~$0.02-0.05). The first generation runs in the wizard auto-flow; legitimate
+# users almost never need >2 regens. 5 leaves room for edge cases (LLM returned
+# garbage on a niche domain) without enabling spam. See
+# feedback_cap_user_triggered_llm_ops.
+MAX_DOMAIN_BRIEF_GENERATIONS = 5
+
+
 @router.post("/{scan_id}/generate-brief")
 @limiter.limit("5/minute")
 async def generate_brief(request: Request, scan_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
     """Enqueue domain brief generation via OpenAI web search. Idempotent."""
     scan = _check_scan_access(scan_id, user, db)
+
+    # Hard cap : 429 when this scan has already burned the budget. Counter is
+    # incremented in the worker handler on success, so a failed run doesn't
+    # cost an attempt. Mirror in UI via the GET /brief response.
+    brief_state = (scan.config or {}).get("domain_brief") or {}
+    used = int(brief_state.get("generations_count") or 0)
+    if used >= MAX_DOMAIN_BRIEF_GENERATIONS:
+        raise HTTPException(429, {
+            "error": "brief_regen_cap_reached",
+            "message": f"This scan's brief has been generated {used} times "
+                       f"(max {MAX_DOMAIN_BRIEF_GENERATIONS}). Edit the brief manually "
+                       f"on Gate 1 — further regenerations are blocked.",
+            "generations_used": used,
+            "cap": MAX_DOMAIN_BRIEF_GENERATIONS,
+        })
+
     existing = db.query(Job).filter(
         Job.scan_id == scan_id,
         Job.job_type == "generate_domain_brief",
@@ -434,21 +458,29 @@ async def generate_brief(request: Request, scan_id: str, user=Depends(get_curren
         return {"status": "already_running", "job_id": str(existing.id)}
     _create_job(db, scan_id, "generate_domain_brief")
     db.commit()
-    return {"status": "job_created"}
+    return {
+        "status": "job_created",
+        "generations_used": used,
+        "cap": MAX_DOMAIN_BRIEF_GENERATIONS,
+    }
 
 
 @router.get("/{scan_id}/brief")
 async def get_brief(scan_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
-    """Return domain brief + generation status."""
+    """Return domain brief + generation status + regen budget."""
     scan = _check_scan_access(scan_id, user, db)
     brief = (scan.config or {}).get("domain_brief")
     job = db.query(Job).filter(
         Job.scan_id == scan_id,
         Job.job_type == "generate_domain_brief",
     ).order_by(Job.created_at.desc()).first()
+    used = int((brief or {}).get("generations_count") or 0)
     return {
         "domain_brief": brief,
         "generation_status": job.status if job else ("completed" if brief else None),
+        "generations_used": used,
+        "generations_cap": MAX_DOMAIN_BRIEF_GENERATIONS,
+        "can_regenerate": used < MAX_DOMAIN_BRIEF_GENERATIONS,
     }
 
 
@@ -1412,16 +1444,58 @@ async def delete_persona(scan_id: str, persona_id: str, user=Depends(get_current
     return {"deleted": True}
 
 
+# Hard cap on per-persona question-regen. Each call fires a Claude haiku
+# request (~$0.01-0.03). The first generation runs on persona creation;
+# regenerations beyond 5 indicate the user isn't getting what they want
+# from the LLM and should edit questions manually.
+# See feedback_cap_user_triggered_llm_ops.
+MAX_PERSONA_QUESTIONS_GENERATIONS = 5
+
+
 @router.post("/{scan_id}/personas/{persona_id}/generate-questions")
-async def generate_persona_questions(scan_id: str, persona_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
-    """Enqueue a worker job to generate 15 questions for a custom persona."""
+@limiter.limit("5/minute")
+async def generate_persona_questions(request: Request, scan_id: str, persona_id: str,
+                                     user=Depends(get_current_user),
+                                     db: Session = Depends(get_db)):
+    """Enqueue a worker job to generate 15 questions for a custom persona.
+
+    Capped at MAX_PERSONA_QUESTIONS_GENERATIONS to bound LLM spend if the
+    user spam-clicks regenerate. Counter lives in persona.data and is
+    incremented by the worker on success.
+    """
     _check_scan_access(scan_id, user, db)
     persona = db.query(ScanPersona).filter(ScanPersona.id == persona_id, ScanPersona.scan_id == scan_id).first()
     if not persona:
         raise HTTPException(404, "Persona not found")
+
+    # Hard cap : 429 once the persona has burned the budget.
+    used = int((persona.data or {}).get("questions_generations_count") or 0)
+    if used >= MAX_PERSONA_QUESTIONS_GENERATIONS:
+        raise HTTPException(429, {
+            "error": "persona_questions_regen_cap_reached",
+            "message": f"Questions have been regenerated {used} times for this persona "
+                       f"(max {MAX_PERSONA_QUESTIONS_GENERATIONS}). Edit questions manually "
+                       f"— further regenerations are blocked.",
+            "generations_used": used,
+            "cap": MAX_PERSONA_QUESTIONS_GENERATIONS,
+        })
+
+    # In-flight dedupe : don't double-enqueue if the user clicks twice.
+    in_flight = db.query(Job).filter(
+        Job.scan_id == scan_id,
+        Job.job_type == "generate_persona_questions",
+        Job.status.in_(["pending", "running"]),
+    ).all()
+    for j in in_flight:
+        if (j.payload or {}).get("persona_id") == persona_id:
+            return {"status": "already_running", "persona_id": persona_id,
+                    "job_id": str(j.id),
+                    "generations_used": used, "cap": MAX_PERSONA_QUESTIONS_GENERATIONS}
+
     db.add(Job(scan_id=scan_id, job_type="generate_persona_questions", payload={"persona_id": persona_id}))
     db.commit()
-    return {"status": "generating", "persona_id": persona_id}
+    return {"status": "generating", "persona_id": persona_id,
+            "generations_used": used, "cap": MAX_PERSONA_QUESTIONS_GENERATIONS}
 
 
 @router.post("/{scan_id}/questions")

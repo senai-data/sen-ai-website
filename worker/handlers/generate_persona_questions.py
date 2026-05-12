@@ -262,6 +262,15 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
         scan.summary = summary
         flag_modified(scan, "summary")
 
+    # Increment regen counter in persona.data (success-only — failed runs don't
+    # burn the budget). API endpoint caps at MAX via this same field.
+    # See feedback_cap_user_triggered_llm_ops.
+    from sqlalchemy.orm.attributes import flag_modified as _flag_modified
+    pdata = dict(persona.data or {})
+    pdata["questions_generations_count"] = int(pdata.get("questions_generations_count") or 0) + 1
+    persona.data = pdata
+    _flag_modified(persona, "data")
+
     db.commit()
     logger.info(
         f"Generated {created} questions for persona '{persona.name}' "

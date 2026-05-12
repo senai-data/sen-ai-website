@@ -136,6 +136,11 @@ try {
 } catch {}
 const domainBrief = briefData?.domain_brief || null;
 const briefStatus = briefData?.generation_status || null;
+const briefBudget = {
+  generations_used: briefData?.generations_used ?? 0,
+  generations_cap: briefData?.generations_cap ?? 5,
+  can_regenerate: briefData?.can_regenerate ?? true,
+};
 
 // Determine which view to render
 // - If ?view= param set, show that view (back navigation)
@@ -225,17 +230,35 @@ const isReviewing = effectiveView !== null && (
       </summary>
       <div class="px-5 py-4 border-t border-gray-100" x-data={`{
         brief: ${JSON.stringify(domainBrief || {})},
+        budget: ${JSON.stringify(briefBudget)},
         saving: false,
         generating: ${briefStatus === 'pending' || briefStatus === 'running' ? 'true' : 'false'},
         async generateBrief() {
+          if (!this.budget.can_regenerate) return;
           this.generating = true;
-          await fetch('/api/scans/${id}/generate-brief', { method: 'POST' });
+          const r = await fetch('/api/scans/${id}/generate-brief', { method: 'POST' });
+          if (!r.ok && r.status === 429) {
+            const body = await r.json().catch(() => ({}));
+            const d = body.detail || body;
+            this.budget = {
+              generations_used: d.generations_used ?? this.budget.generations_used,
+              generations_cap: d.cap ?? this.budget.generations_cap,
+              can_regenerate: false,
+            };
+            this.generating = false;
+            return;
+          }
           const poll = setInterval(async () => {
             const res = await fetch('/api/scans/${id}/brief');
             if (res.ok) {
               const data = await res.json();
               if (data.domain_brief) {
                 this.brief = data.domain_brief;
+                this.budget = {
+                  generations_used: data.generations_used ?? (this.budget.generations_used + 1),
+                  generations_cap: data.generations_cap ?? this.budget.generations_cap,
+                  can_regenerate: data.can_regenerate ?? (this.budget.generations_used + 1 < this.budget.generations_cap),
+                };
                 this.generating = false;
                 clearInterval(poll);
               }
@@ -330,7 +353,24 @@ const isReviewing = effectiveView !== null && (
             <div class="flex items-center justify-between pt-2">
               <span x-show="saving" class="text-[10px] text-charcoal-light animate-pulse">Saving...</span>
               <span x-show="!saving" class="text-[10px] text-emerald-600">Auto-saved on edit</span>
-              <button @click="generateBrief()" class="text-[10px] text-charcoal-light hover:text-coral transition-colors">Regenerate from web</button>
+              <span class="flex items-center gap-2">
+                {/* Regen budget counter (Tesler's). Same pattern as workspace
+                     brief + FAQ rematch — surface budget BEFORE cap fires. */}
+                <template x-if="budget.generations_used > 0">
+                  <span class="text-[10px] tabular-nums"
+                        :class="!budget.can_regenerate ? 'text-red-600 font-medium' : (budget.generations_cap - budget.generations_used <= 2 ? 'text-amber-700' : 'text-charcoal-light')"
+                        :title="budget.generations_used + ' regenerations used out of ' + budget.generations_cap"
+                        x-text="budget.generations_used + '/' + budget.generations_cap"></span>
+                </template>
+                <button @click="generateBrief()"
+                        :disabled="!budget.can_regenerate || generating"
+                        :class="(!budget.can_regenerate || generating) ? 'text-gray-400 cursor-not-allowed' : 'text-charcoal-light hover:text-coral transition-colors'"
+                        class="text-[10px]"
+                        :title="!budget.can_regenerate ? 'Regen cap reached — edit the brief manually above' : 'Regenerate this scan\\'s brief from web search (~10s, capped at ' + budget.generations_cap + ' per scan)'"
+                        x-text="budget.can_regenerate ? 'Regenerate from web' : 'Cap reached — edit manually'"></button>
+                <span class="text-[10px] text-charcoal-light cursor-help select-none"
+                      :title="'This scan\\'s brief feeds AI analysis (topic classification, persona generation, brand detection). Regeneration capped at ' + budget.generations_cap + ' per scan to bound LLM cost. Edit fields above anytime — your edits are saved on blur.'">ⓘ</span>
+              </span>
             </div>
           </div>
         </template>

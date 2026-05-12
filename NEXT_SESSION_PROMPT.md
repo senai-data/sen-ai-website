@@ -3,54 +3,52 @@
 ## À lire AVANT de répondre
 
 1. `~/.claude/projects/C--Users-leed-sen-ai-website/memory/MEMORY.md` (auto-loaded)
-2. `project_todo_tracker.md` — section **"État actuel"** en haut du fichier (2 commits 2026-05-13 + checklist deploy)
-3. `feedback_no_hardcoded_vertical.md` — règle clé : sen-ai = SaaS multi-vertical, ZÉRO hardcoded brand/competitor/vertical-specific dans code shared
-4. `feedback_cap_user_triggered_llm_ops.md` — règle (2026-05-12) : tout endpoint user qui fire un LLM call DOIT être credit-debited OU hard-capped per item
-5. `project_trust_sources_architecture.md` — règle (2026-05-13) : per-client trust sources via discover_trust_sources, JAMAIS de hardcoded allowlist par vertical
-6. `project_roadmap_content_port.md` — vision long-terme 7 piliers UX
+2. `project_todo_tracker.md` — section **"État actuel" 2026-05-13** en haut (5 commits + deploy + smoke test validé)
+3. `project_trust_sources_architecture.md` — règle 2026-05-13 finale : **denylist HARD (competitor) + prefer-hint SOFT (trust sources)**, surtout pas allowlist
+4. `feedback_no_hardcoded_vertical.md` — règle SaaS multi-vertical
+5. `feedback_cap_user_triggered_llm_ops.md` — règle endpoint user-triggered LLM
+6. `project_roadmap_content_port.md` — vision 7 piliers
 
-## Bilan session 2026-05-13 (2 commits — pushés origin/master, deploy en attente)
+## Bilan session 2026-05-13 (5 commits — pushés + déployés + validés end-to-end ✅)
 
-**Session "trust sources architecture"** : passe d'un `_SCIENTIFIC_ALLOWLIST` hardcoded (39 domaines médicaux, dermato-biased) à un système per-client vertical-aware basé sur discovery LLM. Code complet, déployable. Le **seed des clients PF existants + smoke test** se fait post-deploy.
+**Session "content quality architecture pivot"** : initial allowlist refactor (918451b), smoke test mesuré le gap, pivot vers denylist + prefer-hint (bb2a2c9), redéploy, smoke test prouvant **quality 72→91/100 (+19)** + brand-bias clean.
 
-### Commits
+### Commits dans l'ordre
 
 | # | SHA | Theme |
 |---|---|---|
-| 1 | `c7b008e` | chore(faq): stopgap +12 cross-vertical references (avant refactor, gain quality_score immédiat) |
-| 2 | `918451b` | feat(content): per-client trust sources discovery + dynamic FAQ allowlist (architecture multi-vertical) |
+| 1 | `c7b008e` | stopgap +12 cross-vertical refs (transitionnel, deprecated) |
+| 2 | `918451b` | trust sources discovery initial (allowlist filter — déprécié) |
+| 3 | `6e7389c` | docs refresh |
+| 4 | `f5127e2` | prompt v2 discovery — sector balance |
+| 5 | `bb2a2c9` | **refactor denylist + prefer-hint (le bon design, validé)** |
 
-### Architecture livrée (`918451b`)
+### Architecture finale (`bb2a2c9`) — two-layer brand-bias defense
 
-- `worker/services/trust_sources.py` — `discover_trust_sources()` (1 OpenAI web_search per client per 90j), `get_trust_sources_for_client()`, `is_trusted_domain()`, `is_discovery_stale()`. UNIVERSAL_REFERENCES (Wikipedia/Wikimedia) + UNIVERSAL_AUTHORITY_TLDS (.gov/.gouv.fr/.europa.eu/.int/…) en universal baseline cross-vertical.
-- `worker/handlers/discover_trust_sources.py` — wrapper job. Idempotent via staleness check. Force bypass.
-- Chain enqueue depuis `generate_client_brief` on success (best-effort, ne casse pas le brief success).
-- `generate_faq.py` refactor : `_SCIENTIFIC_ALLOWLIST` supprimé. `_filter_scientific_context_by_allowlist` accepte `trust_list` param, délègue à `is_trusted_domain`. `execute()` pre-compute trust_domains et passe au subclass.
-- API : GET/POST `/clients/{id}/trust-sources` + `/discover?force=bool` (3/min, requires `client_brief.industry`).
-- Storage : `client.apps['trust_sources']` JSONB (pas de migration). `extra_domains` préservé sur refresh (future Settings UI).
+**HARD denylist** (compliance) :
+- `services/competitor_domains.py::get_competitor_domains_for_scan(scan_id, db)` — DB-backed, déterministe
+- `services/url_filter.py::partition_urls(urls, competitor_domains)` — competitor + universal e-commerce/social/blog patterns + diagnostic logging
+- Post-filter sur web_search outputs
 
-### 🚀 Checklist deploy (top priority next session)
+**SOFT prefer-hint** (quality) :
+- `services/trust_sources.py::get_trust_sources_for_client(client_id, db)` — per-client discovered + UNIVERSAL_REFERENCES + extras
+- Injecté dans le `question_text` AVANT super() : *"PRIORITISE authoritative sources from these domains: …"*
+- URLs hors trust list passent quand même — recall préservé
 
-```bash
-# 1. scp api + worker + restart
-ssh root@vps "cd /opt/sen-ai && docker compose build api worker && docker compose up -d && docker compose restart nginx"
+### Smoke test prod validé end-to-end
 
-# 2. Verify worker
-ssh root@vps "docker compose logs worker --tail 30 | grep 'Registered handlers'"
-# Doit lister 16 handlers (15 → 16 avec discover_trust_sources)
+Item `e0915e0d` (FAQ atopie pédiatrique, scan compétiteur uriage.fr, client PF) :
+- quality 72 → **91/100** ✅
+- sources 1 → **3** (Avène + 2× dermato-info.fr) ✅
+- mentions Uriage/Xémose/LRP : **0** ✅
+- denylist drops : 0 (prefer-hint a suffi)
 
-# 3. Récupérer les UUIDs PF clients
-ssh root@vps "docker compose exec postgres psql -U senai -c \"SELECT id, name FROM clients;\""
+### Prod state (post-deploy 21:42 le 2026-05-12)
 
-# 4. Seed via DevTools console (logged in en tant que data@sen-ai.fr) :
-fetch('/api/clients/{CLIENT_ID}/trust-sources/discover', {method:'POST', credentials:'include'}).then(r=>r.json()).then(console.log)
-# Attendre ~20-30s. Vérifier via GET /api/clients/{id}/trust-sources
-
-# 5. Smoke test regen sur item e0915e0d :
-#    - Target : quality_score ≥ 80 (était 72 avec hardcode trop strict, 91 avant fix brand-bias)
-#    - 0 mention Uriage/Xémose (régression check)
-#    - Sources cited count ≥ 3 (vs 1 avec allowlist statique)
-```
+- 5 containers up : postgres, api, astro, worker, nginx
+- Worker 16 handlers (discover_trust_sources ajouté)
+- API endpoints `/clients/{id}/trust-sources` (GET + POST/discover) live
+- PF client trust_sources discovered : 6 domains (HAS + Ministère + SFD + dermato-info + DermNetNZ + PubMed)
 
 ## Bilan session 2026-05-12 (7 commits — pushés origin/master)
 

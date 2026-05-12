@@ -3,7 +3,7 @@
 ## À lire AVANT de répondre
 
 1. `~/.claude/projects/C--Users-leed-sen-ai-website/memory/MEMORY.md` (auto-loaded)
-2. `project_todo_tracker.md` — section **"État actuel" 2026-05-13** en haut (5 commits + deploy + smoke test validé)
+2. `project_todo_tracker.md` — section **"État actuel" 2026-05-13** en haut (7 commits + deploy + UI surfacing validé)
 3. `project_trust_sources_architecture.md` — règle 2026-05-13 finale : **denylist HARD (competitor) + prefer-hint SOFT (trust sources)**, surtout pas allowlist
 4. `feedback_no_hardcoded_vertical.md` — règle SaaS multi-vertical
 5. `feedback_cap_user_triggered_llm_ops.md` — règle endpoint user-triggered LLM
@@ -43,12 +43,22 @@ Item `e0915e0d` (FAQ atopie pédiatrique, scan compétiteur uriage.fr, client PF
 - mentions Uriage/Xémose/LRP : **0** ✅
 - denylist drops : 0 (prefer-hint a suffi)
 
-### Prod state (post-deploy 21:42 le 2026-05-12)
+### Prod state (post-deploy final 21:57 le 2026-05-12)
 
 - 5 containers up : postgres, api, astro, worker, nginx
 - Worker 16 handlers (discover_trust_sources ajouté)
+- Migration 024 appliquée (`scan_content_items.content_metadata JSONB`)
 - API endpoints `/clients/{id}/trust-sources` (GET + POST/discover) live
 - PF client trust_sources discovered : 6 domains (HAS + Ministère + SFD + dermato-info + DermNetNZ + PubMed)
+- UI validation page affiche Quality badge + Sources panel avec brand-bias transparency (commit `d0997ff`)
+
+### Commit `d0997ff` — content_metadata + UI
+
+- Schema : `scan_content_items.content_metadata` JSONB (quality_score + sources enrichies + competitor_drops + drop_reasons + scientific_kept/raw + duration + generator_version)
+- Worker écrit le payload sur item.content_metadata après chaque regen
+- API serializer expose le champ
+- UI : badge Quality colour-coded + section Sources avec banner diagnostic brand-bias + cards par source (org name + type chip + lien)
+- Smoke test final ✅ : 91/100, 3 sources (Avène + 2× SFD), 0 competitor drops, UI affiché correctement par user
 
 ## Bilan session 2026-05-12 (7 commits — pushés origin/master)
 

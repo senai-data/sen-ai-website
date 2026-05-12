@@ -162,7 +162,7 @@ _DISCOVERY_PROMPT = """You are building a list of authoritative, neutral referen
 Industry / sector : {industry}
 {language_hint}
 
-Return between 8 and 15 websites that are AUTHORITATIVE NEUTRAL THIRD-PARTY references for this industry. Use web search to verify each.
+Return between 10 and 15 websites that are AUTHORITATIVE NEUTRAL THIRD-PARTY references for this industry. Use web search to verify each.
 
 STRICT INCLUSION CRITERIA — keep only sites that match AT LEAST ONE of :
 - Government agencies, regulators, or public bodies for this sector (any country relevant to the industry)
@@ -178,6 +178,14 @@ STRICT EXCLUSION CRITERIA — REJECT sites that match ANY of :
 - General-interest news media, magazines, lifestyle press
 - Social media platforms
 - Wikipedia / Wikimedia (already in our universal baseline — do NOT list)
+
+COMPOSITION REQUIREMENT — the final list MUST be balanced for the sector as a whole, not narrowly biased toward one sub-specialty :
+- AT LEAST 3 GENERALIST national-level authorities, regulators, or public-information bodies that broadly cover the sector — the institutions a generalist reader would expect to find when researching the topic regardless of sub-specialty. NOT only narrow specialty bodies.
+- AT MOST half of the list from any one sub-specialty if the industry text names multiple sub-sectors. Distribute coverage across the named sub-sectors instead of concentrating on the most specialised one.
+- 2-3 peer-reviewed journals or major academic publishers
+- 1-2 broadly trusted reference / educational sources
+
+Prefer "broad coverage of the sector" over "deep coverage of a single niche". If the industry text mentions one country prominently, include that country's top generalist regulators even when several sub-specialty bodies are also relevant.
 
 For each source provide :
 - "domain" : bare domain (e.g., "has-sante.fr", not "https://www.has-sante.fr/path")

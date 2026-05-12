@@ -290,7 +290,28 @@ def _make_workspace_aware_class():
             self._promoted_lead_brand = promoted_lead_brand
 
         def _fetch_brand_context(self, target_site, question_text):
-            brand_content, brand_urls = super()._fetch_brand_context(target_site, question_text)
+            # Parent's _fetch_brand_context uses a loose natural-language prompt
+            # ("sur le site {target_site}") which OpenAI web_search interprets
+            # softly — it routinely returns off-site competitor pages for hot
+            # queries (e.g. "eczéma visage" → Uriage Xémose results even when
+            # target_site = eau-thermale-avene.fr). The leaked competitor brand
+            # names enter the prompt's "## CONTENU MARQUE" block and the LLM
+            # then weaves them into the FAQ output. This is the root cause of
+            # the Xémose leak observed on 2026-05-12.
+            #
+            # We post-filter the parent's output to strip URLs that aren't on
+            # target_site. Filtering at the URL level + dropping the scraped
+            # text body when the URL is rejected keeps the LLM's context free
+            # of off-brand content without re-issuing the web_search.
+            #
+            # If filtering removes everything, we fall back to an empty
+            # brand_content — the LLM still has the target_url scrape +
+            # workspace brief + promoted-brands block, which is enough to
+            # generate a high-quality on-brand FAQ.
+            raw_content, raw_urls = super()._fetch_brand_context(target_site, question_text)
+            filtered_content, filtered_urls = _filter_brand_context_by_site(
+                raw_content, raw_urls, target_site
+            )
             prefix_parts = []
             if self._workspace_brief_text:
                 prefix_parts.append(self._workspace_brief_text)
@@ -299,8 +320,8 @@ def _make_workspace_aware_class():
             if self._excluded_section:
                 prefix_parts.append(self._excluded_section)
             if prefix_parts:
-                brand_content = "\n\n".join(prefix_parts) + "\n\n---\n\n" + (brand_content or "")
-            return brand_content, brand_urls
+                filtered_content = "\n\n".join(prefix_parts) + "\n\n---\n\n" + (filtered_content or "")
+            return filtered_content, filtered_urls
 
         def _generate_faq(self, row, page_content, brand_content, scientific_content, verified_urls):
             """Override to substitute `target_site` in row with our promoted lead brand domain.
@@ -343,6 +364,79 @@ def _get_workspace_aware_class():
     if _WorkspaceAwareFAQGenerator is None:
         _WorkspaceAwareFAQGenerator = _make_workspace_aware_class()
     return _WorkspaceAwareFAQGenerator
+
+
+def _filter_brand_context_by_site(content: str, urls: list[str], target_site: str) -> tuple[str, list[str]]:
+    """Drop URLs (and their associated scraped-text blocks) that aren't on target_site.
+
+    Parent's _fetch_brand_context formats Serper-path output as repeated blocks:
+        URL: <url>
+        <scraped text...>
+
+        URL: <url>
+        <scraped text...>
+
+    We split on URL: markers, keep only blocks whose URL passes a domain match
+    on target_site. The OpenAI-path output isn't structured this way — for that
+    we just keep the response text as-is when ANY URL passed (the LLM context
+    is grounded by URL citations that are filtered separately).
+
+    Returns (filtered_text, filtered_urls). Defensive : on parse failure,
+    returns ("", []) rather than risking leak into the FAQ prompt.
+    """
+    from urllib.parse import urlparse
+
+    def _domain_of(u: str) -> str:
+        try:
+            h = (urlparse(u or "").netloc or "").lower()
+            return h[4:] if h.startswith("www.") else h
+        except Exception:
+            return ""
+
+    ts = (target_site or "").lower()
+    if ts.startswith("www."):
+        ts = ts[4:]
+    if not ts:
+        return content or "", list(urls or [])
+
+    def _on_target(u: str) -> bool:
+        d = _domain_of(u)
+        return bool(d) and (d == ts or d.endswith("." + ts))
+
+    safe_urls = [u for u in (urls or []) if _on_target(u)]
+
+    if not content:
+        return "", safe_urls
+
+    # Serper-path format detection : starts with "URL:" or contains "\n\nURL:".
+    if "URL:" in content:
+        try:
+            # Split on the "URL:" delimiter, keeping the URL with its block.
+            # First slice before any URL: is preamble, usually empty — drop.
+            chunks = content.split("URL:")
+            kept = []
+            for chunk in chunks[1:]:  # skip preamble
+                # Each chunk = " <url>\n<scraped text>"
+                first_nl = chunk.find("\n")
+                if first_nl < 0:
+                    # URL but no body — drop, can't validate
+                    continue
+                url_line = chunk[:first_nl].strip()
+                body = chunk[first_nl:]
+                if _on_target(url_line):
+                    kept.append(f"URL: {url_line}{body}")
+            return "\n\n".join(kept), safe_urls
+        except Exception:
+            # Parse error — drop the entire block rather than risk leakage
+            return "", safe_urls
+
+    # OpenAI-path format : free-form text from response.output_text. If at
+    # least one of the cited URLs is on target_site, keep the text; otherwise
+    # drop entirely. This is conservative — the LLM gets less context but
+    # we eliminate off-brand contamination.
+    if safe_urls:
+        return content, safe_urls
+    return "", []
 
 
 def _extract_site(url: str) -> str:

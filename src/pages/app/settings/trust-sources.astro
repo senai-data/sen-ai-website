@@ -131,13 +131,13 @@ if (clientId) {
                       :disabled="refreshing || !hasBrief"
                       :class="(refreshing || !hasBrief) ? 'opacity-50 cursor-not-allowed' : 'hover:bg-coral-dark'"
                       class="text-xs bg-coral text-white px-3 py-1 rounded-md font-medium transition-all"
-                      :title="!hasBrief ? 'Generate your workspace brief first — discovery uses its industry field' : 'Refresh discovery (~30s, ~$0.02 per call)'">
+                      :title="!hasBrief ? 'Generate your workspace brief first — discovery uses its industry field' : 'Refresh discovery (~30s)'">
                 <span x-show="!refreshing && lastRefreshed">Refresh</span>
                 <span x-show="!refreshing && !lastRefreshed">Discover</span>
                 <span x-show="refreshing">Working…</span>
               </button>
               <span class="text-[11px] text-charcoal-light cursor-help select-none"
-                    title="Discovery costs ~$0.02 per call (1 OpenAI web_search). Auto-runs after generating the workspace brief, plus every 90 days. Manual refresh forces a fresh run.">ⓘ</span>
+                    title="Discovery uses an LLM web search to find authoritative sources for your industry. Auto-runs after generating the workspace brief, plus every 90 days. Manual refresh forces a fresh run.">ⓘ</span>
             </div>
           </div>
           <div class="p-3">

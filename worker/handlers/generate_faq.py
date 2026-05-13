@@ -167,6 +167,65 @@ def execute(job_payload: dict, scan_id: str | None, db: Session) -> dict:
             f"generating with workspace context only ({e})"
         )
 
+    # ── Per-item override (validation-page star toggle + auto LEAD suggest) ──
+    # `item.promoted_brand_ids` carries the user's most recent intent for THIS
+    # specific opportunity (set by PATCH /content-items/{id} when the user
+    # clicks the ☆ star, OR by materialize_content_items when the LLM auto-
+    # picks a LEAD). It must win over workspace-level resolution otherwise
+    # Regenerate quietly reverts the LEAD + writes content for the wrong
+    # brand. We REORDER the existing promotion list so the chosen LEAD goes
+    # first ; un-overridden brands keep their workspace position behind it,
+    # so the model still has co-promote signal.
+    item_override_ids = [str(b) for b in (getattr(item, "promoted_brand_ids", None) or [])]
+    if item_override_ids and promoted_brand_ids:
+        from models import ClientBrand
+        # Resolve names for any override IDs not already in the workspace
+        # promotion list (e.g. user picked a workspace brand that resolve_
+        # promotion didn't include because primary_brand_ids was tighter than
+        # workspace catalog). Defensive — the PATCH validation already gates
+        # IDs against client.primary_brand_ids.
+        existing_id_strs = {str(b) for b in promoted_brand_ids}
+        unknown_ids = [bid for bid in item_override_ids if bid not in existing_id_strs]
+        if unknown_ids:
+            extra_rows = (
+                db.query(ClientBrand)
+                .filter(ClientBrand.id.in_(unknown_ids))
+                .all()
+            )
+            by_id_extra = {str(b.id): b for b in extra_rows}
+            for bid in unknown_ids:
+                b = by_id_extra.get(bid)
+                if b and b.name:
+                    promoted_brand_ids.append(b.id)
+                    promoted_brand_names.append(b.name)
+
+        # Reorder : every override ID first (in override order), then the
+        # remaining workspace IDs in their original order.
+        by_id_pos = {str(b): i for i, b in enumerate(promoted_brand_ids)}
+        ordered_ids = []
+        ordered_names = []
+        seen: set[str] = set()
+        for bid in item_override_ids:
+            pos = by_id_pos.get(bid)
+            if pos is None or bid in seen:
+                continue
+            ordered_ids.append(promoted_brand_ids[pos])
+            ordered_names.append(promoted_brand_names[pos])
+            seen.add(bid)
+        for i, b in enumerate(promoted_brand_ids):
+            if str(b) in seen:
+                continue
+            ordered_ids.append(b)
+            ordered_names.append(promoted_brand_names[i])
+            seen.add(str(b))
+        if ordered_names and ordered_names[0] != promoted_brand_names[0]:
+            logger.info(
+                f"FAQ promotion: per-item override applied (item {item_id}) — "
+                f"LEAD={ordered_names[0]} (workspace default LEAD was {promoted_brand_names[0]})"
+            )
+        promoted_brand_ids = ordered_ids
+        promoted_brand_names = ordered_names
+
     promoted_brands_text = format_promoted_brands_block(promoted_brand_names)
     excluded_section = ""
     if excluded_brand_names:

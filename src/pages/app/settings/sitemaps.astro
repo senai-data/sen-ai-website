@@ -207,7 +207,8 @@ if (clientId) {
                   <div>
                     <label class="block text-[10px] uppercase tracking-wide font-semibold text-charcoal-light mb-1">Locale path filter</label>
                     <input type="text"
-                           :value="cfgPrefix[brand.id] || ''"
+                           x-init="$el.value = cfgPrefix[brand.id] || ''"
+                           x-effect="if (document.activeElement !== $el) $el.value = cfgPrefix[brand.id] || ''"
                            @input="cfgPrefix[brand.id] = $event.target.value"
                            :placeholder="brand.domain ? '/fr-fr/' : 'Set domain first'"
                            :disabled="!brand.domain || savingCfg[brand.id]"
@@ -215,7 +216,8 @@ if (clientId) {
                   </div>
                   <div>
                     <label class="block text-[10px] uppercase tracking-wide font-semibold text-charcoal-light mb-1">Sitemap URLs (override, one per line)</label>
-                    <textarea :value="cfgUrls[brand.id] || ''"
+                    <textarea x-init="$el.value = cfgUrls[brand.id] || ''"
+                              x-effect="if (document.activeElement !== $el) $el.value = cfgUrls[brand.id] || ''"
                               @input="cfgUrls[brand.id] = $event.target.value"
                               :placeholder="brand.domain ? `https://www.${brand.domain.replace(/^www\\./,'')}/fr-fr/site.xml\nhttps://www.${brand.domain.replace(/^www\\./,'')}/fr-fr/product.xml` : ''"
                               :disabled="!brand.domain || savingCfg[brand.id]"
@@ -300,7 +302,7 @@ if (clientId) {
                 {/* Search + sort controls */}
                 <div class="flex flex-wrap items-center gap-2 mb-3">
                   <input type="text"
-                         :value="pageQuery[brand.id] || ''"
+                         x-init="$el.value = pageQuery[brand.id] || ''"
                          @input="pageQuery[brand.id] = $event.target.value"
                          @keydown.enter="loadPagesList(brand.id, true)"
                          @input.debounce.500ms="loadPagesList(brand.id, true)"

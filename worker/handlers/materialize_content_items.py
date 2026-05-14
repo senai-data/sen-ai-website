@@ -67,8 +67,54 @@ logger = logging.getLogger(__name__)
 _FAQ_PRIORITIES = ("critique", "haute")
 
 
+def _resolve_lead_brand(scan, db, item=None):
+    """Return the lead ClientBrand object (domain + id + name etc.) using
+    the same priority chain as _resolve_target_site.
+
+    Phase D wiring needs the brand_id (not just the domain) to query the
+    sitemap-index corpus. _resolve_target_site stays as the thin domain-
+    string wrapper so existing call sites are unchanged.
+
+    Returns None when no primary brand has a domain set.
+    """
+    from models import Client, ClientBrand
+
+    if item is not None and getattr(item, "promoted_brand_ids", None):
+        item_ids = list(item.promoted_brand_ids)
+        item_brands = (
+            db.query(ClientBrand)
+            .filter(ClientBrand.id.in_(item_ids))
+            .all()
+        )
+        by_id_item = {b.id: b for b in item_brands}
+        for bid in item_ids:
+            b = by_id_item.get(bid)
+            if b and b.domain and b.domain.strip():
+                return b
+
+    client = db.query(Client).filter(Client.id == scan.client_id).first()
+    if not client or not client.primary_brand_ids:
+        return None
+
+    brands = (
+        db.query(ClientBrand)
+        .filter(ClientBrand.id.in_(client.primary_brand_ids))
+        .all()
+    )
+    by_id = {b.id: b for b in brands}
+
+    for bid in client.primary_brand_ids:
+        b = by_id.get(bid)
+        if b and b.domain and b.domain.strip():
+            return b
+    return None
+
+
 def _resolve_target_site(scan, db, item=None) -> tuple[str | None, str | None]:
     """Pick the domain to point FAQPageMatcher at.
+
+    Thin wrapper over `_resolve_lead_brand` that returns (domain, name) so
+    existing call sites stay unchanged.
 
     Returns (target_site, lead_brand_name). target_site is None when no
     primary brand has a domain set — caller then skips auto-suggest and the
@@ -164,15 +210,28 @@ def _auto_suggest_leads(items: list, scan, db) -> dict:
 
 
 def _auto_match_target_urls(items: list, scan, db) -> dict:
-    """Run FAQPageMatcher on a list of (item, question_text) pairs.
+    """Match each item to its best target_url.
 
-    Returns a dict {item_id_str: {"target_page_url": str, "target_page_title": str}}
-    for items where a match was found. Items missing from the dict get
-    pending_user fallback.
+    Two-layer cascade :
+      1. **Sitemap-index matcher** (Phase D) — semantic match against the
+         brand's embedded sitemap corpus. When the top-1 score clears
+         SITEMAP_THRESHOLD (default 0.55), we take it and persist the
+         top-3 candidates + the score. Source='sitemap_index'.
+      2. **FAQPageMatcher** (legacy web_search) — fallback for items
+         where sitemap returned nothing or scored below threshold. Same
+         behavior as pre-Phase-D. Source='auto_suggest'.
 
-    Failures are swallowed (logged) — the manual A2 path is always available
-    as the final fallback, so a transient web_search outage doesn't block
-    the scan pipeline.
+    Returns a dict per-item :
+        {
+          "target_page_url": str,
+          "target_page_title": str | None,
+          "target_url_source": "sitemap_index" | "auto_suggest",
+          "target_url_score": float | None,             # set by sitemap matcher
+          "target_url_candidates": list[dict] | None,   # top-3 if sitemap
+        }
+
+    Items missing from the dict get pending_user fallback. Failures are
+    swallowed (logged) — the manual A2 path is always available.
     """
     if not items:
         return {}
@@ -192,8 +251,90 @@ def _auto_match_target_urls(items: list, scan, db) -> dict:
         f"on target_site='{target_site}' (lead brand: {lead_name})"
     )
 
+    # ── Layer 1 : sitemap-index matcher (Phase D) ─────────────────────
+    out: dict[str, dict] = {}
+    remaining: list = []          # items that fell below threshold (Layer 2)
+
+    try:
+        from services.sitemap_matcher import (
+            SITEMAP_THRESHOLD, find_best_pages, slugify_brand_name,
+        )
+        from config import settings
+        sitemap_enabled = bool(settings.openai_api_key)
+    except Exception as exc:
+        logger.warning(f"materialize: sitemap_matcher import failed ({exc}) — skipping Layer 1")
+        sitemap_enabled = False
+        SITEMAP_THRESHOLD = 0.55  # noqa: F841 — value unused if disabled
+
+    sitemap_hits = 0
+    sitemap_below_threshold = 0
+    sitemap_no_corpus = 0
+    if sitemap_enabled:
+        for item, question_text, _source_name in items:
+            lead_brand = _resolve_lead_brand(scan, db, item=item)
+            if not lead_brand:
+                remaining.append((item, question_text, _source_name))
+                continue
+            gamme_slug = (
+                slugify_brand_name(lead_brand.name)
+                if lead_brand.parent_id else None
+            )
+            try:
+                matches = find_best_pages(
+                    question_text=question_text or "",
+                    client_brand_id=str(lead_brand.id),
+                    db=db,
+                    openai_api_key=settings.openai_api_key,
+                    top_k=3,
+                    gamme_slug=gamme_slug,
+                )
+            except Exception as exc:
+                logger.exception(
+                    f"materialize: sitemap_matcher.find_best_pages crashed for "
+                    f"item={item.id} brand={lead_brand.id}: {exc} — falling back"
+                )
+                remaining.append((item, question_text, _source_name))
+                continue
+
+            if not matches:
+                sitemap_no_corpus += 1
+                remaining.append((item, question_text, _source_name))
+                continue
+            top1 = matches[0]
+            if top1["score"] < SITEMAP_THRESHOLD:
+                sitemap_below_threshold += 1
+                remaining.append((item, question_text, _source_name))
+                continue
+
+            out[str(item.id)] = {
+                "target_page_url": _strip_tracking_params(top1["url"]),
+                "target_page_title": top1.get("title"),
+                "target_url_source": "sitemap_index",
+                "target_url_score": float(top1["score"]),
+                "target_url_candidates": [
+                    {
+                        "url": _strip_tracking_params(m["url"]),
+                        "title": m.get("title"),
+                        "score": float(m["score"]),
+                        "inlink_count": int(m.get("inlink_count") or 0),
+                    }
+                    for m in matches[:3]
+                ],
+            }
+            sitemap_hits += 1
+        logger.info(
+            f"materialize sitemap Layer 1: hits={sitemap_hits} "
+            f"below_threshold={sitemap_below_threshold} no_corpus={sitemap_no_corpus} "
+            f"threshold={SITEMAP_THRESHOLD}"
+        )
+    else:
+        remaining = list(items)
+
+    # ── Layer 2 : FAQPageMatcher fallback (legacy web_search) ─────────
+    if not remaining:
+        return out
+
     # Install the geo_content_generator stub so faq_page_matcher imports cleanly
-    # (matches the same pattern used in generate_faq handler).
     from handlers.generate_faq import _install_geo_stub
     _install_geo_stub()
 
@@ -201,16 +342,16 @@ def _auto_match_target_urls(items: list, scan, db) -> dict:
         import pandas as pd
         from seo_llm.src.faq_page_matcher import FAQPageMatcher
     except Exception as e:
-        logger.warning(f"materialize: FAQPageMatcher unavailable ({e}) — falling back to manual")
-        return {}
+        logger.warning(
+            f"materialize: FAQPageMatcher unavailable ({e}) — Layer 2 "
+            f"fallback skipped, {len(remaining)} items go pending_user"
+        )
+        return out
 
     # Per-item target_site so Phase 1.5's auto LEAD suggestion drives URL
-    # matching toward the right brand domain. _resolve_target_site reads
-    # item.promoted_brand_ids first when item is passed — set by the lead
-    # picker. Falls back to the workspace target_site computed above when the
-    # item has no override.
+    # matching toward the right brand domain.
     rows = []
-    for item, question_text, source_name in items:
+    for item, question_text, source_name in remaining:
         item_target, _ = _resolve_target_site(scan, db, item=item)
         rows.append({
             "faq_opportunity_id": str(item.id),
@@ -225,15 +366,17 @@ def _auto_match_target_urls(items: list, scan, db) -> dict:
         df = matcher.match_pages(df)
     except Exception as e:
         logger.warning(f"materialize: FAQPageMatcher.match_pages crashed ({e}) — falling back to manual")
-        return {}
+        return out
 
-    out: dict = {}
     for _, r in df.iterrows():
         url = (r.get("target_page_url") or "").strip()
         if url:
             out[r["faq_opportunity_id"]] = {
                 "target_page_url": _strip_tracking_params(url),
                 "target_page_title": (r.get("target_page_title") or "").strip() or None,
+                "target_url_source": "auto_suggest",
+                "target_url_score": None,
+                "target_url_candidates": None,
             }
 
     # SEO best-practice : one FAQ per page. When the matcher returns the same
@@ -444,16 +587,27 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
         # Re-flush so Phase 2 sees the override on each item.
         db.flush()
 
-    # Phase 2: auto-suggest target_url via FAQPageMatcher on the user's lead brand.
+    # Phase 2: auto-suggest target_url. Two-layer cascade now (Phase D Day 4) :
+    # sitemap-index semantic matcher first, FAQPageMatcher web_search fallback.
     matches = _auto_match_target_urls(new_items, scan, db)
     auto_matched = 0
+    sitemap_matched = 0
     for item, _, _ in new_items:
         m = matches.get(str(item.id))
         if m and m.get("target_page_url"):
             item.target_url = m["target_page_url"]
-            item.target_url_source = "auto_suggest"
+            # New : honor the layer-specific source ('sitemap_index' or 'auto_suggest')
+            # returned by the matcher. Default keeps legacy behavior.
+            item.target_url_source = m.get("target_url_source") or "auto_suggest"
             if m.get("target_page_title"):
                 item.target_page_title = m["target_page_title"]
+            # Phase D : persist score + top-3 candidates when sitemap matcher fired.
+            if m.get("target_url_score") is not None:
+                item.target_url_score = m["target_url_score"]
+            if m.get("target_url_candidates"):
+                item.target_url_candidates = m["target_url_candidates"]
+            if item.target_url_source == "sitemap_index":
+                sitemap_matched += 1
             auto_matched += 1
 
     db.commit()
@@ -461,7 +615,8 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
     logger.info(
         f"materialize_content_items done: scan={scan_id}, "
         f"materialized={len(new_items)}, skipped_existing={skipped}, "
-        f"auto_matched={auto_matched}, "
+        f"auto_matched={auto_matched} (sitemap_index={sitemap_matched}, "
+        f"auto_suggest={auto_matched - sitemap_matched}), "
         f"pending_user={len(new_items) - auto_matched}, "
         f"auto_lead_suggested={auto_lead_count}, "
         f"is_competitor_scan={competitor}"
@@ -471,6 +626,7 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
         "materialized": len(new_items),
         "skipped_existing": skipped,
         "auto_matched": auto_matched,
+        "sitemap_matched": sitemap_matched,
         "auto_lead_suggested": auto_lead_count,
         "is_competitor_scan": competitor,
     }

@@ -108,10 +108,9 @@ def execute(job_payload: dict, scan_id: str | None, db: Session) -> dict:
         .first()
         if question.persona_id else None
     )
-    persona_dict = {
-        "nom": (persona.name if persona else "") or "",
-        "profil_demographique": (persona.profile_data or {}) if persona else {},
-    }
+    # ScanPersona.data is the full persona blob (matches run_llm_tests usage
+    # at worker/handlers/run_llm_tests.py:225 — `persona=persona.data or {}`).
+    persona_dict = (persona.data if persona and persona.data else {}) or {}
 
     target_domain = scan.domain or ""
 

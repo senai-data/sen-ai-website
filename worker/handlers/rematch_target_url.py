@@ -1,22 +1,27 @@
-"""Handler: rerun FAQPageMatcher on a single content item, skipping URLs the
-user has already rejected.
+"""Handler: rerun the target_url matcher on a single content item, skipping
+URLs the user has already rejected.
 
 Triggered when the user clicks "Find a different page" on the validation
 page. The current `target_url` (if any) is appended to the item's
-`rejected_target_urls` list, then ExcludingFAQPageMatcher is invoked on
-the user's lead primary brand domain — same target_site resolution as
-materialize_content_items, so the competitor-scan brand-bias rule still
-holds (user scanning uriage.fr gets Avène pages, never Uriage's).
+`rejected_target_urls` list, then we cascade :
+  1. **Sitemap-index semantic matcher** (Phase D) — same as the
+     materialize pass, but with rejected_target_urls passed as
+     exclude_urls. When the next-best page scores >= SITEMAP_THRESHOLD
+     we take it (source='sitemap_index', candidates persisted).
+  2. **ExcludingFAQPageMatcher web_search** (legacy) — used when sitemap
+     returns nothing or scores below threshold. Source='auto_suggest'.
+
+Same target_site/brand resolution as materialize_content_items, so the
+competitor-scan brand-bias rule still holds (user scanning uriage.fr
+gets Avène pages, never Uriage's).
 
 Outcomes
-- New deep page found      → target_url set, source='auto_suggest'
+- New deep page found      → target_url set, source='sitemap_index' or 'auto_suggest'
 - Matcher exhausted        → target_url=NULL, source='pending_user'
-                              (the validation UI then shows the manual-pick
-                              banner — same fallback as the initial
-                              materialize pass.)
+                              (the validation UI shows the manual-pick banner)
 
 The job is free (no content_credit debit/refund) because it's a small
-single-question web_search and we want zero friction on iteration.
+single-question call and we want zero friction on iteration.
 """
 
 import logging
@@ -71,15 +76,98 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
     if not question_text:
         raise RuntimeError(f"rematch_target_url: item {item_id} has no target_question")
 
+    # Persist the exclusion list whether or not we find a new match.
+    # Accumulating rejections is the durable user signal — Phase D's
+    # sitemap matcher uses it as exclude_urls and the legacy matcher
+    # uses it via ExcludingFAQPageMatcher.
+    item.rejected_target_urls = rejected
+
+    from handlers.materialize_content_items import (
+        _resolve_lead_brand, _strip_tracking_params,
+    )
+
+    # ── Layer 1 : sitemap-index semantic matcher (Phase D) ────────────
+    try:
+        from services.sitemap_matcher import (
+            SITEMAP_THRESHOLD, find_best_pages, slugify_brand_name,
+        )
+        from config import settings
+        sitemap_enabled = bool(settings.openai_api_key)
+    except Exception as exc:
+        logger.warning(f"rematch_target_url: sitemap_matcher import failed ({exc})")
+        sitemap_enabled = False
+
+    if sitemap_enabled:
+        lead_brand = _resolve_lead_brand(scan, db, item=item)
+        if lead_brand:
+            gamme_slug = (
+                slugify_brand_name(lead_brand.name)
+                if lead_brand.parent_id else None
+            )
+            try:
+                matches = find_best_pages(
+                    question_text=question_text,
+                    client_brand_id=str(lead_brand.id),
+                    db=db,
+                    openai_api_key=settings.openai_api_key,
+                    top_k=3,
+                    exclude_urls=rejected,
+                    gamme_slug=gamme_slug,
+                )
+            except Exception as exc:
+                logger.exception(
+                    f"rematch_target_url: sitemap_matcher crashed ({exc}) — "
+                    f"falling back to Layer 2"
+                )
+                matches = []
+
+            if matches and matches[0]["score"] >= SITEMAP_THRESHOLD:
+                top1 = matches[0]
+                item.target_url = _strip_tracking_params(top1["url"])
+                item.target_url_source = "sitemap_index"
+                item.target_url_score = float(top1["score"])
+                item.target_url_candidates = [
+                    {
+                        "url": _strip_tracking_params(m["url"]),
+                        "title": m.get("title"),
+                        "score": float(m["score"]),
+                        "inlink_count": int(m.get("inlink_count") or 0),
+                    }
+                    for m in matches[:3]
+                ]
+                if top1.get("title"):
+                    item.target_page_title = top1["title"]
+                logger.info(
+                    f"rematch_target_url: item {item_id} → {item.target_url} "
+                    f"via sitemap_index score={top1['score']:.3f} "
+                    f"(excluded={len(rejected)}, lead={lead_brand.name})"
+                )
+                db.commit()
+                return {
+                    "matched": True,
+                    "target_url": item.target_url,
+                    "source": "sitemap_index",
+                    "score": float(top1["score"]),
+                    "excluded_count": len(rejected),
+                }
+            logger.info(
+                f"rematch_target_url: sitemap_index top1 below threshold "
+                f"({matches[0]['score']:.3f} if matches else 'no_matches') — "
+                f"falling back to web_search"
+                if matches else
+                f"rematch_target_url: sitemap_index returned 0 matches — "
+                f"falling back to web_search"
+            )
+
+    # ── Layer 2 : ExcludingFAQPageMatcher web_search (legacy) ─────────
+
     # Install the geo_content_generator stub so faq_page_matcher imports cleanly
-    # (matches the same pattern used in materialize_content_items + generate_faq).
     from handlers.generate_faq import _install_geo_stub
     _install_geo_stub()
 
     try:
         import pandas as pd
         from adapters.page_matcher_excluding import ExcludingFAQPageMatcher
-        from handlers.materialize_content_items import _strip_tracking_params
     except Exception as exc:
         logger.exception(f"rematch_target_url: dependency import failed: {exc}")
         raise
@@ -97,26 +185,32 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
     url = (df.iloc[0].get("target_page_url") or "").strip()
     title = (df.iloc[0].get("target_page_title") or "").strip() or None
 
-    # Persist the exclusion list whether or not we found a new match —
-    # accumulating rejections is the durable user signal Phase D will fold
-    # back into the sitemap-index confidence score.
-    item.rejected_target_urls = rejected
-
     if url:
         item.target_url = _strip_tracking_params(url)
         item.target_url_source = "auto_suggest"
+        # Clear sitemap-specific fields when falling back to web_search —
+        # otherwise stale candidates from a previous sitemap match linger.
+        item.target_url_score = None
+        item.target_url_candidates = []
         if title:
             item.target_page_title = title
         logger.info(
             f"rematch_target_url: item {item_id} → {item.target_url} "
-            f"(excluded={len(rejected)}, lead={lead_name})"
+            f"via web_search (excluded={len(rejected)}, lead={lead_name})"
         )
         db.commit()
-        return {"matched": True, "target_url": item.target_url, "excluded_count": len(rejected)}
+        return {
+            "matched": True,
+            "target_url": item.target_url,
+            "source": "auto_suggest",
+            "excluded_count": len(rejected),
+        }
 
     # Matcher exhausted — flip to pending_user, the manual-pick banner picks up.
     item.target_url = None
     item.target_url_source = "pending_user"
+    item.target_url_score = None
+    item.target_url_candidates = []
     logger.info(
         f"rematch_target_url: item {item_id} — no alternative found after excluding "
         f"{len(rejected)} URL(s); pending_user"

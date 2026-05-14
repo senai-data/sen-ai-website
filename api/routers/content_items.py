@@ -368,11 +368,14 @@ async def get_content_item(item_id: str, user=Depends(get_current_user),
     primary_domains = _resolve_primary_brand_domains(client_id_str, db)
     share_count = _count_sibling_items_at_url(item, db)
     groups = _resolve_scan_brand_groups(str(item.scan_id), db)
-    competitor_snapshot = _build_competitor_snapshot(item, db)
+    competitor_snapshot = _build_competitor_snapshot(item, db, primary_brand_domains=primary_domains)
     return _serialize_item(item, brand_names, primary_domains, share_count, groups, competitor_snapshot)
 
 
-def _build_competitor_snapshot(item: ScanContentItem, db: Session) -> dict | None:
+def _build_competitor_snapshot(
+    item: ScanContentItem, db: Session,
+    primary_brand_domains: list[str] | None = None,
+) -> dict | None:
     """Build the Pilier 5 'side-by-side' payload : what the LLMs currently say
     about this question, with the competitor highlighted.
 
@@ -456,11 +459,48 @@ def _build_competitor_snapshot(item: ScanContentItem, db: Session) -> dict | Non
     if not llm_rows:
         return None
 
+    # Normalize primary brand domains for citation matching. The scan model's
+    # `target_cited` / `target_position` reflect the SCANNED domain (which on
+    # a competitor scan IS the competitor — misleading on the user-facing
+    # validation page). We instead match each citation's domain against the
+    # CLIENT'S own primary brand domains so 'Your URL cited #N' always means
+    # 'one of YOUR brands' regardless of scan type (own vs competitor).
+    own_doms_norm = {
+        (d or "").lower().lstrip("www.").strip()
+        for d in (primary_brand_domains or [])
+        if d
+    }
+    own_doms_norm.discard("")
+
+    def _domain_matches_own(citation_domain: str | None) -> bool:
+        d = (citation_domain or "").lower().lstrip("www.").strip()
+        if not d:
+            return False
+        # match exact or subdomain
+        for own in own_doms_norm:
+            if d == own or d.endswith("." + own):
+                return True
+        return False
+
     responses = []
     for r in llm_rows:
         if not (r.response_text or "").strip():
             continue
         comp_domains = r.competitor_domains or {}
+
+        # Find the first citation whose domain is one of the user's own brands.
+        # Position is 1-indexed in the citation list. Captures the actual URL
+        # + domain so the UI can show 'Your brand cited #3 · aderma.fr'.
+        own_position: int | None = None
+        own_url: str | None = None
+        own_domain: str | None = None
+        for idx, c in enumerate(r.citations or []):
+            if _domain_matches_own(c.get("domain") or c.get("domaine")):
+                own_position = idx + 1
+                own_url = c.get("url")
+                own_domain = (c.get("domain") or c.get("domaine") or "").lower().lstrip("www.").strip()
+                break
+
         responses.append({
             "id": str(r.id),
             "provider": r.provider,
@@ -469,8 +509,16 @@ def _build_competitor_snapshot(item: ScanContentItem, db: Session) -> dict | Non
             "citations": list(r.citations or []),
             "competitor_cited": bool(comp_domains),
             "competitor_domains_count": int(sum(comp_domains.values())) if comp_domains else 0,
-            "our_brand_cited": bool(r.target_cited),
-            "our_brand_position": r.target_position,
+            # Per-response : was one of the USER'S brand domains cited?
+            "your_brand_cited": own_position is not None,
+            "your_brand_position": own_position,
+            "your_brand_url": own_url,
+            "your_brand_domain": own_domain,
+            # Scanned-domain rank (kept for power-users / debug — on competitor
+            # scans this is the COMPETITOR's rank, not yours).
+            "scan_domain_cited": bool(r.target_cited),
+            "scan_domain_position": r.target_position,
+            "total_citations": int(r.total_citations or len(r.citations or [])),
             "created_at": r.created_at.isoformat() if r.created_at else None,
         })
 

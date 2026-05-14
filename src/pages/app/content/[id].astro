@@ -520,22 +520,22 @@ function fmtDate(iso: string | null): string {
                         <span class="text-charcoal-light/60 font-mono text-[9px]" x-text="r.model"></span>
                       </span>
                       <div class="flex items-center gap-1 text-[10px] flex-wrap">
-                        <template x-if="r.our_brand_cited && r.our_brand_position">
-                          <span class="bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded font-medium"
-                                :title="'A URL on your brand\\'s domain appears at position ' + r.our_brand_position + ' in the AI\\'s ' + (r.total_citations || r.citations.length) + ' source citations. Note : this is the citation rank — the LLM may not name your brand in the body text, only link to it as a source.'">
-                            Your URL cited <strong>#<span x-text="r.our_brand_position"></span></strong>
-                            <span x-show="r.total_citations || (r.citations && r.citations.length)"
-                                  class="font-normal text-emerald-700/80"
-                                  x-text="' / ' + (r.total_citations || r.citations.length)"></span>
+                        <template x-if="r.your_brand_cited && r.your_brand_position">
+                          <span class="bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded font-medium inline-flex items-center gap-1"
+                                :title="'A URL on ' + (r.your_brand_domain || 'your brand') + ' appears at position ' + r.your_brand_position + ' / ' + (r.total_citations || r.citations.length) + ' in the AI\\'s source citations. Click the badge to see the cited URL.'">
+                            <span>Your brand cited <strong>#<span x-text="r.your_brand_position"></span></strong>
+                              <span class="font-normal text-emerald-700/80"
+                                    x-text="' / ' + (r.total_citations || r.citations.length)"></span>
+                            </span>
+                            <a x-show="r.your_brand_url" :href="r.your_brand_url" target="_blank" rel="noopener"
+                               class="text-emerald-800 hover:underline font-mono text-[9px]"
+                               :title="'Open ' + r.your_brand_url"
+                               x-text="r.your_brand_domain ? ('· ' + r.your_brand_domain + ' ↗') : '↗'"></a>
                           </span>
                         </template>
-                        <template x-if="r.our_brand_cited && !r.our_brand_position">
-                          <span class="bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded font-medium"
-                                title="A URL on your brand's domain is among the AI's citations">Your URL cited</span>
-                        </template>
-                        <template x-if="!r.our_brand_cited">
+                        <template x-if="!r.your_brand_cited">
                           <span class="bg-amber-50 text-amber-800 px-1.5 py-0.5 rounded font-medium"
-                                title="No URL on your brand's domain appears in the AI's citations for this question">Your brand absent</span>
+                                title="No URL on any of your primary brand domains appears in this AI's citations. Edit your FAQ to include a deep link that the LLM is likely to surface, or set the right Target page in Source above.">Your brand absent</span>
                         </template>
                         <template x-if="r.competitor_cited">
                           <span class="bg-red-50 text-red-700 px-1.5 py-0.5 rounded font-medium"

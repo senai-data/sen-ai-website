@@ -512,7 +512,7 @@ function fmtDate(iso: string | null): string {
             <div x-show="competitorPanelOpen" x-transition.opacity class="px-5 py-4 border-t border-gray-100 bg-gray-50/30">
               <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <template x-for="r in item.competitor_snapshot.responses" :key="r.id">
-                  <div class="border border-gray-200 rounded-lg p-3 bg-white">
+                  <div class="border border-gray-200 rounded-lg p-3 bg-white min-w-0 overflow-hidden">
                     <div class="flex items-center justify-between mb-2 pb-2 border-b border-gray-100 gap-2 flex-wrap">
                       <span class="text-[11px] font-semibold inline-flex items-center gap-1.5">
                         <span :class="r.provider === 'openai' ? 'text-emerald-700' : (r.provider === 'gemini' ? 'text-violet-700' : 'text-charcoal-dark')"
@@ -545,7 +545,14 @@ function fmtDate(iso: string | null): string {
                         </template>
                       </div>
                     </div>
-                    <div class="text-xs text-charcoal-dark leading-relaxed whitespace-pre-wrap line-clamp-[15] hover:line-clamp-none transition-all cursor-pointer"
+                    {/* `overflow-wrap: anywhere` so unbreakable Vertex tokens
+                        wrap at character boundaries instead of stretching the
+                        column past the OpenAI card next to it.
+                        min-w-0 on the grid item lets the truncation actually
+                        kick in (a flex/grid child won't shrink below its
+                        intrinsic min-content otherwise). */}
+                    <div class="text-xs text-charcoal-dark leading-relaxed whitespace-pre-wrap line-clamp-[15] hover:line-clamp-none transition-all cursor-pointer min-w-0"
+                         style="overflow-wrap: anywhere; word-break: break-word;"
                          :title="'Click anywhere to expand the full response'"
                          x-html="highlightBrandsInResponse(r.response_text)"></div>
                     <template x-if="r.citations && r.citations.length > 0">
@@ -1676,23 +1683,35 @@ function fmtDate(iso: string | null): string {
         // behind once the bullets are stripped.
         cleanResponseText(text) {
           if (!text) return '';
-          // Strip bullet lines containing vertexaisearch grounding redirects.
-          // The bullet may be '*', '-', or numbered ; the URL may be split
-          // across multiple lines if Gemini wrapped it. We match the bullet
-          // + URL leading the line, then drop the whole logical line.
-          let out = String(text)
-            // Remove lines starting with a bullet + vertexaisearch URL
+          let out = String(text);
+
+          // Gemini often inlines its citations as Markdown links where the
+          // visible label is the real URL and the link target is an opaque
+          // 'vertexaisearch.cloud.google.com/grounding-api-redirect/...'
+          // proxy. Example :
+          //   [https://naitreetgrandir.com/.../eczema/](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQ...)
+          // Collapsed to the visible label (the real URL is already what the
+          // user wants to read).
+          out = out.replace(
+            /\[([^\]]+)\]\(\s*https?:\/\/vertexaisearch\.cloud\.google\.com\/grounding-api-redirect\/[^\)]*\)/gs,
+            '$1'
+          );
+
+          // Strip lines that are JUST a bullet + vertexaisearch URL, or a
+          // bare vertexaisearch URL — leftover when Gemini renders a 'sources'
+          // list outside of Markdown links.
+          out = out
             .replace(/^[ \t]*[\*\-•·\d+\.]+[ \t]*https?:\/\/vertexaisearch\.cloud\.google\.com\/grounding-api-redirect\/[^\s]*[ \t]*$/gim, '')
-            // Remove bare vertexaisearch URLs on their own line
             .replace(/^[ \t]*https?:\/\/vertexaisearch\.cloud\.google\.com\/grounding-api-redirect\/[^\s]*[ \t]*$/gim, '');
-          // Strip trailing 'Sources / Citations / Références :' headers that
-          // are now orphan after their bullets were removed. Tolerant of
-          // FR / EN headers, optional **bold** wrappers, optional emoji.
+
+          // Trailing orphan 'Sources :' / 'Citations :' / 'Références :'
+          // header that's left empty after its bullets were stripped.
           out = out.replace(
             /\n+\s*\**\s*(?:Sources?|Citations?|R[ée]f[ée]rences?)(?:\s*\([^)]*\))?\s*:?\s*\**\s*$/i,
             ''
           );
-          // Collapse runs of >2 blank lines (left over from strips)
+
+          // Collapse blank line runs left by strips.
           out = out.replace(/\n{3,}/g, '\n\n');
           return out.trim();
         },

@@ -510,20 +510,24 @@ function fmtDate(iso: string | null): string {
                         <span class="text-charcoal-light/60 font-mono text-[9px]" x-text="r.model"></span>
                       </span>
                       <div class="flex items-center gap-1 text-[10px] flex-wrap">
-                        <template x-if="r.our_brand_cited">
+                        <template x-if="r.our_brand_cited && r.our_brand_position">
                           <span class="bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded font-medium"
-                                :title="'Your brand was cited at position ' + r.our_brand_position">
-                            You cited #<span x-text="r.our_brand_position"></span>
+                                :title="'Your brand was ranked ' + r.our_brand_position + ' among the brands the AI mentioned (lower is better — #1 is the AI\\'s top recommendation).'">
+                            Your brand ranked <strong>#<span x-text="r.our_brand_position"></span></strong>
                           </span>
+                        </template>
+                        <template x-if="r.our_brand_cited && !r.our_brand_position">
+                          <span class="bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded font-medium"
+                                title="Your brand was mentioned in this response">Your brand mentioned</span>
                         </template>
                         <template x-if="!r.our_brand_cited">
                           <span class="bg-amber-50 text-amber-800 px-1.5 py-0.5 rounded font-medium"
-                                title="Your brand was not mentioned in this response">You not cited</span>
+                                title="Your brand was not mentioned in this AI response">Your brand absent</span>
                         </template>
                         <template x-if="r.competitor_cited">
                           <span class="bg-red-50 text-red-700 px-1.5 py-0.5 rounded font-medium"
-                                :title="r.competitor_domains_count + ' competitor citation(s) in this response'">
-                            Competitor citations: <span x-text="r.competitor_domains_count"></span>
+                                :title="r.competitor_domains_count + ' competitor URL(s) cited in this response'">
+                            Competitor URLs cited: <span x-text="r.competitor_domains_count"></span>
                           </span>
                         </template>
                       </div>
@@ -535,16 +539,30 @@ function fmtDate(iso: string | null): string {
                       <div class="mt-2 pt-2 border-t border-gray-100">
                         <p class="text-[10px] text-charcoal-light/80 mb-1">Sources cited <span x-text="'(' + r.citations.length + ')'"></span> :</p>
                         <ul class="text-[10px] space-y-0.5">
-                          <template x-for="c in r.citations.slice(0, 5)" :key="c.url">
+                          <template x-for="c in (expandedCitations[r.id] ? r.citations : r.citations.slice(0, 5))" :key="c.url">
                             <li class="truncate">
                               <a :href="c.url" target="_blank" rel="noopener"
                                  class="text-coral hover:underline"
                                  :title="c.url"
-                                 x-text="c.domain || c.url"></a>
+                                 x-text="prettyCitationLabel(c)"></a>
                             </li>
                           </template>
-                          <template x-if="r.citations.length > 5">
-                            <li class="text-charcoal-light/60 italic"><span x-text="'+ ' + (r.citations.length - 5) + ' more'"></span></li>
+                          <template x-if="r.citations.length > 5 && !expandedCitations[r.id]">
+                            <li>
+                              <button type="button"
+                                      @click="expandedCitations[r.id] = true"
+                                      class="text-charcoal-light hover:text-coral italic underline transition-colors"
+                                      x-text="'+ ' + (r.citations.length - 5) + ' more — show all'"></button>
+                            </li>
+                          </template>
+                          <template x-if="r.citations.length > 5 && expandedCitations[r.id]">
+                            <li>
+                              <button type="button"
+                                      @click="expandedCitations[r.id] = false"
+                                      class="text-charcoal-light hover:text-coral italic underline transition-colors">
+                                Collapse to top 5
+                              </button>
+                            </li>
                           </template>
                         </ul>
                       </div>
@@ -618,10 +636,19 @@ function fmtDate(iso: string | null): string {
                   </span>
                   <span :class="saveStateClass()" class="text-[10px] tabular-nums" x-text="saveStateLabel()"></span>
                 </div>
+                {/* contenteditable + Alpine pattern : x-html re-rendering on
+                    every keystroke clobbers the browser's caret position
+                    because innerHTML replacement destroys + recreates the DOM
+                    tree (even when the new HTML is identical). Fix : use
+                    x-init for the first paint and x-effect that runs ONLY when
+                    the user is not actively editing — external state changes
+                    (loading, save returning fresh server data) still refresh
+                    the DOM, user typing doesn't. */}
                 <div x-show="editorMode === 'visual'" class="prose prose-sm max-w-none faq-rendered border border-gray-100 rounded-lg p-4 min-h-[300px] focus:outline-none focus:border-coral hover:border-gray-300 transition-colors cursor-text"
                      contenteditable="true"
                      x-ref="visualEditor"
-                     x-html="renderedContentHtml()"
+                     x-init="$el.innerHTML = renderedContentHtml()"
+                     x-effect="if (!visualEditingActive) $el.innerHTML = renderedContentHtml()"
                      @focusin="visualEditingActive = true"
                      @focusout="visualEditingActive = false"
                      @mousedown="onContentMouseDown($event)"
@@ -1100,6 +1127,7 @@ function fmtDate(iso: string | null): string {
         leadJustChanged: null,  // brand name : shows the "rematch URL" banner
         showAllPromotedBrands: false,  // expand non-LEAD 0-mention brands
         competitorPanelOpen: false,    // Pilier 5 — collapsed by default
+        expandedCitations: {},          // {scan_llm_result_id: bool} — show all citations
 
         statusLabelOf(s) {
           const m = { identified: 'IDENTIFIED', generating: 'GENERATING', draft: 'DRAFT', in_review: 'IN REVIEW', approved: 'APPROVED', published: 'PUBLISHED', rejected: 'REJECTED' };
@@ -1477,6 +1505,26 @@ function fmtDate(iso: string | null): string {
           }
           return out;
         },
+        // Pilier 5 — citation labels. Gemini returns grounding-redirect URLs
+        // (vertexaisearch.cloud.google.com/grounding-api-redirect/...) which
+        // are opaque to the user. We surface the source domain when available
+        // (Gemini also provides a 'title' on each citation), and tag known
+        // proxy URLs so the user knows the underlying source is hidden until
+        // they click through.
+        prettyCitationLabel(c) {
+          if (!c) return '';
+          const url = c.url || '';
+          const title = (c.title || '').trim();
+          const domain = (c.domain || '').trim();
+          const isProxy = /vertexaisearch\.cloud\.google\.com\/grounding-api-redirect/.test(url);
+          if (title) {
+            return isProxy ? title + ' · (Gemini grounding redirect)' : title;
+          }
+          if (domain) return domain;
+          if (isProxy) return '(Gemini grounding redirect — click to follow)';
+          try { return new URL(url).hostname; } catch { return url; }
+        },
+
         // Pilier 5 — pretty provider label for the competitor snapshot card.
         providerLabel(p) {
           switch ((p || '').toLowerCase()) {

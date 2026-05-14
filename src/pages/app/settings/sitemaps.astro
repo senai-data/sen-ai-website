@@ -211,7 +211,7 @@ if (clientId) {
                            x-effect="if (document.activeElement !== $el) $el.value = cfgPrefix[brand.id] || ''"
                            @input="cfgPrefix[brand.id] = $event.target.value"
                            :placeholder="brand.domain ? '/fr-fr/' : 'Set domain first'"
-                           :disabled="!brand.domain || savingCfg[brand.id]"
+                           :disabled="!brand.domain || !!savingCfg[brand.id]"
                            class="w-48 text-sm text-charcoal-dark border border-gray-200 rounded-md px-3 py-1.5 outline-none focus:border-coral font-mono disabled:opacity-50 bg-white" />
                   </div>
                   <div>
@@ -220,7 +220,7 @@ if (clientId) {
                               x-effect="if (document.activeElement !== $el) $el.value = cfgUrls[brand.id] || ''"
                               @input="cfgUrls[brand.id] = $event.target.value"
                               :placeholder="brand.domain ? `https://www.${brand.domain.replace(/^www\\./,'')}/fr-fr/site.xml\nhttps://www.${brand.domain.replace(/^www\\./,'')}/fr-fr/product.xml` : ''"
-                              :disabled="!brand.domain || savingCfg[brand.id]"
+                              :disabled="!brand.domain || !!savingCfg[brand.id]"
                               rows="4"
                               class="w-full text-sm text-charcoal-dark border border-gray-200 rounded-md px-3 py-2 outline-none focus:border-coral font-mono disabled:opacity-50 bg-white"></textarea>
                   </div>

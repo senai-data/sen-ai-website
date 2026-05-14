@@ -180,19 +180,25 @@ if (clientId) {
             </div>
 
             {/* Sitemap config panel (collapsible) — Phase D multi-locale support
-                <details>/<summary> pattern matches the project convention
-                (cf. trust-sources.astro + the "How does this work" block above) */}
-            <details class="border-b border-gray-100 group"
-                     @toggle="configOpen[brand.id] = $el.open; if ($el.open) loadConfig(brand.id)">
-              <summary class="px-5 py-2.5 cursor-pointer hover:bg-gray-50 transition-colors flex items-center gap-2 text-xs text-charcoal-light">
-                <svg class="w-3.5 h-3.5 shrink-0 transition-transform group-open:rotate-90" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                Visually mirrors the <details>/<summary> + chevron pattern used
+                elsewhere in the project, but driven by Alpine state so x-model
+                inside the panel reacts correctly. <details> + nested x-model
+                inside <template x-for> has a known reactivity quirk that left
+                the input non-responsive (observed 2026-05-14 Ducray /fr-fr/). */}
+            <div class="border-b border-gray-100">
+              <button type="button"
+                      @click="configOpen[brand.id] = !configOpen[brand.id]; if (configOpen[brand.id]) loadConfig(brand.id)"
+                      class="w-full px-5 py-2.5 cursor-pointer hover:bg-gray-50 transition-colors flex items-center gap-2 text-xs text-charcoal-light text-left">
+                <svg class="w-3.5 h-3.5 shrink-0 transition-transform"
+                     :class="configOpen[brand.id] ? 'rotate-90' : ''"
+                     fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
                 </svg>
                 <span class="font-medium">Sitemap configuration</span>
                 <span x-show="(cfgPrefix[brand.id] || '').trim() || (cfgUrls[brand.id] || '').trim()"
                       class="text-[10px] uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded bg-blue-50 text-blue-700">Custom</span>
-              </summary>
-              <div class="px-5 py-4 border-t border-gray-100 bg-gray-50/40">
+              </button>
+              <div x-show="configOpen[brand.id]" x-transition.opacity class="px-5 py-4 border-t border-gray-100 bg-gray-50/40">
                 <div class="text-[11px] text-charcoal-light mb-3 leading-relaxed">
                   <p><strong>Locale path filter</strong> : when set (e.g. <code class="bg-white/80 px-1 rounded">/fr-fr/</code>) we only crawl URLs whose path contains that fragment. Use it for multi-locale brands to scope to one language.</p>
                   <p class="mt-1"><strong>Sitemap URLs (override)</strong> : when set, we crawl exactly these URLs and skip auto-discovery via robots.txt / <code class="bg-white/80 px-1 rounded">/sitemap.xml</code>. One URL per line, must be on this brand's domain.</p>
@@ -200,18 +206,21 @@ if (clientId) {
                 <div class="space-y-3">
                   <div>
                     <label class="block text-[10px] uppercase tracking-wide font-semibold text-charcoal-light mb-1">Locale path filter</label>
-                    <input type="text" x-model="cfgPrefix[brand.id]"
+                    <input type="text"
+                           :value="cfgPrefix[brand.id] || ''"
+                           @input="cfgPrefix[brand.id] = $event.target.value"
                            :placeholder="brand.domain ? '/fr-fr/' : 'Set domain first'"
                            :disabled="!brand.domain || savingCfg[brand.id]"
-                           class="w-48 text-sm border border-gray-200 rounded-md px-3 py-1.5 outline-none focus:border-coral font-mono disabled:opacity-50 bg-white" />
+                           class="w-48 text-sm text-charcoal-dark border border-gray-200 rounded-md px-3 py-1.5 outline-none focus:border-coral font-mono disabled:opacity-50 bg-white" />
                   </div>
                   <div>
                     <label class="block text-[10px] uppercase tracking-wide font-semibold text-charcoal-light mb-1">Sitemap URLs (override, one per line)</label>
-                    <textarea x-model="cfgUrls[brand.id]"
+                    <textarea :value="cfgUrls[brand.id] || ''"
+                              @input="cfgUrls[brand.id] = $event.target.value"
                               :placeholder="brand.domain ? `https://www.${brand.domain.replace(/^www\\./,'')}/fr-fr/site.xml\nhttps://www.${brand.domain.replace(/^www\\./,'')}/fr-fr/product.xml` : ''"
                               :disabled="!brand.domain || savingCfg[brand.id]"
                               rows="4"
-                              class="w-full text-sm border border-gray-200 rounded-md px-3 py-2 outline-none focus:border-coral font-mono disabled:opacity-50 bg-white"></textarea>
+                              class="w-full text-sm text-charcoal-dark border border-gray-200 rounded-md px-3 py-2 outline-none focus:border-coral font-mono disabled:opacity-50 bg-white"></textarea>
                   </div>
                   <p x-show="cfgError[brand.id]" class="text-xs text-red-600" x-text="cfgError[brand.id]"></p>
                   <div class="flex items-center gap-2">
@@ -226,7 +235,7 @@ if (clientId) {
                   </div>
                 </div>
               </div>
-            </details>
+            </div>
 
             {/* Stats strip */}
             <div class="px-5 py-2 border-b border-gray-100 flex flex-wrap items-center gap-2 text-[11px]">
@@ -272,27 +281,33 @@ if (clientId) {
             </div>
 
             {/* View all indexed pages (collapsible) — search/sort/paginated.
-                Same <details>/<summary> + chevron pattern as the Sitemap
-                configuration panel above. */}
-            <details x-show="(brand.stats.total || 0) > 0"
-                     class="border-b border-gray-100 group"
-                     @toggle="if ($el.open) loadPagesList(brand.id, true)">
-              <summary class="px-5 py-2.5 cursor-pointer hover:bg-gray-50 transition-colors flex items-center gap-2 text-xs text-charcoal-light">
-                <svg class="w-3.5 h-3.5 shrink-0 transition-transform group-open:rotate-90" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                Same toggle button + x-show pattern as the Sitemap config panel
+                above. Mirrors the project's <details> convention visually
+                without the Alpine reactivity quirks inside <template x-for>. */}
+            <div x-show="(brand.stats.total || 0) > 0" class="border-b border-gray-100">
+              <button type="button"
+                      @click="pagesOpen[brand.id] = !pagesOpen[brand.id]; if (pagesOpen[brand.id]) loadPagesList(brand.id, true)"
+                      class="w-full px-5 py-2.5 cursor-pointer hover:bg-gray-50 transition-colors flex items-center gap-2 text-xs text-charcoal-light text-left">
+                <svg class="w-3.5 h-3.5 shrink-0 transition-transform"
+                     :class="pagesOpen[brand.id] ? 'rotate-90' : ''"
+                     fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
                 </svg>
                 <span class="font-medium">View all indexed pages</span>
                 <span class="text-charcoal-light/70" x-text="`(${brand.stats.total || 0})`"></span>
-              </summary>
-              <div class="px-5 py-4 border-t border-gray-100 bg-gray-50/30">
+              </button>
+              <div x-show="pagesOpen[brand.id]" x-transition.opacity class="px-5 py-4 border-t border-gray-100 bg-gray-50/30">
                 {/* Search + sort controls */}
                 <div class="flex flex-wrap items-center gap-2 mb-3">
-                  <input type="text" x-model="pageQuery[brand.id]"
+                  <input type="text"
+                         :value="pageQuery[brand.id] || ''"
+                         @input="pageQuery[brand.id] = $event.target.value"
                          @keydown.enter="loadPagesList(brand.id, true)"
                          @input.debounce.500ms="loadPagesList(brand.id, true)"
                          placeholder="Search URL or title…"
-                         class="flex-1 min-w-[180px] text-sm border border-gray-200 rounded-md px-3 py-1.5 outline-none focus:border-coral bg-white" />
-                  <select x-model="pageSort[brand.id]" @change="loadPagesList(brand.id, true)"
+                         class="flex-1 min-w-[180px] text-sm text-charcoal-dark border border-gray-200 rounded-md px-3 py-1.5 outline-none focus:border-coral bg-white" />
+                  <select :value="pageSort[brand.id] || 'inlinks_desc'"
+                          @change="pageSort[brand.id] = $event.target.value; loadPagesList(brand.id, true)"
                           class="text-xs border border-gray-200 rounded-md px-2 py-1.5 bg-white">
                     <option value="inlinks_desc">Sort : Most inlinked</option>
                     <option value="status">Sort : By status</option>
@@ -351,7 +366,7 @@ if (clientId) {
                   </button>
                 </div>
               </div>
-            </details>
+            </div>
 
             {/* Manual URL form + list */}
             <div class="p-4">
@@ -421,6 +436,7 @@ if (clientId) {
         cfgError: {},          // {brand_id: string}
         cfgSaved: {},          // {brand_id: bool} — fades after a few seconds
         // View-pages panel state
+        pagesOpen: {},         // {brand_id: bool}
         pageList: {},          // {brand_id: array of page objects}
         pageTotal: {},         // {brand_id: int}
         pageOffset: {},        // {brand_id: int}

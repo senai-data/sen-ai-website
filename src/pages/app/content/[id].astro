@@ -488,9 +488,9 @@ function fmtDate(iso: string | null): string {
                 <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
               </svg>
               <h2 class="text-sm font-semibold text-charcoal-dark flex items-center gap-2">
-                <span>What AI assistants say today</span>
+                <span>What AI assistants say</span>
                 <span class="text-[11px] text-charcoal-light cursor-help select-none font-normal"
-                      title="The raw responses LLMs (ChatGPT, Gemini, ...) actually returned for this question in the original scan. Use this to see what content patterns and citations your FAQ needs to displace. Brand mentions are highlighted : coral = your brand, red = competitor.">ⓘ</span>
+                      title="The raw responses LLMs (ChatGPT, Gemini, ...) actually returned for this question. Use this to see what content patterns and citations your FAQ needs to displace. Brand mentions are highlighted : coral = your brand, red = competitor.">ⓘ</span>
               </h2>
               <span class="text-[11px] text-charcoal-light italic ml-1">— what your FAQ is here to displace</span>
               {/* Freshness chip — colored by age of the latest snapshot.
@@ -522,17 +522,20 @@ function fmtDate(iso: string | null): string {
                       <div class="flex items-center gap-1 text-[10px] flex-wrap">
                         <template x-if="r.our_brand_cited && r.our_brand_position">
                           <span class="bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded font-medium"
-                                :title="'Your brand was ranked ' + r.our_brand_position + ' among the brands the AI mentioned (lower is better — #1 is the AI\\'s top recommendation).'">
-                            Your brand ranked <strong>#<span x-text="r.our_brand_position"></span></strong>
+                                :title="'A URL on your brand\\'s domain appears at position ' + r.our_brand_position + ' in the AI\\'s ' + (r.total_citations || r.citations.length) + ' source citations. Note : this is the citation rank — the LLM may not name your brand in the body text, only link to it as a source.'">
+                            Your URL cited <strong>#<span x-text="r.our_brand_position"></span></strong>
+                            <span x-show="r.total_citations || (r.citations && r.citations.length)"
+                                  class="font-normal text-emerald-700/80"
+                                  x-text="' / ' + (r.total_citations || r.citations.length)"></span>
                           </span>
                         </template>
                         <template x-if="r.our_brand_cited && !r.our_brand_position">
                           <span class="bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded font-medium"
-                                title="Your brand was mentioned in this response">Your brand mentioned</span>
+                                title="A URL on your brand's domain is among the AI's citations">Your URL cited</span>
                         </template>
                         <template x-if="!r.our_brand_cited">
                           <span class="bg-amber-50 text-amber-800 px-1.5 py-0.5 rounded font-medium"
-                                title="Your brand was not mentioned in this AI response">Your brand absent</span>
+                                title="No URL on your brand's domain appears in the AI's citations for this question">Your brand absent</span>
                         </template>
                         <template x-if="r.competitor_cited">
                           <span class="bg-red-50 text-red-700 px-1.5 py-0.5 rounded font-medium"
@@ -1660,14 +1663,50 @@ function fmtDate(iso: string | null): string {
           }
         },
 
+        // Pilier 5 — strip Gemini's trailing 'Sources' block from the
+        // displayed response text. Gemini routinely appends 20+ lines of
+        // bullets like '*   https://vertexaisearch.cloud.google.com/grounding-api-redirect/...'
+        // which is :
+        //   (a) cryptic — opaque proxy URLs, unreadable
+        //   (b) redundant — we render citations separately below in the
+        //       'Sources cited' list
+        //   (c) takes huge vertical space (sometimes 50% of the card)
+        // We drop any line that's mostly a vertexaisearch grounding redirect.
+        // Also a trailing 'Sources :' / 'Citations :' header if it left
+        // behind once the bullets are stripped.
+        cleanResponseText(text) {
+          if (!text) return '';
+          // Strip bullet lines containing vertexaisearch grounding redirects.
+          // The bullet may be '*', '-', or numbered ; the URL may be split
+          // across multiple lines if Gemini wrapped it. We match the bullet
+          // + URL leading the line, then drop the whole logical line.
+          let out = String(text)
+            // Remove lines starting with a bullet + vertexaisearch URL
+            .replace(/^[ \t]*[\*\-•·\d+\.]+[ \t]*https?:\/\/vertexaisearch\.cloud\.google\.com\/grounding-api-redirect\/[^\s]*[ \t]*$/gim, '')
+            // Remove bare vertexaisearch URLs on their own line
+            .replace(/^[ \t]*https?:\/\/vertexaisearch\.cloud\.google\.com\/grounding-api-redirect\/[^\s]*[ \t]*$/gim, '');
+          // Strip trailing 'Sources / Citations / Références :' headers that
+          // are now orphan after their bullets were removed. Tolerant of
+          // FR / EN headers, optional **bold** wrappers, optional emoji.
+          out = out.replace(
+            /\n+\s*\**\s*(?:Sources?|Citations?|R[ée]f[ée]rences?)(?:\s*\([^)]*\))?\s*:?\s*\**\s*$/i,
+            ''
+          );
+          // Collapse runs of >2 blank lines (left over from strips)
+          out = out.replace(/\n{3,}/g, '\n\n');
+          return out.trim();
+        },
+
         // Pilier 5 — highlight competitor + own brands in an LLM response.
         // Coral for own brands, red for competitor (Von Restorff pattern,
         // same colors used elsewhere on the page so the user reads the
         // signal at a glance). HTML-escape input first so we never inject
         // user-controlled markup, then wrap matched brand names in <mark>.
+        // Pre-cleans Gemini source-bullet noise (see cleanResponseText).
         highlightBrandsInResponse(text) {
           if (!text) return '';
-          let escaped = String(text)
+          const cleaned = this.cleanResponseText(text);
+          let escaped = String(cleaned)
             .replace(/&/g, '&amp;')
             .replace(/</g, '&lt;')
             .replace(/>/g, '&gt;');

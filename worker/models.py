@@ -123,6 +123,9 @@ class ClientBrand(Base):
     detection_source = Column(String(30))  # keywords, llm_response, haloscan_competitors, manual
     auto_detected = Column(Boolean, default=True)
     validated_by_user = Column(Boolean, default=False)
+    # Phase D sitemap config (migration 028). See api/migrations/028_*.sql.
+    sitemap_urls_override = Column(JSONB, nullable=False, default=list)
+    locale_path_prefix = Column(Text)
 
     parent = relationship("ClientBrand", remote_side=[id])
 

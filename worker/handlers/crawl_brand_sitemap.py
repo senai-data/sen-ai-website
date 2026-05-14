@@ -109,7 +109,13 @@ def execute(job_payload: dict, scan_id: str | None, db: Session) -> dict:
             "errors": [],
         }
 
-    pairs = discover_sitemap_urls(domain)
+    sitemap_urls_override = list(brand.sitemap_urls_override or [])
+    locale_prefix = (brand.locale_path_prefix or None) or None
+    pairs = discover_sitemap_urls(
+        domain,
+        sitemap_urls_override=sitemap_urls_override or None,
+        locale_path_prefix=locale_prefix,
+    )
     discovered = len(pairs)
 
     if discovered == 0:

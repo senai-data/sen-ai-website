@@ -242,11 +242,95 @@ def _try_html_link_rel_sitemap(client: httpx.Client, base_url: str) -> str | Non
     return urljoin(base_url, href)
 
 
-def discover_sitemap_urls(domain: str) -> list[tuple[str, datetime | None]]:
+def _normalize_domain(domain: str) -> str:
+    """Strip scheme/path/www/trailing slash, lowercase."""
+    if not domain or not isinstance(domain, str):
+        return ""
+    d = domain.strip().lower()
+    if "://" in d:
+        from urllib.parse import urlparse
+        parsed = urlparse(d)
+        d = parsed.netloc or parsed.path
+    return d.strip("/").strip()
+
+
+def _get_robots_sitemap_urls(base_url: str, client: httpx.Client) -> list[str]:
+    """Fetch robots.txt for this host and return any Sitemap: URLs declared.
+
+    Returns [] when robots.txt is missing, unparseable, or has no Sitemap
+    directives. Uses a fresh parse here (separate from `_ROBOTS_CACHE`
+    which holds RobotFileParser instances) — keeps the two responsibilities
+    independent so a robots.txt cache miss in `is_robots_allowed` doesn't
+    poison the sitemap discovery and vice-versa.
+    """
+    from urllib.parse import urlparse
+    from urllib.robotparser import RobotFileParser
+
+    try:
+        parsed = urlparse(base_url)
+    except ValueError:
+        return []
+    host = (parsed.hostname or "").lower()
+    if not host:
+        return []
+    robots_url = f"{parsed.scheme or 'https'}://{host}/robots.txt"
+    try:
+        resp = client.get(robots_url, follow_redirects=True)
+    except httpx.HTTPError:
+        return []
+    if resp.status_code != 200 or not resp.text:
+        return []
+    rp = RobotFileParser()
+    try:
+        rp.parse(resp.text.splitlines())
+    except Exception:
+        return []
+    sm = rp.site_maps()
+    return [u for u in (sm or []) if u]
+
+
+def _matches_locale_prefix(url: str, prefix: str | None) -> bool:
+    """True when `url`'s path contains `prefix`, or when `prefix` is empty/None.
+
+    Substring match (not startswith) — robust to per-locale sub-sitemaps
+    whose URLs vary (e.g. `/fr-fr/site.xml` and `/fr-fr/product.xml` both
+    match `/fr-fr/`).
+    """
+    if not prefix:
+        return True
+    if not url:
+        return False
+    return prefix in url
+
+
+def discover_sitemap_urls(
+    domain: str,
+    sitemap_urls_override: list[str] | None = None,
+    locale_path_prefix: str | None = None,
+) -> list[tuple[str, datetime | None]]:
     """Discover the list of canonical URLs from a brand's sitemap.
 
-    Returns a list of (url, lastmod) tuples, post junk-filter and capped at
-    MAX_URLS_PER_BRAND. lastmod is parsed to naive UTC datetime or None.
+    Returns a list of (url, lastmod) tuples, post junk-filter, post
+    locale-filter, deduped and capped at MAX_URLS_PER_BRAND. lastmod is
+    parsed to naive UTC datetime or None.
+
+    Three discovery layers, in order :
+      1. `sitemap_urls_override` — when non-empty, the crawler uses exactly
+         those URLs and skips robots.txt + /sitemap.xml fallbacks. The
+         escape hatch for sites with non-standard sitemap locations.
+      2. `robots.txt` `Sitemap:` directives — industry standard since RFC
+         9309. Most well-configured brands declare every canonical sitemap
+         here. We catch them all without guessing paths.
+      3. Fallback chain — `/sitemap.xml` -> `/sitemap_index.xml` ->
+         `<link rel="sitemap">` in the homepage. Behavior identical to
+         the v1 implementation when override + robots both come up empty.
+
+    `locale_path_prefix` (e.g. `/fr-fr/`) is applied as :
+      - a sub-sitemap SKIP filter during sitemapindex recursion (don't
+        bother fetching `/de-de/site.xml` when we only want FR pages —
+        saves bandwidth and the runtime budget)
+      - a defensive post-filter on the final URL list (catches the rare
+        case where one big sitemap contains URLs from all locales)
 
     Empty list = no sitemap found OR sitemap was unparseable OR all URLs
     were filtered. Caller logs and surfaces as `error` on the brand.
@@ -254,91 +338,107 @@ def discover_sitemap_urls(domain: str) -> list[tuple[str, datetime | None]]:
     `domain` is the bare host (e.g., 'eau-thermale-avene.fr'). We try
     https:// only — http:// would just redirect anyway on modern sites.
     """
-    if not domain or not isinstance(domain, str):
-        return []
-    domain = domain.strip().lower()
+    domain = _normalize_domain(domain)
     if not domain:
         return []
-    # Strip any accidental scheme / path the user typed
-    if "://" in domain:
-        from urllib.parse import urlparse
-        parsed = urlparse(domain if "://" in domain else f"https://{domain}")
-        domain = parsed.netloc or parsed.path
-    domain = domain.strip("/").strip()
-    if not domain:
-        return []
-
     base = f"https://{domain}"
-    candidates = [f"{base}/sitemap.xml", f"{base}/sitemap_index.xml"]
 
     with httpx.Client(
         headers={"User-Agent": _USER_AGENT, "Accept": "application/xml, text/xml, */*"},
         timeout=_HTTP_TIMEOUT,
     ) as client:
-        sitemap_xml: bytes | None = None
-        sitemap_source: str | None = None
-        for candidate in candidates:
-            xml_bytes = _fetch_bytes(client, candidate)
-            if xml_bytes:
-                sitemap_xml = xml_bytes
-                sitemap_source = candidate
-                break
+        # ── Layer 1 : explicit override ────────────────────────────
+        if sitemap_urls_override:
+            root_sitemaps = [u.strip() for u in sitemap_urls_override if u and u.strip()]
+            logger.info(
+                f"Sitemap discovery for {domain}: override mode, "
+                f"{len(root_sitemaps)} URLs"
+            )
+        else:
+            # ── Layer 2 : robots.txt Sitemap: directives ───────────
+            root_sitemaps = _get_robots_sitemap_urls(base, client)
+            if root_sitemaps:
+                logger.info(
+                    f"Sitemap discovery for {domain}: robots.txt found "
+                    f"{len(root_sitemaps)} Sitemap directives"
+                )
+            else:
+                # ── Layer 3 : /sitemap.xml fallbacks ───────────────
+                for candidate in (f"{base}/sitemap.xml", f"{base}/sitemap_index.xml"):
+                    xml_bytes = _fetch_bytes(client, candidate)
+                    if xml_bytes:
+                        root_sitemaps = [candidate]
+                        logger.info(f"Sitemap discovery for {domain}: fallback to {candidate}")
+                        break
+                if not root_sitemaps:
+                    href = _try_html_link_rel_sitemap(client, f"{base}/")
+                    if href:
+                        root_sitemaps = [href]
+                        logger.info(f"Sitemap discovery for {domain}: <link rel=sitemap> -> {href}")
 
-        # Fall back to <link rel="sitemap"> in the homepage
-        if sitemap_xml is None:
-            href = _try_html_link_rel_sitemap(client, f"{base}/")
-            if href:
-                xml_bytes = _fetch_bytes(client, href)
-                if xml_bytes:
-                    sitemap_xml = xml_bytes
-                    sitemap_source = href
-
-        if sitemap_xml is None:
+        if not root_sitemaps:
             logger.info(f"No sitemap discovered for domain {domain}")
             return []
 
-        kind, entries = _parse_urlset_or_index(sitemap_xml)
-        logger.info(
-            f"Sitemap discovered for {domain}: source={sitemap_source} "
-            f"kind={kind} entries={len(entries)}"
-        )
+        # Aggregate raw (url, lastmod_raw) pairs from every root sitemap,
+        # recursing one level into any sitemapindex.
+        raw_pairs: list[tuple[str, str | None]] = []
+        sub_fetch_budget = 50  # cap sub-sitemap fetches across all roots
 
-        if kind == "urlset":
-            raw_pairs = entries
-        elif kind == "sitemapindex":
-            # Recurse one level. Cap total fetches at 50 sub-sitemaps to
-            # bound runtime on pathological cases.
-            raw_pairs = []
-            for sub_loc, _sub_lastmod in entries[:50]:
-                sub_xml = _fetch_bytes(client, sub_loc)
-                if not sub_xml:
-                    continue
-                sub_kind, sub_entries = _parse_urlset_or_index(sub_xml)
-                if sub_kind == "urlset":
-                    raw_pairs.extend(sub_entries)
-                # If a sub-sitemap is itself an index, we DON'T recurse a
-                # second level — too pathological to be worth supporting in
-                # v1. Log and skip.
-                elif sub_kind == "sitemapindex":
-                    logger.warning(
-                        f"Nested sitemapindex skipped (v1 caps at one level): {sub_loc}"
-                    )
-                if len(raw_pairs) >= MAX_URLS_PER_BRAND * 2:
-                    # Soft early-stop: we'll filter + cap below anyway
-                    break
-        else:
-            logger.warning(f"Sitemap root element unrecognized for {domain}")
-            return []
+        for root_loc in root_sitemaps:
+            xml_bytes = _fetch_bytes(client, root_loc)
+            if not xml_bytes:
+                continue
+            kind, entries = _parse_urlset_or_index(xml_bytes)
+            if kind == "urlset":
+                raw_pairs.extend(entries)
+            elif kind == "sitemapindex":
+                for sub_loc, _sub_lastmod in entries:
+                    if sub_fetch_budget <= 0:
+                        logger.warning(
+                            f"Sub-sitemap fetch budget exhausted (50) for {domain} "
+                            f"— some locales/sections may be skipped"
+                        )
+                        break
+                    # Locale prefix : skip sub-sitemaps that don't match.
+                    # Saves bandwidth on multi-locale brands (Ducray's
+                    # /sitemap.xml lists 20+ locale sub-sitemaps; with
+                    # prefix='/fr-fr/' we fetch only 2 of them).
+                    if locale_path_prefix and not _matches_locale_prefix(sub_loc, locale_path_prefix):
+                        continue
+                    sub_xml = _fetch_bytes(client, sub_loc)
+                    sub_fetch_budget -= 1
+                    if not sub_xml:
+                        continue
+                    sub_kind, sub_entries = _parse_urlset_or_index(sub_xml)
+                    if sub_kind == "urlset":
+                        raw_pairs.extend(sub_entries)
+                    elif sub_kind == "sitemapindex":
+                        logger.warning(
+                            f"Nested sitemapindex skipped (v1 caps at one level): {sub_loc}"
+                        )
+                    if len(raw_pairs) >= MAX_URLS_PER_BRAND * 2:
+                        break
+            else:
+                logger.warning(
+                    f"Sitemap root element unrecognized for {root_loc} on {domain}"
+                )
+            if len(raw_pairs) >= MAX_URLS_PER_BRAND * 2:
+                break
 
-    # Junk filter + dedup (preserving first-seen lastmod)
+    # Junk filter + locale post-filter + dedup (preserving first-seen lastmod)
     seen: dict[str, datetime | None] = {}
     dropped_junk = 0
+    dropped_locale = 0
     for url, lastmod_raw in raw_pairs:
         url = (url or "").strip()
         if not url:
             continue
         if is_junk_url(url):
             dropped_junk += 1
+            continue
+        if locale_path_prefix and not _matches_locale_prefix(url, locale_path_prefix):
+            dropped_locale += 1
             continue
         if url in seen:
             continue
@@ -347,8 +447,9 @@ def discover_sitemap_urls(domain: str) -> list[tuple[str, datetime | None]]:
             break
 
     logger.info(
-        f"Sitemap filter for {domain}: kept={len(seen)} dropped_junk={dropped_junk} "
-        f"raw={len(raw_pairs)} cap={MAX_URLS_PER_BRAND}"
+        f"Sitemap filter for {domain}: kept={len(seen)} "
+        f"dropped_junk={dropped_junk} dropped_locale={dropped_locale} "
+        f"raw={len(raw_pairs)} prefix={locale_path_prefix!r} cap={MAX_URLS_PER_BRAND}"
     )
     return list(seen.items())
 

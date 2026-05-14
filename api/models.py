@@ -165,6 +165,11 @@ class ClientBrand(Base):
     detection_source = Column(String(30))  # keywords, llm_response, haloscan_competitors, manual
     auto_detected = Column(Boolean, default=True)
     validated_by_user = Column(Boolean, default=False)
+    # Phase D sitemap config (migration 028) :
+    # sitemap_urls_override = explicit list of canonical sitemap URLs (override auto-discovery)
+    # locale_path_prefix    = path fragment like '/fr-fr/' (filter for multi-locale brands)
+    sitemap_urls_override = Column(JSONB, nullable=False, default=list)
+    locale_path_prefix = Column(Text)
 
     parent = relationship("ClientBrand", remote_side=[id])
 

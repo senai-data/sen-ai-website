@@ -179,6 +179,55 @@ if (clientId) {
               </div>
             </div>
 
+            {/* Sitemap config panel (collapsible) — Phase D multi-locale support
+                <details>/<summary> pattern matches the project convention
+                (cf. trust-sources.astro + the "How does this work" block above) */}
+            <details class="border-b border-gray-100 group" x-data
+                     @toggle="configOpen[brand.id] = $el.open; if ($el.open) loadConfig(brand.id)">
+              <summary class="px-5 py-2.5 cursor-pointer hover:bg-gray-50 transition-colors flex items-center gap-2 text-xs text-charcoal-light">
+                <svg class="w-3.5 h-3.5 shrink-0 transition-transform group-open:rotate-90" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
+                </svg>
+                <span class="font-medium">Sitemap configuration</span>
+                <span x-show="(cfgPrefix[brand.id] || '').trim() || (cfgUrls[brand.id] || '').trim()"
+                      class="text-[10px] uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded bg-blue-50 text-blue-700">Custom</span>
+              </summary>
+              <div class="px-5 py-4 border-t border-gray-100 bg-gray-50/40">
+                <div class="text-[11px] text-charcoal-light mb-3 leading-relaxed">
+                  <p><strong>Locale path filter</strong> : when set (e.g. <code class="bg-white/80 px-1 rounded">/fr-fr/</code>) we only crawl URLs whose path contains that fragment. Use it for multi-locale brands to scope to one language.</p>
+                  <p class="mt-1"><strong>Sitemap URLs (override)</strong> : when set, we crawl exactly these URLs and skip auto-discovery via robots.txt / <code class="bg-white/80 px-1 rounded">/sitemap.xml</code>. One URL per line, must be on this brand's domain.</p>
+                </div>
+                <div class="space-y-3">
+                  <div>
+                    <label class="block text-[10px] uppercase tracking-wide font-semibold text-charcoal-light mb-1">Locale path filter</label>
+                    <input type="text" x-model="cfgPrefix[brand.id]"
+                           :placeholder="brand.domain ? '/fr-fr/' : 'Set domain first'"
+                           :disabled="!brand.domain || savingCfg[brand.id]"
+                           class="w-48 text-sm border border-gray-200 rounded-md px-3 py-1.5 outline-none focus:border-coral font-mono disabled:opacity-50 bg-white" />
+                  </div>
+                  <div>
+                    <label class="block text-[10px] uppercase tracking-wide font-semibold text-charcoal-light mb-1">Sitemap URLs (override, one per line)</label>
+                    <textarea x-model="cfgUrls[brand.id]"
+                              :placeholder="brand.domain ? `https://www.${brand.domain.replace(/^www\\./,'')}/fr-fr/site.xml\nhttps://www.${brand.domain.replace(/^www\\./,'')}/fr-fr/product.xml` : ''"
+                              :disabled="!brand.domain || savingCfg[brand.id]"
+                              rows="4"
+                              class="w-full text-sm border border-gray-200 rounded-md px-3 py-2 outline-none focus:border-coral font-mono disabled:opacity-50 bg-white"></textarea>
+                  </div>
+                  <p x-show="cfgError[brand.id]" class="text-xs text-red-600" x-text="cfgError[brand.id]"></p>
+                  <div class="flex items-center gap-2">
+                    <button type="button" @click="saveConfig(brand)"
+                            :disabled="savingCfg[brand.id]"
+                            :class="savingCfg[brand.id] ? 'opacity-50 cursor-not-allowed' : 'hover:bg-coral-dark'"
+                            class="text-xs bg-coral text-white px-3 py-1.5 rounded-md font-medium transition-all">
+                      <span x-show="!savingCfg[brand.id]">Save config</span>
+                      <span x-show="savingCfg[brand.id]">Saving…</span>
+                    </button>
+                    <span x-show="cfgSaved[brand.id]" class="text-[11px] text-emerald-600">Saved · click Refresh to re-crawl with the new config</span>
+                  </div>
+                </div>
+              </div>
+            </details>
+
             {/* Stats strip */}
             <div class="px-5 py-2 border-b border-gray-100 flex flex-wrap items-center gap-2 text-[11px]">
               <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-50 text-emerald-800">
@@ -221,6 +270,88 @@ if (clientId) {
               </p>
               <p x-show="brand.in_flight_job">Indexing in progress — page list will appear here.</p>
             </div>
+
+            {/* View all indexed pages (collapsible) — search/sort/paginated.
+                Same <details>/<summary> + chevron pattern as the Sitemap
+                configuration panel above. */}
+            <details x-show="(brand.stats.total || 0) > 0"
+                     class="border-b border-gray-100 group"
+                     @toggle="if ($el.open) loadPagesList(brand.id, true)">
+              <summary class="px-5 py-2.5 cursor-pointer hover:bg-gray-50 transition-colors flex items-center gap-2 text-xs text-charcoal-light">
+                <svg class="w-3.5 h-3.5 shrink-0 transition-transform group-open:rotate-90" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
+                </svg>
+                <span class="font-medium">View all indexed pages</span>
+                <span class="text-charcoal-light/70" x-text="`(${brand.stats.total || 0})`"></span>
+              </summary>
+              <div class="px-5 py-4 border-t border-gray-100 bg-gray-50/30">
+                {/* Search + sort controls */}
+                <div class="flex flex-wrap items-center gap-2 mb-3">
+                  <input type="text" x-model="pageQuery[brand.id]"
+                         @keydown.enter="loadPagesList(brand.id, true)"
+                         @input.debounce.500ms="loadPagesList(brand.id, true)"
+                         placeholder="Search URL or title…"
+                         class="flex-1 min-w-[180px] text-sm border border-gray-200 rounded-md px-3 py-1.5 outline-none focus:border-coral bg-white" />
+                  <select x-model="pageSort[brand.id]" @change="loadPagesList(brand.id, true)"
+                          class="text-xs border border-gray-200 rounded-md px-2 py-1.5 bg-white">
+                    <option value="inlinks_desc">Sort : Most inlinked</option>
+                    <option value="status">Sort : By status</option>
+                    <option value="first_seen">Sort : Oldest first</option>
+                    <option value="last_embedded">Sort : Recently embedded</option>
+                  </select>
+                </div>
+
+                {/* Table — bordered, monospace URL column, status + source chips */}
+                <div class="rounded-md border border-gray-200 bg-white overflow-hidden">
+                  <div class="grid grid-cols-[1fr_auto_auto_auto] gap-3 px-3 py-2 text-[10px] uppercase tracking-wide font-semibold text-charcoal-light/70 border-b border-gray-200 bg-gray-50/50">
+                    <span>Page</span>
+                    <span class="text-right">Status</span>
+                    <span class="text-right">Source</span>
+                    <span class="text-right" title="Internal inlinks count (authority signal)">Inlinks</span>
+                  </div>
+                  <p x-show="pagesLoading[brand.id] && (pageList[brand.id] || []).length === 0"
+                     class="text-xs text-charcoal-light italic text-center py-6">Loading…</p>
+                  <p x-show="!pagesLoading[brand.id] && (pageList[brand.id] || []).length === 0"
+                     class="text-xs text-charcoal-light italic text-center py-6">No matching pages.</p>
+                  <ul>
+                    <template x-for="p in (pageList[brand.id] || [])" :key="p.id">
+                      <li class="grid grid-cols-[1fr_auto_auto_auto] gap-3 px-3 py-2 border-b border-gray-100 last:border-b-0 hover:bg-gray-50/60 transition-colors text-xs">
+                        <div class="min-w-0">
+                          <a :href="p.url" target="_blank" rel="noopener" :title="p.url"
+                             class="block font-mono text-charcoal-dark hover:text-coral truncate"
+                             x-text="shortUrl(p.url, brand.domain)"></a>
+                          <span x-show="p.title" :title="p.title"
+                                class="block text-charcoal-light truncate" x-text="p.title"></span>
+                          <span x-show="p.fetch_error" class="block text-red-600 italic" x-text="p.fetch_error"></span>
+                        </div>
+                        <span class="shrink-0 text-[9px] uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded self-center"
+                              :class="statusChipClass(p.status)" x-text="p.status"></span>
+                        <span class="shrink-0 text-[9px] uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded self-center"
+                              :class="p.source === 'manual' ? 'bg-blue-50 text-blue-700' : 'bg-gray-100 text-charcoal-light'"
+                              x-text="p.source"></span>
+                        <span class="shrink-0 self-center font-mono text-charcoal-light"
+                              :class="p.internal_inlink_count >= 50 ? 'font-semibold text-charcoal-dark' : ''"
+                              :title="p.internal_inlink_count >= 50 ? 'Hub page — strong authority signal' : ''"
+                              x-text="p.internal_inlink_count"></span>
+                      </li>
+                    </template>
+                  </ul>
+                </div>
+
+                {/* Pagination footer */}
+                <div class="flex items-center justify-between mt-3 text-[11px] text-charcoal-light">
+                  <span x-text="`Showing ${(pageList[brand.id] || []).length} of ${pageTotal[brand.id] ?? 0}`"></span>
+                  <button type="button" @click="loadPagesList(brand.id, false)"
+                          x-show="pageHasMore[brand.id]"
+                          :disabled="pagesLoading[brand.id]"
+                          :class="pagesLoading[brand.id] ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-100'"
+                          class="text-xs border border-gray-200 px-2 py-1 rounded">
+                    <span x-show="!pagesLoading[brand.id]">Load more</span>
+                    <span x-show="pagesLoading[brand.id]">Loading…</span>
+                  </button>
+                </div>
+              </div>
+            </details>
 
             {/* Manual URL form + list */}
             <div class="p-4">
@@ -281,6 +412,22 @@ if (clientId) {
         addError: {},          // {brand_id: string}
         removing: {},          // {url: bool}
         pollHandles: {},       // {brand_id: timeoutHandle}
+        // Sitemap config panel state (Phase D multi-locale)
+        configOpen: {},        // {brand_id: bool}
+        cfgPrefix: {},         // {brand_id: string}
+        cfgUrls: {},           // {brand_id: string (textarea)}
+        cfgLoaded: {},         // {brand_id: bool} — has the config been fetched once
+        savingCfg: {},         // {brand_id: bool}
+        cfgError: {},          // {brand_id: string}
+        cfgSaved: {},          // {brand_id: bool} — fades after a few seconds
+        // View-pages panel state
+        pageList: {},          // {brand_id: array of page objects}
+        pageTotal: {},         // {brand_id: int}
+        pageOffset: {},        // {brand_id: int}
+        pageHasMore: {},       // {brand_id: bool}
+        pageQuery: {},         // {brand_id: string}
+        pageSort: {},          // {brand_id: string sort key}
+        pagesLoading: {},      // {brand_id: bool}
 
         brandDotClass(brand) {
           if (!brand.domain) return 'bg-amber-400';
@@ -351,6 +498,89 @@ if (clientId) {
           };
           if (this.pollHandles[brandId]) clearTimeout(this.pollHandles[brandId]);
           this.pollHandles[brandId] = setTimeout(tick, 2500);
+        },
+
+        async loadConfig(brandId) {
+          if (this.cfgLoaded[brandId]) return;
+          try {
+            const r = await fetch(`/api/clients/${this.clientId}/brands/${brandId}/sitemap-config`);
+            if (r.ok) {
+              const data = await r.json();
+              this.cfgPrefix[brandId] = data.locale_path_prefix || '';
+              this.cfgUrls[brandId] = (data.sitemap_urls_override || []).join('\n');
+              this.cfgLoaded[brandId] = true;
+            }
+          } catch {}
+        },
+
+        async loadPagesList(brandId, reset) {
+          // `reset=true` zeroes the offset and replaces the list (used on
+          // first open + on every search/sort change). `reset=false` is
+          // the "Load more" button — appends the next page.
+          if (this.pagesLoading[brandId]) return;
+          this.pagesLoading[brandId] = true;
+          try {
+            if (reset) {
+              this.pageOffset[brandId] = 0;
+              this.pageList[brandId] = [];
+            }
+            const offset = this.pageOffset[brandId] || 0;
+            const params = new URLSearchParams({
+              source: 'all',
+              offset: String(offset),
+              limit: '50',
+              sort: this.pageSort[brandId] || 'inlinks_desc',
+            });
+            const q = (this.pageQuery[brandId] || '').trim();
+            if (q) params.set('q', q);
+            const r = await fetch(`/api/clients/${this.clientId}/brands/${brandId}/pages?${params.toString()}`);
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            const data = await r.json();
+            const newRows = data.pages || [];
+            this.pageList[brandId] = reset ? newRows : [...(this.pageList[brandId] || []), ...newRows];
+            this.pageTotal[brandId] = data.page_info?.total ?? 0;
+            this.pageHasMore[brandId] = !!data.page_info?.has_more;
+            this.pageOffset[brandId] = (this.pageOffset[brandId] || 0) + newRows.length;
+          } catch (e) {
+            console.error('loadPagesList failed', e);
+          } finally {
+            this.pagesLoading[brandId] = false;
+          }
+        },
+
+        async saveConfig(brand) {
+          this.savingCfg[brand.id] = true;
+          this.cfgError[brand.id] = '';
+          this.cfgSaved[brand.id] = false;
+          try {
+            const urls = (this.cfgUrls[brand.id] || '')
+              .split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+            const body = {
+              sitemap_urls_override: urls,
+              locale_path_prefix: (this.cfgPrefix[brand.id] || '').trim() || null,
+            };
+            const r = await fetch(
+              `/api/clients/${this.clientId}/brands/${brand.id}/sitemap-config`,
+              {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+              }
+            );
+            if (!r.ok) {
+              const err = await r.json().catch(() => ({}));
+              throw new Error(err.detail?.message || err.detail || ('HTTP ' + r.status));
+            }
+            const data = await r.json();
+            this.cfgPrefix[brand.id] = data.locale_path_prefix || '';
+            this.cfgUrls[brand.id] = (data.sitemap_urls_override || []).join('\n');
+            this.cfgSaved[brand.id] = true;
+            setTimeout(() => { this.cfgSaved[brand.id] = false; }, 4000);
+          } catch (e) {
+            this.cfgError[brand.id] = e.message;
+          } finally {
+            this.savingCfg[brand.id] = false;
+          }
         },
 
         async refresh(brand) {

@@ -659,24 +659,32 @@ def _validate_manual_page_url(raw_url: str, brand: ClientBrand) -> str:
 @router.get("/{client_id}/brands/{brand_id}/pages")
 async def list_brand_pages(
     client_id: str, brand_id: str,
-    source: str | None = None,   # 'sitemap' | 'manual' | None (all)
+    source: str | None = None,   # 'sitemap' | 'manual' | 'all' (default all)
     status: str | None = None,
-    limit: int = 200,
+    q: str | None = None,         # ILIKE search on url + title
+    sort: str = "inlinks_desc",   # inlinks_desc | status | first_seen | last_embedded
+    offset: int = 0,
+    limit: int = 50,
     user=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """List indexed pages for a brand + summary stats.
 
-    Drives the Settings sitemaps card : the user sees the global counts
-    and (optionally) the manual-URLs list. Sitemap rows are large enough
-    to need pagination ; for the default UI we surface only manual rows
-    in detail (the user can't act on sitemap rows, only refresh).
+    Default behavior changed in 2026-05-14 (Phase D detail view) :
+      - `source=None` (or 'all') returns every page, not just manual ones
+      - Pagination via offset + limit (default 50, max 200)
+      - Optional ILIKE search on url/title, plus 4-mode sort
+
+    Drives both :
+      - the Settings sitemaps card initial render (passes source=manual,
+        limit=200 to fetch the manual-pages list)
+      - the "View pages" expand panel (passes source=all + sort + page nav)
     """
     _check_client_access(client_id, user, db)
     brand = _brand_for_client(brand_id, client_id, db)
 
     # Aggregate stats across the whole brand (no filter), one round-trip
-    from sqlalchemy import func
+    from sqlalchemy import func, or_
     stats_rows = (
         db.query(
             ClientBrandPage.status,
@@ -703,12 +711,12 @@ async def list_brand_pages(
         if r.last_crawled and (last_crawled_max is None or r.last_crawled > last_crawled_max):
             last_crawled_max = r.last_crawled
 
-    # Active crawl job — drives a "Refreshing..." pill in the UI
+    # Active crawl/fetch/embed job — drives the "Refreshing..." pill
     in_flight_crawl = (
         db.query(Job)
         .filter(
             Job.client_id == client_id,
-            Job.job_type.in_(("crawl_brand_sitemap", "fetch_brand_pages")),
+            Job.job_type.in_(("crawl_brand_sitemap", "fetch_brand_pages", "embed_brand_pages")),
             Job.status.in_(("pending", "running")),
             Job.payload["client_brand_id"].astext == str(brand_id),
         )
@@ -716,22 +724,44 @@ async def list_brand_pages(
         .first()
     )
 
-    # Page list — bounded, default to manual rows (the ones the user can
-    # delete). Sitemap detail page can come later if needed.
-    q = (
+    # Pages query — start from the filter base, then apply paging.
+    base_q = (
         db.query(ClientBrandPage)
         .filter(ClientBrandPage.client_brand_id == brand_id)
-        .order_by(ClientBrandPage.first_seen_at.asc())
     )
     if source in ("manual", "sitemap"):
-        q = q.filter(ClientBrandPage.source == source)
-    elif source is None:
-        # Default to manual-only for the UI list (sitemap rows live in stats)
-        q = q.filter(ClientBrandPage.source == "manual")
+        base_q = base_q.filter(ClientBrandPage.source == source)
     if status:
-        q = q.filter(ClientBrandPage.status == status)
-    q = q.limit(max(1, min(int(limit), 500)))
-    page_rows = q.all()
+        base_q = base_q.filter(ClientBrandPage.status == status)
+    if q:
+        pattern = f"%{q.strip()}%"
+        base_q = base_q.filter(
+            or_(
+                ClientBrandPage.url.ilike(pattern),
+                ClientBrandPage.title.ilike(pattern),
+            )
+        )
+
+    filtered_total = base_q.with_entities(func.count(ClientBrandPage.id)).scalar() or 0
+
+    # Sort
+    if sort == "status":
+        base_q = base_q.order_by(
+            ClientBrandPage.status.asc(),
+            ClientBrandPage.internal_inlink_count.desc(),
+        )
+    elif sort == "first_seen":
+        base_q = base_q.order_by(ClientBrandPage.first_seen_at.asc())
+    elif sort == "last_embedded":
+        base_q = base_q.order_by(ClientBrandPage.last_embedded_at.desc().nullslast())
+    else:  # 'inlinks_desc' default
+        base_q = base_q.order_by(
+            ClientBrandPage.internal_inlink_count.desc(),
+            ClientBrandPage.first_seen_at.asc(),
+        )
+
+    base_q = base_q.offset(max(0, int(offset))).limit(max(1, min(int(limit), 200)))
+    page_rows = base_q.all()
 
     return {
         "ok": True,
@@ -748,6 +778,13 @@ async def list_brand_pages(
             "type": in_flight_crawl.job_type,
             "status": in_flight_crawl.status,
         } if in_flight_crawl else None,
+        "page_info": {
+            "total": int(filtered_total),
+            "offset": int(offset),
+            "limit": int(limit),
+            "returned": len(page_rows),
+            "has_more": int(offset) + len(page_rows) < int(filtered_total),
+        },
         "pages": [
             {
                 "id": str(p.id),
@@ -756,8 +793,11 @@ async def list_brand_pages(
                 "status": p.status,
                 "source": p.source,
                 "fetch_error": p.fetch_error,
+                "lang": p.lang,
+                "internal_inlink_count": int(p.internal_inlink_count or 0),
                 "lastmod": p.lastmod.isoformat() if p.lastmod else None,
                 "last_crawled_at": p.last_crawled_at.isoformat() if p.last_crawled_at else None,
+                "last_embedded_at": p.last_embedded_at.isoformat() if p.last_embedded_at else None,
             }
             for p in page_rows
         ],
@@ -951,6 +991,132 @@ async def refresh_brand_sitemap(
     db.commit()
     db.refresh(job)
     return {"ok": True, "job_id": str(job.id), "status": "pending"}
+
+
+# ─── Per-brand sitemap config : override URLs + locale path filter ────────
+# Phase D (migration 028). For multi-locale brands (Ducray etc.) the user
+# can set a `locale_path_prefix` (e.g. '/fr-fr/') to scope the crawl to one
+# locale, OR provide an explicit `sitemap_urls_override` array that bypasses
+# auto-discovery entirely. The two compose : override wins for discovery,
+# locale_prefix is always applied as a post-filter.
+
+class SitemapConfigBody(BaseModel):
+    sitemap_urls_override: list[str] | None = None
+    locale_path_prefix: str | None = None
+
+
+def _validate_sitemap_config(
+    body: SitemapConfigBody, brand: ClientBrand,
+) -> tuple[list[str], str | None]:
+    """Normalize + validate the user-supplied sitemap config.
+
+    Override URLs must :
+      - be https (we don't crawl http in v1)
+      - point at the brand's own domain (anti-cross-pollution, same rule
+        as manual page URLs in /pages/manual)
+      - de-duped, capped at 20 (very generous, no realistic site needs
+        more)
+    Locale path prefix must :
+      - start with '/' and be ≤ 32 chars (e.g. '/fr-fr/', '/intl/en/')
+      - contain only path-safe chars (letters/digits/dash/slash)
+    """
+    import re as _re
+    from urllib.parse import urlparse
+
+    raw_urls = body.sitemap_urls_override if body.sitemap_urls_override is not None else []
+    if not isinstance(raw_urls, list):
+        raise HTTPException(400, {"error": "invalid_type", "message": "sitemap_urls_override must be a list"})
+    if len(raw_urls) > 20:
+        raise HTTPException(422, {"error": "too_many_urls",
+                                   "message": "sitemap_urls_override capped at 20 URLs"})
+
+    brand_host = _normalize_brand_host(brand.domain or "")
+    cleaned_urls: list[str] = []
+    seen: set[str] = set()
+    for raw in raw_urls:
+        if not isinstance(raw, str):
+            continue
+        u = raw.strip()
+        if not u:
+            continue
+        try:
+            parsed = urlparse(u)
+        except ValueError:
+            raise HTTPException(400, {"error": "invalid_url", "message": f"Malformed URL: {u}"})
+        if parsed.scheme != "https":
+            raise HTTPException(422, {"error": "scheme_unsupported",
+                                       "message": f"URL must be https: {u}"})
+        url_host = (parsed.hostname or "").lower()
+        if url_host.startswith("www."):
+            url_host = url_host[4:]
+        if not brand_host:
+            raise HTTPException(422, {"error": "brand_domain_missing",
+                                       "message": "Brand has no registered domain; set it first."})
+        if url_host != brand_host:
+            raise HTTPException(422, {"error": "host_mismatch",
+                                       "message": f"URL host must be {brand_host} (got {parsed.hostname})"})
+        clean = parsed._replace(fragment="").geturl()
+        if clean in seen:
+            continue
+        seen.add(clean)
+        cleaned_urls.append(clean)
+
+    prefix = body.locale_path_prefix
+    if prefix is not None:
+        prefix = prefix.strip()
+        if prefix == "":
+            prefix = None
+        elif not prefix.startswith("/"):
+            raise HTTPException(422, {"error": "invalid_prefix",
+                                       "message": "locale_path_prefix must start with '/'"})
+        elif len(prefix) > 32:
+            raise HTTPException(422, {"error": "invalid_prefix",
+                                       "message": "locale_path_prefix capped at 32 chars"})
+        elif not _re.match(r"^[A-Za-z0-9/_\-]+$", prefix):
+            raise HTTPException(422, {"error": "invalid_prefix",
+                                       "message": "locale_path_prefix may only contain letters, digits, '-', '_' and '/'"})
+
+    return cleaned_urls, prefix
+
+
+@router.get("/{client_id}/brands/{brand_id}/sitemap-config")
+async def get_sitemap_config(
+    client_id: str, brand_id: str,
+    user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    _check_client_access(client_id, user, db)
+    brand = _brand_for_client(brand_id, client_id, db)
+    return {
+        "ok": True,
+        "brand": {"id": str(brand.id), "name": brand.name, "domain": brand.domain},
+        "sitemap_urls_override": list(brand.sitemap_urls_override or []),
+        "locale_path_prefix": brand.locale_path_prefix,
+    }
+
+
+@router.put("/{client_id}/brands/{brand_id}/sitemap-config")
+async def put_sitemap_config(
+    client_id: str, brand_id: str, body: SitemapConfigBody,
+    user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Update the brand's sitemap discovery config.
+
+    Doesn't auto-trigger a refresh — the user clicks Refresh after saving
+    if they want to re-crawl with the new config.
+    """
+    _check_client_access(client_id, user, db)
+    brand = _brand_for_client(brand_id, client_id, db)
+    cleaned_urls, prefix = _validate_sitemap_config(body, brand)
+    brand.sitemap_urls_override = cleaned_urls
+    brand.locale_path_prefix = prefix
+    db.commit()
+    return {
+        "ok": True,
+        "sitemap_urls_override": cleaned_urls,
+        "locale_path_prefix": prefix,
+    }
 
 
 @router.delete("/{client_id}/trust-sources/extra-domains/{domain}")

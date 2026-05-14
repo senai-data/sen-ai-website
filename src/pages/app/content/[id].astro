@@ -469,6 +469,96 @@ function fmtDate(iso: string | null): string {
           </dl>
         </section>
 
+        {/* Pilier 5 — Side-by-side competitor snapshot.
+            What ChatGPT / Gemini actually say today about this question.
+            Sits between Source (the brief) and Content (our generated FAQ)
+            so the user reads top→bottom : "here's the problem the LLMs see"
+            → "here's what you're publishing to displace it". Common Region
+            layout per AI provider, brand mentions highlighted in coral
+            (yours) and red (competitor). Button + x-show pattern to dodge
+            the <details> + Alpine quirk we hit on the sitemap page. */}
+        <template x-if="item.competitor_snapshot && item.competitor_snapshot.responses && item.competitor_snapshot.responses.length > 0">
+          <section class="bg-white rounded-xl border border-gray-200">
+            <button type="button"
+                    @click="competitorPanelOpen = !competitorPanelOpen"
+                    class="w-full px-5 py-3 cursor-pointer hover:bg-gray-50 transition-colors flex items-center gap-2 text-left">
+              <svg class="w-4 h-4 text-charcoal-light shrink-0 transition-transform"
+                   :class="competitorPanelOpen ? 'rotate-90' : ''"
+                   fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
+              </svg>
+              <h2 class="text-sm font-semibold text-charcoal-dark flex items-center gap-2">
+                <span>What AI assistants say today</span>
+                <span class="text-[11px] text-charcoal-light cursor-help select-none font-normal"
+                      title="The raw responses LLMs (ChatGPT, Gemini, ...) actually returned for this question in the original scan. Use this to see what content patterns and citations your FAQ needs to displace. Brand mentions are highlighted : coral = your brand, red = competitor.">ⓘ</span>
+              </h2>
+              <span class="text-[11px] text-charcoal-light italic ml-1">— what your FAQ is here to displace</span>
+              <template x-if="item.competitor_snapshot.competitor_brand_name">
+                <span class="ml-auto text-[10px] bg-red-50 text-red-700 px-1.5 py-0.5 rounded font-medium shrink-0">
+                  Currently favors <strong x-text="item.competitor_snapshot.competitor_brand_name"></strong>
+                </span>
+              </template>
+            </button>
+            <div x-show="competitorPanelOpen" x-transition.opacity class="px-5 py-4 border-t border-gray-100 bg-gray-50/30">
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <template x-for="r in item.competitor_snapshot.responses" :key="r.id">
+                  <div class="border border-gray-200 rounded-lg p-3 bg-white">
+                    <div class="flex items-center justify-between mb-2 pb-2 border-b border-gray-100 gap-2 flex-wrap">
+                      <span class="text-[11px] font-semibold inline-flex items-center gap-1.5">
+                        <span :class="r.provider === 'openai' ? 'text-emerald-700' : (r.provider === 'gemini' ? 'text-violet-700' : 'text-charcoal-dark')"
+                              x-text="providerLabel(r.provider)"></span>
+                        <span class="text-charcoal-light/60 font-mono text-[9px]" x-text="r.model"></span>
+                      </span>
+                      <div class="flex items-center gap-1 text-[10px] flex-wrap">
+                        <template x-if="r.our_brand_cited">
+                          <span class="bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded font-medium"
+                                :title="'Your brand was cited at position ' + r.our_brand_position">
+                            You cited #<span x-text="r.our_brand_position"></span>
+                          </span>
+                        </template>
+                        <template x-if="!r.our_brand_cited">
+                          <span class="bg-amber-50 text-amber-800 px-1.5 py-0.5 rounded font-medium"
+                                title="Your brand was not mentioned in this response">You not cited</span>
+                        </template>
+                        <template x-if="r.competitor_cited">
+                          <span class="bg-red-50 text-red-700 px-1.5 py-0.5 rounded font-medium"
+                                :title="r.competitor_domains_count + ' competitor citation(s) in this response'">
+                            Competitor citations: <span x-text="r.competitor_domains_count"></span>
+                          </span>
+                        </template>
+                      </div>
+                    </div>
+                    <div class="text-xs text-charcoal-dark leading-relaxed whitespace-pre-wrap line-clamp-[15] hover:line-clamp-none transition-all cursor-pointer"
+                         :title="'Click anywhere to expand the full response'"
+                         x-html="highlightBrandsInResponse(r.response_text)"></div>
+                    <template x-if="r.citations && r.citations.length > 0">
+                      <div class="mt-2 pt-2 border-t border-gray-100">
+                        <p class="text-[10px] text-charcoal-light/80 mb-1">Sources cited <span x-text="'(' + r.citations.length + ')'"></span> :</p>
+                        <ul class="text-[10px] space-y-0.5">
+                          <template x-for="c in r.citations.slice(0, 5)" :key="c.url">
+                            <li class="truncate">
+                              <a :href="c.url" target="_blank" rel="noopener"
+                                 class="text-coral hover:underline"
+                                 :title="c.url"
+                                 x-text="c.domain || c.url"></a>
+                            </li>
+                          </template>
+                          <template x-if="r.citations.length > 5">
+                            <li class="text-charcoal-light/60 italic"><span x-text="'+ ' + (r.citations.length - 5) + ' more'"></span></li>
+                          </template>
+                        </ul>
+                      </div>
+                    </template>
+                  </div>
+                </template>
+              </div>
+              <p class="text-[11px] text-charcoal-light mt-3 italic">
+                Snapshot from the original scan. Re-run the scan to refresh these responses.
+              </p>
+            </div>
+          </section>
+        </template>
+
         {/* Content editor (Postel's Law: Visual/HTML toggle) */}
         <section class="bg-white rounded-xl border border-gray-200">
           <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between gap-3">
@@ -1009,6 +1099,7 @@ function fmtDate(iso: string | null): string {
         leadSaving: false,
         leadJustChanged: null,  // brand name : shows the "rematch URL" banner
         showAllPromotedBrands: false,  // expand non-LEAD 0-mention brands
+        competitorPanelOpen: false,    // Pilier 5 — collapsed by default
 
         statusLabelOf(s) {
           const m = { identified: 'IDENTIFIED', generating: 'GENERATING', draft: 'DRAFT', in_review: 'IN REVIEW', approved: 'APPROVED', published: 'PUBLISHED', rejected: 'REJECTED' };
@@ -1386,6 +1477,49 @@ function fmtDate(iso: string | null): string {
           }
           return out;
         },
+        // Pilier 5 — pretty provider label for the competitor snapshot card.
+        providerLabel(p) {
+          switch ((p || '').toLowerCase()) {
+            case 'openai': return 'ChatGPT';
+            case 'gemini': return 'Gemini';
+            case 'anthropic': return 'Claude';
+            case 'perplexity': return 'Perplexity';
+            default: return p || 'AI';
+          }
+        },
+
+        // Pilier 5 — highlight competitor + own brands in an LLM response.
+        // Coral for own brands, red for competitor (Von Restorff pattern,
+        // same colors used elsewhere on the page so the user reads the
+        // signal at a glance). HTML-escape input first so we never inject
+        // user-controlled markup, then wrap matched brand names in <mark>.
+        highlightBrandsInResponse(text) {
+          if (!text) return '';
+          let escaped = String(text)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;');
+          const ownBrands = (this.item.own_brand_names || [])
+            .concat(this.item.promoted_brand_names || [])
+            .filter(n => n && n.length >= 2);
+          const compBrands = (this.item.competitor_brand_names || []);
+          const compSnapName = this.item.competitor_snapshot && this.item.competitor_snapshot.competitor_brand_name;
+          const allComp = compBrands.slice();
+          if (compSnapName && !allComp.includes(compSnapName)) allComp.push(compSnapName);
+          // Longer names first so 'XeraCalm AD' wraps before 'Avene'
+          const ownDedup = [...new Set(ownBrands)].sort((a, b) => b.length - a.length);
+          const compDedup = [...new Set(allComp)].filter(n => n && n.length >= 2).sort((a, b) => b.length - a.length);
+          for (const name of compDedup) {
+            const re = new RegExp('\\b(' + this._escapeRegex(name) + ')\\b', 'gi');
+            escaped = escaped.replace(re, '<mark class="bg-red-100 text-red-800 rounded px-0.5">$1</mark>');
+          }
+          for (const name of ownDedup) {
+            const re = new RegExp('\\b(' + this._escapeRegex(name) + ')\\b', 'gi');
+            escaped = escaped.replace(re, '<mark class="bg-coral/15 text-coral rounded px-0.5">$1</mark>');
+          }
+          return escaped;
+        },
+
         // Count of non-LEAD promoted brands that have 0 mentions in the
         // current content. Drives the 'Show N more brands not mentioned'
         // expand toggle in the Brand promotion panel.

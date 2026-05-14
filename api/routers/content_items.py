@@ -23,12 +23,13 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import desc
+from sqlalchemy import desc, func
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.orm.attributes import flag_modified
 
 from models import (
-    ClientBrand, Job, Scan, ScanBrandClassification, ScanContentItem, UserClient, get_db,
+    ClientBrand, Job, Scan, ScanBrandClassification, ScanContentItem,
+    ScanLLMResult, ScanQuestion, UserClient, get_db,
 )
 from routers.scans import _check_scan_access
 from services.audit import audit_log
@@ -129,7 +130,8 @@ def _resolve_scan_brand_groups(scan_id: str, db: Session) -> dict[str, list[str]
 def _serialize_item(item: ScanContentItem, brand_names: dict[str, str] | None = None,
                     primary_brand_domains: list[str] | None = None,
                     target_url_share_count: int = 0,
-                    scan_brand_groups: dict[str, list[str]] | None = None) -> dict:
+                    scan_brand_groups: dict[str, list[str]] | None = None,
+                    competitor_snapshot: dict | None = None) -> dict:
     """Convert a ScanContentItem ORM row into the dict shape the UI consumes.
 
     `primary_brand_domains` is the list of domains from the client's
@@ -199,6 +201,11 @@ def _serialize_item(item: ScanContentItem, brand_names: dict[str, str] | None = 
         "latest_position": item.latest_position,
         "position_delta": item.position_delta,
         "created_at": item.created_at.isoformat() if item.created_at else None,
+        # Phase E Pilier 5 : 'what LLMs currently say' snapshot. None for items
+        # whose target_question can't be matched to a ScanQuestion or whose
+        # parent scan has no LLM results (legacy items, pre-tracking pipeline).
+        # Surfaced only on the detail endpoint to keep the kanban list cheap.
+        "competitor_snapshot": competitor_snapshot,
     }
 
 
@@ -361,7 +368,100 @@ async def get_content_item(item_id: str, user=Depends(get_current_user),
     primary_domains = _resolve_primary_brand_domains(client_id_str, db)
     share_count = _count_sibling_items_at_url(item, db)
     groups = _resolve_scan_brand_groups(str(item.scan_id), db)
-    return _serialize_item(item, brand_names, primary_domains, share_count, groups)
+    competitor_snapshot = _build_competitor_snapshot(item, db)
+    return _serialize_item(item, brand_names, primary_domains, share_count, groups, competitor_snapshot)
+
+
+def _build_competitor_snapshot(item: ScanContentItem, db: Session) -> dict | None:
+    """Build the Pilier 5 'side-by-side' payload : what the LLMs currently say
+    about this question, with the competitor highlighted.
+
+    The user's FAQ answers `item.target_question`. The same question was tested
+    in the original scan against multiple LLM providers (ChatGPT, Gemini, ...)
+    and their raw responses are stored in `scan_llm_results.response_text`.
+    Surfacing them next to our generated FAQ on the validation page lets the
+    user SEE concretely what they're trying to displace — and whether the
+    FAQ they're about to publish actually beats the citation pattern that
+    favors the current best_competitor.
+
+    Lookup chain : item.target_question -> ScanQuestion (text match in this
+    scan, case-insensitive) -> ScanLLMResult rows for that question_id.
+
+    Returns None when :
+      - the question can't be resolved (legacy items, manual entry)
+      - no LLM results exist (scan still running, or pre-tracking pipeline)
+    Caller treats None as "panel doesn't render" — graceful degrade.
+
+    Shape :
+      {
+        "question_text": str,
+        "competitor_brand_name": str | None,         # from item.best_competitor
+        "competitor_position": int | None,
+        "responses": [
+          {
+            "provider": str,                          # 'openai' | 'gemini' | ...
+            "model": str,
+            "response_text": str,                     # full LLM answer
+            "citations": [{url, domain, source_type, title}],
+            "competitor_cited": bool,                 # any citation domain matches a competitor
+            "our_brand_cited": bool,                  # from target_cited flag
+            "our_brand_position": int | None,
+          },
+          ...
+        ],
+      }
+    """
+    q_text = (item.target_question or "").strip()
+    if not q_text:
+        return None
+
+    question = (
+        db.query(ScanQuestion)
+        .filter(
+            ScanQuestion.scan_id == item.scan_id,
+            func.lower(ScanQuestion.question) == q_text.lower(),
+        )
+        .first()
+    )
+    if not question:
+        return None
+
+    llm_rows = (
+        db.query(ScanLLMResult)
+        .filter(ScanLLMResult.question_id == question.id)
+        .order_by(ScanLLMResult.created_at.asc())
+        .all()
+    )
+    if not llm_rows:
+        return None
+
+    responses = []
+    for r in llm_rows:
+        if not (r.response_text or "").strip():
+            continue
+        comp_domains = r.competitor_domains or {}
+        responses.append({
+            "id": str(r.id),
+            "provider": r.provider,
+            "model": r.model,
+            "response_text": r.response_text,
+            "citations": list(r.citations or []),
+            "competitor_cited": bool(comp_domains),
+            "competitor_domains_count": int(sum(comp_domains.values())) if comp_domains else 0,
+            "our_brand_cited": bool(r.target_cited),
+            "our_brand_position": r.target_position,
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+        })
+
+    if not responses:
+        return None
+
+    return {
+        "question_text": q_text,
+        "competitor_brand_name": item.best_competitor,
+        "competitor_position": None,  # not stored on item — could derive from llm rows
+        "responses": responses,
+    }
 
 
 def _count_sibling_items_at_url(item: ScanContentItem, db: Session) -> int:

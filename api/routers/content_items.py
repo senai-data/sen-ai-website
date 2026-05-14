@@ -487,10 +487,13 @@ def _build_competitor_snapshot(item: ScanContentItem, db: Session) -> dict | Non
 
     # Check if there's an in-flight refresh job for this item — UI uses
     # this to disable the Refresh button and poll for completion.
+    # Filter by scan_id (set on the job) rather than client_id (we create
+    # the job without client_id; the buggy version of this filter never
+    # matched -> the UI couldn't detect completion).
     in_flight_refresh_job = (
         db.query(Job)
         .filter(
-            Job.client_id == item.scan.client_id if item.scan else None,
+            Job.scan_id == item.scan_id,
             Job.job_type == "refresh_ai_snapshot",
             Job.status.in_(("pending", "running")),
             Job.payload["item_id"].astext == str(item.id),

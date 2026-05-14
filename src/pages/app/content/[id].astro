@@ -1572,10 +1572,18 @@ function fmtDate(iso: string | null): string {
         },
 
         // Pilier 5 — POST refresh + poll until the worker completes.
+        // Two stop conditions (defensive — either fires) :
+        //   1. in_flight_refresh_job_id clears in the GET response, AND
+        //   2. latest_snapshot_at advances past the snapshot we recorded
+        //      before the POST.
+        // The original implementation only checked (1) but a buggy in-flight
+        // filter could leave the UI permanently 'Refreshing…' even after
+        // the job completed — (2) is the positive signal that catches it.
         async refreshAiSnapshot() {
           if (this.aiSnapshotRefreshing) return;
           this.aiSnapshotRefreshing = true;
           this.aiSnapshotRefreshError = '';
+          const baselineAt = this.item?.competitor_snapshot?.latest_snapshot_at || '';
           try {
             const res = await fetch(
               '/api/content-items/' + this.item.id + '/refresh-ai-snapshot',
@@ -1585,8 +1593,6 @@ function fmtDate(iso: string | null): string {
               const err = await res.json().catch(() => ({}));
               throw new Error(err.detail?.message || err.detail || ('HTTP ' + res.status));
             }
-            // Poll every 4s, refetch item until in_flight_refresh_job_id clears.
-            // Stop after 90s safety bound.
             const startedAt = Date.now();
             const tick = async () => {
               try {
@@ -1594,8 +1600,15 @@ function fmtDate(iso: string | null): string {
                 if (r.ok) {
                   const data = await r.json();
                   this.item = data;
-                  const stillRunning = data.competitor_snapshot && data.competitor_snapshot.in_flight_refresh_job_id;
-                  if (!stillRunning) {
+                  const stillRunning = !!(data.competitor_snapshot && data.competitor_snapshot.in_flight_refresh_job_id);
+                  const newAt = data.competitor_snapshot && data.competitor_snapshot.latest_snapshot_at;
+                  const dataAdvanced = newAt && newAt !== baselineAt;
+                  // Stop when job is finished (in_flight cleared) AND fresh
+                  // data is visible. Either signal alone may lag the other
+                  // because the in_flight query reads from `jobs` and the
+                  // snapshot query reads from `scan_llm_results` — they can
+                  // briefly disagree at the moment the worker commits.
+                  if (!stillRunning && dataAdvanced) {
                     this.aiSnapshotRefreshing = false;
                     this._aiSnapshotPollHandle = null;
                     return;
@@ -1604,7 +1617,7 @@ function fmtDate(iso: string | null): string {
               } catch {}
               if (Date.now() - startedAt > 90_000) {
                 this.aiSnapshotRefreshing = false;
-                this.aiSnapshotRefreshError = 'Refresh taking longer than expected — reload the page in a moment.';
+                this.aiSnapshotRefreshError = 'Refresh taking longer than expected — reload the page to see the latest snapshot.';
                 return;
               }
               this._aiSnapshotPollHandle = setTimeout(tick, 4_000);

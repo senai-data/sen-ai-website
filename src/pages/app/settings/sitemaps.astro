@@ -182,7 +182,7 @@ if (clientId) {
             {/* Sitemap config panel (collapsible) — Phase D multi-locale support
                 <details>/<summary> pattern matches the project convention
                 (cf. trust-sources.astro + the "How does this work" block above) */}
-            <details class="border-b border-gray-100 group" x-data
+            <details class="border-b border-gray-100 group"
                      @toggle="configOpen[brand.id] = $el.open; if ($el.open) loadConfig(brand.id)">
               <summary class="px-5 py-2.5 cursor-pointer hover:bg-gray-50 transition-colors flex items-center gap-2 text-xs text-charcoal-light">
                 <svg class="w-3.5 h-3.5 shrink-0 transition-transform group-open:rotate-90" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">

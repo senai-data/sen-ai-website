@@ -168,6 +168,8 @@ def _serialize_item(item: ScanContentItem, brand_names: dict[str, str] | None = 
         "persona_name": item.persona_name,
         "target_url": item.target_url,
         "target_url_source": item.target_url_source,
+        "target_url_score": item.target_url_score,
+        "target_url_candidates": list(item.target_url_candidates or []),
         "target_page_title": item.target_page_title,
         "target_question": item.target_question,
         "rejected_target_urls": list(item.rejected_target_urls or []),
@@ -389,6 +391,11 @@ class ContentItemPatch(BaseModel):
     content_text: str | None = None
     published_url: str | None = None
     target_url: str | None = None
+    # Phase D top-3 picker : when the user picks a candidate, we want the
+    # page title to match the new URL (the sitemap matcher already has the
+    # title in candidate metadata). Otherwise the previous URL's title
+    # lingers under the new URL and looks broken.
+    target_page_title: str | None = None
     # Per-item override of the workspace-level primary_brand_ids order. First
     # entry = LEAD for this item only. Set by the validation-page Brand
     # promotion picker so the user can say "for THIS opportunity, promote
@@ -560,6 +567,12 @@ async def update_content_item(item_id: str, patch: ContentItemPatch,
             else:
                 changes["target_url_source"] = {"old": item.target_url_source, "new": "pending_user"}
                 item.target_url_source = "pending_user"
+
+    if patch.target_page_title is not None:
+        normalized_title = patch.target_page_title.strip() or None
+        if normalized_title != item.target_page_title:
+            changes["target_page_title"] = {"old": item.target_page_title, "new": normalized_title}
+            item.target_page_title = normalized_title
 
     if changes:
         audit_log(

@@ -35,6 +35,7 @@ type Preview = {
   expires_at: string;
   is_valid: boolean;
   invalid_reason: 'expired' | 'revoked' | 'accepted' | null;
+  email_has_account: boolean;
 };
 
 let preview: Preview | null = null;
@@ -156,7 +157,7 @@ function roleLabel(r: string): string {
               </div>
             </div>
 
-            {!isSignedIn && (
+            {!isSignedIn && preview.email_has_account && (
               <div>
                 <a
                   href={signInUrl}
@@ -166,6 +167,43 @@ function roleLabel(r: string): string {
                 </a>
                 <p class="text-xs text-charcoal-light mt-4 text-center">
                   Sign in with <strong>{preview.email}</strong> — that's the email this invitation was sent to.
+                </p>
+              </div>
+            )}
+
+            {!isSignedIn && !preview.email_has_account && (
+              <div>
+                <h2 class="text-sm font-semibold text-charcoal-dark mb-1">Create your account</h2>
+                <p class="text-xs text-charcoal-light mb-4">
+                  You'll join <strong>{preview.organization_name}</strong> as soon as your account is created.
+                </p>
+                <form id="register-form" class="space-y-3">
+                  <div>
+                    <label class="block text-xs font-medium text-charcoal-light mb-1">Your name</label>
+                    <input
+                      type="text" name="name" required maxlength="120"
+                      placeholder="Jane Doe"
+                      class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-coral/50 focus:border-coral"
+                    />
+                  </div>
+                  <div>
+                    <label class="block text-xs font-medium text-charcoal-light mb-1">Password</label>
+                    <input
+                      type="password" name="password" required minlength="8"
+                      placeholder="At least 8 chars, 1 upper, 1 lower, 1 digit"
+                      class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-coral/50 focus:border-coral"
+                    />
+                  </div>
+                  <p id="register-error" class="text-sm text-red-600 hidden"></p>
+                  <button
+                    type="submit"
+                    class="w-full py-3 bg-coral text-white font-medium rounded-lg hover:bg-coral-dark transition-colors disabled:opacity-60"
+                  >
+                    Create account & join
+                  </button>
+                </form>
+                <p class="text-xs text-charcoal-light mt-4 text-center">
+                  Already have an account? <a href={signInUrl} class="text-coral hover:underline">Sign in instead</a>.
                 </p>
               </div>
             )}
@@ -243,6 +281,45 @@ function roleLabel(r: string): string {
         try { await fetch('/api/auth/logout', { method: 'POST' }); } catch (e) {}
         // After signout, send the user to login pre-filled to come back here.
         window.location.href = '/login?next=' + encodeURIComponent(nextUrl);
+      });
+    }
+
+    // Phase E.C.4.1 — invite-bootstrap registration. Creates the account
+    // via /accept-and-register which itself sets the auth + active-org
+    // cookies, so we just need to redirect to /app/org on success.
+    const registerForm = document.getElementById('register-form');
+    if (registerForm) {
+      registerForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const fd = new FormData(registerForm);
+        const name = (fd.get('name') || '').toString().trim();
+        const password = (fd.get('password') || '').toString();
+        const btn = registerForm.querySelector('button[type="submit"]');
+        const err = document.getElementById('register-error');
+        err.classList.add('hidden');
+        btn.setAttribute('disabled', 'true');
+        btn.textContent = 'Creating account…';
+        try {
+          const res = await fetch(`/api/invitations/${safeToken}/accept-and-register`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, password }),
+          });
+          if (res.ok) {
+            window.location.href = '/app/org';
+          } else {
+            const data = await res.json().catch(() => ({}));
+            err.textContent = typeof data.detail === 'string' ? data.detail : 'Could not create account.';
+            err.classList.remove('hidden');
+            btn.removeAttribute('disabled');
+            btn.textContent = 'Create account & join';
+          }
+        } catch (e) {
+          err.textContent = 'Network error. Please try again.';
+          err.classList.remove('hidden');
+          btn.removeAttribute('disabled');
+          btn.textContent = 'Create account & join';
+        }
       });
     }
   </script>

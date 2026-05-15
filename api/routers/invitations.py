@@ -22,6 +22,7 @@ from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, EmailStr
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from config import settings
@@ -280,6 +281,10 @@ class InvitationPreview(BaseModel):
     expires_at: str
     is_valid: bool
     invalid_reason: str | None  # 'expired' | 'revoked' | 'accepted' | None
+    # Phase E.C.4.1 — the accept page uses this to render either a "Sign
+    # in" CTA (existing account) or an inline "Create account" form
+    # (invite-bootstrap registration that bypasses registration_open).
+    email_has_account: bool
 
 
 @token_scoped_router.get("/{invite_token}/preview", response_model=InvitationPreview)
@@ -314,6 +319,13 @@ async def preview_invitation(invite_token: str, db: Session = Depends(get_db)):
     elif invite.expires_at <= datetime.utcnow():
         invalid_reason = "expired"
 
+    # Emails stored on User are case-insensitive in practice (lower()'d at
+    # signup) ; do a case-insensitive compare so a mixed-case invite still
+    # matches a lower-cased account row.
+    email_has_account = db.query(User).filter(
+        func.lower(User.email) == invite.email.lower()
+    ).first() is not None
+
     return InvitationPreview(
         organization_name=(org.name if org else "Unknown organization"),
         organization_id=str(invite.organization_id),
@@ -323,6 +335,7 @@ async def preview_invitation(invite_token: str, db: Session = Depends(get_db)):
         expires_at=invite.expires_at.isoformat(),
         is_valid=invalid_reason is None,
         invalid_reason=invalid_reason,
+        email_has_account=email_has_account,
     )
 
 
@@ -331,6 +344,18 @@ class AcceptResponse(BaseModel):
     organization_id: str
     org_role: str
     already_member: bool
+
+
+class AcceptAndRegisterRequest(BaseModel):
+    name: str
+    password: str
+
+
+class AcceptAndRegisterResponse(BaseModel):
+    ok: bool
+    organization_id: str
+    org_role: str
+    access_token: str
 
 
 @token_scoped_router.post("/{invite_token}/accept", response_model=AcceptResponse)
@@ -402,6 +427,103 @@ async def accept_invitation(
         organization_id=str(invite.organization_id),
         org_role=invite.org_role,
         already_member=already_member,
+    )
+
+
+# Phase E.C.4.1 — bootstrap registration via invitation. The invitation
+# token is itself the authorization to create an account, so this path
+# bypasses the global `registration_open` kill-switch. Without this, an
+# invitee with no existing sen-ai.fr account hits the "registrations
+# temporarily closed" wall and can't complete the flow.
+@token_scoped_router.post("/{invite_token}/accept-and-register", response_model=AcceptAndRegisterResponse)
+@limiter.limit("10/hour")
+async def accept_and_register(
+    request: Request, invite_token: str, body: AcceptAndRegisterRequest,
+    response: Response, db: Session = Depends(get_db),
+):
+    """Create a brand-new user account from an invite + accept atomically.
+
+    Skipped on purpose : email verification. The invite link was sent to
+    the email we register, which is itself proof of email ownership — a
+    second verification step would be redundant and add friction.
+
+    Edge cases :
+      - User with this email already exists → 409 ; the invitee should
+        sign in instead via the normal /api/auth/login flow then POST
+        /accept. UI hints at this via preview.email_has_account.
+      - Invalid / expired / revoked invite → 404 / 409, same as /accept.
+    """
+    # Local imports to avoid circular dependency on auth helpers from the
+    # invitations router boot path.
+    from routers.auth import _validate_password, create_token
+    from passlib.context import CryptContext
+
+    invite = db.query(Invitation).filter(Invitation.token == invite_token).first()
+    if not invite:
+        raise HTTPException(404, "Invitation not found")
+    if invite.revoked_at:
+        raise HTTPException(409, "This invitation has been revoked")
+    if invite.accepted_at:
+        raise HTTPException(409, "This invitation has already been accepted")
+    if invite.expires_at <= datetime.utcnow():
+        raise HTTPException(409, "This invitation has expired")
+
+    email_normalized = invite.email.lower().strip()
+    if db.query(User).filter(func.lower(User.email) == email_normalized).first():
+        raise HTTPException(
+            409,
+            "An account already exists for this email. Sign in instead, then click Accept.",
+        )
+
+    _validate_password(body.password)
+    name_clean = (body.name or "").strip()[:120]
+    if not name_clean:
+        raise HTTPException(400, "Name is required")
+
+    pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+    user = User(
+        email=email_normalized,
+        name=name_clean,
+        password_hash=pwd_context.hash(body.password),
+        is_email_verified=True,   # invite link == email ownership proof
+    )
+    db.add(user)
+    db.flush()
+
+    db.add(OrganizationUser(
+        organization_id=invite.organization_id,
+        user_id=user.id,
+        role=invite.org_role,
+        invited_by_user_id=invite.invited_by_user_id,
+    ))
+
+    invite.accepted_at = datetime.utcnow()
+    invite.accepted_by_user_id = user.id
+    db.commit()
+    db.refresh(user)
+
+    # Sign the new user in : same HttpOnly token cookie + active_org cookie
+    # pattern as the authed accept handler. Avoids a forced extra round-trip
+    # through /login.
+    auth_token = create_token(str(user.id), user.email)
+    response.set_cookie(
+        "token", auth_token,
+        httponly=True, secure=True, samesite="lax",
+        max_age=settings.jwt_expire_minutes * 60,
+        path="/",
+    )
+    response.set_cookie(
+        "active_organization_id", str(invite.organization_id),
+        httponly=True, secure=True, samesite="lax",
+        max_age=60 * 60 * 24 * 180, path="/",
+    )
+    response.delete_cookie("active_client_id", path="/")
+
+    return AcceptAndRegisterResponse(
+        ok=True,
+        organization_id=str(invite.organization_id),
+        org_role=invite.org_role,
+        access_token=auth_token,
     )
 
 

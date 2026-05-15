@@ -18,7 +18,8 @@ Returns the Client object so downstream code can read client.id, client.apps, et
 from fastapi import Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from models import Client, User, UserClient, get_db
+from models import Client, User, get_db
+from services.access import check_client_access
 from services.auth_service import get_current_user
 
 
@@ -30,14 +31,9 @@ def require_app(app_key: str):
         user: User = Depends(get_current_user),
         db: Session = Depends(get_db),
     ) -> Client:
-        # Verify user has access to client
-        link = (
-            db.query(UserClient)
-            .filter(UserClient.user_id == user.id, UserClient.client_id == client_id)
-            .first()
-        )
-        if not link:
-            raise HTTPException(403, "Access denied")
+        # Phase E.C.2 — delegate access via services/access so org_user_clients
+        # is recognized alongside the legacy user_clients fallback.
+        check_client_access(client_id, user, db)
 
         client = db.query(Client).filter(Client.id == client_id).first()
         if not client:

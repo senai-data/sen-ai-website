@@ -36,9 +36,12 @@ try {
 // the API can scope `GET /api/clients/` to the user's currently-selected
 // workspace. The cookie is HttpOnly and only set after `POST /api/organizations/active`.
 const activeOrgCookie = Astro.cookies.get('active_organization_id')?.value;
-const upstreamCookie = activeOrgCookie
-  ? `token=${token}; active_organization_id=${activeOrgCookie}`
-  : `token=${token}`;
+const activeClientCookie = Astro.cookies.get('active_client_id')?.value;
+const upstreamCookie = [
+  `token=${token}`,
+  activeOrgCookie ? `active_organization_id=${activeOrgCookie}` : null,
+  activeClientCookie ? `active_client_id=${activeClientCookie}` : null,
+].filter(Boolean).join('; ');
 
 // Phase E.C.2 — fetch organizations the user belongs to (drives the header
 // switcher). Failure is non-fatal : the rest of the dashboard still renders.
@@ -96,8 +99,15 @@ try {
   isSuperadmin = adminRes.ok;
 } catch {}
 
-// Dynamic nav based on client.apps
+// Dynamic nav based on client.apps.
+// Phase E.C.3 — "Workspaces" entry surfaces only when the active org has
+// 2+ clients (the cross-client view is per-org ; multi-org without multi-
+// client adds nothing because the dropdown already handles org switching).
+// Hidden for solo users (Hick's Law).
+const activeOrgClientCount = activeOrg?.client_count ?? 0;
+const showWorkspacesNav = activeOrgClientCount >= 2;
 const allNav = [
+  ...(showWorkspacesNav ? [{ id: 'workspaces', label: 'Workspaces', href: '/app/org', icon: 'workspaces', always: true }] : []),
   { id: 'dashboard', label: 'Dashboard', href: '/app/dashboard', icon: 'home', always: true },
   { id: 'scans', label: 'AI Scan', href: '/app/scans', icon: 'search', app: 'ai_scan' },
   { id: 'local-business', label: 'Local Business', href: '/app/local-business', icon: 'tag', app: 'local_business' },
@@ -116,6 +126,7 @@ const icons = {
   globe: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"/>',
   settings: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>',
   logout: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>',
+  workspaces: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 7h4v4H3V7zm0 6h4v4H3v-4zm6-6h4v4H9V7zm0 6h4v4H9v-4zm6-6h4v4h-4V7zm0 6h4v4h-4v-4z"/>',
 };
 ---
 
@@ -209,6 +220,7 @@ const icons = {
                   <button
                     type="button"
                     data-org-id={org.id}
+                    data-client-count={org.client_count}
                     class:list={[
                       'org-switch-btn w-full flex items-center gap-2.5 px-2.5 py-2 hover:bg-white/5 transition-colors text-left',
                       org.is_active && 'bg-white/[0.03]',
@@ -348,12 +360,20 @@ const icons = {
       window.location.href = '/login';
     });
 
-    // Phase E.C.2 — org switcher : POST sets the HttpOnly cookie server-side,
-    // then a full reload picks up the new scope across every SSR fetch.
+    // Phase E.C.2 + C.3 — org switcher.
+    // POST sets the HttpOnly cookie server-side, then a full reload picks up
+    // the new scope across every SSR fetch. Switching ALSO clears the
+    // active_client_id cookie : a client pinned in org A would be a stale
+    // pointer in org B (resolve_active_client_id catches it server-side too,
+    // but clearing here keeps cookies honest and avoids a brief flicker).
+    // Destination : /app/org for 2+ client orgs (the agency view earns the
+    // first impression), else /app/dashboard (1 client → cross-client view
+    // adds nothing).
     document.querySelectorAll('.org-switch-btn').forEach(btn => {
       btn.addEventListener('click', async () => {
         const orgId = btn.getAttribute('data-org-id');
         if (!orgId) return;
+        const clientCount = parseInt(btn.getAttribute('data-client-count') || '0', 10);
         btn.setAttribute('disabled', 'true');
         try {
           const res = await fetch('/api/organizations/active', {
@@ -362,7 +382,8 @@ const icons = {
             body: JSON.stringify({ organization_id: orgId }),
           });
           if (res.ok) {
-            window.location.href = '/app/dashboard';
+            try { await fetch('/api/clients/active', { method: 'DELETE' }); } catch (e) {}
+            window.location.href = clientCount >= 2 ? '/app/org' : '/app/dashboard';
           } else {
             btn.removeAttribute('disabled');
           }

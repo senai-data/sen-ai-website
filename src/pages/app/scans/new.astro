@@ -21,7 +21,12 @@ if (!token) return Astro.redirect('/login');
 let clientId = null;
 try {
   const activeOrgCookie = Astro.cookies.get('active_organization_id')?.value;
-  const upstreamCookie = activeOrgCookie ? `token=${token}; active_organization_id=${activeOrgCookie}` : `token=${token}`;
+  const activeClientCookie = Astro.cookies.get('active_client_id')?.value;
+  const upstreamCookie = [
+    `token=${token}`,
+    activeOrgCookie ? `active_organization_id=${activeOrgCookie}` : null,
+    activeClientCookie ? `active_client_id=${activeClientCookie}` : null,
+  ].filter(Boolean).join('; ');
   const res = await fetch('http://api:8000/api/clients/', {
     headers: { Cookie: upstreamCookie },
   });

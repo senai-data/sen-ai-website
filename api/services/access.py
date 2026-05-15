@@ -167,6 +167,34 @@ def resolve_active_organization_id(user, db: Session, cookie_value: str | None) 
     return None
 
 
+def resolve_active_client_id(
+    user, db: Session, cookie_value: str | None, scope_organization_id: str | None = None,
+) -> str | None:
+    """Phase E.C.3 — resolve the user's "current workspace" client within
+    the active organization.
+
+    Priority :
+      1. Explicit cookie, IF the user still has client-level access AND
+         (when scope_organization_id is given) the client belongs to that org.
+      2. None — caller decides the default ordering.
+
+    The optional `scope_organization_id` argument prevents a stale cookie
+    from one org from leaking into another after an org switch : if the
+    cookie points at client_X (in org A) but we're currently scoped to
+    org B, return None instead of leaking the client through.
+    """
+    if not user or not cookie_value:
+        return None
+    role = get_user_client_role(cookie_value, user, db)
+    if role is None:
+        return None
+    if scope_organization_id:
+        client = db.query(Client).filter(Client.id == cookie_value).first()
+        if not client or str(client.organization_id) != scope_organization_id:
+            return None
+    return cookie_value
+
+
 def list_user_organizations(user, db: Session) -> list[Organization]:
     """All orgs the user is a member of, ordered alphabetically by name.
 

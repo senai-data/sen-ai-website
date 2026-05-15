@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Cookie, Depends, HTTPException, Request
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response
 from services.rate_limit import limiter
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -8,7 +8,10 @@ from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
 from models import Client, ClientBrand, ClientBrandPage, ClientCredit, Job, ScanBrandClassification, UserClient, get_db
-from services.access import list_user_clients, resolve_active_organization_id
+from services.access import (
+    check_client_access, list_user_clients,
+    resolve_active_client_id, resolve_active_organization_id,
+)
 from services.auth_service import get_current_user
 from services.request_context import current_request_method
 from services.sanitize import strip_tags
@@ -48,6 +51,7 @@ class ClientCreate(BaseModel):
 @router.get("/", response_model=list[ClientResponse])
 async def list_clients(
     active_organization_id: str | None = Cookie(default=None),
+    active_client_id: str | None = Cookie(default=None),
     user=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -64,7 +68,48 @@ async def list_clients(
         # backfill, but if it does, fall back to the union so the user is
         # never stuck with zero workspaces).
         clients = list_user_clients(user, db, organization_id=None)
+
+    # Phase E.C.3 — when the user has pinned an active client (via the
+    # workspace switcher on /app/org), float it to index 0 so legacy pages
+    # that do `clients[0]?.id` automatically pick the right workspace.
+    # Stale cookie pointing at another org's client → resolve_active_client_id
+    # returns None, no reordering happens.
+    effective_client_id = resolve_active_client_id(
+        user, db, active_client_id, scope_organization_id=effective_org_id,
+    )
+    if effective_client_id:
+        clients = sorted(clients, key=lambda c: 0 if str(c.id) == effective_client_id else 1)
+
     return [ClientResponse(id=str(c.id), name=c.name, brand=c.brand, apps=c.apps) for c in clients]
+
+
+class SetActiveClientRequest(BaseModel):
+    client_id: str
+
+
+@router.post("/active")
+async def set_active_client(
+    req: SetActiveClientRequest,
+    response: Response,
+    user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Pin a client as the active workspace. Same HttpOnly-cookie pattern as
+    /api/organizations/active. Use case : agency user with 5 clients in one
+    org wants /app/dashboard to land on client #3 every time."""
+    check_client_access(req.client_id, user, db)
+    response.set_cookie(
+        "active_client_id", req.client_id,
+        httponly=True, secure=True, samesite="lax",
+        max_age=60 * 60 * 24 * 180, path="/",
+    )
+    return {"ok": True, "client_id": req.client_id}
+
+
+@router.delete("/active")
+async def clear_active_client(response: Response, user=Depends(get_current_user)):
+    response.delete_cookie("active_client_id", path="/")
+    return {"ok": True}
 
 
 @router.post("/")

@@ -1,0 +1,243 @@
+---
+/**
+ * Cross-client overview — Phase E.C.3.
+ *
+ * Agency-style view : aggregate KPIs across the active organization,
+ * one row per client, click-through to drill into a workspace.
+ *
+ * UX Laws :
+ * - Jakob's Law : same KPI card pattern as /app/dashboard
+ * - Miller's Law : 4 totals max (clients, scans, opps critique, avg visibility)
+ * - Goal-Gradient : letter grade per client gives an at-a-glance "is this on fire ?" read
+ * - Von Restorff : red opps_critique badge stands out
+ * - Hick's Law : clicking a row sets active_client_id + redirects to /app/dashboard
+ */
+export const prerender = false;
+import DashboardLayout from '../../layouts/DashboardLayout.astro';
+
+const token = Astro.cookies.get('token')?.value;
+if (!token) return Astro.redirect('/login');
+
+const activeOrgCookie = Astro.cookies.get('active_organization_id')?.value;
+const activeClientCookie = Astro.cookies.get('active_client_id')?.value;
+const upstreamCookie = [
+  `token=${token}`,
+  activeOrgCookie ? `active_organization_id=${activeOrgCookie}` : null,
+  activeClientCookie ? `active_client_id=${activeClientCookie}` : null,
+].filter(Boolean).join('; ');
+
+// Fetch list of orgs to find the active one — same shape used by DashboardLayout
+type OrgItem = {
+  id: string; name: string; slug: string | null; is_personal: boolean;
+  role: string | null; member_count: number; client_count: number; is_active: boolean;
+};
+let activeOrg: OrgItem | null = null;
+try {
+  const r = await fetch('http://api:8000/api/organizations/', {
+    headers: { Cookie: upstreamCookie },
+    signal: AbortSignal.timeout(3000),
+  });
+  if (r.ok) {
+    const orgs: OrgItem[] = await r.json();
+    activeOrg = orgs.find(o => o.is_active) || orgs[0] || null;
+  }
+} catch {}
+
+if (!activeOrg) return Astro.redirect('/login');
+
+// Fetch the overview for the active org
+type ClientRow = {
+  id: string; name: string; brand: string | null;
+  scan_count: number; scans_completed: number; last_scan_at: string | null;
+  opportunities_critique: number; visibility_rate: number | null;
+};
+type Overview = {
+  org: { id: string; name: string; is_personal: boolean };
+  totals: { clients: number; scans_completed: number; opportunities_critique: number; avg_visibility: number | null };
+  clients: ClientRow[];
+};
+let overview: Overview | null = null;
+try {
+  const r = await fetch(`http://api:8000/api/organizations/${activeOrg.id}/overview`, {
+    headers: { Cookie: upstreamCookie },
+    signal: AbortSignal.timeout(3000),
+  });
+  if (r.ok) overview = await r.json();
+} catch {}
+
+// Mono-client orgs : the cross-client view has no value, send the user straight
+// to the single workspace's dashboard. Saves one redundant click.
+if (overview && overview.clients.length < 2 && overview.clients[0]) {
+  return Astro.redirect('/app/dashboard');
+}
+
+function getGrade(rate: number | null) {
+  if (rate === null) return { letter: '?', color: 'gray', label: 'No data' };
+  if (rate >= 50) return { letter: 'A', color: 'emerald', label: 'Excellent' };
+  if (rate >= 30) return { letter: 'B', color: 'blue', label: 'Good' };
+  if (rate >= 15) return { letter: 'C', color: 'amber', label: 'Average' };
+  if (rate >= 5)  return { letter: 'D', color: 'orange', label: 'Low' };
+  return { letter: 'F', color: 'red', label: 'Critical' };
+}
+
+function relativeDate(iso: string | null): string {
+  if (!iso) return 'Never';
+  const ms = Date.now() - new Date(iso).getTime();
+  const days = Math.floor(ms / 86400000);
+  if (days < 1) return 'Today';
+  if (days < 2) return 'Yesterday';
+  if (days < 30) return `${days}d ago`;
+  if (days < 365) return `${Math.floor(days / 30)}mo ago`;
+  return `${Math.floor(days / 365)}y ago`;
+}
+---
+
+<DashboardLayout title={`${activeOrg.name} — workspaces`} activeSection="workspaces">
+  <div class="p-8 max-w-7xl">
+
+    <div class="mb-8">
+      <h1 class="text-2xl font-bold text-charcoal-dark">{activeOrg.name}</h1>
+      <p class="text-charcoal-light mt-1">
+        {overview?.totals.clients ?? 0} workspace{overview?.totals.clients === 1 ? '' : 's'} ·
+        {overview?.totals.scans_completed ?? 0} scan{overview?.totals.scans_completed === 1 ? '' : 's'} completed
+      </p>
+    </div>
+
+    {/* KPI cards — Miller's Law (4 max) */}
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+      <div class="bg-white rounded-lg p-5 border border-gray-200">
+        <div class="text-[11px] uppercase tracking-wider text-gray-500 mb-2">Workspaces</div>
+        <div class="text-3xl font-bold text-charcoal-dark">{overview?.totals.clients ?? 0}</div>
+      </div>
+      <div class="bg-white rounded-lg p-5 border border-gray-200">
+        <div class="text-[11px] uppercase tracking-wider text-gray-500 mb-2">Scans completed</div>
+        <div class="text-3xl font-bold text-charcoal-dark">{overview?.totals.scans_completed ?? 0}</div>
+      </div>
+      <div class="bg-white rounded-lg p-5 border border-gray-200">
+        <div class="text-[11px] uppercase tracking-wider text-gray-500 mb-2">Critical opportunities</div>
+        <div class={`text-3xl font-bold ${(overview?.totals.opportunities_critique ?? 0) > 0 ? 'text-red-600' : 'text-charcoal-dark'}`}>
+          {overview?.totals.opportunities_critique ?? 0}
+        </div>
+      </div>
+      <div class="bg-white rounded-lg p-5 border border-gray-200">
+        <div class="text-[11px] uppercase tracking-wider text-gray-500 mb-2">Avg visibility</div>
+        <div class="text-3xl font-bold text-charcoal-dark">
+          {overview?.totals.avg_visibility !== null && overview?.totals.avg_visibility !== undefined
+            ? `${overview.totals.avg_visibility}%`
+            : '—'}
+        </div>
+      </div>
+    </div>
+
+    {/* Clients table */}
+    <div class="bg-white rounded-lg border border-gray-200 overflow-hidden">
+      <div class="px-5 py-4 border-b border-gray-200">
+        <h2 class="text-base font-semibold text-charcoal-dark">Workspaces</h2>
+      </div>
+      {overview && overview.clients.length > 0 ? (
+        <table class="w-full">
+          <thead class="bg-gray-50 text-[11px] uppercase tracking-wider text-gray-500">
+            <tr>
+              <th class="px-5 py-3 text-left font-medium">Name</th>
+              <th class="px-5 py-3 text-left font-medium">Grade</th>
+              <th class="px-5 py-3 text-right font-medium">Visibility</th>
+              <th class="px-5 py-3 text-right font-medium">Scans</th>
+              <th class="px-5 py-3 text-right font-medium">Critical opps</th>
+              <th class="px-5 py-3 text-right font-medium">Last scan</th>
+              <th class="px-5 py-3"></th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-100 text-sm">
+            {overview.clients.map(c => {
+              const grade = getGrade(c.visibility_rate);
+              const colorClass = {
+                emerald: 'bg-emerald-100 text-emerald-700',
+                blue: 'bg-blue-100 text-blue-700',
+                amber: 'bg-amber-100 text-amber-700',
+                orange: 'bg-orange-100 text-orange-700',
+                red: 'bg-red-100 text-red-700',
+                gray: 'bg-gray-100 text-gray-500',
+              }[grade.color];
+              return (
+                <tr
+                  class="hover:bg-gray-50 cursor-pointer client-pick group"
+                  data-client-id={c.id}
+                >
+                  <td class="px-5 py-4">
+                    <div class="font-medium text-charcoal-dark">{c.name}</div>
+                    {c.brand && <div class="text-xs text-gray-500">{c.brand}</div>}
+                  </td>
+                  <td class="px-5 py-4">
+                    <span class={`inline-flex items-center justify-center w-8 h-8 rounded-full text-xs font-bold ${colorClass}`} title={grade.label}>
+                      {grade.letter}
+                    </span>
+                  </td>
+                  <td class="px-5 py-4 text-right text-charcoal-dark">
+                    {c.visibility_rate !== null ? `${c.visibility_rate}%` : '—'}
+                  </td>
+                  <td class="px-5 py-4 text-right text-charcoal-dark">
+                    {c.scans_completed}
+                    {c.scan_count > c.scans_completed && (
+                      <span class="text-xs text-gray-400"> / {c.scan_count}</span>
+                    )}
+                  </td>
+                  <td class="px-5 py-4 text-right">
+                    {c.opportunities_critique > 0 ? (
+                      <span class="text-red-600 font-medium">{c.opportunities_critique}</span>
+                    ) : (
+                      <span class="text-gray-400">0</span>
+                    )}
+                  </td>
+                  <td class="px-5 py-4 text-right text-gray-500 text-xs">
+                    {relativeDate(c.last_scan_at)}
+                  </td>
+                  <td class="px-5 py-4 text-right">
+                    <span class="inline-flex items-center gap-1 text-xs font-medium text-coral group-hover:underline">
+                      Open
+                      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                      </svg>
+                    </span>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      ) : (
+        <div class="px-5 py-12 text-center text-gray-500">
+          <div class="text-sm">This organization has no workspaces yet.</div>
+        </div>
+      )}
+    </div>
+  </div>
+
+  <script is:inline>
+    // Pick a workspace → set active_client_id cookie, then go to /app/dashboard.
+    // Same full-reload pattern as the org switcher in DashboardLayout :
+    // server-side HttpOnly cookie + SSR reads it on next request.
+    // `is:inline` so Astro doesn't hoist this into the page-level bundle —
+    // we need it to run on the same render as the SSR-rendered rows.
+    document.querySelectorAll('.client-pick').forEach(function (row) {
+      row.addEventListener('click', async function () {
+        const clientId = row.getAttribute('data-client-id');
+        if (!clientId) return;
+        row.classList.add('opacity-60', 'pointer-events-none');
+        try {
+          const res = await fetch('/api/clients/active', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ client_id: clientId }),
+          });
+          if (res.ok) {
+            window.location.href = '/app/dashboard';
+          } else {
+            row.classList.remove('opacity-60', 'pointer-events-none');
+          }
+        } catch (e) {
+          row.classList.remove('opacity-60', 'pointer-events-none');
+        }
+      });
+    });
+  </script>
+</DashboardLayout>

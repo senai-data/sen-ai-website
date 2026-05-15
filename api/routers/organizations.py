@@ -20,12 +20,12 @@ import uuid
 
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Response
 from pydantic import BaseModel
-from sqlalchemy import func
+from sqlalchemy import cast, func, Float, Integer
 from sqlalchemy.orm import Session
 
 from config import settings
 from models import (
-    Client, Organization, OrganizationUser, OrgUserClient, get_db,
+    Client, Organization, OrganizationUser, OrgUserClient, Scan, get_db,
 )
 from services.access import list_user_organizations, resolve_active_organization_id
 from services.auth_service import get_current_user
@@ -183,3 +183,123 @@ async def clear_active_organization(response: Response, user=Depends(get_current
     """
     response.delete_cookie(ACTIVE_ORG_COOKIE, path="/")
     return {"ok": True}
+
+
+# Phase E.C.3 — cross-client overview for the /app/org page
+
+@router.get("/{org_id}/overview")
+async def organization_overview(
+    org_id: str,
+    user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Cross-client aggregate of one organization.
+
+    Per-client : last completed scan, scan count, total critical opportunities,
+    rough visibility score. Org-level : totals + visibility average across
+    own-domain completed scans only (competitor scans skew the score).
+
+    Single-trip SQL — one GROUP BY per metric, no N+1 per client. We use
+    Postgres JSONB operators to read `summary->'opportunities'->>'critique'`
+    and `summary->>'brand_mention_rate'` directly in aggregates.
+    """
+    try:
+        org_uuid = uuid.UUID(org_id)
+    except (ValueError, TypeError):
+        raise HTTPException(400, "Malformed org_id")
+
+    membership = (
+        db.query(OrganizationUser)
+        .filter(
+            OrganizationUser.organization_id == org_uuid,
+            OrganizationUser.user_id == user.id,
+        )
+        .first()
+    )
+    if not membership:
+        raise HTTPException(403, "You are not a member of this organization")
+
+    org = db.query(Organization).filter(Organization.id == org_uuid).first()
+    if not org:
+        raise HTTPException(404, "Organization not found")
+
+    clients = (
+        db.query(Client)
+        .filter(Client.organization_id == org_uuid)
+        .order_by(Client.name.asc())
+        .all()
+    )
+
+    client_ids = [c.id for c in clients]
+    if not client_ids:
+        return {
+            "org": {"id": str(org.id), "name": org.name, "is_personal": bool(org.is_personal)},
+            "totals": {"clients": 0, "scans_completed": 0, "opportunities_critique": 0, "avg_visibility": None},
+            "clients": [],
+        }
+
+    # Per-client aggregates : scan counts, last completed, opportunities sum.
+    # Visibility avg is computed across completed scans only ; we coerce the
+    # JSONB scalar to numeric defensively (legacy summary blobs may be int OR
+    # float OR null).
+    visibility_expr = func.coalesce(
+        cast(Scan.summary["brand_mention_rate"].astext, Float),
+        cast(Scan.summary["citation_rate"].astext, Float),
+    )
+    opportunities_expr = cast(
+        Scan.summary["opportunities"]["critique"].astext, Integer,
+    )
+
+    rows = (
+        db.query(
+            Scan.client_id,
+            func.count(Scan.id).label("scan_count"),
+            func.count(Scan.id).filter(Scan.status == "completed").label("scans_completed"),
+            func.max(Scan.completed_at).label("last_scan_at"),
+            func.coalesce(
+                func.sum(func.coalesce(opportunities_expr, 0))
+                .filter(Scan.status == "completed"),
+                0,
+            ).label("opps_critique"),
+            func.avg(visibility_expr).filter(Scan.status == "completed").label("avg_visibility"),
+        )
+        .filter(Scan.client_id.in_(client_ids))
+        .group_by(Scan.client_id)
+        .all()
+    )
+    by_client = {str(r.client_id): r for r in rows}
+
+    client_payload = []
+    for c in clients:
+        row = by_client.get(str(c.id))
+        client_payload.append({
+            "id": str(c.id),
+            "name": c.name,
+            "brand": c.brand,
+            "scan_count": int(row.scan_count) if row else 0,
+            "scans_completed": int(row.scans_completed) if row else 0,
+            "last_scan_at": row.last_scan_at.isoformat() if row and row.last_scan_at else None,
+            "opportunities_critique": int(row.opps_critique) if row and row.opps_critique is not None else 0,
+            "visibility_rate": (
+                round(float(row.avg_visibility), 1)
+                if row and row.avg_visibility is not None else None
+            ),
+        })
+
+    # Org-level totals : aggregate across the per-client payload to keep the
+    # response self-consistent (instead of a separate query that could drift).
+    totals_scans_completed = sum(c["scans_completed"] for c in client_payload)
+    totals_opportunities = sum(c["opportunities_critique"] for c in client_payload)
+    vis_values = [c["visibility_rate"] for c in client_payload if c["visibility_rate"] is not None]
+    totals_visibility = round(sum(vis_values) / len(vis_values), 1) if vis_values else None
+
+    return {
+        "org": {"id": str(org.id), "name": org.name, "is_personal": bool(org.is_personal)},
+        "totals": {
+            "clients": len(clients),
+            "scans_completed": totals_scans_completed,
+            "opportunities_critique": totals_opportunities,
+            "avg_visibility": totals_visibility,
+        },
+        "clients": client_payload,
+    }

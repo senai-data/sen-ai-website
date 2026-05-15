@@ -1,0 +1,249 @@
+---
+/**
+ * Accept invitation page — Phase E.C.4.
+ *
+ * URL : /invite/{token}. Always available (no auth gate at the route
+ * level) because the invitee may not be signed in yet — we render the
+ * preview unauthenticated, then route them to /login?next=... or to
+ * the Accept button depending on session state.
+ *
+ * 4 visible states :
+ *   - Unknown token → 404-style "not found"
+ *   - Invalid (expired / revoked / accepted) → friendly explanation
+ *   - Valid + not signed in → sign-in CTA preserving the next URL
+ *   - Valid + signed in + email match → Accept button
+ *   - Valid + signed in + email mismatch → "sign out and sign back in" hint
+ *
+ * UX Laws :
+ *   - Hick's Law : single primary action per state
+ *   - Cognitive Load : show org name + inviter + role upfront so the
+ *     invitee knows what they're accepting before they decide
+ *   - Postel's Law : forgive bad tokens with explanations, not 500s
+ */
+export const prerender = false;
+import AppLayout from '../../layouts/AppLayout.astro';
+
+const { invite_token } = Astro.params;
+const safeToken = (invite_token || '').replace(/[^A-Za-z0-9_\-]/g, '');
+
+type Preview = {
+  organization_name: string;
+  organization_id: string;
+  org_role: string;
+  email: string;
+  inviter_name: string | null;
+  expires_at: string;
+  is_valid: boolean;
+  invalid_reason: 'expired' | 'revoked' | 'accepted' | null;
+};
+
+let preview: Preview | null = null;
+let notFound = false;
+try {
+  const r = await fetch(`http://api:8000/api/invitations/${safeToken}/preview`, {
+    signal: AbortSignal.timeout(3000),
+  });
+  if (r.status === 404) {
+    notFound = true;
+  } else if (r.ok) {
+    preview = await r.json();
+  }
+} catch {
+  notFound = true;
+}
+
+// Read auth state from the token cookie. We don't enforce login here —
+// the page renders for both authed and unauthed visitors with adapted CTAs.
+const authCookie = Astro.cookies.get('token')?.value;
+let signedInEmail = '';
+if (authCookie) {
+  try {
+    const payload = JSON.parse(atob(authCookie.split('.')[1]));
+    signedInEmail = (payload.email || '').toLowerCase();
+  } catch {}
+}
+
+const inviteEmail = (preview?.email || '').toLowerCase();
+const isSignedIn = Boolean(signedInEmail);
+const isEmailMatch = isSignedIn && signedInEmail === inviteEmail;
+
+// Pre-build the sign-in URL with a `next` param so post-login the user lands
+// right back here. The `next` param is consumed by login.astro.
+const nextUrl = `/invite/${safeToken}`;
+const signInUrl = `/login?next=${encodeURIComponent(nextUrl)}`;
+
+function reasonLabel(r: string | null | undefined): string {
+  if (r === 'expired') return 'This invitation has expired.';
+  if (r === 'revoked') return 'This invitation has been revoked by the organization.';
+  if (r === 'accepted') return 'This invitation has already been accepted.';
+  return 'This invitation is no longer valid.';
+}
+
+function roleLabel(r: string): string {
+  return { owner: 'Owner', admin: 'Admin', member: 'Member' }[r] || r;
+}
+---
+
+<AppLayout title="Accept invitation">
+  <div class="min-h-screen flex items-center justify-center px-4 py-12 bg-gray-50">
+    <div class="w-full max-w-md">
+      <div class="text-center mb-8">
+        <a href="/">
+          <img src="/logo-sen-ai-fr.png" alt="sen-ai.fr" class="h-10 mx-auto mb-4" />
+        </a>
+      </div>
+
+      <div class="bg-white rounded-2xl shadow-lg p-8">
+
+        {notFound && (
+          <div class="text-center">
+            <div class="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center mx-auto mb-4">
+              <svg class="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
+            <h1 class="text-xl font-bold text-charcoal-dark mb-2">Invitation not found</h1>
+            <p class="text-sm text-charcoal-light mb-6">
+              This invitation link is invalid or has been removed. Ask the person who invited you to send a fresh link.
+            </p>
+            <a href="/login" class="inline-block px-6 py-2.5 bg-coral text-white text-sm font-medium rounded-lg hover:bg-coral-dark transition-colors">
+              Go to sign in
+            </a>
+          </div>
+        )}
+
+        {preview && !preview.is_valid && (
+          <div class="text-center">
+            <div class="w-12 h-12 rounded-full bg-amber-100 flex items-center justify-center mx-auto mb-4">
+              <svg class="w-6 h-6 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+            </div>
+            <h1 class="text-xl font-bold text-charcoal-dark mb-2">Invitation unavailable</h1>
+            <p class="text-sm text-charcoal-light mb-1">
+              {reasonLabel(preview.invalid_reason)}
+            </p>
+            <p class="text-xs text-charcoal-light mb-6">
+              Originally sent to <strong>{preview.email}</strong> for <strong>{preview.organization_name}</strong>.
+            </p>
+            <a href="/login" class="inline-block px-6 py-2.5 bg-charcoal-dark text-white text-sm font-medium rounded-lg hover:bg-charcoal transition-colors">
+              Go to sign in
+            </a>
+          </div>
+        )}
+
+        {preview && preview.is_valid && (
+          <div>
+            <h1 class="text-xl font-bold text-charcoal-dark mb-1 text-center">
+              Join {preview.organization_name}
+            </h1>
+            <p class="text-sm text-charcoal-light mb-6 text-center">
+              {preview.inviter_name ? `${preview.inviter_name} invited you` : 'You\'ve been invited'} as <strong>{roleLabel(preview.org_role)}</strong>.
+            </p>
+
+            <div class="bg-gray-50 rounded-lg p-4 mb-6 text-sm">
+              <div class="flex justify-between py-1">
+                <span class="text-charcoal-light">Email</span>
+                <span class="font-medium text-charcoal-dark">{preview.email}</span>
+              </div>
+              <div class="flex justify-between py-1">
+                <span class="text-charcoal-light">Role</span>
+                <span class="font-medium text-charcoal-dark">{roleLabel(preview.org_role)}</span>
+              </div>
+              <div class="flex justify-between py-1">
+                <span class="text-charcoal-light">Workspace</span>
+                <span class="font-medium text-charcoal-dark">{preview.organization_name}</span>
+              </div>
+            </div>
+
+            {!isSignedIn && (
+              <div>
+                <a
+                  href={signInUrl}
+                  class="block w-full text-center py-3 bg-coral text-white font-medium rounded-lg hover:bg-coral-dark transition-colors"
+                >
+                  Sign in to accept
+                </a>
+                <p class="text-xs text-charcoal-light mt-4 text-center">
+                  Sign in with <strong>{preview.email}</strong> — that's the email this invitation was sent to.
+                </p>
+              </div>
+            )}
+
+            {isSignedIn && isEmailMatch && (
+              <div>
+                <button
+                  id="accept-btn"
+                  class="w-full py-3 bg-coral text-white font-medium rounded-lg hover:bg-coral-dark transition-colors"
+                >
+                  Accept invitation
+                </button>
+                <p id="accept-error" class="text-sm text-red-600 mt-3 text-center hidden"></p>
+              </div>
+            )}
+
+            {isSignedIn && !isEmailMatch && (
+              <div class="text-center">
+                <p class="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4">
+                  You're signed in as <strong>{signedInEmail}</strong>, but this invitation is for <strong>{preview.email}</strong>.
+                </p>
+                <p class="text-xs text-charcoal-light mb-4">
+                  Sign out and sign back in with the invited email to accept.
+                </p>
+                <button
+                  id="signout-btn"
+                  class="w-full py-2.5 border border-gray-300 text-charcoal-dark text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors"
+                >
+                  Sign out
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  </div>
+
+  <script is:inline define:vars={{ safeToken, nextUrl }}>
+    const acceptBtn = document.getElementById('accept-btn');
+    if (acceptBtn) {
+      acceptBtn.addEventListener('click', async () => {
+        acceptBtn.setAttribute('disabled', 'true');
+        acceptBtn.textContent = 'Accepting…';
+        const err = document.getElementById('accept-error');
+        err.classList.add('hidden');
+        try {
+          const res = await fetch(`/api/invitations/${safeToken}/accept`, {
+            method: 'POST',
+          });
+          if (res.ok) {
+            // Server side-effect : active_organization_id cookie is set to
+            // the just-joined org. Landing on /app/org gives the new member
+            // the cross-client view (or /app/dashboard if 1-client org).
+            window.location.href = '/app/org';
+          } else {
+            const data = await res.json().catch(() => ({}));
+            err.textContent = data.detail || 'Could not accept this invitation. Please try again or contact the organization owner.';
+            err.classList.remove('hidden');
+            acceptBtn.removeAttribute('disabled');
+            acceptBtn.textContent = 'Accept invitation';
+          }
+        } catch (e) {
+          err.textContent = 'Network error. Please try again.';
+          err.classList.remove('hidden');
+          acceptBtn.removeAttribute('disabled');
+          acceptBtn.textContent = 'Accept invitation';
+        }
+      });
+    }
+
+    const signoutBtn = document.getElementById('signout-btn');
+    if (signoutBtn) {
+      signoutBtn.addEventListener('click', async () => {
+        try { await fetch('/api/auth/logout', { method: 'POST' }); } catch (e) {}
+        // After signout, send the user to login pre-filled to come back here.
+        window.location.href = '/login?next=' + encodeURIComponent(nextUrl);
+      });
+    }
+  </script>
+</AppLayout>

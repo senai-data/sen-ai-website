@@ -1,0 +1,334 @@
+---
+/**
+ * Org members + invitations — Phase E.C.4 UI.
+ *
+ * Owner/admin of the active org : invite teammates by email, see pending
+ * invitations, revoke, audit recent acceptance / revoke history.
+ *
+ * UX Laws :
+ *   - Cognitive Load : invite form + pending + audit cleanly separated
+ *   - Recognition over Recall : email + role + sent date for each invite
+ *   - Doherty Threshold : POST invite returns instantly, list refreshes
+ *     on success; no spinner-on-network round-trip blocking the UI
+ *   - Postel's Law : server validates email format ; client doesn't fight
+ *     the user about obviously-invalid input until submit
+ *
+ * Access control : page renders only for owner/admin of active org.
+ * Members (read-only) see a "you can't manage members" notice.
+ */
+export const prerender = false;
+import DashboardLayout from '../../../layouts/DashboardLayout.astro';
+
+const token = Astro.cookies.get('token')?.value;
+if (!token) return Astro.redirect('/login');
+
+const activeOrgCookie = Astro.cookies.get('active_organization_id')?.value;
+const activeClientCookie = Astro.cookies.get('active_client_id')?.value;
+const upstreamCookie = [
+  `token=${token}`,
+  activeOrgCookie ? `active_organization_id=${activeOrgCookie}` : null,
+  activeClientCookie ? `active_client_id=${activeClientCookie}` : null,
+].filter(Boolean).join('; ');
+
+// Resolve active org (same shape used by DashboardLayout)
+type OrgItem = {
+  id: string; name: string; slug: string | null; is_personal: boolean;
+  role: string | null; member_count: number; client_count: number; is_active: boolean;
+};
+let activeOrg: OrgItem | null = null;
+try {
+  const r = await fetch('http://api:8000/api/organizations/', {
+    headers: { Cookie: upstreamCookie },
+    signal: AbortSignal.timeout(3000),
+  });
+  if (r.ok) {
+    const orgs: OrgItem[] = await r.json();
+    activeOrg = orgs.find(o => o.is_active) || orgs[0] || null;
+  }
+} catch {}
+
+if (!activeOrg) return Astro.redirect('/login');
+
+const userRole = activeOrg.role;
+const canInvite = userRole === 'owner' || userRole === 'admin';
+
+// Pre-fetch invitations for the SSR render. We hit the API even for non-
+// admins so the page is consistent ; the role gate is enforced by the API
+// (returns 403) which we handle gracefully.
+type Invite = {
+  id: string; email: string; org_role: string;
+  invited_by_email: string | null;
+  created_at: string; expires_at: string;
+  accepted_at: string | null; revoked_at: string | null;
+  is_pending: boolean;
+};
+let invitations: Invite[] = [];
+let inviteFetchError = '';
+if (canInvite) {
+  try {
+    const r = await fetch(`http://api:8000/api/organizations/${activeOrg.id}/invitations`, {
+      headers: { Cookie: upstreamCookie },
+      signal: AbortSignal.timeout(3000),
+    });
+    if (r.ok) invitations = await r.json();
+    else inviteFetchError = `HTTP ${r.status}`;
+  } catch (e: any) {
+    inviteFetchError = e.message || 'Network error';
+  }
+}
+
+const pendingInvites = invitations.filter(i => i.is_pending);
+const recentInvites = invitations.filter(i => !i.is_pending);
+
+function relativeDate(iso: string | null): string {
+  if (!iso) return '—';
+  const ms = Date.now() - new Date(iso).getTime();
+  const days = Math.floor(ms / 86400000);
+  if (days < 1) {
+    const h = Math.floor(ms / 3600000);
+    return h < 1 ? 'just now' : `${h}h ago`;
+  }
+  if (days < 30) return `${days}d ago`;
+  return `${Math.floor(days / 30)}mo ago`;
+}
+
+function expiresIn(iso: string): string {
+  const ms = new Date(iso).getTime() - Date.now();
+  if (ms < 0) return 'expired';
+  const days = Math.floor(ms / 86400000);
+  if (days < 1) return 'expires today';
+  if (days === 1) return 'expires in 1 day';
+  return `expires in ${days}d`;
+}
+
+function roleLabel(r: string): string {
+  return { owner: 'Owner', admin: 'Admin', member: 'Member' }[r] || r;
+}
+---
+
+<DashboardLayout title={`${activeOrg.name} — Members`} activeSection="members">
+  <div class="p-8 max-w-4xl">
+
+    <div class="mb-8">
+      <h1 class="text-2xl font-bold text-charcoal-dark">Members</h1>
+      <p class="text-charcoal-light mt-1">
+        Manage who can access <strong>{activeOrg.name}</strong>.
+      </p>
+    </div>
+
+    {!canInvite && (
+      <div class="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-6 text-sm text-amber-900">
+        Your role is <strong>{userRole}</strong>. Only owners and admins can invite or remove members.
+      </div>
+    )}
+
+    {canInvite && (
+      <div class="bg-white rounded-xl border border-gray-200 p-6 mb-8">
+        <h2 class="text-base font-semibold text-charcoal-dark mb-1">Invite a teammate</h2>
+        <p class="text-xs text-charcoal-light mb-4">
+          They'll receive an email with a link to accept. Invitations expire after 7 days.
+        </p>
+        <form id="invite-form" class="space-y-3">
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div class="md:col-span-2">
+              <label class="block text-xs font-medium text-charcoal-light mb-1">Email</label>
+              <input
+                type="email" name="email" required
+                placeholder="teammate@company.com"
+                class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-coral/50 focus:border-coral"
+              />
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-charcoal-light mb-1">Role</label>
+              <select
+                name="org_role"
+                class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-coral/50 focus:border-coral bg-white"
+              >
+                <option value="member" selected>Member</option>
+                <option value="admin">Admin</option>
+                {userRole === 'owner' && <option value="owner">Owner</option>}
+              </select>
+            </div>
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-charcoal-light mb-1">Message (optional)</label>
+            <textarea
+              name="message" rows="2" maxlength="500"
+              placeholder="Hey, joining our team workspace…"
+              class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-coral/50 focus:border-coral"
+            ></textarea>
+          </div>
+          <div class="flex items-center justify-between">
+            <p id="invite-error" class="text-sm text-red-600 hidden"></p>
+            <p id="invite-success" class="text-sm text-emerald-600 hidden"></p>
+            <button
+              type="submit"
+              class="ml-auto px-5 py-2 bg-coral text-white text-sm font-medium rounded-lg hover:bg-coral-dark transition-colors disabled:opacity-60 disabled:pointer-events-none"
+            >
+              Send invitation
+            </button>
+          </div>
+        </form>
+      </div>
+    )}
+
+    {canInvite && (
+      <div class="bg-white rounded-xl border border-gray-200 overflow-hidden mb-6">
+        <div class="px-5 py-4 border-b border-gray-200 flex items-center justify-between">
+          <h2 class="text-base font-semibold text-charcoal-dark">Pending invitations</h2>
+          <span class="text-xs text-charcoal-light">{pendingInvites.length} pending</span>
+        </div>
+        {inviteFetchError && (
+          <div class="px-5 py-4 text-sm text-red-600">Couldn't load invitations ({inviteFetchError}).</div>
+        )}
+        {!inviteFetchError && pendingInvites.length === 0 && (
+          <div class="px-5 py-8 text-center text-sm text-charcoal-light">
+            No pending invitations. Send one above to add a teammate.
+          </div>
+        )}
+        {pendingInvites.length > 0 && (
+          <table class="w-full">
+            <thead class="bg-gray-50 text-[11px] uppercase tracking-wider text-gray-500">
+              <tr>
+                <th class="px-5 py-3 text-left font-medium">Email</th>
+                <th class="px-5 py-3 text-left font-medium">Role</th>
+                <th class="px-5 py-3 text-left font-medium">Sent</th>
+                <th class="px-5 py-3 text-left font-medium">Expires</th>
+                <th class="px-5 py-3"></th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100 text-sm">
+              {pendingInvites.map(inv => (
+                <tr>
+                  <td class="px-5 py-3 text-charcoal-dark">{inv.email}</td>
+                  <td class="px-5 py-3 text-charcoal-light">{roleLabel(inv.org_role)}</td>
+                  <td class="px-5 py-3 text-charcoal-light text-xs">{relativeDate(inv.created_at)}</td>
+                  <td class="px-5 py-3 text-charcoal-light text-xs">{expiresIn(inv.expires_at)}</td>
+                  <td class="px-5 py-3 text-right">
+                    <button
+                      type="button"
+                      data-invite-id={inv.id}
+                      class="invite-revoke-btn text-xs font-medium text-red-600 hover:underline"
+                    >
+                      Revoke
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    )}
+
+    {canInvite && recentInvites.length > 0 && (
+      <div x-data="{ open: false }" class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <button
+          @click="open = !open"
+          class="w-full px-5 py-4 flex items-center justify-between text-left hover:bg-gray-50 transition-colors"
+        >
+          <h2 class="text-base font-semibold text-charcoal-dark">
+            Recent activity
+            <span class="text-xs font-normal text-charcoal-light ml-2">{recentInvites.length} in last 30 days</span>
+          </h2>
+          <svg class="w-4 h-4 text-gray-400 transition-transform" :class="open && 'rotate-180'" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+          </svg>
+        </button>
+        <div x-show="open" x-cloak class="border-t border-gray-200">
+          <table class="w-full">
+            <thead class="bg-gray-50 text-[11px] uppercase tracking-wider text-gray-500">
+              <tr>
+                <th class="px-5 py-3 text-left font-medium">Email</th>
+                <th class="px-5 py-3 text-left font-medium">Role</th>
+                <th class="px-5 py-3 text-left font-medium">Status</th>
+                <th class="px-5 py-3 text-left font-medium">When</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100 text-sm">
+              {recentInvites.map(inv => {
+                const when = inv.accepted_at || inv.revoked_at || inv.expires_at;
+                const statusLabel = inv.accepted_at ? 'Accepted' : (inv.revoked_at ? 'Revoked' : 'Expired');
+                const statusColor = inv.accepted_at ? 'text-emerald-600' : (inv.revoked_at ? 'text-gray-500' : 'text-amber-600');
+                return (
+                  <tr>
+                    <td class="px-5 py-3 text-charcoal-dark">{inv.email}</td>
+                    <td class="px-5 py-3 text-charcoal-light">{roleLabel(inv.org_role)}</td>
+                    <td class={`px-5 py-3 font-medium text-xs ${statusColor}`}>{statusLabel}</td>
+                    <td class="px-5 py-3 text-charcoal-light text-xs">{relativeDate(when)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    )}
+  </div>
+
+  <script is:inline define:vars={{ orgId: activeOrg.id }}>
+    const inviteForm = document.getElementById('invite-form');
+    if (inviteForm) {
+      inviteForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const fd = new FormData(inviteForm);
+        const email = (fd.get('email') || '').toString().trim();
+        const org_role = (fd.get('org_role') || 'member').toString();
+        const message = (fd.get('message') || '').toString().trim() || null;
+        const btn = inviteForm.querySelector('button[type="submit"]');
+        const err = document.getElementById('invite-error');
+        const ok = document.getElementById('invite-success');
+        err.classList.add('hidden'); ok.classList.add('hidden');
+        btn.setAttribute('disabled', 'true');
+        btn.textContent = 'Sending…';
+        try {
+          const res = await fetch(`/api/organizations/${orgId}/invitations`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, org_role, message }),
+          });
+          if (res.ok) {
+            ok.textContent = `Invitation sent to ${email}.`;
+            ok.classList.remove('hidden');
+            inviteForm.reset();
+            setTimeout(() => window.location.reload(), 800);
+          } else {
+            const data = await res.json().catch(() => ({}));
+            err.textContent = typeof data.detail === 'string' ? data.detail : 'Could not send invitation.';
+            err.classList.remove('hidden');
+          }
+        } catch (e) {
+          err.textContent = 'Network error. Please try again.';
+          err.classList.remove('hidden');
+        } finally {
+          btn.removeAttribute('disabled');
+          btn.textContent = 'Send invitation';
+        }
+      });
+    }
+
+    document.querySelectorAll('.invite-revoke-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        if (!confirm('Revoke this invitation? The link in the email will stop working.')) return;
+        const inviteId = btn.getAttribute('data-invite-id');
+        btn.setAttribute('disabled', 'true');
+        btn.textContent = 'Revoking…';
+        try {
+          const res = await fetch(`/api/organizations/${orgId}/invitations/${inviteId}`, {
+            method: 'DELETE',
+          });
+          if (res.ok) {
+            window.location.reload();
+          } else {
+            btn.removeAttribute('disabled');
+            btn.textContent = 'Revoke';
+            alert('Could not revoke. Please refresh and try again.');
+          }
+        } catch (e) {
+          btn.removeAttribute('disabled');
+          btn.textContent = 'Revoke';
+        }
+      });
+    });
+  </script>
+</DashboardLayout>

@@ -3,6 +3,12 @@ export const prerender = false;
 import AppLayout from '../layouts/AppLayout.astro';
 
 const error = Astro.url.searchParams.get('error');
+// Phase E.C.4 — preserve a post-login destination across the login form.
+// Used by /invite/[token] to send unauthed visitors here then return them
+// to the accept page once signed in. Only relative paths are honored to
+// avoid open-redirect vulns.
+const rawNext = Astro.url.searchParams.get('next') || '';
+const safeNext = (rawNext.startsWith('/') && !rawNext.startsWith('//')) ? rawNext : '';
 ---
 
 <AppLayout title="Log in">
@@ -82,7 +88,7 @@ const error = Astro.url.searchParams.get('error');
     </div>
   </div>
 
-  <script type="module">
+  <script is:inline define:vars={{ safeNext }}>
     document.getElementById('login-form').addEventListener('submit', async (e) => {
       e.preventDefault();
       const email = document.getElementById('email').value;
@@ -97,9 +103,12 @@ const error = Astro.url.searchParams.get('error');
       if (res.ok) {
         const data = await res.json();
         document.cookie = `token=${data.access_token}; path=/; max-age=86400; SameSite=Lax`;
-        window.location.href = '/app/dashboard';
+        window.location.href = safeNext || '/app/dashboard';
       } else {
-        window.location.href = '/login?error=invalid';
+        const errorRedirect = safeNext
+          ? `/login?error=invalid&next=${encodeURIComponent(safeNext)}`
+          : '/login?error=invalid';
+        window.location.href = errorRedirect;
       }
     });
   </script>

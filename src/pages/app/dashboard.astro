@@ -29,12 +29,14 @@ const upstreamCookie = [
   activeClientCookie ? `active_client_id=${activeClientCookie}` : null,
 ].filter(Boolean).join('; ');
 
+let hasNoClientAccess = false;
 try {
   const clientsRes = await fetch('http://api:8000/api/clients/', {
     headers: { Cookie: upstreamCookie },
     signal: AbortSignal.timeout(3000),
   });
   const clients = clientsRes.ok ? await clientsRes.json() : [];
+  hasNoClientAccess = clients.length === 0;
   const clientId = clients[0]?.id;
 
   if (clientId) {
@@ -71,12 +73,16 @@ try {
 } catch {}
 
 // First-time user → redirect to onboarding.
-// Phase E.C.2 — skip the wizard for multi-org users : if they belong to 2+
-// orgs they have definitely been onboarded already, and a freshly-switched
-// empty workspace is just empty, not a sign they need the wizard. Without
-// this guard, switching to an empty agency org traps the user on /welcome
-// (which has no org switcher in its layout).
-let orgCount = 1;
+// Phase E.C.2/4 — only true first-timers go to the wizard. The wizard is
+// the "create your first workspace" flow ; anyone who already belongs to
+// an org (= came through an invite or backfill) has been onboarded and an
+// empty dashboard for them means "ask your admin to grant you a workspace",
+// not "set up your first scan". Without this guard :
+//   - C.2 : switching to an empty agency org traps the user on /welcome
+//   - C.4 : a freshly-invited member with 0 client access yet gets the
+//           wizard meant for new-account self-signups
+// /welcome has no DashboardLayout (no org switcher) so it's a dead-end.
+let orgCount = 0;
 try {
   const orgsRes = await fetch('http://api:8000/api/organizations/', {
     headers: { Cookie: upstreamCookie },
@@ -84,10 +90,10 @@ try {
   });
   if (orgsRes.ok) {
     const orgs = await orgsRes.json();
-    orgCount = Array.isArray(orgs) ? orgs.length : 1;
+    orgCount = Array.isArray(orgs) ? orgs.length : 0;
   }
 } catch {}
-if (scans.length === 0 && orgCount < 2) {
+if (scans.length === 0 && orgCount === 0) {
   return Astro.redirect('/welcome');
 }
 
@@ -145,7 +151,23 @@ function timeAgo(dateStr) {
 <DashboardLayout title="Dashboard" activeSection="dashboard">
   <div class="p-8 max-w-6xl">
 
-    {!isEmailVerified && (
+    {hasNoClientAccess && orgCount >= 1 && (
+      <div class="bg-blue-50 border border-blue-200 rounded-xl px-5 py-4 mb-6">
+        <div class="flex items-start gap-3">
+          <svg class="w-5 h-5 text-blue-600 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+          </svg>
+          <div>
+            <p class="text-sm font-medium text-blue-900">You haven't been added to a workspace yet</p>
+            <p class="text-xs text-blue-800 mt-1">
+              Ask your organization admin to grant you access to a workspace from the Members page. You'll see scans and content here once they do.
+            </p>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {!isEmailVerified && !hasNoClientAccess && (
       <div class="bg-amber-50 border border-amber-200 rounded-xl px-5 py-3 mb-6 flex items-center justify-between">
         <div class="flex items-center gap-3">
           <svg class="w-5 h-5 text-amber-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>

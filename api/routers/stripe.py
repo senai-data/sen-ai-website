@@ -123,12 +123,14 @@ async def create_checkout(request: Request, req: CheckoutRequest, user=Depends(g
     role = get_user_client_role(str(client.id), user, db)
     if role is None:
         raise HTTPException(403, "Access denied")
-    # H6: only owners can spend money. Editors and viewers can browse pricing
+    # H6: only managers can spend money. Editors and viewers can browse pricing
     # but not initiate a Stripe Checkout that creates a real charge.
-    if role != "owner":
+    # 'manager' here is the per-workspace top role (renamed from 'owner' in
+    # Phase E.C.5.1 to disambiguate from organization_users.role='owner').
+    if role != "manager":
         raise HTTPException(
             403,
-            f"Only an owner can purchase credits (your role: '{role}')",
+            f"Only a workspace manager can purchase credits (your role: '{role}')",
         )
 
     # Create or reuse Stripe customer

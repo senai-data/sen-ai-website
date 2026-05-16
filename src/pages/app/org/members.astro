@@ -203,7 +203,7 @@ function roleLabel(r: string): string {
       </div>
     )}
 
-    {canInvite && orgDetail && (
+    {canInvite && orgDetail && (orgDetail.members.length >= 2 || orgDetail.clients.length >= 2) && (
       <div class="bg-white rounded-xl border border-gray-200 mb-6">
         <div class="px-5 py-4 border-b border-gray-200 flex items-center justify-between">
           <div>
@@ -280,7 +280,7 @@ function roleLabel(r: string): string {
                             <option value="" selected={!ca.role}>No access</option>
                             <option value="viewer" selected={ca.role === 'viewer'}>Viewer</option>
                             <option value="editor" selected={ca.role === 'editor'}>Editor</option>
-                            <option value="owner" selected={ca.role === 'owner'}>Owner</option>
+                            <option value="manager" selected={ca.role === 'manager'}>Manager</option>
                           </select>
                           <span class="save-flash text-emerald-500 text-sm opacity-0 transition-opacity duration-300" aria-hidden="true">✓</span>
                         </span>

@@ -166,8 +166,9 @@ class MoveKeywordRequest(BaseModel):
 # --- Helpers ---
 
 # H6: role hierarchy. Higher number = more permissions.
-_ROLE_RANK = {"viewer": 0, "editor": 1, "owner": 2}
-_DESTRUCTIVE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+# Phase E.C.5.1 — _ROLE_RANK + _DESTRUCTIVE_METHODS dead since
+# _check_scan_access was refactored to delegate to services/access.py.
+# Removed.
 
 
 def _check_scan_access(scan_id: str, user, db: Session) -> Scan:

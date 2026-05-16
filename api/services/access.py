@@ -36,7 +36,7 @@ from services.request_context import current_request_method
 
 
 # Role rank for write-gate comparisons. Higher = more privileged.
-ROLE_RANK = {"viewer": 0, "editor": 1, "owner": 2}
+ROLE_RANK = {"viewer": 0, "editor": 1, "manager": 2}
 DESTRUCTIVE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
 

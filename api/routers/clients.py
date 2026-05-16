@@ -18,9 +18,12 @@ from services.sanitize import strip_tags
 
 router = APIRouter()
 
-# RBAC mirror of brands.py — viewer can read, editor+ can write
-_ROLE_RANK = {"viewer": 0, "editor": 1, "owner": 2}
-_DESTRUCTIVE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+# Phase E.C.5.1 — the duplicated _ROLE_RANK / _DESTRUCTIVE_METHODS pair lived
+# here, in brands.py, and in scans.py back when each router did its own
+# _check_client_access(). After the migration to services/access.py these
+# constants are unused — services/access.ROLE_RANK is the single source of
+# truth. Kept the comment to flag the cleanup if anyone re-introduces a
+# local rank dict.
 
 
 def _check_client_access(client_id: str, user, db: Session):
@@ -126,7 +129,7 @@ async def create_client(req: ClientCreate, user=Depends(get_current_user), db: S
     db.add(client)
     db.flush()
 
-    db.add(UserClient(user_id=user.id, client_id=client.id, role="owner"))
+    db.add(UserClient(user_id=user.id, client_id=client.id, role="manager"))
 
     db.commit()
     db.refresh(client)

@@ -89,7 +89,7 @@ class OrgUserClient(Base):
     organization_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), primary_key=True)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
     client_id = Column(UUID(as_uuid=True), ForeignKey("clients.id", ondelete="CASCADE"), primary_key=True)
-    role = Column(Text, nullable=False)  # 'viewer' | 'editor' | 'owner'
+    role = Column(Text, nullable=False)  # 'viewer' | 'editor' | 'manager' (renamed from 'owner' 2026-05-16 — Phase E.C.5.1 to disambiguate from organization_users.role='owner')
 
 
 class Invitation(Base):
@@ -121,7 +121,11 @@ class UserClient(Base):
 
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), primary_key=True)
     client_id = Column(UUID(as_uuid=True), ForeignKey("clients.id"), primary_key=True)
-    role = Column(Enum("owner", "editor", "viewer", name="user_role"), default="viewer")
+    # Phase E.C.5.1 — value 'owner' renamed to 'manager' via ALTER TYPE
+    # user_role RENAME VALUE in migration 031. Disambiguates from the
+    # org-level OrganizationUser.role='owner' which means something
+    # different (org admin vs per-client manager).
+    role = Column(Enum("manager", "editor", "viewer", name="user_role"), default="viewer")
 
     user = relationship("User", back_populates="client_links")
     client = relationship("Client", back_populates="user_links")

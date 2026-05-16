@@ -310,7 +310,7 @@ async def organization_overview(
 # owner/admin grant/revoke per-client access without dropping to SQL.
 
 _VALID_ORG_ROLES = {"owner", "admin", "member"}
-_VALID_CLIENT_ROLES = {"viewer", "editor", "owner"}
+_VALID_CLIENT_ROLES = {"viewer", "editor", "manager"}
 _ORG_MANAGER_ROLES = {"owner", "admin"}
 
 

@@ -8,9 +8,8 @@ from services.request_context import current_request_method
 
 router = APIRouter()
 
-# H6: same role hierarchy as scans._check_scan_access
-_ROLE_RANK = {"viewer": 0, "editor": 1, "owner": 2}
-_DESTRUCTIVE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+# Phase E.C.5.1 — _ROLE_RANK + _DESTRUCTIVE_METHODS dead since C.1
+# refactor delegated access checks to services/access.py. Removed.
 
 
 class BrandCreate(BaseModel):

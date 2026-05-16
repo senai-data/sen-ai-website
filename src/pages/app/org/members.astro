@@ -80,6 +80,36 @@ if (canInvite) {
 const pendingInvites = invitations.filter(i => i.is_pending);
 const recentInvites = invitations.filter(i => !i.is_pending);
 
+// Phase E.C.5 — fetch members + per-client access matrix.
+type ClientLite = { id: string; name: string; brand: string | null };
+type ClientGrant = { client_id: string; client_name: string; role: string | null };
+type Member = {
+  user_id: string; email: string; name: string | null;
+  org_role: string; joined_at: string | null;
+  is_self: boolean;
+  client_access: ClientGrant[];
+};
+type OrgDetail = {
+  org: { id: string; name: string; slug: string | null; is_personal: boolean };
+  your_role: string;
+  clients: ClientLite[];
+  members: Member[];
+};
+let orgDetail: OrgDetail | null = null;
+let orgDetailError = '';
+if (canInvite) {
+  try {
+    const r = await fetch(`http://api:8000/api/organizations/${activeOrg.id}`, {
+      headers: { Cookie: upstreamCookie },
+      signal: AbortSignal.timeout(3000),
+    });
+    if (r.ok) orgDetail = await r.json();
+    else orgDetailError = `HTTP ${r.status}`;
+  } catch (e: any) {
+    orgDetailError = e.message || 'Network error';
+  }
+}
+
 function relativeDate(iso: string | null): string {
   if (!iso) return '—';
   const ms = Date.now() - new Date(iso).getTime();
@@ -169,6 +199,100 @@ function roleLabel(r: string): string {
             </button>
           </div>
         </form>
+      </div>
+    )}
+
+    {canInvite && orgDetail && (
+      <div class="bg-white rounded-xl border border-gray-200 overflow-hidden mb-6">
+        <div class="px-5 py-4 border-b border-gray-200 flex items-center justify-between">
+          <div>
+            <h2 class="text-base font-semibold text-charcoal-dark">Members & workspace access</h2>
+            <p class="text-xs text-charcoal-light mt-0.5">
+              Each member's org role + which workspaces they can access. Changes save instantly.
+            </p>
+          </div>
+          <span class="text-xs text-charcoal-light">{orgDetail.members.length} {orgDetail.members.length === 1 ? 'member' : 'members'}</span>
+        </div>
+
+        {orgDetail.clients.length === 0 ? (
+          <div class="px-5 py-8 text-center text-sm text-charcoal-light">
+            No workspaces in this organization yet.
+          </div>
+        ) : (
+          <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+              <thead class="bg-gray-50 text-[11px] uppercase tracking-wider text-gray-500">
+                <tr>
+                  <th class="px-5 py-3 text-left font-medium sticky left-0 bg-gray-50">Member</th>
+                  <th class="px-5 py-3 text-left font-medium">Org role</th>
+                  {orgDetail.clients.map(c => (
+                    <th class="px-3 py-3 text-left font-medium whitespace-nowrap max-w-[180px] truncate" title={c.name}>{c.name}</th>
+                  ))}
+                  <th class="px-3 py-3"></th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-gray-100">
+                {orgDetail.members.map(m => (
+                  <tr data-member-row={m.user_id}>
+                    <td class="px-5 py-3 sticky left-0 bg-white">
+                      <div class="font-medium text-charcoal-dark">{m.name || m.email}</div>
+                      <div class="text-xs text-charcoal-light">{m.email}{m.is_self && ' · you'}</div>
+                    </td>
+                    <td class="px-5 py-3">
+                      <select
+                        class="member-role-select px-2 py-1 border border-gray-300 rounded text-xs bg-white focus:outline-none focus:ring-2 focus:ring-coral/50 disabled:bg-gray-50 disabled:text-gray-500"
+                        data-user-id={m.user_id}
+                        data-original-role={m.org_role}
+                        disabled={
+                          // owner-tier moves require owner caller
+                          (orgDetail.your_role !== 'owner' && (m.org_role === 'owner'))
+                        }
+                      >
+                        <option value="member" selected={m.org_role === 'member'}>Member</option>
+                        <option value="admin" selected={m.org_role === 'admin'}>Admin</option>
+                        {(orgDetail.your_role === 'owner' || m.org_role === 'owner') && (
+                          <option value="owner" selected={m.org_role === 'owner'}>Owner</option>
+                        )}
+                      </select>
+                    </td>
+                    {m.client_access.map(ca => (
+                      <td class="px-3 py-3">
+                        <select
+                          class="client-grant-select px-2 py-1 border border-gray-300 rounded text-xs bg-white focus:outline-none focus:ring-2 focus:ring-coral/50"
+                          data-user-id={m.user_id}
+                          data-client-id={ca.client_id}
+                          data-original-role={ca.role || ''}
+                        >
+                          <option value="" selected={!ca.role}>No access</option>
+                          <option value="viewer" selected={ca.role === 'viewer'}>Viewer</option>
+                          <option value="editor" selected={ca.role === 'editor'}>Editor</option>
+                          <option value="owner" selected={ca.role === 'owner'}>Owner</option>
+                        </select>
+                      </td>
+                    ))}
+                    <td class="px-3 py-3 text-right">
+                      {!m.is_self && (orgDetail.your_role === 'owner' || m.org_role !== 'owner') && (
+                        <button
+                          type="button"
+                          data-user-id={m.user_id}
+                          data-email={m.email}
+                          class="member-remove-btn text-xs font-medium text-red-600 hover:underline"
+                        >
+                          Remove
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {orgDetailError && (
+          <div class="px-5 py-3 text-sm text-red-600 border-t border-gray-200">
+            Couldn't load members ({orgDetailError}).
+          </div>
+        )}
       </div>
     )}
 
@@ -306,6 +430,96 @@ function roleLabel(r: string): string {
         }
       });
     }
+
+    // Phase E.C.5 — member org-role dropdown : PATCH /members/{user_id}
+    document.querySelectorAll('.member-role-select').forEach(sel => {
+      sel.addEventListener('change', async () => {
+        const userId = sel.getAttribute('data-user-id');
+        const newRole = sel.value;
+        const originalRole = sel.getAttribute('data-original-role');
+        sel.disabled = true;
+        try {
+          const res = await fetch(`/api/organizations/${orgId}/members/${userId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ role: newRole }),
+          });
+          if (res.ok) {
+            sel.setAttribute('data-original-role', newRole);
+          } else {
+            const data = await res.json().catch(() => ({}));
+            alert(typeof data.detail === 'string' ? data.detail : 'Could not update role.');
+            sel.value = originalRole;
+          }
+        } catch (e) {
+          alert('Network error. Please refresh and try again.');
+          sel.value = originalRole;
+        } finally {
+          sel.disabled = false;
+        }
+      });
+    });
+
+    // Phase E.C.5 — per-client access dropdown : PUT (grant/update) or DELETE (revoke)
+    document.querySelectorAll('.client-grant-select').forEach(sel => {
+      sel.addEventListener('change', async () => {
+        const userId = sel.getAttribute('data-user-id');
+        const clientId = sel.getAttribute('data-client-id');
+        const newRole = sel.value;
+        const originalRole = sel.getAttribute('data-original-role');
+        sel.disabled = true;
+        try {
+          const url = `/api/organizations/${orgId}/members/${userId}/clients/${clientId}`;
+          const res = newRole
+            ? await fetch(url, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ role: newRole }),
+              })
+            : await fetch(url, { method: 'DELETE' });
+          if (res.ok) {
+            sel.setAttribute('data-original-role', newRole);
+          } else {
+            const data = await res.json().catch(() => ({}));
+            alert(typeof data.detail === 'string' ? data.detail : 'Could not update access.');
+            sel.value = originalRole;
+          }
+        } catch (e) {
+          alert('Network error. Please refresh and try again.');
+          sel.value = originalRole;
+        } finally {
+          sel.disabled = false;
+        }
+      });
+    });
+
+    // Phase E.C.5 — remove member from org (cascades client grants)
+    document.querySelectorAll('.member-remove-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const email = btn.getAttribute('data-email');
+        if (!confirm(`Remove ${email} from this organization? This revokes all their workspace access.`)) return;
+        const userId = btn.getAttribute('data-user-id');
+        btn.setAttribute('disabled', 'true');
+        btn.textContent = 'Removing…';
+        try {
+          const res = await fetch(`/api/organizations/${orgId}/members/${userId}`, {
+            method: 'DELETE',
+          });
+          if (res.ok) {
+            window.location.reload();
+          } else {
+            const data = await res.json().catch(() => ({}));
+            alert(typeof data.detail === 'string' ? data.detail : 'Could not remove member.');
+            btn.removeAttribute('disabled');
+            btn.textContent = 'Remove';
+          }
+        } catch (e) {
+          alert('Network error. Please try again.');
+          btn.removeAttribute('disabled');
+          btn.textContent = 'Remove';
+        }
+      });
+    });
 
     document.querySelectorAll('.invite-revoke-btn').forEach(btn => {
       btn.addEventListener('click', async () => {

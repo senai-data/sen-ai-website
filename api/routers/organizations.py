@@ -25,7 +25,7 @@ from sqlalchemy.orm import Session
 
 from config import settings
 from models import (
-    Client, Organization, OrganizationUser, OrgUserClient, Scan, get_db,
+    Client, Organization, OrganizationUser, OrgUserClient, Scan, User, get_db,
 )
 from services.access import list_user_organizations, resolve_active_organization_id
 from services.auth_service import get_current_user
@@ -303,3 +303,352 @@ async def organization_overview(
         },
         "clients": client_payload,
     }
+
+
+# Phase E.C.5 — Members management : org detail + role mutations.
+# The members page renders the matrix (member × client → role) and lets
+# owner/admin grant/revoke per-client access without dropping to SQL.
+
+_VALID_ORG_ROLES = {"owner", "admin", "member"}
+_VALID_CLIENT_ROLES = {"viewer", "editor", "owner"}
+_ORG_MANAGER_ROLES = {"owner", "admin"}
+
+
+def _require_org_manager(org_id: str, user, db: Session) -> tuple[Organization, OrganizationUser]:
+    """Return (org, caller_membership) when user can manage this org.
+
+    Owner + admin can read members and grant client access. Only owner
+    can promote/demote owners (enforced at the mutation site).
+    """
+    try:
+        org_uuid = uuid.UUID(org_id)
+    except (ValueError, TypeError):
+        raise HTTPException(400, "Malformed organization_id")
+    org = db.query(Organization).filter(Organization.id == org_uuid).first()
+    if not org:
+        raise HTTPException(404, "Organization not found")
+    membership = (
+        db.query(OrganizationUser)
+        .filter(
+            OrganizationUser.organization_id == org.id,
+            OrganizationUser.user_id == user.id,
+        )
+        .first()
+    )
+    if not membership:
+        raise HTTPException(403, "You are not a member of this organization")
+    if membership.role not in _ORG_MANAGER_ROLES:
+        raise HTTPException(
+            403,
+            f"Only owners and admins can manage members (your role: '{membership.role}')",
+        )
+    return org, membership
+
+
+def _count_org_owners(org_id, db: Session, exclude_user_id=None) -> int:
+    """Count remaining owners on an org. Used to block last-owner demotion."""
+    q = (
+        db.query(OrganizationUser)
+        .filter(
+            OrganizationUser.organization_id == org_id,
+            OrganizationUser.role == "owner",
+        )
+    )
+    if exclude_user_id is not None:
+        q = q.filter(OrganizationUser.user_id != exclude_user_id)
+    return q.count()
+
+
+@router.get("/{org_id}")
+async def organization_detail(
+    org_id: str,
+    user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Detailed view of one organization : members + clients + access matrix.
+
+    Drives the members page UI. The members payload includes each member's
+    org-level role AND their per-client access rows so the UI can render
+    the grant matrix without a second round-trip.
+
+    Members + access endpoint is owner/admin only — letting a `member`
+    enumerate other members + their access would be a privacy leak.
+    """
+    org, caller = _require_org_manager(org_id, user, db)
+
+    clients_in_org = (
+        db.query(Client)
+        .filter(Client.organization_id == org.id)
+        .order_by(Client.name.asc())
+        .all()
+    )
+    client_ids = [c.id for c in clients_in_org]
+
+    members_rows = (
+        db.query(OrganizationUser, User)
+        .join(User, User.id == OrganizationUser.user_id)
+        .filter(OrganizationUser.organization_id == org.id)
+        .order_by(User.email.asc())
+        .all()
+    )
+
+    # Single query for the access matrix : all org_user_clients rows for
+    # this org. Cheaper than a per-member loop ; we slot into a dict.
+    access_rows = (
+        db.query(OrgUserClient)
+        .filter(OrgUserClient.organization_id == org.id)
+        .all()
+    )
+    access_by_user: dict[str, dict[str, str]] = {}
+    for row in access_rows:
+        access_by_user.setdefault(str(row.user_id), {})[str(row.client_id)] = row.role
+
+    members_payload = []
+    for ou, u in members_rows:
+        client_access = [
+            {
+                "client_id": str(c.id),
+                "client_name": c.name,
+                "role": access_by_user.get(str(ou.user_id), {}).get(str(c.id)),
+            }
+            for c in clients_in_org
+        ]
+        members_payload.append({
+            "user_id": str(ou.user_id),
+            "email": u.email,
+            "name": u.name,
+            "org_role": ou.role,
+            "joined_at": ou.joined_at.isoformat() if ou.joined_at else None,
+            "is_self": str(ou.user_id) == str(user.id),
+            "client_access": client_access,
+        })
+
+    return {
+        "org": {
+            "id": str(org.id),
+            "name": org.name,
+            "slug": org.slug,
+            "is_personal": bool(org.is_personal),
+        },
+        "your_role": caller.role,
+        "clients": [{"id": str(c.id), "name": c.name, "brand": c.brand} for c in clients_in_org],
+        "members": members_payload,
+    }
+
+
+class UpdateOrgRoleRequest(BaseModel):
+    role: str  # owner | admin | member
+
+
+@router.patch("/{org_id}/members/{user_id}")
+async def update_member_org_role(
+    org_id: str, user_id: str, body: UpdateOrgRoleRequest,
+    user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Change an org member's org-level role.
+
+    Rules :
+      - Admin can promote/demote between member and admin only.
+      - Only an owner can mint or demote another owner.
+      - Cannot demote the last owner of the org (would orphan it).
+      - Self-demotion allowed except when you're the last owner.
+    """
+    org, caller = _require_org_manager(org_id, user, db)
+
+    new_role = (body.role or "").strip().lower()
+    if new_role not in _VALID_ORG_ROLES:
+        raise HTTPException(400, f"role must be one of {sorted(_VALID_ORG_ROLES)}")
+
+    try:
+        target_uuid = uuid.UUID(user_id)
+    except (ValueError, TypeError):
+        raise HTTPException(400, "Malformed user_id")
+
+    target = (
+        db.query(OrganizationUser)
+        .filter(
+            OrganizationUser.organization_id == org.id,
+            OrganizationUser.user_id == target_uuid,
+        )
+        .first()
+    )
+    if not target:
+        raise HTTPException(404, "Member not found in this organization")
+
+    if target.role == new_role:
+        return {"ok": True, "unchanged": True, "role": new_role}
+
+    # Admin cannot touch owner-tier (promote-to-owner OR demote-an-owner).
+    if caller.role != "owner" and (new_role == "owner" or target.role == "owner"):
+        raise HTTPException(
+            403, "Only an owner can promote or demote owner-level roles",
+        )
+
+    # Last-owner guard : prevent locking the org out of ownership.
+    if target.role == "owner" and new_role != "owner":
+        remaining_owners = _count_org_owners(org.id, db, exclude_user_id=target.user_id)
+        if remaining_owners < 1:
+            raise HTTPException(
+                409,
+                "Cannot demote the last owner — promote someone else to owner first.",
+            )
+
+    target.role = new_role
+    db.commit()
+    return {"ok": True, "role": new_role, "user_id": str(target.user_id)}
+
+
+@router.delete("/{org_id}/members/{user_id}")
+async def remove_member(
+    org_id: str, user_id: str,
+    user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Remove a member from the org. Cascades their org_user_clients rows
+    via the FK CASCADE on org_user_clients.organization_id+user_id.
+
+    Same guards as role change : admin can't kick an owner, last-owner
+    cannot be removed, self-removal allowed except last-owner.
+    """
+    org, caller = _require_org_manager(org_id, user, db)
+
+    try:
+        target_uuid = uuid.UUID(user_id)
+    except (ValueError, TypeError):
+        raise HTTPException(400, "Malformed user_id")
+
+    target = (
+        db.query(OrganizationUser)
+        .filter(
+            OrganizationUser.organization_id == org.id,
+            OrganizationUser.user_id == target_uuid,
+        )
+        .first()
+    )
+    if not target:
+        raise HTTPException(404, "Member not found in this organization")
+
+    if caller.role != "owner" and target.role == "owner":
+        raise HTTPException(403, "Only an owner can remove another owner")
+    if target.role == "owner":
+        remaining = _count_org_owners(org.id, db, exclude_user_id=target.user_id)
+        if remaining < 1:
+            raise HTTPException(
+                409,
+                "Cannot remove the last owner — promote someone else to owner first.",
+            )
+
+    # Wipe their per-client access in this org too. The FK has
+    # ON DELETE CASCADE but we mirror it explicitly for clarity + so the
+    # response body knows how many rows went.
+    deleted_clients = (
+        db.query(OrgUserClient)
+        .filter(
+            OrgUserClient.organization_id == org.id,
+            OrgUserClient.user_id == target_uuid,
+        )
+        .delete(synchronize_session=False)
+    )
+    db.delete(target)
+    db.commit()
+    return {"ok": True, "removed_user_id": str(target_uuid), "client_grants_revoked": deleted_clients}
+
+
+class UpdateClientGrantRequest(BaseModel):
+    role: str  # viewer | editor | owner
+
+
+@router.put("/{org_id}/members/{user_id}/clients/{client_id}")
+async def grant_client_access(
+    org_id: str, user_id: str, client_id: str, body: UpdateClientGrantRequest,
+    user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Grant or update per-client access for an org member.
+
+    PUT semantics : idempotent upsert (creates row if absent, updates
+    role if present). The members page sends this on every dropdown
+    change without needing to know "is this a new grant or an update".
+    """
+    org, caller = _require_org_manager(org_id, user, db)
+
+    new_role = (body.role or "").strip().lower()
+    if new_role not in _VALID_CLIENT_ROLES:
+        raise HTTPException(400, f"role must be one of {sorted(_VALID_CLIENT_ROLES)}")
+
+    try:
+        target_user_uuid = uuid.UUID(user_id)
+        client_uuid = uuid.UUID(client_id)
+    except (ValueError, TypeError):
+        raise HTTPException(400, "Malformed user_id or client_id")
+
+    # Target must be a member of this org (preserves org isolation).
+    if not (
+        db.query(OrganizationUser)
+        .filter(
+            OrganizationUser.organization_id == org.id,
+            OrganizationUser.user_id == target_user_uuid,
+        )
+        .first()
+    ):
+        raise HTTPException(404, "User is not a member of this organization")
+
+    # Client must belong to this org.
+    if not (
+        db.query(Client)
+        .filter(Client.id == client_uuid, Client.organization_id == org.id)
+        .first()
+    ):
+        raise HTTPException(404, "Client not found in this organization")
+
+    existing = (
+        db.query(OrgUserClient)
+        .filter(
+            OrgUserClient.organization_id == org.id,
+            OrgUserClient.user_id == target_user_uuid,
+            OrgUserClient.client_id == client_uuid,
+        )
+        .first()
+    )
+    if existing:
+        existing.role = new_role
+    else:
+        db.add(OrgUserClient(
+            organization_id=org.id,
+            user_id=target_user_uuid,
+            client_id=client_uuid,
+            role=new_role,
+        ))
+    db.commit()
+    return {"ok": True, "role": new_role}
+
+
+@router.delete("/{org_id}/members/{user_id}/clients/{client_id}")
+async def revoke_client_access(
+    org_id: str, user_id: str, client_id: str,
+    user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Revoke per-client access. Idempotent (404 returns ok=true rather
+    than erroring — the UI calls this on toggling 'no access' regardless
+    of prior state)."""
+    org, _caller = _require_org_manager(org_id, user, db)
+
+    try:
+        target_user_uuid = uuid.UUID(user_id)
+        client_uuid = uuid.UUID(client_id)
+    except (ValueError, TypeError):
+        raise HTTPException(400, "Malformed user_id or client_id")
+
+    deleted = (
+        db.query(OrgUserClient)
+        .filter(
+            OrgUserClient.organization_id == org.id,
+            OrgUserClient.user_id == target_user_uuid,
+            OrgUserClient.client_id == client_uuid,
+        )
+        .delete(synchronize_session=False)
+    )
+    db.commit()
+    return {"ok": True, "revoked": bool(deleted)}

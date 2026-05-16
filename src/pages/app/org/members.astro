@@ -18,6 +18,7 @@
  */
 export const prerender = false;
 import DashboardLayout from '../../../layouts/DashboardLayout.astro';
+import Tip from '../../../components/Tip.astro';
 
 const token = Astro.cookies.get('token')?.value;
 if (!token) return Astro.redirect('/login');
@@ -224,62 +225,79 @@ function roleLabel(r: string): string {
               <thead class="bg-gray-50 text-[11px] uppercase tracking-wider text-gray-500">
                 <tr>
                   <th class="px-5 py-3 text-left font-medium sticky left-0 bg-gray-50">Member</th>
-                  <th class="px-5 py-3 text-left font-medium">Org role</th>
+                  <th class="px-5 py-3 text-left font-medium">
+                    <Tip id="org_role_column"><span class="border-b border-dotted border-gray-400 cursor-help">Org role</span></Tip>
+                  </th>
                   {orgDetail.clients.map(c => (
-                    <th class="px-3 py-3 text-left font-medium whitespace-nowrap max-w-[180px] truncate" title={c.name}>{c.name}</th>
+                    <th class="px-3 py-3 text-left font-medium whitespace-nowrap max-w-[180px] truncate" title={c.name}>
+                      <Tip id="client_role_column"><span class="border-b border-dotted border-gray-400 cursor-help">{c.name}</span></Tip>
+                    </th>
                   ))}
                   <th class="px-3 py-3"></th>
                 </tr>
               </thead>
               <tbody class="divide-y divide-gray-100">
                 {orgDetail.members.map(m => (
-                  <tr data-member-row={m.user_id}>
-                    <td class="px-5 py-3 sticky left-0 bg-white">
-                      <div class="font-medium text-charcoal-dark">{m.name || m.email}</div>
-                      <div class="text-xs text-charcoal-light">{m.email}{m.is_self && ' · you'}</div>
+                  <tr data-member-row={m.user_id} class:list={[m.is_self && 'bg-coral/5']}>
+                    <td class:list={['px-5 py-3 sticky left-0', m.is_self ? 'bg-coral/5' : 'bg-white']}>
+                      <div class="font-medium text-charcoal-dark flex items-center gap-1.5">
+                        {m.name || m.email}
+                        {m.is_self && <span class="text-[10px] font-medium uppercase tracking-wide text-coral bg-coral/10 px-1.5 py-0.5 rounded">you</span>}
+                      </div>
+                      <div class="text-xs text-charcoal-light">{m.email}</div>
                     </td>
                     <td class="px-5 py-3">
-                      <select
-                        class="member-role-select px-2 py-1 border border-gray-300 rounded text-xs bg-white focus:outline-none focus:ring-2 focus:ring-coral/50 disabled:bg-gray-50 disabled:text-gray-500"
-                        data-user-id={m.user_id}
-                        data-original-role={m.org_role}
-                        disabled={
-                          // owner-tier moves require owner caller
-                          (orgDetail.your_role !== 'owner' && (m.org_role === 'owner'))
-                        }
-                      >
-                        <option value="member" selected={m.org_role === 'member'}>Member</option>
-                        <option value="admin" selected={m.org_role === 'admin'}>Admin</option>
-                        {(orgDetail.your_role === 'owner' || m.org_role === 'owner') && (
-                          <option value="owner" selected={m.org_role === 'owner'}>Owner</option>
-                        )}
-                      </select>
+                      <span class="inline-flex items-center gap-1.5">
+                        <select
+                          class="member-role-select px-2 py-1 border border-gray-300 rounded text-xs bg-white focus:outline-none focus:ring-2 focus:ring-coral/50 disabled:bg-gray-50 disabled:text-gray-500"
+                          data-user-id={m.user_id}
+                          data-original-role={m.org_role}
+                          title="Hover the column header for a description of each role."
+                          disabled={
+                            // owner-tier moves require owner caller
+                            (orgDetail.your_role !== 'owner' && (m.org_role === 'owner'))
+                          }
+                        >
+                          <option value="member" selected={m.org_role === 'member'}>Member</option>
+                          <option value="admin" selected={m.org_role === 'admin'}>Admin</option>
+                          {(orgDetail.your_role === 'owner' || m.org_role === 'owner') && (
+                            <option value="owner" selected={m.org_role === 'owner'}>Owner</option>
+                          )}
+                        </select>
+                        <span class="save-flash text-emerald-500 text-sm opacity-0 transition-opacity duration-300" aria-hidden="true">✓</span>
+                      </span>
                     </td>
                     {m.client_access.map(ca => (
                       <td class="px-3 py-3">
-                        <select
-                          class="client-grant-select px-2 py-1 border border-gray-300 rounded text-xs bg-white focus:outline-none focus:ring-2 focus:ring-coral/50"
-                          data-user-id={m.user_id}
-                          data-client-id={ca.client_id}
-                          data-original-role={ca.role || ''}
-                        >
-                          <option value="" selected={!ca.role}>No access</option>
-                          <option value="viewer" selected={ca.role === 'viewer'}>Viewer</option>
-                          <option value="editor" selected={ca.role === 'editor'}>Editor</option>
-                          <option value="owner" selected={ca.role === 'owner'}>Owner</option>
-                        </select>
+                        <span class="inline-flex items-center gap-1.5">
+                          <select
+                            class="client-grant-select px-2 py-1 border border-gray-300 rounded text-xs bg-white focus:outline-none focus:ring-2 focus:ring-coral/50"
+                            data-user-id={m.user_id}
+                            data-client-id={ca.client_id}
+                            data-original-role={ca.role || ''}
+                            title="Hover the column header for a description of each role."
+                          >
+                            <option value="" selected={!ca.role}>No access</option>
+                            <option value="viewer" selected={ca.role === 'viewer'}>Viewer</option>
+                            <option value="editor" selected={ca.role === 'editor'}>Editor</option>
+                            <option value="owner" selected={ca.role === 'owner'}>Owner</option>
+                          </select>
+                          <span class="save-flash text-emerald-500 text-sm opacity-0 transition-opacity duration-300" aria-hidden="true">✓</span>
+                        </span>
                       </td>
                     ))}
                     <td class="px-3 py-3 text-right">
                       {!m.is_self && (orgDetail.your_role === 'owner' || m.org_role !== 'owner') && (
-                        <button
-                          type="button"
-                          data-user-id={m.user_id}
-                          data-email={m.email}
-                          class="member-remove-btn text-xs font-medium text-red-600 hover:underline"
-                        >
-                          Remove
-                        </button>
+                        <Tip id="members_remove">
+                          <button
+                            type="button"
+                            data-user-id={m.user_id}
+                            data-email={m.email}
+                            class="member-remove-btn text-xs font-medium text-red-600 hover:underline"
+                          >
+                            Remove
+                          </button>
+                        </Tip>
                       )}
                     </td>
                   </tr>
@@ -431,6 +449,16 @@ function roleLabel(r: string): string {
       });
     }
 
+    // Peak-End helper : flash a transient ✓ next to a select on save success.
+    // Sibling element `.save-flash` is the indicator, opacity transition 300ms.
+    function flashSaved(sel) {
+      const flash = sel.parentElement && sel.parentElement.querySelector('.save-flash');
+      if (!flash) return;
+      flash.style.opacity = '1';
+      clearTimeout(flash._t);
+      flash._t = setTimeout(() => { flash.style.opacity = '0'; }, 1200);
+    }
+
     // Phase E.C.5 — member org-role dropdown : PATCH /members/{user_id}
     document.querySelectorAll('.member-role-select').forEach(sel => {
       sel.addEventListener('change', async () => {
@@ -446,6 +474,7 @@ function roleLabel(r: string): string {
           });
           if (res.ok) {
             sel.setAttribute('data-original-role', newRole);
+            flashSaved(sel);
           } else {
             const data = await res.json().catch(() => ({}));
             alert(typeof data.detail === 'string' ? data.detail : 'Could not update role.');
@@ -479,6 +508,7 @@ function roleLabel(r: string): string {
             : await fetch(url, { method: 'DELETE' });
           if (res.ok) {
             sel.setAttribute('data-original-role', newRole);
+            flashSaved(sel);
           } else {
             const data = await res.json().catch(() => ({}));
             alert(typeof data.detail === 'string' ? data.detail : 'Could not update access.');

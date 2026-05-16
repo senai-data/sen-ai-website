@@ -10,6 +10,11 @@ from sqlalchemy.orm import Session
 
 from config import settings
 from models import ClientCredit, Job, SessionLocal
+from services.sentry_setup import init_sentry
+
+# Sentry init at import time so import-time errors (handler registry, etc.)
+# also reach the dashboard. No-op if SENTRY_DSN is empty.
+init_sentry()
 
 
 def _format_user_error(exc: Exception) -> str:

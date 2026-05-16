@@ -35,6 +35,10 @@ class Settings(BaseSettings):
     # (audit-gratuit form remains open regardless - it's a separate flow without account)
     registration_open: bool = False
 
+    # Observability — Sentry error reporting (optional; logs warning if empty)
+    sentry_dsn: str = ""
+    sentry_environment: str = "production"
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
 

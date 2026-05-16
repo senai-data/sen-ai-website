@@ -9,6 +9,11 @@ from models import Base, engine
 from routers import admin, audit_requests, auth, clients, content_items, invitations, oauth, organizations, reports, stripe, scans, brands
 from services.rate_limit import limiter
 from services.request_context import current_request_method
+from services.sentry_setup import init_sentry
+
+# Sentry init runs at import time — before FastAPI mounts middleware — so any
+# exception raised during router import or startup also reaches the dashboard.
+init_sentry()
 
 app = FastAPI(
     title="sen-ai API",

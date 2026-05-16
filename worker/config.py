@@ -57,16 +57,10 @@ class Settings(BaseSettings):
             "brand_analyzer": self.model_brand_analyzer,
         }
 
-    # Observability (Sprint 2 — Phase E.5). Optional vars read directly from
-    # os.environ inside services/sentry_setup.py + services/healthcheck.py,
-    # but they must be declared here so pydantic-settings doesn't reject
-    # them as extras when present in .env.
-    sentry_dsn: str = ""
-    sentry_environment: str = "production"
-    healthcheck_worker_url: str = ""
-    healthcheck_t14_url: str = ""
-    llm_daily_cost_cap_usd: float = 1.0
-
+    # extra='ignore' lets services own their own env vars without forcing every
+    # one to be declared here. Observability vars (SENTRY_DSN, HEALTHCHECK_*,
+    # LLM_DAILY_COST_CAP_USD) are read via os.environ inside their respective
+    # services modules — same pattern as worker/services/embeddings.py.
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 
 

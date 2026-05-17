@@ -1111,6 +1111,87 @@ async def rematch_target_url(item_id: str, user=Depends(get_current_user),
     return {"ok": True, "job_id": str(job.id), "status": "pending"}
 
 
+# Phase C.1.3 — manual refresh of LinkFinder enrichment on existing
+# media-picker candidates. Used by the "Refresh prices" button on the
+# validation page (article items only). Synchronous (LinkFinder is fast
+# with cache), so no job queue — direct mutation + return.
+@router.post("/content-items/{item_id}/refresh-media-enrichment")
+async def refresh_media_enrichment(
+    item_id: str,
+    user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Re-fetch DA / TF / CF / RD / price for an article's media candidates.
+
+    Cheap : LinkFinder client has a 7-day on-disk cache, so this typically
+    serves cached data unless the cache file expired. Useful for the user
+    who comes back to an item weeks later and wants fresh pricing before
+    committing budget to a publication.
+
+    Synchronous — no job queue. Mutates `item.target_url_candidates` +
+    `item.target_url_score` (re-computed from refreshed top1). Audit logged.
+    """
+    item = (
+        db.query(ScanContentItem)
+        .options(joinedload(ScanContentItem.scan))
+        .filter(ScanContentItem.id == item_id)
+        .first()
+    )
+    if not item:
+        raise HTTPException(404, "Content item not found")
+
+    _check_scan_access(str(item.scan_id), user, db)
+
+    if item.content_type != "netlinking_article":
+        raise HTTPException(400, {
+            "error": "wrong_content_type",
+            "message": "refresh-media-enrichment is only available for "
+                       "netlinking_article items.",
+        })
+
+    candidates = list(item.target_url_candidates or [])
+    if not candidates:
+        raise HTTPException(409, {
+            "error": "no_candidates",
+            "message": "No media candidates to refresh. Click 'Find a different "
+                       "media partner' first to discover candidates.",
+        })
+
+    try:
+        from services.media_picker import refresh_enrichment
+        refreshed = refresh_enrichment(candidates)
+    except Exception as e:
+        raise HTTPException(500, {
+            "error": "enrichment_failed",
+            "message": "Failed to refresh LinkFinder data. Try again in a few minutes.",
+            "detail": str(e)[:200],
+        })
+
+    # Persist refreshed candidates + re-set target_url_score from new top1
+    item.target_url_candidates = refreshed
+    if refreshed:
+        item.target_url_score = float(refreshed[0].get("relevance_score") or 0.0)
+    flag_modified(item, "target_url_candidates")
+
+    audit_log(
+        db, user_id=str(user.id),
+        action="content_item.refresh_media_enrichment",
+        target_type="content_item", target_id=item_id,
+        details={
+            "candidates_count": len(refreshed),
+            "top_domain": refreshed[0]["domain"] if refreshed else None,
+            "top_price_eur": refreshed[0].get("price_eur") if refreshed else None,
+        },
+    )
+    db.commit()
+
+    return {
+        "ok": True,
+        "candidates": refreshed,
+        "candidates_count": len(refreshed),
+    }
+
+
 # Phase E Pilier 5 — manual refresh of the AI snapshot.
 # 5 refreshes/24h/question. Each refresh = 2 LLM calls (~$0.04). Hard cap on
 # the day's count keeps spend bounded even if a user spam-clicks.

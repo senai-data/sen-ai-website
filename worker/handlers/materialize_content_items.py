@@ -201,6 +201,93 @@ def _resolve_target_site(scan, db, item=None) -> tuple[str | None, str | None]:
     return None, None
 
 
+def _auto_match_media_urls(items: list, scan, db) -> dict:
+    """Per-item media partner discovery for netlinking_article items.
+
+    Symmetric in shape to `_auto_match_target_urls` but routed to
+    `services.media_picker.pick_media_candidates` (citation-driven discovery +
+    LinkFinder enrichment) instead of the brand-site sitemap matcher.
+
+    Returns dict keyed by item.id, with the same shape consumers expect :
+        {
+          item_id: {
+            "target_page_url": str,                    # canonical home of top candidate
+            "target_url_source": "media_picker",
+            "target_url_score": float,                 # relevance_score of #1
+            "target_page_title": str | None,           # domain (no LF name field yet)
+            "target_url_candidates": list[MediaCandidate],   # full top-3 for UI picker
+          }
+        }
+
+    Items not in the returned dict get pending_user fallback : user opens
+    the validation page and sets the media URL manually.
+
+    `items` is the 4-tuple list (item, question_text, source_name, question_id).
+    We carry question_id from materialize Phase 1 so media_picker doesn't need
+    the text→id lookup. Falls back to text lookup if question_id is absent
+    (defensive — shouldn't happen in normal flow).
+    """
+    if not items:
+        return {}
+
+    try:
+        from services.media_picker import pick_media_candidates
+    except Exception as e:
+        logger.warning(
+            f"materialize: media_picker import failed ({e}) — article items "
+            f"will fall back to pending_user (manual URL entry)"
+        )
+        return {}
+
+    out: dict[str, dict] = {}
+    enriched = 0
+    empty = 0
+    for tup in items:
+        # Accept both 4-tuple (new format) and 3-tuple (defensive fallback)
+        if len(tup) >= 4:
+            item, question_text, _source_name, question_id = tup[:4]
+        else:
+            item, question_text, _source_name = tup
+            question_id = None
+
+        try:
+            candidates = pick_media_candidates(
+                scan_id=str(scan.id),
+                db=db,
+                question_id=question_id,
+                target_question=question_text,
+                top_k=3,
+            )
+        except Exception:
+            logger.exception(
+                f"materialize: media_picker crashed for item {item.id} — "
+                f"falling back to pending_user"
+            )
+            continue
+
+        if not candidates:
+            empty += 1
+            continue
+
+        top1 = candidates[0]
+        if top1.get("price_eur") is not None or top1.get("da") is not None:
+            enriched += 1
+        out[str(item.id)] = {
+            "target_page_url": top1["url"],
+            "target_url_source": "media_picker",
+            "target_url_score": float(top1.get("relevance_score") or 0.0),
+            "target_page_title": top1.get("name") or top1.get("domain"),
+            "target_url_candidates": candidates,
+        }
+
+    logger.info(
+        f"materialize media_picker: {len(items)} article items → "
+        f"{len(out)} matched, {empty} empty (no candidates), "
+        f"{enriched} top-candidates enriched via LinkFinder"
+    )
+    return out
+
+
 def _auto_suggest_leads(items: list, scan, db) -> dict:
     """Wrap services.lead_picker.pick_leads_for_items for the materialize handler.
 
@@ -225,7 +312,9 @@ def _auto_suggest_leads(items: list, scan, db) -> dict:
             "question": question_text or "",
             "persona": (getattr(item, "persona_name", None) or "") or "",
         }
-        for item, question_text, topic_name in items
+        # `*_` swallows the optional question_id 4th element (carried for
+        # the media_picker path), keeping lead_picker payload shape stable.
+        for item, question_text, topic_name, *_ in items
     ]
     try:
         return pick_leads_for_items(scan.client_id, scan.id, payload, db)
@@ -295,10 +384,10 @@ def _auto_match_target_urls(items: list, scan, db) -> dict:
     sitemap_below_threshold = 0
     sitemap_no_corpus = 0
     if sitemap_enabled:
-        for item, question_text, _source_name in items:
+        for item, question_text, _source_name, *_extras in items:
             lead_brand = _resolve_lead_brand(scan, db, item=item)
             if not lead_brand:
-                remaining.append((item, question_text, _source_name))
+                remaining.append((item, question_text, _source_name, *_extras))
                 continue
             gamme_slug = (
                 slugify_brand_name(lead_brand.name)
@@ -376,7 +465,7 @@ def _auto_match_target_urls(items: list, scan, db) -> dict:
     # Per-item target_site so Phase 1.5's auto LEAD suggestion drives URL
     # matching toward the right brand domain.
     rows = []
-    for item, question_text, source_name in remaining:
+    for item, question_text, source_name, *_extras in remaining:
         item_target, _ = _resolve_target_site(scan, db, item=item)
         rows.append({
             "faq_opportunity_id": str(item.id),
@@ -559,7 +648,12 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
 
     # Phase 1: create ContentItem rows (without target_url yet) so they get UUIDs
     # we can key the matcher results on.
-    new_items: list = []  # list of (item, question_text, source_name)
+    # Tuple shape : (item, question_text, source_name, question_id).
+    # question_id is needed by the netlinking_article media_picker (Phase 2
+    # branch) to query scan_llm_results.citations efficiently. FAQ-path
+    # functions (_auto_suggest_leads, _auto_match_target_urls) use `*_`
+    # destructuring so they keep working unchanged.
+    new_items: list = []
     skipped = 0
 
     for opp in opps:
@@ -601,7 +695,7 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
             status="identified",
         )
         db.add(item)
-        new_items.append((item, q_text, opp.topic_name))
+        new_items.append((item, q_text, opp.topic_name, str(opp.question_id)))
         existing_keys.add((ct, q_key))
 
     if not new_items:
@@ -634,7 +728,7 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
     lead_suggestions = _auto_suggest_leads(new_items, scan, db)
     auto_lead_count = 0
     if lead_suggestions:
-        for item, _, _ in new_items:
+        for item, *_ in new_items:
             sug = lead_suggestions.get(str(item.id))
             if not sug:
                 continue
@@ -651,19 +745,23 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
         # Re-flush so Phase 2 sees the override on each item.
         db.flush()
 
-    # Phase 2: auto-suggest target_url. ONLY for FAQ items.
+    # Phase 2: auto-suggest target_url. Routed per content_type.
     #
-    # Netlinking articles get published on third-party media domains (e.g.
-    # doctissimo.fr), not on the user's brand site, so neither the sitemap-
-    # index matcher (which scans brand-site corpora) nor the FAQPageMatcher
-    # web_search (which targets brand sub-paths) yields a meaningful result.
-    # The user fills `target_url` manually on the validation page with the
-    # URL of the media partner where the article will be published.
+    # FAQ items   → _auto_match_target_urls (sitemap_index Layer 1 + Phase D
+    #               FAQPageMatcher Layer 2 fallback). Brand-site only — the
+    #               page where the FAQ will live.
+    # Article items → _auto_match_media_urls (media_picker C.1.3 : aggregate
+    #               scan_llm_results.citations + LinkFinder enrichment). Third-
+    #               party media — where the sponsored article will publish.
     faq_items = [t for t in new_items if t[0].content_type == "faq"]
+    article_items = [t for t in new_items if t[0].content_type == "netlinking_article"]
+
     matches = _auto_match_target_urls(faq_items, scan, db) if faq_items else {}
+    media_matches = _auto_match_media_urls(article_items, scan, db) if article_items else {}
+
     auto_matched = 0
     sitemap_matched = 0
-    for item, _, _ in faq_items:
+    for item, *_extras in faq_items:
         m = matches.get(str(item.id))
         if m and m.get("target_page_url"):
             item.target_url = m["target_page_url"]
@@ -681,22 +779,47 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
                 sitemap_matched += 1
             auto_matched += 1
 
+    article_auto_matched = 0
+    article_linkfinder_enriched = 0
+    for item, *_extras in article_items:
+        m = media_matches.get(str(item.id))
+        if m and m.get("target_page_url"):
+            item.target_url = m["target_page_url"]
+            item.target_url_source = "media_picker"
+            if m.get("target_page_title"):
+                item.target_page_title = m["target_page_title"]
+            if m.get("target_url_score") is not None:
+                item.target_url_score = m["target_url_score"]
+            if m.get("target_url_candidates"):
+                item.target_url_candidates = m["target_url_candidates"]
+                # Count how many of the top-3 came with LinkFinder data (price
+                # or DA present) — log signal to know when LinkFinder is
+                # underperforming (creds missing, API down, niche client whose
+                # citations are mostly small blogs absent from catalog).
+                for c in m["target_url_candidates"]:
+                    if c.get("price_eur") is not None or c.get("da") is not None:
+                        article_linkfinder_enriched += 1
+                        break
+            article_auto_matched += 1
+
     db.commit()
 
     # Per-type counts for the log + return payload — useful when scanning
     # logs to spot a regression where one content_type stops materializing.
     by_type: dict[str, int] = {}
-    for item, _, _ in new_items:
+    for item, *_extras in new_items:
         by_type[item.content_type] = by_type.get(item.content_type, 0) + 1
 
     logger.info(
         f"materialize_content_items done: scan={scan_id}, "
         f"materialized={len(new_items)} {by_type}, "
         f"skipped_existing={skipped}, "
-        f"auto_matched={auto_matched}/{len(faq_items)} FAQ "
+        f"FAQ auto_matched={auto_matched}/{len(faq_items)} "
         f"(sitemap_index={sitemap_matched}, "
         f"auto_suggest={auto_matched - sitemap_matched}), "
-        f"pending_user={len(new_items) - auto_matched}, "
+        f"article auto_matched={article_auto_matched}/{len(article_items)} "
+        f"(linkfinder_enriched={article_linkfinder_enriched}), "
+        f"pending_user={len(new_items) - auto_matched - article_auto_matched}, "
         f"auto_lead_suggested={auto_lead_count}, "
         f"is_competitor_scan={competitor}"
     )
@@ -707,6 +830,8 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
         "skipped_existing": skipped,
         "auto_matched": auto_matched,
         "sitemap_matched": sitemap_matched,
+        "article_auto_matched": article_auto_matched,
+        "article_linkfinder_enriched": article_linkfinder_enriched,
         "auto_lead_suggested": auto_lead_count,
         "is_competitor_scan": competitor,
     }

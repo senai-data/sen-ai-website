@@ -297,8 +297,7 @@ function fmtDate(iso: string | null): string {
                   input below stays editable for free-form override (Postel).
                   Header line explains provenance + scoring so the numbers
                   inside the cards aren't cryptic (UX feedback 2026-05-14). */}
-              {/* Top-3 picker — FAQ-only. Article publishes on third-party
-                  media, no sitemap-index candidates exist. */}
+              {/* Top-3 picker — FAQ. Brand-site sitemap candidates. */}
               <template x-if="item.content_type === 'faq' && (item.target_url_candidates || []).length >= 2">
                 <div class="mt-1 mb-3">
                   <div class="flex items-center gap-1.5 mb-1.5 text-[11px] text-charcoal-light">
@@ -339,6 +338,80 @@ function fmtDate(iso: string | null): string {
                                   x-show="c.url !== item.target_url"
                                   :disabled="saving"
                                   class="text-[10px] text-coral hover:text-coral-dark font-semibold whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed">
+                            Use this →
+                          </button>
+                        </div>
+                      </div>
+                    </template>
+                  </div>
+                </div>
+              </template>
+
+              {/* Top-3 picker — NETLINKING ARTICLE. Media partners discovered
+                  via scan_llm_results.citations + LinkFinder enrichment. Same
+                  pattern as FAQ picker (Common Region, single-click pick) but
+                  the chips reflect netlinking economics : citation_count,
+                  provider diversity, DA, TF, price HT. Domains absent from
+                  LinkFinder show "💬 Contact" — user knows to vet manually. */}
+              <template x-if="item.content_type === 'netlinking_article' && (item.target_url_candidates || []).length >= 2">
+                <div class="mt-1 mb-3">
+                  <div class="flex items-center gap-1.5 mb-1.5 text-[11px] text-charcoal-light">
+                    <svg class="w-3.5 h-3.5 text-purple-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/>
+                    </svg>
+                    <strong class="text-charcoal-dark">3 media partners that already cite this topic</strong>
+                    <span class="cursor-help select-none ml-0.5"
+                          title="Discovered from your scan : these are the third-party medias the LLMs ALREADY cite when answering this question. Publish a sponsored article there to recapture citation share.&#10;&#10;HOW IT'S COMPUTED&#10;• Citation count — total mentions across all LLM providers in the scan&#10;• DA (Domain Authority) — Majestic / Ahrefs-style authority score from LinkFinder (0-100, higher = stronger backlink profile)&#10;• Price € HT — published price for a sponsored placement on link-finder.net&#10;• Ranking : citation_count × log(DA+1) − price/1000&#10;&#10;Sources : citations table in scan_llm_results + LinkFinder catalog. Click 'Refresh prices' to re-query LinkFinder.">ⓘ</span>
+                    <button @click="refreshMediaEnrichment()"
+                            :disabled="refreshingMedia"
+                            class="ml-auto text-[10px] text-purple-700 hover:text-purple-900 disabled:opacity-40 inline-flex items-center gap-1"
+                            title="Re-fetch LinkFinder data (prices may have changed). LinkFinder serves a 7-day cache so this is cheap.">
+                      <span x-show="!refreshingMedia">↻ Refresh prices</span>
+                      <span x-show="refreshingMedia">⏳ Refreshing…</span>
+                    </button>
+                  </div>
+                  <div class="grid grid-cols-1 md:grid-cols-3 gap-2">
+                    <template x-for="c in item.target_url_candidates" :key="c.url">
+                      <div class="relative p-2.5 rounded-lg border transition-all flex flex-col gap-1"
+                           :class="c.url === item.target_url ? 'border-purple-400 ring-2 ring-purple-100 bg-purple-50/50' : 'border-gray-200 bg-white hover:border-purple-400/40 hover:shadow-sm'">
+                        <span x-show="c.url === item.target_url"
+                              class="absolute top-1 right-2 text-purple-600 text-sm leading-none"
+                              title="Currently selected">★</span>
+                        <a :href="c.url" target="_blank" rel="noopener"
+                           :title="c.url"
+                           class="text-[10px] font-mono text-charcoal-light hover:text-purple-700 truncate block leading-tight"
+                           x-text="c.domain"></a>
+                        <p class="text-xs font-medium text-charcoal-dark line-clamp-2 leading-snug"
+                           :title="c.excerpt || c.domain"
+                           x-text="c.name || c.domain"></p>
+                        <div class="flex items-center justify-between mt-auto pt-1 gap-2 flex-wrap">
+                          <span class="text-[10px] inline-flex items-center gap-1.5 flex-wrap">
+                            <span class="font-semibold text-purple-700"
+                                  :title="(c.providers_cited && c.providers_cited.length > 0 ? 'Cited by: ' + c.providers_cited.join(', ') : 'Citation count across all LLM providers in this scan')">
+                              🎯 <span x-text="c.citation_count"></span>×
+                            </span>
+                            <template x-if="c.da != null">
+                              <span class="text-charcoal-dark" title="Domain Authority (LinkFinder / Majestic)">
+                                DA <span x-text="c.da"></span>
+                              </span>
+                            </template>
+                            <template x-if="c.price_eur != null">
+                              <span class="text-amber-700 font-medium"
+                                    :title="'Sponsored placement price HT (LinkFinder catalog). Click Refresh prices to re-query.'">
+                                💰 €<span x-text="Math.round(c.price_eur).toLocaleString('fr-FR')"></span>
+                              </span>
+                            </template>
+                            <template x-if="c.price_eur == null && c.da == null">
+                              <span class="text-charcoal-light italic"
+                                    title="Not in LinkFinder catalog — may still accept sponsored content, contact the media directly to ask about pricing.">
+                                💬 Contact
+                              </span>
+                            </template>
+                          </span>
+                          <button @click="usePickerCandidate(c)"
+                                  x-show="c.url !== item.target_url"
+                                  :disabled="saving"
+                                  class="text-[10px] text-purple-700 hover:text-purple-900 font-semibold whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed">
                             Use this →
                           </button>
                         </div>
@@ -389,10 +462,11 @@ function fmtDate(iso: string | null): string {
                     <span class="inline-flex items-center gap-1.5">
                       <button @click="rematchUrl()"
                               :disabled="rematching || item.status === 'generating' || !canRematchMore()"
-                              :class="(rematching || !canRematchMore()) ? 'bg-gray-50 text-gray-400 border-gray-200 cursor-not-allowed' : 'text-coral hover:bg-coral/10 border-coral/30'"
+                              :class="(rematching || !canRematchMore()) ? 'bg-gray-50 text-gray-400 border-gray-200 cursor-not-allowed' : (item.content_type === 'netlinking_article' ? 'text-purple-700 hover:bg-purple-50 border-purple-300' : 'text-coral hover:bg-coral/10 border-coral/30')"
                               class="text-[11px] px-2 py-0.5 border rounded inline-flex items-center gap-1 transition-colors"
                               :title="rematchTooltip()">
-                        <span x-show="!rematching && canRematchMore()">🔄 Find a different page</span>
+                        <span x-show="!rematching && canRematchMore()"
+                              x-text="item.content_type === 'netlinking_article' ? '🔄 Find a different media' : '🔄 Find a different page'"></span>
                         <span x-show="!rematching && !canRematchMore()">🔄 Matcher exhausted</span>
                         <span x-show="rematching">⏳ Searching…</span>
                       </button>
@@ -1261,6 +1335,10 @@ function fmtDate(iso: string | null): string {
         aiSnapshotRefreshing: false,    // true between POST and completion poll
         aiSnapshotRefreshError: '',
         _aiSnapshotPollHandle: null,
+        // Phase C.1.3 — refresh LinkFinder enrichment on existing media candidates
+        // (article items only). Synchronous endpoint, no polling needed.
+        refreshingMedia: false,
+        refreshMediaError: '',
 
         statusLabelOf(s) {
           const m = { identified: 'IDENTIFIED', generating: 'GENERATING', draft: 'DRAFT', in_review: 'IN REVIEW', approved: 'APPROVED', published: 'PUBLISHED', rejected: 'REJECTED' };
@@ -1676,6 +1754,34 @@ function fmtDate(iso: string | null): string {
         // The original implementation only checked (1) but a buggy in-flight
         // filter could leave the UI permanently 'Refreshing…' even after
         // the job completed — (2) is the positive signal that catches it.
+        // Phase C.1.3 — re-fetch LinkFinder enrichment on existing candidates.
+        // Article items only. Sync endpoint (no job). Mutates item.target_url_candidates
+        // in place with the refreshed DA / TF / price / platform_url values.
+        async refreshMediaEnrichment() {
+          if (this.refreshingMedia) return;
+          if (this.item.content_type !== 'netlinking_article') return;
+          this.refreshingMedia = true;
+          this.refreshMediaError = '';
+          try {
+            const r = await fetch('/api/content-items/' + this.item.id + '/refresh-media-enrichment', {
+              method: 'POST',
+            });
+            if (!r.ok) {
+              const body = await r.json().catch(() => ({}));
+              this.refreshMediaError = body.detail?.message || body.detail || ('HTTP ' + r.status);
+              return;
+            }
+            const data = await r.json();
+            if (data.candidates) {
+              this.item.target_url_candidates = data.candidates;
+            }
+          } catch (e) {
+            this.refreshMediaError = e.message || 'Refresh failed';
+          } finally {
+            this.refreshingMedia = false;
+          }
+        },
+
         async refreshAiSnapshot() {
           if (this.aiSnapshotRefreshing) return;
           this.aiSnapshotRefreshing = true;
@@ -2028,13 +2134,17 @@ function fmtDate(iso: string | null): string {
         canRematch() {
           // Hidden once item is past 'identified'/'draft' — manual override only.
           if (this.item.status !== 'identified' && this.item.status !== 'draft') return false;
-          // Article items publish on third-party media domains — the matcher
-          // (FAQPageMatcher web_search + sitemap_matcher) operates on the
-          // user's brand site, which is not where articles go. Hide entirely
-          // for netlinking_article ; user supplies the media URL manually.
-          if (this.item.content_type === 'netlinking_article') return false;
-          // Show whenever the system has skin in the game : either a current
-          // auto-suggestion to replace, or rejected URLs already accumulated.
+          // Two paths :
+          // - FAQ items rematch via sitemap_matcher + FAQPageMatcher (brand site)
+          // - Article items rematch via media_picker (third-party media partners)
+          // Both routed by worker/handlers/rematch_target_url.py based on content_type.
+          if (this.item.content_type === 'netlinking_article') {
+            // Show whenever picker discovered candidates OR user already rejected some
+            if (this.item.target_url_source === 'media_picker') return true;
+            if ((this.item.rejected_target_urls || []).length > 0) return true;
+            return false;
+          }
+          // FAQ path
           if (this.item.target_url_source === 'auto_suggest') return true;
           if ((this.item.rejected_target_urls || []).length > 0) return true;
           return false;
@@ -2054,9 +2164,17 @@ function fmtDate(iso: string | null): string {
         rematchTooltip() {
           const n = this.rematchCount();
           const left = this.rematchAttemptsLeft();
-          const base = 'Searches Google on your brand site (site:yourbrand.com + this question) for the most relevant page to answer it, skipping URLs already proposed. Takes 5-10s. ';
+          const isArticle = this.item.content_type === 'netlinking_article';
+          const base = isArticle
+            ? 'Re-queries scan_llm_results citations + LinkFinder catalog to find a different media partner for this article, excluding domains already rejected. Sub-second (cached). '
+            : 'Searches Google on your brand site (site:yourbrand.com + this question) for the most relevant page to answer it, skipping URLs already proposed. Takes 5-10s. ';
           if (n === 0) return base + 'Capped at ' + this.MAX_REMATCHES + ' attempts per item — past that, pick a URL manually.';
-          if (left === 0) return n + '/' + this.MAX_REMATCHES + ' attempts used. We\'ve explored what your brand site offers — please pick a URL manually below.';
+          if (left === 0) {
+            const exhaustedMsg = isArticle
+              ? 'attempts used. No more media candidates with citation signal — pick a media URL manually below.'
+              : 'attempts used. We\'ve explored what your brand site offers — please pick a URL manually below.';
+            return n + '/' + this.MAX_REMATCHES + ' ' + exhaustedMsg;
+          }
           return n + '/' + this.MAX_REMATCHES + ' attempts used, ' + left + ' left. ' + base;
         },
         async rematchUrl() {

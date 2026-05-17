@@ -71,6 +71,17 @@ def main():
 
             if not candidates:
                 empty += 1
+                # In --force mode, if no candidates emerge under the current
+                # filter (e.g. all citations are institutional / brand), CLEAR
+                # the existing pick so a stale pre-fix URL doesn't linger.
+                # Without this, a `--force` re-run wouldn't actually replace
+                # bad picks if their replacement is "nothing".
+                if force and item.target_url_source == "media_picker":
+                    item.target_url = None
+                    item.target_url_source = "pending_user"
+                    item.target_url_score = None
+                    item.target_url_candidates = []
+                    flag_modified(item, "target_url_candidates")
                 continue
 
             top1 = candidates[0]

@@ -169,45 +169,42 @@ function fmtDate(iso: string | null): string {
                 🔄 Reload metrics
               </button>
             </template>
-            <template x-if="(item.status === 'identified' || item.status === 'generating') && item.content_type === 'faq'">
+            <template x-if="(item.status === 'identified' || item.status === 'generating') && (item.content_type === 'faq' || item.content_type === 'netlinking_article')">
               <span class="inline-flex items-center gap-3">
                 <button @click="generate()"
                         :disabled="generating || !item.target_url || item.status === 'generating'"
-                        :class="(generating || !item.target_url) ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-coral text-white hover:bg-coral-dark hover:shadow-md'"
+                        :class="(generating || !item.target_url) ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : (item.content_type === 'netlinking_article' ? 'bg-purple-600 text-white hover:bg-purple-700 hover:shadow-md' : 'bg-coral text-white hover:bg-coral-dark hover:shadow-md')"
                         class="px-4 py-2 rounded-lg text-sm font-semibold transition-all flex items-center gap-2"
-                        :title="!item.target_url ? 'Set a target URL first' : (generating ? 'Generation in progress…' : 'Generate FAQ content (~60s)')">
-                  <span x-show="!generating">⚡ Generate FAQ</span>
+                        :title="!item.target_url ? 'Set a target URL first' : (generating ? 'Generation in progress…' : (item.content_type === 'netlinking_article' ? 'Generate netlinking article (~5-15 min, 3 content credits)' : 'Generate FAQ content (~60s, 1 content credit)'))">
+                  <span x-show="!generating" x-text="item.content_type === 'netlinking_article' ? '⚡ Generate Article' : '⚡ Generate FAQ'"></span>
                   <span x-show="generating">⏳ Generating…</span>
                 </button>
                 {/* Live progress indicator (Doherty Threshold + Goal-Gradient).
-                     FAQ generation = ~60s typical. We tick a 1s counter and
-                     show elapsed / expected with a thin animated bar so the
-                     user feels progress even before the result lands. The bar
-                     soft-caps at 100% with a colour change ("slower than
-                     usual") to set expectations without claiming failure. */}
+                     FAQ = ~60s typical, article = ~600s. Phase label streams
+                     in via item.content_metadata.in_progress.phase_label
+                     during polling. Soft-cap at 100% + colour change ("slower
+                     than usual") sets expectations without claiming failure.
+                     For article, also surface the 5-phase progress chip so
+                     the user sees actual pipeline progression, not just an
+                     elapsed counter. */}
                 <template x-if="generating">
-                  <span class="inline-flex flex-col gap-0.5 min-w-[140px]">
+                  <span class="inline-flex flex-col gap-0.5 min-w-[180px]">
                     <span class="text-[10px] tabular-nums text-charcoal-light flex items-center justify-between gap-2">
-                      <span x-text="generateElapsedSec + 's elapsed'"></span>
-                      <span class="text-charcoal-light/70" x-text="generateExpectedSec + 's typical'"></span>
+                      <span x-text="(progressPhaseLabel() ? progressPhaseLabel() + ' · ' : '') + generateElapsedSec + 's'"></span>
+                      <span class="text-charcoal-light/70" x-text="'~' + generateExpectedSec + 's'"></span>
                     </span>
                     <span class="block h-1 w-full bg-gray-100 rounded-full overflow-hidden">
                       <span class="block h-full rounded-full transition-all duration-1000 ease-linear"
-                            :class="generateElapsedSec >= generateExpectedSec ? 'bg-amber-500' : 'bg-coral'"
+                            :class="generateElapsedSec >= generateExpectedSec ? 'bg-amber-500' : (item.content_type === 'netlinking_article' ? 'bg-purple-500' : 'bg-coral')"
                             :style="'width: ' + Math.min(100, (generateElapsedSec / generateExpectedSec) * 100) + '%'"></span>
                     </span>
                     <span x-show="generateElapsedSec >= generateExpectedSec"
                           class="text-[10px] text-amber-700 italic">Slower than usual — hold on.</span>
+                    <span x-show="item.content_type === 'netlinking_article' && !generateError"
+                          class="text-[10px] text-charcoal-light italic">You can leave this page — generation continues.</span>
                   </span>
                 </template>
               </span>
-            </template>
-            <template x-if="(item.status === 'identified' || item.status === 'generating') && item.content_type !== 'faq'">
-              <button class="px-4 py-2 bg-gray-100 text-gray-400 rounded-lg text-sm font-semibold cursor-not-allowed flex items-center gap-2"
-                      disabled
-                      title="Article generation — coming in Phase C">
-                ⚡ Generate (Phase C)
-              </button>
             </template>
             <template x-if="generateError">
               <div class="text-[11px] text-red-700 bg-red-50 border border-red-200 rounded px-2 py-1 max-w-xs" x-text="generateError"></div>
@@ -222,9 +219,9 @@ function fmtDate(iso: string | null): string {
                 <span class="text-xs text-gray-500 italic">Rejected</span>
                 <button @click="regenerate()"
                         :disabled="generating || !item.target_url"
-                        :class="(generating || !item.target_url) ? 'bg-gray-50 text-gray-400 border-gray-200 cursor-not-allowed' : 'text-coral border-coral/30 hover:bg-coral/10 hover:border-coral/50'"
+                        :class="(generating || !item.target_url) ? 'bg-gray-50 text-gray-400 border-gray-200 cursor-not-allowed' : (item.content_type === 'netlinking_article' ? 'text-purple-700 border-purple-300 hover:bg-purple-50 hover:border-purple-500' : 'text-coral border-coral/30 hover:bg-coral/10 hover:border-coral/50')"
                         class="px-3 py-2 text-sm font-medium bg-white border rounded-lg transition-all flex items-center gap-1.5"
-                        :title="!item.target_url ? 'Pick a target URL first (edit in Source above)' : 'Reopen this item and generate a fresh FAQ. Costs 1 content credit. The previous rejection stays in the audit timeline.'">
+                        :title="!item.target_url ? 'Pick a target URL first (edit in Source above)' : (item.content_type === 'netlinking_article' ? 'Reopen this item and generate a fresh article (~5-15 min, 3 content credits).' : 'Reopen this item and generate a fresh FAQ (~60s, 1 content credit). The previous rejection stays in the audit timeline.')">
                   <span x-show="!generating">🔄 Regenerate</span>
                   <span x-show="generating">⏳ Regenerating…</span>
                 </button>
@@ -1227,9 +1224,11 @@ function fmtDate(iso: string | null): string {
         generateStartedAt: null,
         generateElapsedSec: 0,
         generateTickTimer: null,
-        // Typical Generate-FAQ wall time. Based on prod smoke (~55s on the
-        // Avène scan). Used as the progress bar denominator — overshoot
-        // doesn't fail, just flips the bar amber to set expectation.
+        // Typical generation wall time, denominator for the progress bar.
+        // FAQ ~60s (prod smoke ~55s on Avène). Article = 5-15 min, default
+        // 600s ; overridden per-call to estimated_total_seconds from the
+        // worker's content_metadata.in_progress payload when available.
+        // Overshoot doesn't fail, just flips the bar amber to set expectation.
         generateExpectedSec: 60,
         rematching: false,
         rematchError: '',
@@ -2141,6 +2140,70 @@ function fmtDate(iso: string | null): string {
           await this.generate();
         },
 
+        _expectedSecFor(contentType) {
+          // Article runs the full GEO pipeline (YTG + Serper grounding +
+          // section-by-section writing + validation + rephrase) — typically
+          // 5-15 min. FAQ is one OpenAI web_search + composition pass, ~60s.
+          return contentType === 'netlinking_article' ? 600 : 60;
+        },
+
+        progressPhaseLabel() {
+          // Surface the worker's phase signal (set via content_metadata.
+          // in_progress.phase_label by worker/handlers/generate_article.py
+          // _update_progress at each macroscopic phase). Returns '' when
+          // not available so the UI degrades gracefully to elapsed-only.
+          const ip = (this.item && this.item.content_metadata && this.item.content_metadata.in_progress) || {};
+          if (!ip.phase_label) return '';
+          const n = ip.phase_num || 1;
+          const t = ip.phase_total || 5;
+          return n + '/' + t + ' · ' + ip.phase_label;
+        },
+
+        init() {
+          // Resume generating UI if the page was loaded mid-generation
+          // (user refresh during article gen, or returning to an in-flight
+          // tab). The server-side ScanContentItem.content_metadata.
+          // in_progress.started_at tells us when the worker began ; we
+          // backfill local timers from it so the elapsed counter is
+          // accurate, then resume polling. Without this, a page refresh
+          // during a 10-min article gen would lose all progress feedback
+          // and the user would think the job stalled.
+          const ip = (this.item && this.item.content_metadata && this.item.content_metadata.in_progress) || {};
+          if (this.item.status === 'generating') {
+            this.generating = true;
+            this.generateStartedAt = ip.started_at
+              ? new Date(ip.started_at).getTime()
+              : Date.now();
+            this.generateExpectedSec = ip.estimated_total_seconds
+              || this._expectedSecFor(this.item.content_type);
+            this.generateElapsedSec = Math.max(0,
+              Math.floor((Date.now() - this.generateStartedAt) / 1000));
+            this.generateTickTimer = setInterval(() => {
+              this.generateElapsedSec = Math.floor(
+                (Date.now() - this.generateStartedAt) / 1000);
+            }, 1000);
+            // Resume polling — schedule first poll in 3s
+            this.generatePollTimer = setTimeout(() => this._pollGeneration(), 3000);
+          }
+        },
+
+        async _pollGeneration() {
+          try {
+            const pr = await fetch('/api/content-items/' + this.item.id);
+            if (pr.ok) {
+              const d = await pr.json();
+              this.item = d;
+              if (d.status !== 'identified' && d.status !== 'generating') {
+                this.generating = false;
+                this._stopGenerateTimers();
+                window.location.reload();
+                return;
+              }
+            }
+          } catch (_) {}
+          this.generatePollTimer = setTimeout(() => this._pollGeneration(), 3000);
+        },
+
         async generate() {
           if (this.generating || !this.item.target_url) return;
           // Flush any pending URL edit so the worker sees the committed target_url.
@@ -2151,6 +2214,7 @@ function fmtDate(iso: string | null): string {
           this.generateError = '';
           this.generateStartedAt = Date.now();
           this.generateElapsedSec = 0;
+          this.generateExpectedSec = this._expectedSecFor(this.item.content_type);
           // Tick once per second so the elapsed counter + progress bar update
           // in real time (Doherty Threshold). Cheap, no fetch.
           this.generateTickTimer = setInterval(() => {
@@ -2169,12 +2233,21 @@ function fmtDate(iso: string | null): string {
               return;
             }
             // Poll item every 3s — when status flips away from generating/identified, reload.
+            // Once the worker writes content_metadata.in_progress.estimated_total_seconds,
+            // adjust the expected sec to match (initial 600s default may be off).
+            const adjustExpected = () => {
+              const ip = (this.item && this.item.content_metadata && this.item.content_metadata.in_progress) || {};
+              if (ip.estimated_total_seconds) {
+                this.generateExpectedSec = ip.estimated_total_seconds;
+              }
+            };
             const poll = async () => {
               try {
                 const pr = await fetch('/api/content-items/' + this.item.id);
                 if (pr.ok) {
                   const d = await pr.json();
                   this.item = d;
+                  adjustExpected();
                   if (d.status !== 'identified' && d.status !== 'generating') {
                     this.generating = false;
                     this._stopGenerateTimers();

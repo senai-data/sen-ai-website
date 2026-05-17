@@ -243,6 +243,13 @@ class ClientBrand(Base):
     # locale_path_prefix    = path fragment like '/fr-fr/' (filter for multi-locale brands)
     sitemap_urls_override = Column(JSONB, nullable=False, default=list)
     locale_path_prefix = Column(Text)
+    # Phase C.1 multi-vertical article generator (migration 032) :
+    # expert_section_paths = path fragments where expert content lives
+    #                        (replaces seo_llm BRAND_EXPERT_SECTIONS hardcode)
+    # product_lines        = list of gamme / product line names owned by this brand
+    #                        (replaces seo_llm GAMME_TO_SITE inverse mapping)
+    expert_section_paths = Column(JSONB, nullable=False, default=list)
+    product_lines = Column(JSONB, nullable=False, default=list)
 
     parent = relationship("ClientBrand", remote_side=[id])
 

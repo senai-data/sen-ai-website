@@ -41,7 +41,24 @@ router = APIRouter()
 # ── Handler dispatch by content_type ──────────────────────────────────
 GENERATOR_BY_CONTENT_TYPE = {
     "faq": "generate_faq",
-    # "netlinking_article": "generate_article" — Phase C
+    "netlinking_article": "generate_article",  # Phase C.1
+}
+
+# ── Per-content-type credit cost + ledger label ───────────────────────
+# Cost = `content_credit`s debited at enqueue. Article runs 7-9× more
+# expensive LLM ops than FAQ (~$0.06-0.07 vs ~$0.008 measured) so we
+# debit 3 credits to mirror the pricing pack ratio while staying under
+# the user's typical content pack (10/30/100). Refund on permanent
+# failure uses the same per-content-type label so the ledger pairs
+# cleanly with the debit row (see worker/main.py
+# `_refund_content_item_credit` and `_CONTENT_LABEL_BY_JOB_TYPE`).
+CREDIT_COST_BY_CONTENT_TYPE = {
+    "faq": 1,
+    "netlinking_article": 3,
+}
+LEDGER_LABEL_BY_CONTENT_TYPE = {
+    "faq": "FAQ",
+    "netlinking_article": "Article",
 }
 
 
@@ -879,19 +896,19 @@ async def generate_content(item_id: str, user=Depends(get_current_user),
     """Enqueue a content generation job for this item.
 
     Dispatches to the right worker handler by content_type (faq → generate_faq,
-    article → generate_article in Phase C). Dedupes : if a generate job is
+    netlinking_article → generate_article). Dedupes : if a generate job is
     already in flight for this item, returns the existing job_id rather than
     enqueueing a duplicate.
 
     Status transitions: identified → generating (set by handler) → draft (on
     success) or back to identified (on failure, allowing retry from Kanban).
 
-    Credit policy : 1 `content_credit` debited at enqueue time. If the user
-    doesn't have enough credits, returns 402 with a friendly message. Refund
-    on permanent failure is a known follow-up (the centralized
-    `_refund_scan_credits` path in worker/main.py would over-refund the
-    parent scan's scan_credits, so a content-scoped refund helper needs
-    writing — out of scope for this debit-only commit).
+    Credit policy : `content_credit`s debited at enqueue time, amount derived
+    from `CREDIT_COST_BY_CONTENT_TYPE` (1 for FAQ, 3 for article — mirrors
+    cost ratio). If the user doesn't have enough credits, returns 402 with a
+    friendly message. Refund on permanent failure runs in worker/main.py via
+    `_refund_content_item_credit` which pairs the refund label with the
+    debit label per `LEDGER_LABEL_BY_CONTENT_TYPE`.
     """
     item = (
         db.query(ScanContentItem)
@@ -920,11 +937,15 @@ async def generate_content(item_id: str, user=Depends(get_current_user),
                        f"approved/published items.",
         })
 
+    content_label = LEDGER_LABEL_BY_CONTENT_TYPE.get(item.content_type, "Content")
+    credit_cost = CREDIT_COST_BY_CONTENT_TYPE.get(item.content_type, 1)
+
     if not item.target_url:
         raise HTTPException(400, {
             "error": "missing_target_url",
-            "message": "Pick a URL on your site where this FAQ should live, "
-                       "then click Generate. (Open the validation page to set it.)",
+            "message": f"Pick a URL on your site where this {content_label.lower()} "
+                       f"should live, then click Generate. (Open the validation "
+                       f"page to set it.)",
         })
 
     # Dedupe in-flight job (don't double-enqueue if user clicks twice)
@@ -944,25 +965,29 @@ async def generate_content(item_id: str, user=Depends(get_current_user),
                 "message": "Generation already in flight",
             }
 
-    # Debit 1 content_credit before enqueuing. Locks the client row to
-    # serialize against concurrent debits (re-entrant within this txn).
+    # Debit `credit_cost` content_credits before enqueuing. Locks the client
+    # row to serialize against concurrent debits (re-entrant within this txn).
     # The debit row is tied to scan_id so audit queries can reconstruct
-    # which scan triggered which content gen.
+    # which scan triggered which content gen. The description format is
+    # `"<LABEL> generation: <item_id>"` — the worker refund matcher pairs
+    # by item_id across both FAQ and Article labels (see worker/main.py
+    # `_refund_content_item_credit`).
     from routers.stripe import add_credits
     try:
         add_credits(
             client_id=str(item.scan.client_id),
             credit_type="content",
-            amount=-1,
-            description=f"FAQ generation: {item_id}",
+            amount=-credit_cost,
+            description=f"{content_label} generation: {item_id}",
             db=db,
             scan_id=str(item.scan_id),
         )
     except ValueError as e:
         raise HTTPException(402, {
             "error": "insufficient_credits",
-            "message": "You don't have enough content credits to generate this FAQ. "
-                       "Buy more on the Settings page, then come back.",
+            "message": f"You don't have enough content credits to generate this "
+                       f"{content_label.lower()} (needs {credit_cost}). "
+                       f"Buy more on the Settings page, then come back.",
             "detail": str(e),
         })
 

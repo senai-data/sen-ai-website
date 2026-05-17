@@ -96,7 +96,8 @@ def load_handlers():
                           run_llm_tests, generate_editorial,
                           detect_competitors, generate_opportunities, cleanup_brands,
                           generate_domain_brief, generate_client_brief,
-                          generate_faq, materialize_content_items,
+                          generate_faq, generate_article,
+                          materialize_content_items,
                           rematch_target_url, discover_trust_sources,
                           crawl_brand_sitemap, fetch_brand_pages,
                           embed_brand_pages, purge_stale_pages,
@@ -114,6 +115,7 @@ def load_handlers():
     HANDLERS["generate_domain_brief"] = generate_domain_brief.execute
     HANDLERS["generate_client_brief"] = generate_client_brief.execute
     HANDLERS["generate_faq"] = generate_faq.execute
+    HANDLERS["generate_article"] = generate_article.execute
     HANDLERS["materialize_content_items"] = materialize_content_items.execute
     HANDLERS["rematch_target_url"] = rematch_target_url.execute
     HANDLERS["discover_trust_sources"] = discover_trust_sources.execute
@@ -129,17 +131,37 @@ def load_handlers():
 # we refund the per-item content_credit and DO NOT cascade to the scan-level
 # failure path (which over-refunds the parent scan's scan_credits and marks
 # the scan as failed even though it actually completed long ago).
-CONTENT_ITEM_JOB_TYPES = {"generate_faq"}  # add "generate_article" in Phase C
+CONTENT_ITEM_JOB_TYPES = {"generate_faq", "generate_article"}
 
 
-def _refund_content_item_credit(scan_id, item_id: str, db: Session) -> None:
+# Per-content-type credit-ledger description labels. The debit (created at
+# enqueue time in api/routers/content_items.py:generate_content) and the
+# refund (created here on permanent failure) MUST use the same label so the
+# net-aware refund matcher pairs them up correctly. The legacy "FAQ" pattern
+# is kept for backward-compatibility with debits made before Phase C.1.
+_CONTENT_LABEL_BY_JOB_TYPE = {
+    "generate_faq": "FAQ",
+    "generate_article": "Article",
+}
+
+
+def _refund_content_item_credit(scan_id, item_id: str, db: Session,
+                                 job_type: str = "generate_faq") -> None:
     """Refund the unmatched content_credit debit(s) for one item.
 
-    Net-aware idempotency : sums all debit + refund rows tied to this item
-    (descriptions 'FAQ generation: <item_id>' and 'Refund FAQ generation:
-    <item_id>'). If the net is still negative, the user is owed that
-    amount — insert one refund row. If net is 0 or positive, no-op
-    (already fully refunded).
+    Net-aware idempotency : sums all debit + refund rows tied to this item.
+    The ledger description format is `"<LABEL> generation: <item_id>"` for
+    debits and `"Refund <LABEL> generation: <item_id>"` for refunds. We
+    match BOTH the FAQ and Article labels (and pair them by item_id only)
+    so that :
+      - A legacy FAQ item created pre-Phase-C.1 still refunds correctly.
+      - An Article item refund logic also picks up its debit row.
+      - A future content_type only needs to add one entry to
+        _CONTENT_LABEL_BY_JOB_TYPE.
+
+    If the net (sum of debit + refund amounts) is negative, the user is
+    owed that amount — insert one refund row. If net is 0 or positive,
+    no-op (already fully refunded).
 
     This handles the retry flow correctly : debit → fail → refund → user
     fixes target_url → debit → fail → refund. Each generate cycle has its
@@ -149,19 +171,26 @@ def _refund_content_item_credit(scan_id, item_id: str, db: Session) -> None:
     nets all credits tied to a scan. Using the scan-level refund here
     would also refund the parent scan's scan_credits — wrong, because the
     scan itself completed long ago, only this content gen attempt failed.
+
+    The `job_type` arg drives the refund row label only (cosmetic, for
+    audit readability) — matching against the existing debit row is
+    label-agnostic since we query all known labels at once.
     """
     if not scan_id or not item_id:
         return
 
-    debit_desc = f"FAQ generation: {item_id}"
-    refund_desc = f"Refund FAQ generation: {item_id}"
+    # All known content-type labels we might find in the ledger for this item.
+    debit_descs = [f"{label} generation: {item_id}"
+                   for label in _CONTENT_LABEL_BY_JOB_TYPE.values()]
+    refund_descs = [f"Refund {label} generation: {item_id}"
+                    for label in _CONTENT_LABEL_BY_JOB_TYPE.values()]
 
     rows = (
         db.query(ClientCredit)
         .filter(
             ClientCredit.scan_id == scan_id,
             ClientCredit.credit_type == "content",
-            ClientCredit.description.in_([debit_desc, refund_desc]),
+            ClientCredit.description.in_(debit_descs + refund_descs),
         )
         .all()
     )
@@ -200,6 +229,12 @@ def _refund_content_item_credit(scan_id, item_id: str, db: Session) -> None:
     )
     new_balance = (latest.balance_after if latest else 0) + refund_amount
 
+    # Cosmetic label for the refund row matches the failing job's content_type
+    # (so audit can correlate "Refund Article generation:" with the Article
+    # debit row 1:1, even though matching is label-agnostic).
+    refund_label = _CONTENT_LABEL_BY_JOB_TYPE.get(job_type, "Content")
+    refund_desc = f"Refund {refund_label} generation: {item_id}"
+
     db.add(ClientCredit(
         client_id=client_id,
         credit_type="content",
@@ -210,7 +245,7 @@ def _refund_content_item_credit(scan_id, item_id: str, db: Session) -> None:
     ))
     logger.info(
         f"Refunded {refund_amount} content_credit to client {client_id} "
-        f"for failed FAQ item {item_id}"
+        f"for failed {refund_label} item {item_id}"
     )
 
 
@@ -570,7 +605,10 @@ def poll_and_execute():
                         item_id = (job_obj.payload or {}).get("item_id")
                         if item_id:
                             try:
-                                _refund_content_item_credit(job_obj.scan_id, item_id, db)
+                                _refund_content_item_credit(
+                                    job_obj.scan_id, item_id, db,
+                                    job_type=job_obj.job_type,
+                                )
                             except Exception:
                                 logger.exception(
                                     f"Failed to refund content_credit for item {item_id}"

@@ -18,3 +18,11 @@ cryptography>=43.0.0
 requests>=2.31.0
 beautifulsoup4>=4.12.0
 sentry-sdk>=2.0.0
+# Phase C.1 netlinking article generator (geo_content_generator.py).
+# - anthropic     : GEOContentGenerator._init_llm uses Claude for writing/rephrase
+# - msal          : transitive import via seo_llm.src.sharepoint_client (we never
+#                   call SharePoint in the SaaS path, but the module is imported
+#                   at the top of geo_content_generator.py so the SDK must be
+#                   present at boot to avoid ImportError).
+anthropic>=0.40.0
+msal>=1.31.0

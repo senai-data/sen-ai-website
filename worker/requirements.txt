@@ -24,5 +24,11 @@ sentry-sdk>=2.0.0
 #                   call SharePoint in the SaaS path, but the module is imported
 #                   at the top of geo_content_generator.py so the SDK must be
 #                   present at boot to avoid ImportError).
+# - Pillow        : transitive import via seo_llm.src.imagen_client (`from PIL
+#                   import Image, ImageDraw` at module top). Same as msal —
+#                   never actually USED since we pass generate_image=False,
+#                   but the import must succeed when generate_article_handler
+#                   lazy-loads GEOContentGenerator.
 anthropic>=0.40.0
 msal>=1.31.0
+Pillow>=11.0.0

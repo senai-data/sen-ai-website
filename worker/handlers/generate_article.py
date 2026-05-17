@@ -84,6 +84,48 @@ _PHASES: dict[str, tuple[int, str]] = {
 _ESTIMATED_TOTAL_SECONDS = 600
 
 
+# ─── ImagenClient stub (bypass broken `from src.config` CLI import) ────
+
+def _install_imagen_stub() -> None:
+    """Inject a stub `seo_llm.src.imagen_client` module to bypass its broken
+    CLI-relative `from src.config import get_task_model_config` import.
+
+    `imagen_client.py` (line 21) uses `from src.config import ...` — an
+    absolute import that works when seo_llm/ IS the CWD (CLI mode), but
+    breaks when imported as `seo_llm.src.imagen_client` (worker mode, no
+    top-level `src` module). The hard fix would be patching the submodule,
+    but we never call ImagenClient anyway (generate_image=False), so we
+    stub it before `geo_content_generator.py` line 65 `from .imagen_client
+    import ImagenClient` resolves.
+
+    Idempotent — safe to call multiple times. Mirrors the
+    `_install_geo_stub` pattern in generate_faq.py for the BRAND_MAP case.
+    """
+    import sys
+    import types
+    mod_name = "seo_llm.src.imagen_client"
+    if mod_name in sys.modules and getattr(sys.modules[mod_name], "_is_stub", False):
+        return
+    stub = types.ModuleType(mod_name)
+
+    class _StubImagenClient:
+        """No-op ImagenClient stub. Article handler always passes
+        generate_image=False, so the real class is never instantiated."""
+
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def _filter_sensitive_terms(self, *args, **kwargs):
+            return args[0] if args else ""
+
+        def _try_generate_image(self, *args, **kwargs):
+            return None
+
+    stub.ImagenClient = _StubImagenClient
+    stub._is_stub = True
+    sys.modules[mod_name] = stub
+
+
 # ─── Console silencing ────────────────────────────────────────────────
 
 @contextlib.contextmanager
@@ -310,7 +352,14 @@ def _make_workspace_aware_class():
     google-cloud-aiplatform / Pillow / etc. We want worker boot to stay fast
     and to surface any missing dep on the first article generation (when the
     user clicks Generate) rather than on a happy-path FAQ user's worker boot.
+
+    Stub install order matters : `_install_imagen_stub()` MUST run before the
+    `from seo_llm.src.geo_content_generator import GEOContentGenerator` line
+    below — geo_content_generator.py line 65 does `from .imagen_client import
+    ImagenClient`, which triggers the broken `from src.config import ...`
+    inside imagen_client.py. Stub first → real import resolves to our no-op.
     """
+    _install_imagen_stub()
     from seo_llm.src.geo_content_generator import GEOContentGenerator
 
     class _WorkspaceAwareArticleGenerator(GEOContentGenerator):

@@ -276,13 +276,24 @@ function ageLabel(iso: string | null): string {
                         )}
                         {col.key === 'to_create' && !item.target_url && (
                           <span class="text-[9px] font-bold rounded px-1.5 py-0.5 bg-amber-100 text-amber-800"
-                                title="Pick a URL on your site where this FAQ should live, then click Generate.">
-                            ⚠ NEEDS URL
+                                title={item.content_type === 'netlinking_article'
+                                  ? 'Set the media partner URL where this article will be published (e.g. https://www.doctissimo.fr/...), then click Generate.'
+                                  : 'Pick a URL on your site where this FAQ should live, then click Generate.'}>
+                            ⚠ {item.content_type === 'netlinking_article' ? 'NEEDS MEDIA URL' : 'NEEDS URL'}
                           </span>
                         )}
+                        {/* Scan-domain chip — labelled by intent : on FAQ scans
+                            it's the user's own brand site (where the FAQ will
+                            live), on netlinking_article it's the competitor's
+                            scanned domain (the OPPORTUNITY source — what made
+                            us identify this article need). Different mental
+                            model, different prefix. */}
                         {item.scan_domain && (
-                          <span class="text-[10px] text-charcoal-light truncate max-w-[140px]" title={item.scan_domain}>
-                            {item.scan_domain}
+                          <span class="text-[10px] text-charcoal-light truncate max-w-[180px]"
+                                title={item.content_type === 'netlinking_article'
+                                  ? `Scanned (competitor): ${item.scan_domain} — article will publish on a media partner, not here.`
+                                  : item.scan_domain}>
+                            {item.content_type === 'netlinking_article' ? '🔍 ' : ''}{item.scan_domain}
                           </span>
                         )}
                       </div>
@@ -399,8 +410,10 @@ function ageLabel(iso: string | null): string {
                             ) : (
                               <a href={`/app/content/${item.id}`}
                                  class="text-[10px] rounded px-2 py-1 font-medium bg-amber-100 text-amber-800 hover:bg-amber-200 transition-all"
-                                 title="Set a target URL on the validation page, then Generate.">
-                                Set URL →
+                                 title={item.content_type === 'netlinking_article'
+                                   ? 'Open validation page → set the media partner URL where the article will be published, then Generate.'
+                                   : 'Open validation page → set a target URL on your site, then Generate.'}>
+                                {item.content_type === 'netlinking_article' ? 'Set media URL →' : 'Set URL →'}
                               </a>
                             )}
                             <p x-show="error" x-text="error" class="text-[9px] text-red-600"></p>

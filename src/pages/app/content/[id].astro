@@ -142,9 +142,9 @@ function fmtDate(iso: string | null): string {
                 </button>
                 <button @click="regenerate()"
                         :disabled="saving || generating || !item.target_url"
-                        :class="(saving || generating || !item.target_url) ? 'bg-gray-50 text-gray-400 border-gray-200 cursor-not-allowed' : 'text-coral border-coral/30 hover:bg-coral/10 hover:border-coral/50'"
+                        :class="(saving || generating || !item.target_url) ? 'bg-gray-50 text-gray-400 border-gray-200 cursor-not-allowed' : (item.content_type === 'netlinking_article' ? 'text-purple-700 border-purple-300 hover:bg-purple-50 hover:border-purple-500' : 'text-coral border-coral/30 hover:bg-coral/10 hover:border-coral/50')"
                         class="px-3 py-2 text-sm font-medium bg-white border rounded-lg transition-all flex items-center gap-1.5"
-                        :title="!item.target_url ? 'Set a target URL first' : 'Regenerate FAQ from scratch. Costs 1 content credit. Current content will be overwritten — use this when the output is off-brand or low quality but the question is still worth answering.'">
+                        :title="!item.target_url ? (item.content_type === 'netlinking_article' ? 'Set the media partner URL first (in Source above)' : 'Set a target URL first') : (item.content_type === 'netlinking_article' ? 'Regenerate article from scratch (~5-15 min, 3 content credits). Current content overwritten.' : 'Regenerate FAQ from scratch (~60s, 1 content credit). Current content will be overwritten — use this when the output is off-brand or low quality but the question is still worth answering.')">
                   <span x-show="!generating">🔄 Regenerate</span>
                   <span x-show="generating">⏳ Regenerating…</span>
                 </button>
@@ -175,7 +175,7 @@ function fmtDate(iso: string | null): string {
                         :disabled="generating || !item.target_url || item.status === 'generating'"
                         :class="(generating || !item.target_url) ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : (item.content_type === 'netlinking_article' ? 'bg-purple-600 text-white hover:bg-purple-700 hover:shadow-md' : 'bg-coral text-white hover:bg-coral-dark hover:shadow-md')"
                         class="px-4 py-2 rounded-lg text-sm font-semibold transition-all flex items-center gap-2"
-                        :title="!item.target_url ? 'Set a target URL first' : (generating ? 'Generation in progress…' : (item.content_type === 'netlinking_article' ? 'Generate netlinking article (~5-15 min, 3 content credits)' : 'Generate FAQ content (~60s, 1 content credit)'))">
+                        :title="!item.target_url ? (item.content_type === 'netlinking_article' ? 'Set the media partner URL first (in Source above)' : 'Set a target URL first') : (generating ? 'Generation in progress…' : (item.content_type === 'netlinking_article' ? 'Generate netlinking article (~5-15 min, 3 content credits)' : 'Generate FAQ content (~60s, 1 content credit)'))">
                   <span x-show="!generating" x-text="item.content_type === 'netlinking_article' ? '⚡ Generate Article' : '⚡ Generate FAQ'"></span>
                   <span x-show="generating">⏳ Generating…</span>
                 </button>
@@ -260,11 +260,11 @@ function fmtDate(iso: string | null): string {
             </div>
             <div class="sm:col-span-2">
               <dt class="text-[10px] uppercase tracking-wide text-charcoal-light flex items-center gap-2">
-                <span>Target page</span>
+                <span x-text="item.content_type === 'netlinking_article' ? 'Media partner URL' : 'Target page'"></span>
                 {/* Phase D : surface the matcher's confidence + source.
-                    Hide source chips when the top-3 picker is visible — the
-                    cards self-explain and the chip duplicates info. */}
-                <template x-if="(item.target_url_candidates || []).length < 2 && item.target_url_source === 'sitemap_index' && item.target_url_score != null">
+                    Only shown for FAQ items (matcher operates on brand-site
+                    sitemap, N/A for articles published on third-party media). */}
+                <template x-if="item.content_type === 'faq' && (item.target_url_candidates || []).length < 2 && item.target_url_source === 'sitemap_index' && item.target_url_score != null">
                   <span class="text-[9px] font-mono px-1.5 py-0.5 rounded"
                         :class="item.target_url_score >= 0.8 ? 'bg-emerald-50 text-emerald-700' : (item.target_url_score >= 0.6 ? 'bg-blue-50 text-blue-700' : 'bg-amber-50 text-amber-800')"
                         :title="'How well this page matches your question (cosine similarity on the indexed page content, weighted by the page authority).'">
@@ -272,10 +272,19 @@ function fmtDate(iso: string | null): string {
                   </span>
                 </template>
               </dt>
-              {/* Banner shown only when URL not yet set — Aesthetic-Usability + Tesler */}
-              <template x-if="!item.target_url">
+              {/* Empty-state banner — content_type-aware copy. FAQ lives on
+                  YOUR site (matcher suggests pages on brand sitemaps).
+                  Netlinking ARTICLE lives on a MEDIA PARTNER's site (no
+                  matcher applicable — user supplies the URL after negotiating
+                  the publication). */}
+              <template x-if="!item.target_url && item.content_type !== 'netlinking_article'">
                 <div class="mt-1 mb-2 p-2.5 bg-amber-50 border border-amber-200 rounded text-[11px] text-amber-900 leading-relaxed">
                   <strong>Pick a URL on your site</strong> where this FAQ should live. The page content drives the FAQ's voice and the citations the LLM uses, so this page must be on a brand you control.
+                </div>
+              </template>
+              <template x-if="!item.target_url && item.content_type === 'netlinking_article'">
+                <div class="mt-1 mb-2 p-2.5 bg-purple-50 border border-purple-200 rounded text-[11px] text-purple-900 leading-relaxed">
+                  <strong>Set the media partner URL</strong> where this article will be published (e.g. <code class="bg-purple-100 px-1 rounded">https://www.doctissimo.fr/section/...</code>). The pipeline analyzes the top SERP results on this domain to tune the article's structure, tone and keyword density for that media's audience. The brand being promoted (your LEAD primary brand) is set separately in <em>Brand promotion</em> below.
                 </div>
               </template>
 
@@ -288,7 +297,9 @@ function fmtDate(iso: string | null): string {
                   input below stays editable for free-form override (Postel).
                   Header line explains provenance + scoring so the numbers
                   inside the cards aren't cryptic (UX feedback 2026-05-14). */}
-              <template x-if="(item.target_url_candidates || []).length >= 2">
+              {/* Top-3 picker — FAQ-only. Article publishes on third-party
+                  media, no sitemap-index candidates exist. */}
+              <template x-if="item.content_type === 'faq' && (item.target_url_candidates || []).length >= 2">
                 <div class="mt-1 mb-3">
                   <div class="flex items-center gap-1.5 mb-1.5 text-[11px] text-charcoal-light">
                     <svg class="w-3.5 h-3.5 text-coral" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
@@ -339,7 +350,7 @@ function fmtDate(iso: string | null): string {
               <dd class="mt-0.5 space-y-1">
                 <input type="url"
                        inputmode="url"
-                       placeholder="https://your-brand-site.com/page-that-should-answer-this"
+                       :placeholder="item.content_type === 'netlinking_article' ? 'https://www.media-partner.fr/section-or-article-slug' : 'https://your-brand-site.com/page-that-should-answer-this'"
                        :value="item.target_url || ''"
                        @input="item.target_url = $event.target.value; markUnsaved(); scheduleSave();"
                        :disabled="item.status === 'published' || item.status === 'rejected'"
@@ -2017,6 +2028,11 @@ function fmtDate(iso: string | null): string {
         canRematch() {
           // Hidden once item is past 'identified'/'draft' — manual override only.
           if (this.item.status !== 'identified' && this.item.status !== 'draft') return false;
+          // Article items publish on third-party media domains — the matcher
+          // (FAQPageMatcher web_search + sitemap_matcher) operates on the
+          // user's brand site, which is not where articles go. Hide entirely
+          // for netlinking_article ; user supplies the media URL manually.
+          if (this.item.content_type === 'netlinking_article') return false;
           // Show whenever the system has skin in the game : either a current
           // auto-suggestion to replace, or rejected URLs already accumulated.
           if (this.item.target_url_source === 'auto_suggest') return true;

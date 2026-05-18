@@ -32,6 +32,12 @@ services:
     volumes:
       # API needs RW access to publish/unpublish report files + symlinks.
       - /opt/sen-ai/reports:/opt/sen-ai/reports
+      # Phase NW.1 - shared natural_writing service (read-only bind mount).
+      # Single source of truth used by api (chatbot upcoming) + worker handlers.
+      - ./shared:/app/shared:ro
+      # Anti-AI rule cache shared between api + worker so GitHub + Wikipedia
+      # fetches happen once (7-day TTL). Survives container rebuilds.
+      - nw_cache:/app/cache/natural_writing
     depends_on:
       postgres:
         condition: service_healthy
@@ -43,6 +49,9 @@ services:
       dockerfile: Dockerfile
     container_name: senai-worker
     env_file: ./worker/.env
+    volumes:
+      - ./shared:/app/shared:ro
+      - nw_cache:/app/cache/natural_writing
     depends_on:
       postgres:
         condition: service_healthy
@@ -66,3 +75,4 @@ services:
 
 volumes:
   postgres_data:
+  nw_cache:

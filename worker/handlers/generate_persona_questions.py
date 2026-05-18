@@ -169,6 +169,9 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
         nb_questions=NB_QUESTIONS,
         per_type=QUESTIONS_PER_TYPE,
     )
+    # NW.2 - inject anti-AI-detection humanizer block (compact mode).
+    from services.natural_writing_helpers import inject_humanizer
+    prompt = inject_humanizer(prompt, mode="compact")
 
     model = settings.task_models["generate_persona_questions"]
     start = time.time()

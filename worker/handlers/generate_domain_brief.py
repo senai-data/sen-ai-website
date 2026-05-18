@@ -120,6 +120,9 @@ def _try_openai(domain: str, api_key: str, model: str) -> tuple[dict | None, str
     """Primary: OpenAI Responses API + web_search. Returns (parsed_or_None, raw_text, usage)."""
     client = openai.OpenAI(api_key=api_key, timeout=60)
     prompt = WEB_BRIEF_PROMPT.format(domain=domain)
+    # NW.2 - inject anti-AI-detection humanizer block (compact mode).
+    from services.natural_writing_helpers import inject_humanizer
+    prompt = inject_humanizer(prompt, mode="compact")
     response = client.responses.create(
         model=model,
         tools=[{"type": "web_search"}],
@@ -140,6 +143,9 @@ def _try_gemini(domain: str, api_key: str, model: str) -> tuple[dict | None, str
     from seo_llm.src.llm_client import LLMClient
     client = LLMClient(provider="gemini", api_key=api_key, model=model)
     prompt = WEB_BRIEF_PROMPT.format(domain=domain)
+    # NW.2 - inject anti-AI-detection humanizer block (compact mode).
+    from services.natural_writing_helpers import inject_humanizer
+    prompt = inject_humanizer(prompt, mode="compact")
     response = client.generate(
         prompt,
         temperature=0.3,
@@ -160,6 +166,9 @@ def _try_gemini(domain: str, api_key: str, model: str) -> tuple[dict | None, str
 def _try_claude(domain: str, api_key: str, model: str) -> tuple[dict | None, str, dict]:
     """Last resort: Claude with training knowledge. Returns (parsed_or_None, raw_text, usage)."""
     prompt = CLAUDE_FALLBACK_PROMPT.format(domain=domain)
+    # NW.2 - inject anti-AI-detection humanizer block (compact mode).
+    from services.natural_writing_helpers import inject_humanizer
+    prompt = inject_humanizer(prompt, mode="compact")
     payload = {
         "model": model,
         "max_tokens": 4096,

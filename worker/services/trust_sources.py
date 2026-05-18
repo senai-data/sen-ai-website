@@ -236,6 +236,12 @@ def discover_trust_sources(
     prompt = _DISCOVERY_PROMPT.format(
         industry=industry.strip(), language_hint=language_hint,
     )
+    # NW.2 - inject anti-AI-detection humanizer block (compact mode).
+    try:
+        from services.natural_writing_helpers import inject_humanizer
+        prompt = inject_humanizer(prompt, mode="compact")
+    except Exception:
+        pass  # service-layer import - degrade gracefully if helper unavailable
 
     try:
         client = openai.OpenAI(api_key=openai_api_key, timeout=120)

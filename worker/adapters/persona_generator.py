@@ -103,6 +103,9 @@ async def generate_for_topic(
         per_type=QUESTIONS_PER_TYPE,
         domain_context=domain_context,
     )
+    # NW.2 - inject anti-AI-detection humanizer block (compact mode).
+    from services.natural_writing_helpers import inject_humanizer
+    prompt = inject_humanizer(prompt, mode="compact")
 
     start = time.time()
     result = await _call_claude(prompt, anthropic_api_key)

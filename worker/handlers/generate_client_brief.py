@@ -147,6 +147,9 @@ def _try_openai(client_name: str, primary_brands_block: str, api_key: str,
     prompt = CLIENT_BRIEF_PROMPT.format(
         client_name=client_name, primary_brands_block=primary_brands_block,
     )
+    # NW.2 - inject anti-AI-detection humanizer block (compact mode).
+    from services.natural_writing_helpers import inject_humanizer
+    prompt = inject_humanizer(prompt, mode="compact")
     response = client.responses.create(
         model=model, tools=[{"type": "web_search"}],
         input=prompt, temperature=0.3,
@@ -167,6 +170,9 @@ def _try_gemini(client_name: str, primary_brands_block: str, api_key: str,
     prompt = CLIENT_BRIEF_PROMPT.format(
         client_name=client_name, primary_brands_block=primary_brands_block,
     )
+    # NW.2 - inject anti-AI-detection humanizer block (compact mode).
+    from services.natural_writing_helpers import inject_humanizer
+    prompt = inject_humanizer(prompt, mode="compact")
     response = llm.generate(
         prompt, temperature=0.3, max_tokens=8000, use_grounding=True,
         agent_name="generate_client_brief_gemini",
@@ -185,6 +191,9 @@ def _try_claude(client_name: str, primary_brands_block: str, api_key: str,
     prompt = CLAUDE_FALLBACK_PROMPT.format(
         client_name=client_name, primary_brands_block=primary_brands_block,
     )
+    # NW.2 - inject anti-AI-detection humanizer block (compact mode).
+    from services.natural_writing_helpers import inject_humanizer
+    prompt = inject_humanizer(prompt, mode="compact")
     payload = {
         "model": model, "max_tokens": 4096, "temperature": 0.3,
         "messages": [{"role": "user", "content": prompt}],

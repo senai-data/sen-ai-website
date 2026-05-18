@@ -1,0 +1,343 @@
+---
+/**
+ * In-app chatbot widget - Sprint 4 (C.4.3 + C.4.4).
+ *
+ * Floating coral (brand-colour) button bottom-right of the dashboard. Click to expand
+ * a chat panel where the user can ask questions about their workspace.
+ * The agent has 10 read-only tools (list clients, count opportunities,
+ * brand visibility, content search, credit balance, trigger scan...).
+ *
+ * State :
+ *   - thread_id  : persisted in localStorage so the conversation survives
+ *                  a page refresh (within the in-memory backend TTL).
+ *   - history    : array of {role, content} rendered top-to-bottom.
+ *   - typing     : true while waiting for the backend reply.
+ *
+ * Latency : Anthropic Sonnet 4.6 round-trip + 1-3 tool calls = 2-6s
+ * typical. We show a 'thinking...' indicator so the user knows the
+ * agent is working.
+ *
+ * UX rules from STYLE_GUIDE.md applied here :
+ *  - No signposting ('Let me help you...')
+ *  - Short examples on first open (Jakob's Law - users want concrete
+ *    starting points, not abstract instructions)
+ *  - Direct error messages ("Couldn't send - try again")
+ */
+---
+
+<!--
+  Widget anchor : floating bottom-right of the dashboard. Mounted by
+  DashboardLayout.astro just before </body>. z-50 keeps it above the
+  sidebar + any modal that itself uses z-40 or below.
+-->
+<div
+  x-data="agentChatWidget()"
+  x-init="init()"
+  class="fixed bottom-4 right-4 z-50 font-sans"
+>
+  <!-- Collapsed : floating action button (sen-ai logo on coral brand).
+       brightness-0 invert turns the dark logo white over the coral
+       background, matching the sidebar header treatment. -->
+  <button
+    x-show="!open"
+    @click="openChat()"
+    class="relative bg-coral hover:bg-coral-dark rounded-full w-14 h-14 shadow-lg hover:shadow-xl transition-all flex items-center justify-center"
+    title="Ask the sen-ai assistant"
+  >
+    <img
+      src="/logo-sen-ai-fr.png"
+      alt="sen-ai"
+      class="h-7 w-auto brightness-0 invert opacity-95"
+    />
+    <span x-show="unreadCount > 0"
+          class="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold rounded-full w-5 h-5 flex items-center justify-center"
+          x-text="unreadCount"></span>
+  </button>
+
+  <!-- Expanded : chat panel -->
+  <div
+    x-show="open"
+    x-transition:enter="transition ease-out duration-200"
+    x-transition:enter-start="opacity-0 translate-y-2"
+    x-transition:enter-end="opacity-100 translate-y-0"
+    class="bg-white rounded-2xl shadow-2xl border border-gray-200 w-[380px] sm:w-[420px] h-[600px] flex flex-col overflow-hidden"
+    style="display: none"
+  >
+    <!-- Header -->
+    <div class="bg-coral text-white px-4 py-3 flex items-center justify-between">
+      <div class="flex items-center gap-2.5">
+        <div class="relative">
+          <img
+            src="/logo-sen-ai-fr.png"
+            alt="sen-ai"
+            class="h-6 w-auto brightness-0 invert opacity-95"
+          />
+          <div class="absolute -bottom-0.5 -right-0.5 w-2 h-2 bg-emerald-light rounded-full ring-1 ring-coral" title="Online"></div>
+        </div>
+        <div class="leading-tight">
+          <p class="text-sm font-semibold">sen-ai assistant</p>
+          <p class="text-[10px] text-white/80" x-text="quotaLine()"></p>
+        </div>
+      </div>
+      <div class="flex items-center gap-1">
+        <button
+          @click="resetThread()"
+          class="text-white/80 hover:text-white p-1 rounded"
+          title="Start a new conversation"
+        >
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+          </svg>
+        </button>
+        <button
+          @click="open = false"
+          class="text-white/80 hover:text-white p-1 rounded"
+          title="Close"
+        >
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Message list (scrolls) -->
+    <div
+      x-ref="messageList"
+      class="flex-1 overflow-y-auto px-4 py-3 space-y-3 bg-gray-50"
+    >
+      <!-- Empty state with concrete example queries (Jakob's Law) -->
+      <template x-if="history.length === 0">
+        <div class="text-sm text-charcoal-light space-y-3">
+          <p class="font-medium text-charcoal-dark">Hi - what can I look up for you ?</p>
+          <p class="text-[12px]">Try one of these :</p>
+          <div class="space-y-1.5">
+            <template x-for="example in examples" :key="example">
+              <button
+                @click="sendMessage(example)"
+                class="block w-full text-left text-[12px] bg-white hover:bg-coral-light/20 border border-gray-200 hover:border-coral rounded-lg px-3 py-2 transition-all"
+                x-text="example"
+              ></button>
+            </template>
+          </div>
+        </div>
+      </template>
+
+      <!-- Message bubbles -->
+      <template x-for="(msg, i) in history" :key="i">
+        <div :class="msg.role === 'user' ? 'flex justify-end' : 'flex justify-start'">
+          <div
+            :class="msg.role === 'user'
+                    ? 'bg-coral text-white rounded-2xl rounded-br-sm px-3 py-2 max-w-[80%]'
+                    : 'bg-white border border-gray-200 rounded-2xl rounded-bl-sm px-3 py-2 max-w-[85%] shadow-sm'"
+            class="text-[13px] leading-snug whitespace-pre-wrap"
+          >
+            <span x-html="renderMarkdown(msg.content)"></span>
+          </div>
+        </div>
+      </template>
+
+      <!-- Thinking indicator -->
+      <template x-if="typing">
+        <div class="flex justify-start">
+          <div class="bg-white border border-gray-200 rounded-2xl rounded-bl-sm px-3 py-2 text-[13px] text-charcoal-light shadow-sm flex items-center gap-1.5">
+            <span class="inline-flex gap-0.5">
+              <span class="w-1.5 h-1.5 bg-coral-light rounded-full animate-bounce" style="animation-delay: 0ms"></span>
+              <span class="w-1.5 h-1.5 bg-coral-light rounded-full animate-bounce" style="animation-delay: 100ms"></span>
+              <span class="w-1.5 h-1.5 bg-coral-light rounded-full animate-bounce" style="animation-delay: 200ms"></span>
+            </span>
+            <span>Looking things up</span>
+          </div>
+        </div>
+      </template>
+
+      <!-- Error banner -->
+      <template x-if="lastError">
+        <div class="text-[12px] text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+          <span x-text="lastError"></span>
+        </div>
+      </template>
+    </div>
+
+    <!-- Input row -->
+    <div class="border-t border-gray-100 bg-white px-3 py-2">
+      <form @submit.prevent="sendCurrent()" class="flex items-end gap-2">
+        <textarea
+          x-ref="input"
+          x-model="draft"
+          @keydown.enter.prevent="if(!$event.shiftKey) sendCurrent()"
+          rows="1"
+          placeholder="Ask about your scans, articles, credits..."
+          class="flex-1 resize-none border border-gray-200 rounded-xl px-3 py-2 text-[13px] focus:outline-none focus:border-coral placeholder:text-gray-400 max-h-32"
+          :disabled="typing || quotaExceeded"
+        ></textarea>
+        <button
+          type="submit"
+          :disabled="!draft.trim() || typing || quotaExceeded"
+          class="bg-coral hover:bg-coral-dark text-white rounded-full w-9 h-9 flex items-center justify-center disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+          title="Send (Enter)"
+        >
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M14 5l7 7m0 0l-7 7m7-7H3"/>
+          </svg>
+        </button>
+      </form>
+      <p
+        x-show="quotaExceeded"
+        class="text-[10px] text-amber-700 mt-1"
+      >
+        Daily limit reached. Resets at <span x-text="quotaResetAt"></span>.
+      </p>
+    </div>
+  </div>
+</div>
+
+<script is:inline>
+  function agentChatWidget() {
+    return {
+      open: false,
+      draft: '',
+      typing: false,
+      history: [],     // [{role: 'user'|'assistant', content: str}]
+      threadId: null,
+      lastError: '',
+      quota: null,
+      quotaResetAt: '00:00 UTC',
+      unreadCount: 0,
+
+      examples: [
+        'How many articles do I have in draft ?',
+        'What is my brand visibility on my latest scan ?',
+        'Show me my last 5 generated articles',
+        'How many credits do I have left ?',
+      ],
+
+      init() {
+        // Restore thread id from localStorage so the conversation
+        // survives page reload (within the backend in-memory TTL).
+        try {
+          this.threadId = localStorage.getItem('sen_ai_agent_thread_id') || null;
+        } catch (e) { this.threadId = null; }
+        // Light usage fetch to render the quota line in the header right
+        // away (before the first message).
+        this.fetchUsage();
+      },
+
+      async fetchUsage() {
+        try {
+          const r = await fetch('/api/agent/usage', { credentials: 'include' });
+          if (r.ok) {
+            this.quota = await r.json();
+            this.quotaResetAt = this.quota.reset_at || '00:00 UTC';
+          }
+        } catch (e) {}
+      },
+
+      quotaLine() {
+        if (!this.quota) return 'Ready to help';
+        return `${this.quota.used} / ${this.quota.cap} messages today`;
+      },
+
+      get quotaExceeded() {
+        return this.quota && this.quota.remaining <= 0;
+      },
+
+      openChat() {
+        this.open = true;
+        this.unreadCount = 0;
+        this.$nextTick(() => this.$refs.input?.focus());
+      },
+
+      async resetThread() {
+        if (this.threadId) {
+          try {
+            await fetch('/api/agent/reset', {
+              method: 'POST',
+              credentials: 'include',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ thread_id: this.threadId }),
+            });
+          } catch (e) {}
+        }
+        this.threadId = null;
+        this.history = [];
+        this.lastError = '';
+        try { localStorage.removeItem('sen_ai_agent_thread_id'); } catch (e) {}
+      },
+
+      sendCurrent() {
+        const txt = (this.draft || '').trim();
+        if (!txt) return;
+        this.draft = '';
+        this.sendMessage(txt);
+      },
+
+      async sendMessage(text) {
+        if (this.typing || this.quotaExceeded) return;
+        const msg = (text || '').trim();
+        if (!msg) return;
+
+        this.history.push({ role: 'user', content: msg });
+        this.lastError = '';
+        this.typing = true;
+        this.scrollToBottom();
+
+        try {
+          const r = await fetch('/api/agent/chat', {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              thread_id: this.threadId,
+              message: msg,
+            }),
+          });
+          if (!r.ok) {
+            const body = await r.text();
+            throw new Error(`HTTP ${r.status} - ${body.slice(0, 200)}`);
+          }
+          const data = await r.json();
+          this.typing = false;
+          this.threadId = data.thread_id;
+          try { localStorage.setItem('sen_ai_agent_thread_id', this.threadId); } catch (e) {}
+          this.quota = data.quota || this.quota;
+          this.history.push({ role: 'assistant', content: data.reply || '' });
+          if (!this.open) this.unreadCount += 1;
+          this.scrollToBottom();
+        } catch (e) {
+          this.typing = false;
+          this.lastError = "Couldn't send - " + (e?.message || 'network error');
+        }
+      },
+
+      scrollToBottom() {
+        this.$nextTick(() => {
+          const el = this.$refs.messageList;
+          if (el) el.scrollTop = el.scrollHeight;
+        });
+      },
+
+      // Minimal markdown renderer : bold (**x**), italic (*x*), inline code (`x`),
+      // links [text](url). Bullets and newlines are preserved by whitespace-pre-wrap.
+      // We keep the renderer tiny on purpose - a full Marked.js dep is overkill
+      // for chat replies. Untrusted content is HTML-escaped first.
+      renderMarkdown(text) {
+        if (!text) return '';
+        let html = text
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;');
+        // Links [text](url) - whitelist http/https only.
+        html = html.replace(
+          /\[([^\]]+)\]\((https?:\/\/[^\s)]+|\/[^\s)]*)\)/g,
+          '<a href="$2" target="_blank" rel="noopener" class="text-coral hover:text-coral-dark underline">$1</a>',
+        );
+        // Bold **x**
+        html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+        // Inline code `x`
+        html = html.replace(/`([^`]+)`/g, '<code class="bg-gray-100 px-1 rounded text-[11px]">$1</code>');
+        return html;
+      },
+    };
+  }
+</script>

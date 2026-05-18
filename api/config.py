@@ -35,9 +35,16 @@ class Settings(BaseSettings):
     # (audit-gratuit form remains open regardless - it's a separate flow without account)
     registration_open: bool = False
 
-    # Observability — Sentry error reporting (optional; logs warning if empty)
+    # Observability - Sentry error reporting (optional; logs warning if empty)
     sentry_dsn: str = ""
     sentry_environment: str = "production"
+
+    # Sprint 4 - In-app chatbot (Anthropic SDK tool-loop)
+    anthropic_api_key: str = ""
+    agent_model: str = "claude-sonnet-4-6"
+    agent_max_iterations: int = 10
+    agent_daily_cap_free: int = 30
+    agent_daily_cap_premium: int = 300
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 

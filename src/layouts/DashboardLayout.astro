@@ -11,6 +11,7 @@
  * - Doherty Threshold: no layout shift, instant navigation feel
  */
 import '../styles/global.css';
+import AgentChatWidget from '../components/AgentChatWidget.astro';
 
 interface Props {
   title: string;
@@ -355,6 +356,10 @@ const icons = {
       <slot />
     </main>
   </div>
+
+  <!-- Sprint 4 - in-app chatbot, floats bottom-right above all content. -->
+  <AgentChatWidget />
+
 
   <script type="module">
     document.getElementById('logout-btn')?.addEventListener('click', async () => {

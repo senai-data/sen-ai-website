@@ -6,7 +6,7 @@ from slowapi.middleware import SlowAPIMiddleware
 
 from config import settings
 from models import Base, engine
-from routers import admin, audit_requests, auth, clients, content_items, invitations, oauth, organizations, reports, stripe, scans, brands
+from routers import admin, audit_requests, auth, clients, content_items, invitations, oauth, organizations, reports, stripe, scans, brands, agent
 from services.rate_limit import limiter
 from services.request_context import current_request_method
 from services.sentry_setup import init_sentry
@@ -63,6 +63,8 @@ app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
 app.include_router(organizations.router, prefix="/api/organizations", tags=["organizations"])
 app.include_router(invitations.org_scoped_router, prefix="/api/organizations", tags=["invitations"])
 app.include_router(invitations.token_scoped_router, prefix="/api/invitations", tags=["invitations"])
+# Sprint 4 - in-app chatbot (Anthropic SDK tool-loop, scoped via JWT cookie).
+app.include_router(agent.router)
 
 
 @app.on_event("startup")

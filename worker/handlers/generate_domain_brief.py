@@ -345,16 +345,50 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
     scan.updated_at = datetime.utcnow()
     db.commit()
 
-    # Pre-populate Gate 2 with competitors from brief
+    # Pre-populate Gate 2 with competitors + their product lines from brief.
+    # Deduplication is essential: the LLM-generated brief frequently lists the
+    # same competitor twice (e.g. "La Roche-Posay" appearing in both a primary
+    # and an extended block). We track names case-insensitively to skip dupes
+    # within a single brief and across re-generations (idempotent).
     competitors_created = 0
+    gammes_created = 0
+
+    def _classify_as_competitor(brand_id):
+        """Upsert SBC=competitor. Never overwrite my_brand or focus rows."""
+        sbc = db.query(ScanBrandClassification).filter(
+            ScanBrandClassification.scan_id == scan_id,
+            ScanBrandClassification.brand_id == brand_id,
+        ).first()
+        if not sbc:
+            db.add(ScanBrandClassification(
+                scan_id=scan_id,
+                brand_id=brand_id,
+                classification="competitor",
+                is_focus=False,
+                classified_by="brief",
+                source="brief",
+            ))
+            return True
+        # Existing row — never demote my_brand and never strip focus.
+        if sbc.classification == "my_brand" or sbc.is_focus:
+            return False
+        if sbc.classification == "unclassified":
+            sbc.classification = "competitor"
+            sbc.classified_by = "brief"
+            sbc.source = "brief"
+            return True
+        return False
+
+    seen_brands: set[str] = set()
     for comp in brief.get("competitors", []):
         comp_name = (comp.get("name") or "").strip()
-        if not comp_name:
+        if not comp_name or comp_name.lower() in seen_brands:
             continue
+        seen_brands.add(comp_name.lower())
 
         existing = db.query(ClientBrand).filter(
             ClientBrand.client_id == scan.client_id,
-            func.lower(ClientBrand.name) == comp_name.lower(),
+            func.lower(ClientBrand.canonical_name) == comp_name.lower(),
         ).first()
 
         if not existing:
@@ -365,6 +399,7 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
                 detected_in_scan_id=scan_id,
                 auto_detected=True,
                 validated_by_user=False,
+                detection_source="brief",
                 last_seen_at=datetime.utcnow(),
             )
             db.add(brand)
@@ -373,25 +408,66 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
             brand = existing
             existing.last_seen_at = datetime.utcnow()
 
-        sbc = db.query(ScanBrandClassification).filter(
+        if _classify_as_competitor(brand.id):
+            competitors_created += 1
+
+        # If the root brand is already my_brand / focus / ignored, skip its
+        # products: the LLM occasionally hallucinates the user's own brand
+        # into the competitors list (e.g. "Avène" with products Cleanance,
+        # Soins Solaires) — creating those as competitor children would
+        # poison the visibility metrics by counting Avène product mentions
+        # as competitor mentions.
+        root_sbc = db.query(ScanBrandClassification).filter(
             ScanBrandClassification.scan_id == scan_id,
             ScanBrandClassification.brand_id == brand.id,
         ).first()
-        if not sbc:
-            db.add(ScanBrandClassification(
-                scan_id=scan_id,
-                brand_id=brand.id,
-                classification="competitor",
-                is_focus=False,
-                classified_by="brief",
-                source="brief",
-            ))
-            competitors_created += 1
-        elif sbc.classification == "unclassified":
-            sbc.classification = "competitor"
-            sbc.classified_by = "brief"
-            sbc.source = "brief"
-            competitors_created += 1
+        if root_sbc is None or root_sbc.classification not in ("competitor", "unclassified"):
+            continue
+
+        # Product lines (gammes) as children of the competitor brand.
+        seen_gammes: set[str] = set()
+        for prod_name in (comp.get("products") or []):
+            prod_name = (prod_name or "").strip()
+            if not prod_name or prod_name.lower() in seen_gammes:
+                continue
+            # Drop echoes of the parent name the LLM sometimes injects.
+            if prod_name.lower() == comp_name.lower():
+                continue
+            seen_gammes.add(prod_name.lower())
+
+            existing_gamme = db.query(ClientBrand).filter(
+                ClientBrand.client_id == scan.client_id,
+                func.lower(ClientBrand.canonical_name) == prod_name.lower(),
+            ).first()
+            if not existing_gamme:
+                gamme = ClientBrand(
+                    client_id=scan.client_id,
+                    name=prod_name,
+                    canonical_name=prod_name,
+                    parent_id=brand.id,
+                    detected_in_scan_id=scan_id,
+                    auto_detected=True,
+                    validated_by_user=False,
+                    detection_source="brief",
+                    last_seen_at=datetime.utcnow(),
+                )
+                db.add(gamme)
+                db.flush()
+                gammes_created += 1
+            else:
+                gamme = existing_gamme
+                existing_gamme.last_seen_at = datetime.utcnow()
+                # Re-parent ONLY if the row is currently a root orphan
+                # (parent_id IS NULL). This is the common case for brands
+                # created by detect_competitors earlier in the pipeline,
+                # which has no hierarchy knowledge — the brief fills it.
+                # If parent_id IS NOT NULL, the row already belongs under
+                # some parent (potentially via a manual user reclassif), so
+                # we leave it alone to preserve that reorganisation.
+                if existing_gamme.parent_id is None:
+                    existing_gamme.parent_id = brand.id
+
+            _classify_as_competitor(gamme.id)
 
     # Pre-populate own brands
     for own_brand_name in brief.get("brands", []):
@@ -434,7 +510,10 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
             ))
 
     db.commit()
-    logger.info(f"Gate 2 pre-populated with {competitors_created} competitors from brief")
+    logger.info(
+        f"Gate 2 pre-populated from brief: "
+        f"{competitors_created} competitors + {gammes_created} product lines"
+    )
 
     return {
         "status": "completed",

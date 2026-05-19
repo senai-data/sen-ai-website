@@ -906,6 +906,17 @@ const isReviewing = effectiveView !== null && (
                             :class="brand.is_focus ? 'text-yellow-400 hover:text-yellow-500' : 'text-gray-300 hover:text-yellow-400'">
                       <span x-text="brand.is_focus ? '★' : '☆'"></span>
                     </button>
+                    <!-- Expand/collapse chevron (only when children) -->
+                    <button x-show="brand.children && brand.children.length > 0"
+                            @click.stop="toggleBrandExpand(brand.brand_id)"
+                            :title="isBrandExpanded(brand.brand_id) ? 'Collapse product lines' : 'Expand product lines'"
+                            class="shrink-0 text-charcoal-light hover:text-coral transition-colors">
+                      <svg class="w-3 h-3 transition-transform"
+                           :class="isBrandExpanded(brand.brand_id) ? 'rotate-90' : ''"
+                           fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7"/>
+                      </svg>
+                    </button>
                     <div class="flex-1 min-w-0">
                       <p class="text-sm font-medium text-charcoal-dark truncate" x-text="brand.name"></p>
                       <p x-show="brand.domain" class="text-[10px] text-charcoal-light truncate" x-text="brand.domain"></p>
@@ -921,8 +932,8 @@ const isReviewing = effectiveView !== null && (
                   </div>
 
                   <!-- Children (product lines, indented, NOT focus-able) -->
-                  <template x-if="brand.children && brand.children.length > 0">
-                    <div class="ml-4 mt-1 space-y-1 border-l-2 border-emerald-200 pl-3">
+                  <template x-if="brand.children && brand.children.length > 0 && isBrandExpanded(brand.brand_id)">
+                    <div x-transition class="ml-4 mt-1 space-y-1 border-l-2 border-emerald-200 pl-3">
                       <template x-for="child in brand.children" :key="child.brand_id">
                         <div draggable="true"
                              @dragstart="onDragStart($event, child, 'my_brand')"
@@ -957,7 +968,21 @@ const isReviewing = effectiveView !== null && (
                 <span class="w-2 h-2 rounded-full bg-red-500"></span>
                 <h3 class="text-sm font-semibold text-charcoal-dark">Competitors</h3>
               </div>
-              <span class="text-xs text-charcoal-light" x-text="bucketCount('competitor')"></span>
+              <div class="flex items-center gap-2">
+                <span class="kpi-tooltip" style="display:inline-flex;">
+                  <button @click="refreshFromBrief()"
+                          :disabled="refreshingFromBrief"
+                          :class="refreshingFromBrief ? 'animate-spin text-coral' : 'text-gray-300 hover:text-coral'"
+                          class="transition-colors cursor-pointer disabled:cursor-wait"
+                          aria-label="Refresh competitors from brief">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                    </svg>
+                  </button>
+                  <span class="kpi-tip" style="width:240px;">Refresh from brief — re-sync competitors and product lines from the Domain Brief above. Safe to re-click; your existing classifications stay intact.</span>
+                </span>
+                <span class="text-xs text-charcoal-light" x-text="bucketCount('competitor')"></span>
+              </div>
             </div>
             <div class="space-y-2">
               <template x-for="brand in buckets.competitor" :key="brand.brand_id">
@@ -966,6 +991,16 @@ const isReviewing = effectiveView !== null && (
                   <div draggable="true"
                        @dragstart="onDragStart($event, brand, 'competitor')"
                        class="group flex items-center gap-2 bg-red-50/30 border border-red-100 rounded-lg px-3 py-2 cursor-move hover:border-red-300 hover:shadow-sm transition-all">
+                    <button x-show="brand.children && brand.children.length > 0"
+                            @click.stop="toggleBrandExpand(brand.brand_id)"
+                            :title="isBrandExpanded(brand.brand_id) ? 'Collapse product lines' : 'Expand product lines'"
+                            class="shrink-0 text-charcoal-light hover:text-coral transition-colors">
+                      <svg class="w-3 h-3 transition-transform"
+                           :class="isBrandExpanded(brand.brand_id) ? 'rotate-90' : ''"
+                           fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7"/>
+                      </svg>
+                    </button>
                     <div class="flex-1 min-w-0">
                       <p class="text-sm font-medium text-charcoal-dark truncate" x-text="brand.name"></p>
                       <p x-show="brand.domain" class="text-[10px] text-charcoal-light truncate" x-text="brand.domain"></p>
@@ -980,8 +1015,8 @@ const isReviewing = effectiveView !== null && (
                     </button>
                   </div>
                   <!-- Children (gammes) -->
-                  <template x-if="brand.children && brand.children.length > 0">
-                    <div class="ml-4 mt-1 space-y-1 border-l-2 border-red-200 pl-3">
+                  <template x-if="brand.children && brand.children.length > 0 && isBrandExpanded(brand.brand_id)">
+                    <div x-transition class="ml-4 mt-1 space-y-1 border-l-2 border-red-200 pl-3">
                       <template x-for="child in brand.children" :key="child.brand_id">
                         <div draggable="true"
                              @dragstart="onDragStart($event, child, 'competitor')"
@@ -1024,6 +1059,16 @@ const isReviewing = effectiveView !== null && (
                   <div draggable="true"
                        @dragstart="onDragStart($event, brand, 'ignored')"
                        class="group flex items-center gap-2 bg-gray-50 border border-gray-100 rounded-lg px-3 py-2 cursor-move hover:border-gray-300 hover:shadow-sm transition-all opacity-70">
+                    <button x-show="brand.children && brand.children.length > 0"
+                            @click.stop="toggleBrandExpand(brand.brand_id)"
+                            :title="isBrandExpanded(brand.brand_id) ? 'Collapse product lines' : 'Expand product lines'"
+                            class="shrink-0 text-charcoal-light hover:text-coral transition-colors">
+                      <svg class="w-3 h-3 transition-transform"
+                           :class="isBrandExpanded(brand.brand_id) ? 'rotate-90' : ''"
+                           fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7"/>
+                      </svg>
+                    </button>
                     <div class="flex-1 min-w-0">
                       <p class="text-sm font-medium text-charcoal-dark truncate" x-text="brand.name"></p>
                       <p x-show="brand.domain" class="text-[10px] text-charcoal-light truncate" x-text="brand.domain"></p>
@@ -1031,9 +1076,14 @@ const isReviewing = effectiveView !== null && (
                          class="text-[10px] text-gray-500 mt-0.5"
                          x-text="brand.children.length + ' product line' + (brand.children.length > 1 ? 's' : '')"></p>
                     </div>
+                    <button @click.stop="deleteBrandFromScan(brand, 'ignored')"
+                            title="Remove from this scan (the brand stays in the workspace but disappears from this scan)"
+                            class="shrink-0 text-xs text-charcoal-light hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity px-1">
+                      &times;
+                    </button>
                   </div>
-                  <template x-if="brand.children && brand.children.length > 0">
-                    <div class="ml-4 mt-1 space-y-1 border-l-2 border-gray-200 pl-3">
+                  <template x-if="brand.children && brand.children.length > 0 && isBrandExpanded(brand.brand_id)">
+                    <div x-transition class="ml-4 mt-1 space-y-1 border-l-2 border-gray-200 pl-3">
                       <template x-for="child in brand.children" :key="child.brand_id">
                         <div draggable="true"
                              @dragstart="onDragStart($event, child, 'ignored')"
@@ -1042,6 +1092,11 @@ const isReviewing = effectiveView !== null && (
                           <div class="flex-1 min-w-0">
                             <p class="text-xs text-charcoal-light truncate" x-text="child.name"></p>
                           </div>
+                          <button @click.stop="deleteBrandFromScan(child, 'ignored')"
+                                  title="Remove from this scan"
+                                  class="shrink-0 text-[10px] text-charcoal-light hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
+                            &times;
+                          </button>
                         </div>
                       </template>
                     </div>
@@ -2145,6 +2200,21 @@ const isReviewing = effectiveView !== null && (
         dragged: null,
         draggedFrom: null,
 
+        // Expand/collapse state for parent brands. Default = all expanded so
+        // first-time users see the full hierarchy at a glance (Progressive
+        // Disclosure for a returning user who wants to collapse).
+        collapsedBrandIds: {},
+        isBrandExpanded(brandId) {
+          return !this.collapsedBrandIds[brandId];
+        },
+        toggleBrandExpand(brandId) {
+          if (this.collapsedBrandIds[brandId]) {
+            delete this.collapsedBrandIds[brandId];
+          } else {
+            this.collapsedBrandIds[brandId] = true;
+          }
+        },
+
         // Count items (parents + nested children) in a given bucket
         bucketCount(name) {
           return (this.buckets[name] || []).reduce(
@@ -2308,6 +2378,50 @@ const isReviewing = effectiveView !== null && (
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ brand_id: brand.brand_id, classification: 'ignored' }),
           }).catch(e => console.error('Remove brand failed:', e));
+        },
+
+        // Idempotent re-sync against the current Domain Brief. The first
+        // import happens automatically when the brief is generated (see
+        // worker/handlers/generate_domain_brief.py). This button is for the
+        // case where the user edits the brief after Gate 2 is reachable.
+        refreshingFromBrief: false,
+        async refreshFromBrief() {
+          if (this.refreshingFromBrief) return;
+          this.refreshingFromBrief = true;
+          try {
+            const res = await fetch('/api/scans/' + this.scanId + '/brands/import-from-brief', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+            });
+            if (!res.ok) {
+              const t = await res.text();
+              alert('Refresh failed: ' + res.status + ' ' + t);
+              return;
+            }
+            const data = await res.json();
+            // Reload bucket state from server (single source of truth re. parent_id nesting)
+            const brandsRes = await fetch('/api/scans/' + this.scanId + '/brands');
+            if (brandsRes.ok) {
+              const fresh = await brandsRes.json();
+              this.buckets.my_brand = fresh.buckets?.my_brand || [];
+              this.buckets.competitor = fresh.buckets?.competitor || [];
+              this.buckets.ignored = fresh.buckets?.ignored || [];
+              this.buckets.unclassified = fresh.buckets?.unclassified || [];
+              this.focusBrandId = fresh.focus_brand_id || null;
+            }
+            const parts = [];
+            if (data.created_brands) parts.push(data.created_brands + ' new competitor' + (data.created_brands > 1 ? 's' : ''));
+            if (data.created_gammes) parts.push(data.created_gammes + ' product line' + (data.created_gammes > 1 ? 's' : ''));
+            const msg = parts.length
+              ? 'Added ' + parts.join(' + ') + ' from brief'
+              : 'Already in sync with the brief';
+            console.info('[brands] ' + msg);
+          } catch (e) {
+            console.error('refreshFromBrief failed:', e);
+            alert('Refresh failed: ' + e.message);
+          } finally {
+            this.refreshingFromBrief = false;
+          }
         },
 
         validateBrands() {

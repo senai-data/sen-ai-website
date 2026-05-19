@@ -100,6 +100,13 @@ class BrandClassify(BaseModel):
     is_focus: bool = False
 
 
+class BrandReparent(BaseModel):
+    """Payload for drag-to-parent — moves brand under a new parent.
+    parent_id=None ⇒ promote to root.
+    """
+    parent_id: str | None = None
+
+
 class ScanResponse(BaseModel):
     id: str
     client_id: str
@@ -653,6 +660,263 @@ async def classify_scan_brand(scan_id: str, req: BrandClassify, user=Depends(get
         "classification": sbc.classification,
         "is_focus": bool(sbc.is_focus),
         "focus_brand_id": str(scan.focus_brand_id) if scan.focus_brand_id else None,
+    }
+
+
+@router.delete("/{scan_id}/brands/{brand_id}")
+async def remove_brand_from_scan(scan_id: str, brand_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
+    """Remove the brand from this scan's view.
+
+    Drops the per-scan classification row only — the canonical `client_brands`
+    row is preserved (it may be referenced by other scans or future runs).
+    Used by the × button on the Ignored bucket to fully discard a brand from
+    the current scan after the user has already moved it through the buckets.
+
+    Idempotent: returns 200 even if no SBC row existed.
+    """
+    scan = _check_scan_access(scan_id, user, db)
+
+    sbc = db.query(ScanBrandClassification).filter(
+        ScanBrandClassification.scan_id == scan_id,
+        ScanBrandClassification.brand_id == brand_id,
+    ).first()
+    if sbc is None:
+        return {"deleted": False, "message": "no classification existed"}
+
+    # Refuse to drop the focus brand — protects the scan from accidental
+    # focus loss when a user gets click-happy in the Ignored column.
+    if sbc.is_focus:
+        raise HTTPException(
+            400,
+            "Cannot remove the focus brand. Star a different brand first."
+        )
+
+    db.delete(sbc)
+    scan.updated_at = datetime.utcnow()
+    db.commit()
+    return {"deleted": True, "brand_id": brand_id}
+
+
+@router.patch("/{scan_id}/brands/{brand_id}/parent")
+async def reparent_brand(scan_id: str, brand_id: str, req: BrandReparent, user=Depends(get_current_user), db: Session = Depends(get_db)):
+    """Set or clear the parent of a brand via drag-to-parent.
+
+    The hierarchy lives on `client_brands.parent_id` (client-scoped, not
+    scan-scoped), so a successful PATCH affects every scan in the client.
+    That's the intended behaviour — brand hierarchy is canonical knowledge
+    about the workspace, not per-scan opinion.
+
+    Validations:
+    - Both brand and proposed parent belong to scan.client_id.
+    - parent_id != brand_id (no self-loop).
+    - parent_id must not be a descendant of brand (no circular hierarchy).
+    - parent and brand must share the same bucket in THIS scan
+      (e.g. competitor cannot nest under my_brand) — keeps the UI sane.
+    """
+    scan = _check_scan_access(scan_id, user, db)
+
+    brand = db.query(ClientBrand).filter(
+        ClientBrand.id == brand_id,
+        ClientBrand.client_id == scan.client_id,
+    ).first()
+    if not brand:
+        raise HTTPException(404, "Brand not found for this client")
+
+    parent_id = req.parent_id
+    if parent_id is None:
+        # Promote to root — always safe (cycle-free by definition).
+        brand.parent_id = None
+        db.commit()
+        return {"brand_id": str(brand.id), "parent_id": None}
+
+    if str(parent_id) == str(brand_id):
+        raise HTTPException(400, "A brand cannot be its own parent")
+
+    parent = db.query(ClientBrand).filter(
+        ClientBrand.id == parent_id,
+        ClientBrand.client_id == scan.client_id,
+    ).first()
+    if not parent:
+        raise HTTPException(404, "Parent brand not found for this client")
+
+    # Cycle detection — walk up the candidate parent's ancestry; if we hit
+    # `brand.id`, the proposed move would create a loop.
+    cursor = parent
+    depth = 0
+    while cursor.parent_id is not None and depth < 64:
+        if str(cursor.parent_id) == str(brand.id):
+            raise HTTPException(400, "Cannot reparent: would create a cycle")
+        cursor = db.query(ClientBrand).filter(ClientBrand.id == cursor.parent_id).first()
+        if cursor is None:
+            break
+        depth += 1
+
+    # Bucket sanity — both must be classified the same way in this scan, so a
+    # competitor doesn't end up nested under a my_brand parent.
+    brand_sbc = db.query(ScanBrandClassification).filter(
+        ScanBrandClassification.scan_id == scan_id,
+        ScanBrandClassification.brand_id == brand.id,
+    ).first()
+    parent_sbc = db.query(ScanBrandClassification).filter(
+        ScanBrandClassification.scan_id == scan_id,
+        ScanBrandClassification.brand_id == parent.id,
+    ).first()
+    brand_cls = brand_sbc.classification if brand_sbc else None
+    parent_cls = parent_sbc.classification if parent_sbc else None
+    if brand_cls != parent_cls:
+        raise HTTPException(
+            400,
+            f"Brand bucket ({brand_cls}) does not match parent bucket ({parent_cls}). "
+            f"Move the brand into the same bucket as the target parent first."
+        )
+
+    # Parent must be a ROOT in that bucket (single-level nesting — mirrors
+    # the GET /brands tree-building logic that only nests one level).
+    if parent.parent_id is not None:
+        raise HTTPException(
+            400,
+            "Cannot nest under a brand that already has a parent — pick a root brand."
+        )
+
+    brand.parent_id = parent.id
+    db.commit()
+    return {"brand_id": str(brand.id), "parent_id": str(parent.id)}
+
+
+@router.post("/{scan_id}/brands/import-from-brief")
+async def import_competitors_from_brief(scan_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
+    """Re-sync competitors + product lines from `scan.config.domain_brief`.
+
+    The same logic runs automatically inside `generate_domain_brief` when the
+    brief is first produced. This endpoint exposes a manual refresh so the
+    user can re-pick up changes after editing the brief in the Gate 2 UI.
+
+    Idempotent. Preserves existing my_brand / focus / ignored classifications.
+    Re-parents orphan products (parent_id IS NULL) under their brief-declared
+    brand; never re-parents rows that already have a parent (preserves any
+    manual user reorganisation).
+    """
+    from sqlalchemy import func
+
+    scan = _check_scan_access(scan_id, user, db)
+    brief = (scan.config or {}).get("domain_brief") or {}
+    competitors = brief.get("competitors") or []
+    if not competitors:
+        return {
+            "created_brands": 0, "created_gammes": 0,
+            "reparented": 0, "classified": 0, "skipped_existing": 0,
+            "message": "no domain brief available",
+        }
+
+    def _classify_competitor(brand_id) -> str:
+        sbc = db.query(ScanBrandClassification).filter(
+            ScanBrandClassification.scan_id == scan_id,
+            ScanBrandClassification.brand_id == brand_id,
+        ).first()
+        if sbc is None:
+            db.add(ScanBrandClassification(
+                scan_id=scan_id, brand_id=brand_id,
+                classification="competitor", is_focus=False,
+                classified_by="brief", source="brief",
+            ))
+            return "classified"
+        if sbc.classification == "my_brand" or sbc.is_focus:
+            return "skipped_my_brand"
+        if sbc.classification == "competitor":
+            return "skipped_existing_competitor"
+        if sbc.classification == "unclassified":
+            sbc.classification = "competitor"
+            sbc.classified_by = "brief"
+            sbc.source = "brief"
+            sbc.updated_at = datetime.utcnow()
+            return "classified"
+        # ignored — explicit user choice, don't override
+        return "skipped_existing_ignored"
+
+    created_brands = created_gammes = reparented = classified = skipped_existing = 0
+    seen_brands: set[str] = set()
+    for comp in competitors:
+        comp_name = (comp.get("name") or "").strip() if isinstance(comp, dict) else ""
+        if not comp_name or comp_name.lower() in seen_brands:
+            continue
+        seen_brands.add(comp_name.lower())
+
+        root = db.query(ClientBrand).filter(
+            ClientBrand.client_id == scan.client_id,
+            func.lower(ClientBrand.canonical_name) == comp_name.lower(),
+        ).first()
+        if root is None:
+            root = ClientBrand(
+                client_id=scan.client_id, name=comp_name, canonical_name=comp_name,
+                detected_in_scan_id=scan_id, auto_detected=True,
+                validated_by_user=False, detection_source="brief",
+                last_seen_at=datetime.utcnow(),
+            )
+            db.add(root)
+            db.flush()
+            created_brands += 1
+        else:
+            root.last_seen_at = datetime.utcnow()
+
+        action = _classify_competitor(root.id)
+        if action == "classified":
+            classified += 1
+        else:
+            skipped_existing += 1
+
+        # Skip products if root resolved to anything but competitor/unclassified
+        # (LLM hallucination guard — my_brand listed as competitor in brief).
+        root_sbc = db.query(ScanBrandClassification).filter(
+            ScanBrandClassification.scan_id == scan_id,
+            ScanBrandClassification.brand_id == root.id,
+        ).first()
+        if root_sbc is None or root_sbc.classification not in ("competitor", "unclassified"):
+            continue
+
+        seen_gammes: set[str] = set()
+        for prod_name in (comp.get("products") or []):
+            prod_name = (prod_name or "").strip()
+            if not prod_name or prod_name.lower() in seen_gammes:
+                continue
+            if prod_name.lower() == comp_name.lower():
+                continue
+            seen_gammes.add(prod_name.lower())
+
+            gamme = db.query(ClientBrand).filter(
+                ClientBrand.client_id == scan.client_id,
+                func.lower(ClientBrand.canonical_name) == prod_name.lower(),
+            ).first()
+            if gamme is None:
+                gamme = ClientBrand(
+                    client_id=scan.client_id, name=prod_name, canonical_name=prod_name,
+                    parent_id=root.id, detected_in_scan_id=scan_id,
+                    auto_detected=True, validated_by_user=False,
+                    detection_source="brief", last_seen_at=datetime.utcnow(),
+                )
+                db.add(gamme)
+                db.flush()
+                created_gammes += 1
+            else:
+                gamme.last_seen_at = datetime.utcnow()
+                # Re-parent ONLY if currently orphan (preserves user reorg)
+                if gamme.parent_id is None:
+                    gamme.parent_id = root.id
+                    reparented += 1
+
+            action = _classify_competitor(gamme.id)
+            if action == "classified":
+                classified += 1
+            else:
+                skipped_existing += 1
+
+    scan.updated_at = datetime.utcnow()
+    db.commit()
+    return {
+        "created_brands": created_brands,
+        "created_gammes": created_gammes,
+        "reparented": reparented,
+        "classified": classified,
+        "skipped_existing": skipped_existing,
     }
 
 

@@ -1702,6 +1702,17 @@ async def get_results(scan_id: str, provider: str | None = Query(None), user=Dep
     if positions:
         avg_position = round(sum(positions) / len(positions), 1)
 
+    # Sprint M aggregations: SOV by entity_type + 4-issues funnel from judgments.
+    from services.composite_scores import aggregate_entity_sov, aggregate_judgment_funnel
+    entity_sov = aggregate_entity_sov(r.brand_mentions or [] for r in results)
+    all_judgments_for_scan = list(judgments_by_result_id.values())
+    judgment_funnel = aggregate_judgment_funnel(all_judgments_for_scan)
+    judgment_coverage = {
+        "judged_responses": len(all_judgments_for_scan),
+        "total_responses": total,
+        "coverage_pct": round(len(all_judgments_for_scan) / total * 100, 1) if total else 0,
+    }
+
     # --- By Persona ---
     personas = db.query(ScanPersona).filter(ScanPersona.scan_id == scan_id).all()
     persona_map = {str(p.id): p for p in personas}
@@ -1814,6 +1825,8 @@ async def get_results(scan_id: str, provider: str | None = Query(None), user=Dep
         ).all()
     }
 
+    from services.composite_scores import compute_scores
+
     details = []
     for r in results:
         q = db.query(ScanQuestion).filter(ScanQuestion.id == r.question_id).first()
@@ -1824,6 +1837,22 @@ async def get_results(scan_id: str, provider: str | None = Query(None), user=Dep
             intention = q.intention_cachee or intent_lookup.get((q.question or "").strip().lower())
         bm_mentioned = (r.brand_analysis or {}).get("marque_cible_mentionnee", False)
         j = judgments_by_result_id.get(str(r.id))
+        # Sprint M: composite scores derived from brand_mentions + judgment +
+        # intent_category. None on any axis means "not computable" (legacy row,
+        # no judgment yet, or not a safety intent for defensive).
+        judgment_dict = None
+        if j is not None:
+            judgment_dict = {
+                "positive_signal_hit": j.positive_signal_hit,
+                "negative_signal_hit": j.negative_signal_hit,
+                "intent_addressed": j.intent_addressed,
+                "enveloppement_score": j.enveloppement_score,
+            }
+        scores = compute_scores(
+            brand_mentions=r.brand_mentions,
+            judgment=judgment_dict,
+            intent_category=(q.intent_category if q else None),
+        )
         details.append({
             "question": q.question if q else "?",
             "type": q.type_question if q else "?",
@@ -1859,6 +1888,9 @@ async def get_results(scan_id: str, provider: str | None = Query(None), user=Dep
                 "citation_quality": j.citation_quality,
                 "enveloppement_score": j.enveloppement_score,
             },
+            # Sprint M composite scores per response (visibility / quality /
+            # defensive / composite). Any field can be None when not computable.
+            "scores": scores,
         })
 
     # Focus brand name
@@ -1888,6 +1920,12 @@ async def get_results(scan_id: str, provider: str | None = Query(None), user=Dep
             "position_distribution_delta": (scan.summary or {}).get("position_distribution_delta"),
             "provider_status": (scan.summary or {}).get("provider_status"),
             "refund_info": (scan.summary or {}).get("refund_info"),
+            # Sprint M aggregations exposed at scan level for the
+            # dashboard. entity_sov keys are entity_type → {total, targets, sov}.
+            # judgment_funnel is the 4-issues breakdown across all judged responses.
+            "entity_sov": entity_sov,
+            "judgment_funnel": judgment_funnel,
+            "judgment_coverage": judgment_coverage,
         },
         "by_persona": by_persona,
         "competitors": competitors,

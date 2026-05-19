@@ -196,6 +196,18 @@ const typeRateColors = typeRates.map(r => r >= 30 ? '#10b981' : r > 0 ? '#f59e0b
                   <template x-if="q.brand_analysis && q.brand_analysis.recommandation_marque_cible">
                     <span class="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-medium">recommended</span>
                   </template>
+                  {/* Sprint M: judgment Pos/Neg signal chips + composite score */}
+                  <template x-if="q.judgment && q.judgment.positive_signal_hit">
+                    <span class="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-medium">&#10003; pos</span>
+                  </template>
+                  <template x-if="q.judgment && q.judgment.negative_signal_hit">
+                    <span class="text-[9px] px-1.5 py-0.5 rounded-full bg-red-50 text-red-700 font-medium">&#10007; neg</span>
+                  </template>
+                  <template x-if="q.scores && q.scores.composite !== null && q.scores.composite !== undefined">
+                    <span class="text-[9px] px-1.5 py-0.5 rounded-full font-medium"
+                          :class="q.scores.composite >= 70 ? 'bg-emerald-100 text-emerald-700' : q.scores.composite >= 40 ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'"
+                          x-text="q.scores.composite + '/100'"></span>
+                  </template>
                 </div>
               </div>
               <span class="text-[10px] px-1.5 py-0.5 rounded shrink-0"
@@ -222,12 +234,78 @@ const typeRateColors = typeRates.map(r => r >= 30 ? '#10b981' : r > 0 ? '#f59e0b
                 </div>
               </template>
 
-              {/* Brand mentions */}
+              {/* Sprint M: judgment signals + composite score breakdown */}
+              <template x-if="q.judgment || (q.scores && q.scores.composite !== null)">
+                <div class="px-5 py-3 border-b border-gray-100 bg-white/50">
+                  <p class="text-[10px] uppercase font-semibold text-charcoal-light mb-2">Signals &amp; Score</p>
+                  <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    {/* Scores */}
+                    <template x-if="q.scores">
+                      <div class="space-y-1">
+                        <div class="text-[10px] text-charcoal-light">Composite</div>
+                        <div class="text-lg font-bold"
+                             :class="q.scores.composite >= 70 ? 'text-emerald-600' : q.scores.composite >= 40 ? 'text-amber-600' : 'text-red-600'"
+                             x-text="q.scores.composite + '/100'"></div>
+                        <div class="text-[10px] text-charcoal-light space-x-2">
+                          <span>Vis: <strong x-text="q.scores.visibility ?? '—'"></strong></span>
+                          <span>Qual: <strong x-text="q.scores.quality ?? '—'"></strong></span>
+                          <span>Def: <strong x-text="q.scores.defensive ?? '—'"></strong></span>
+                        </div>
+                      </div>
+                    </template>
+                    {/* Positive signal */}
+                    <template x-if="q.judgment">
+                      <div class="space-y-1">
+                        <div class="text-[10px] uppercase tracking-wide"
+                             :class="q.judgment.positive_signal_hit ? 'text-emerald-600 font-bold' : 'text-gray-400'">
+                          <span x-text="q.judgment.positive_signal_hit ? '✓ Positive signal hit' : '✗ No positive signal'"></span>
+                        </div>
+                        <template x-if="q.judgment.positive_signal_evidence">
+                          <p class="text-[11px] text-charcoal-dark italic border-l-2 border-emerald-200 pl-2"
+                             x-text="'“' + q.judgment.positive_signal_evidence + '”'"></p>
+                        </template>
+                      </div>
+                    </template>
+                    {/* Negative signal */}
+                    <template x-if="q.judgment">
+                      <div class="space-y-1">
+                        <div class="text-[10px] uppercase tracking-wide"
+                             :class="q.judgment.negative_signal_hit ? 'text-red-600 font-bold' : 'text-gray-400'">
+                          <span x-text="q.judgment.negative_signal_hit ? '✗ Negative signal hit' : '✓ No negative signal'"></span>
+                        </div>
+                        <template x-if="q.judgment.negative_signal_evidence">
+                          <p class="text-[11px] text-charcoal-dark italic border-l-2 border-red-200 pl-2"
+                             x-text="'“' + q.judgment.negative_signal_evidence + '”'"></p>
+                        </template>
+                      </div>
+                    </template>
+                  </div>
+                  {/* Intent addressed + envelope quality (secondary row) */}
+                  <template x-if="q.judgment && (q.judgment.intent_addressed !== undefined || q.judgment.enveloppement_score !== null)">
+                    <div class="flex flex-wrap gap-3 mt-3 pt-2 border-t border-gray-100 text-[10px]">
+                      <template x-if="q.judgment.intent_addressed">
+                        <span class="text-emerald-600">&#10003; Intent addressed</span>
+                      </template>
+                      <template x-if="q.judgment.intent_addressed === false">
+                        <span class="text-gray-400">Intent NOT addressed</span>
+                      </template>
+                      <template x-if="q.judgment.enveloppement_score !== null && q.judgment.enveloppement_score !== undefined">
+                        <span class="text-charcoal-light">Envelope: <strong x-text="q.judgment.enveloppement_score + '/5'"></strong></span>
+                      </template>
+                      <template x-if="q.judgment.citation_quality">
+                        <span class="text-charcoal-light">Citation: <strong x-text="q.judgment.citation_quality"></strong></span>
+                      </template>
+                    </div>
+                  </template>
+                </div>
+              </template>
+
+              {/* Brand mentions (Sprint E: entity_type pill + parent_brand chain) */}
               <template x-if="q.brand_mentions && q.brand_mentions.length > 0">
                 <div class="px-5 py-3 border-b border-gray-100">
-                  <p class="text-[10px] uppercase font-semibold text-charcoal-light mb-2">Brand Mentions</p>
+                  <p class="text-[10px] uppercase font-semibold text-charcoal-light mb-2">Entities mentioned</p>
                   <div class="flex flex-wrap gap-2">
-                    <template x-for="bm in q.brand_mentions" :key="bm.brand_name">
+                    <template x-for="bm in q.brand_mentions" :key="bm.brand_name + ':' + (bm.entity_type || 'brand')">
                       <span class="text-[10px] px-2 py-1 rounded-full border inline-flex items-center gap-1"
                             :class="{
                               'bg-emerald-50 border-emerald-200 text-emerald-700': bm.classification === 'my_brand' || bm.est_marque_cible,
@@ -237,6 +315,13 @@ const typeRateColors = typeRates.map(r => r >= 30 ? '#10b981' : r > 0 ? '#f59e0b
                             }">
                         <span :class="bm.sentiment === 'positif' ? 'text-emerald-500' : bm.sentiment === 'negatif' ? 'text-red-500' : 'text-gray-400'">&#9679;</span>
                         <span x-text="bm.brand_name_groupby || bm.brand_name"></span>
+                        {/* Sprint E: entity_type pill (brand|product|range|domain|expert_source) */}
+                        <template x-if="bm.entity_type && bm.entity_type !== 'brand'">
+                          <span class="text-[8px] uppercase tracking-wide px-1 rounded bg-gray-200/70 text-charcoal-light" x-text="bm.entity_type"></span>
+                        </template>
+                        <template x-if="bm.parent_brand">
+                          <span class="text-[9px] text-charcoal-light italic" x-text="'← ' + bm.parent_brand"></span>
+                        </template>
                         <span class="text-gray-400" x-text="'(' + (bm.type_recommandation || 'mention').replace('_',' ') + ')'"></span>
                         <template x-if="bm.classification === 'discovered'"><span class="text-[8px] bg-blue-100 text-blue-600 px-1 rounded">new</span></template>
                       </span>

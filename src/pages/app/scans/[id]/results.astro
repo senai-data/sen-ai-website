@@ -319,6 +319,69 @@ const posBuckets = [
         </div>
       )}
 
+      {/* ═══════ SPRINT M : entity SOV + judgment funnel ═══════ */}
+      {(o?.entity_sov && Object.keys(o.entity_sov).length > 0) || (o?.judgment_funnel && Object.values(o.judgment_funnel).some((v: any) => v > 0)) ? (
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-8">
+          {/* Entity SOV by axis */}
+          {o?.entity_sov && Object.keys(o.entity_sov).length > 0 && (
+            <div class="bg-white rounded-xl shadow-sm p-5">
+              <p class="text-[11px] text-charcoal-light uppercase tracking-wide mb-3">Share of Voice by entity type</p>
+              <div class="space-y-2">
+                {Object.entries(o.entity_sov).map(([etype, stats]: [string, any]) => {
+                  const sov = stats.sov ?? 0;
+                  const pct = Math.round(sov * 100);
+                  const barColor = pct >= 30 ? 'bg-emerald-500' : pct > 0 ? 'bg-amber-500' : 'bg-red-300';
+                  return (
+                    <div class="flex items-center gap-2">
+                      <span class="w-24 text-[11px] uppercase tracking-wide text-charcoal-dark shrink-0">{etype}</span>
+                      <div class="flex-1 bg-gray-100 rounded-full h-2 overflow-hidden">
+                        <div class={`h-2 rounded-full ${barColor}`} style={`width: ${pct}%`}></div>
+                      </div>
+                      <span class="text-[11px] text-charcoal-light w-28 text-right shrink-0">
+                        {stats.targets}/{stats.total} ({pct}%)
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+              <p class="text-[10px] text-charcoal-light mt-3 italic">Targets/total mentions per axis. Sprint E entity classification.</p>
+            </div>
+          )}
+
+          {/* Judgment 4-issues funnel */}
+          {o?.judgment_funnel && Object.values(o.judgment_funnel).some((v: any) => v > 0) && (
+            <div class="bg-white rounded-xl shadow-sm p-5">
+              <p class="text-[11px] text-charcoal-light uppercase tracking-wide mb-1">Signal funnel</p>
+              <p class="text-[10px] text-charcoal-light mb-3">
+                Coverage : {o.judgment_coverage?.judged_responses ?? 0} of {o.judgment_coverage?.total_responses ?? 0} responses judged ({o.judgment_coverage?.coverage_pct ?? 0}%)
+              </p>
+              <div class="grid grid-cols-2 gap-2">
+                <div class="bg-emerald-50 rounded-lg p-3">
+                  <div class="text-xs text-emerald-700 font-medium">Positive only</div>
+                  <div class="text-2xl font-bold text-emerald-600 mt-1">{o.judgment_funnel.pos_only ?? 0}</div>
+                  <div class="text-[10px] text-emerald-600 mt-1">site valorisé proprement</div>
+                </div>
+                <div class="bg-amber-50 rounded-lg p-3">
+                  <div class="text-xs text-amber-700 font-medium">Both pos &amp; neg</div>
+                  <div class="text-2xl font-bold text-amber-600 mt-1">{o.judgment_funnel.both ?? 0}</div>
+                  <div class="text-[10px] text-amber-600 mt-1">mixed signal — opportunité élévation</div>
+                </div>
+                <div class="bg-red-50 rounded-lg p-3">
+                  <div class="text-xs text-red-700 font-medium">Negative only</div>
+                  <div class="text-2xl font-bold text-red-600 mt-1">{o.judgment_funnel.neg_only ?? 0}</div>
+                  <div class="text-[10px] text-red-600 mt-1">gap clair à combler</div>
+                </div>
+                <div class="bg-gray-50 rounded-lg p-3">
+                  <div class="text-xs text-charcoal-dark font-medium">Neither</div>
+                  <div class="text-2xl font-bold text-charcoal-dark mt-1">{o.judgment_funnel.neither ?? 0}</div>
+                  <div class="text-[10px] text-charcoal-light mt-1">format inadapté — repenser l'angle</div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      ) : null}
+
       {/* ═══════ CHARTS ROW (storytellingwithdata: each answers ONE question) ═══════ */}
       <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-8">
 

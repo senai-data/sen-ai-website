@@ -183,6 +183,8 @@ class QuestionGenerated(BaseModel):
     type_question: QuestionType = "basique"
     question: str = Field(min_length=10)
     intention_cachee: str = ""
+    signal_positif: str = ""
+    signal_negatif: str = ""
 
     @field_validator("question")
     @classmethod

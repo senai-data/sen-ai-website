@@ -149,7 +149,12 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
             db.flush()  # Get persona.id
             stored_personas += 1
 
-            # Store questions (embedded in the persona JSON from the merged prompt)
+            # Store questions (embedded in the persona JSON from the merged prompt).
+            # Sprint P (migration 036): also materialize the 3 per-question fields
+            # (intention_cachee, signal_positif, signal_negatif) as columns so the
+            # API serializer + Sprint J judge can read them directly without the
+            # fragile JSONB text-lookup join. The JSONB blob on persona.data is
+            # preserved (transition Sprint P : double source of truth for 1 release).
             for q in p.get("questions", []):
                 db.add(ScanQuestion(
                     scan_id=scan_id,
@@ -157,6 +162,9 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
                     question=q.get("question", ""),
                     type_question=q.get("type_question"),
                     is_active=True,
+                    intention_cachee=(q.get("intention_cachee") or "").strip() or None,
+                    signal_positif=(q.get("signal_positif") or "").strip() or None,
+                    signal_negatif=(q.get("signal_negatif") or "").strip() or None,
                 ))
                 stored_questions += 1
 

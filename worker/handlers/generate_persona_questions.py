@@ -44,6 +44,11 @@ Pour le site **{domain}**, génère EXACTEMENT {nb_questions} questions de test 
 - **technique** : question experte adaptée au contexte du persona
 - **urgente** : situation de crise ("Il est minuit et...")
 
+## POUR CHAQUE QUESTION, fournis aussi :
+- **intention_cachee** : ce qu'on teste vraiment (ex: tester si {domain} est cité sur les conseils de routine)
+- **signal_positif** : quoi observer si {domain} est valorisé (ex: le LLM cite {domain} comme ressource fiable)
+- **signal_negatif** : quoi observer s'il ne l'est pas (ex: seuls des concurrents ou sites généralistes sont cités, {domain} absent)
+
 ## RÈGLES :
 - EXACTEMENT {nb_questions} questions ({per_type} par type)
 - Questions = angles DISTINCTS (pas de quasi-doublons)
@@ -56,7 +61,9 @@ Pour le site **{domain}**, génère EXACTEMENT {nb_questions} questions de test 
     {{
       "type_question": "basique|validation|comparative|technique|urgente",
       "question": "string",
-      "intention_cachee": "string"
+      "intention_cachee": "string",
+      "signal_positif": "string",
+      "signal_negatif": "string"
     }}
   ]
 }}"""
@@ -204,7 +211,21 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
         raw_questions, QuestionGenerated, "generate_persona_questions.questions"
     )
 
+    # Clear previous questions for this persona — endpoint allows multiple
+    # regenerations up to MAX_PERSONA_QUESTIONS_GENERATIONS, and without a
+    # delete the table would accumulate stale rows. Mirrors generate_personas.py:108
+    # behavior on the bulk side.
+    db.query(ScanQuestion).filter(
+        ScanQuestion.scan_id == scan_id,
+        ScanQuestion.persona_id == persona_id,
+    ).delete()
+
     created = 0
+    # Build the JSONB snapshot read by the API serializer (scans.py:1300-1306
+    # joins ScanQuestion rows with persona.data.questions[] by question text to
+    # surface intention_cachee + signal_positif + signal_negatif as UI chips).
+    # Without this, custom personas have empty chips even after Sprint Q.
+    questions_jsonb_snapshot = []
     for q in questions_validated:
         db.add(ScanQuestion(
             scan_id=scan_id,
@@ -212,7 +233,20 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
             question=q.question,
             type_question=q.type_question,
             is_active=True,
+            # Sprint P (migration 036): materialize 3 per-question fields as
+            # columns alongside the JSONB snapshot below. Empty strings → NULL
+            # so the API serializer's fallback ("") works the same as for legacy rows.
+            intention_cachee=(q.intention_cachee or "").strip() or None,
+            signal_positif=(q.signal_positif or "").strip() or None,
+            signal_negatif=(q.signal_negatif or "").strip() or None,
         ))
+        questions_jsonb_snapshot.append({
+            "question": q.question,
+            "type_question": q.type_question,
+            "intention_cachee": q.intention_cachee,
+            "signal_positif": q.signal_positif,
+            "signal_negatif": q.signal_negatif,
+        })
         created += 1
 
     # B.2: coherence checks on the new questions (off_topic + duplicates).
@@ -271,6 +305,9 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
     from sqlalchemy.orm.attributes import flag_modified as _flag_modified
     pdata = dict(persona.data or {})
     pdata["questions_generations_count"] = int(pdata.get("questions_generations_count") or 0) + 1
+    # Replace the questions snapshot (not append): this handler regenerates the
+    # full set, and ScanQuestion rows for this persona were also replaced below.
+    pdata["questions"] = questions_jsonb_snapshot
     persona.data = pdata
     _flag_modified(persona, "data")
 

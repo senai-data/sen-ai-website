@@ -1595,6 +1595,35 @@ const isReviewing = effectiveView !== null && (
                                          x-init="$nextTick(() => $el.focus())"
                                          class="text-xs text-charcoal-dark flex-1 min-w-0 border border-coral rounded px-1.5 py-0.5 outline-none" />
                                 </template>
+                                <!-- Why this question? Progressive disclosure of LLM rationale -->
+                                <template x-if="q.intention_cachee || q.signal_positif || q.signal_negatif">
+                                  <span class="kpi-tooltip shrink-0 mt-0.5" style="display:inline-flex;">
+                                    <svg class="w-3.5 h-3.5 text-gray-300 hover:text-coral cursor-help transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <circle cx="12" cy="12" r="10" stroke-width="2"/>
+                                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 16v-4M12 8h.01"/>
+                                    </svg>
+                                    <span class="kpi-tip" style="width:340px;">
+                                      <template x-if="q.intention_cachee">
+                                        <span style="display:block;margin-bottom:8px;">
+                                          <span style="display:block;font-size:10px;text-transform:uppercase;letter-spacing:0.05em;color:#94a3b8;margin-bottom:2px;">Hidden intent</span>
+                                          <span x-text="q.intention_cachee"></span>
+                                        </span>
+                                      </template>
+                                      <template x-if="q.signal_positif">
+                                        <span style="display:block;margin-bottom:6px;">
+                                          <span style="color:#6ee7b7;">&#10003; Positive signal</span><br/>
+                                          <span x-text="q.signal_positif"></span>
+                                        </span>
+                                      </template>
+                                      <template x-if="q.signal_negatif">
+                                        <span style="display:block;">
+                                          <span style="color:#fca5a5;">&#10007; Negative signal</span><br/>
+                                          <span x-text="q.signal_negatif"></span>
+                                        </span>
+                                      </template>
+                                    </span>
+                                  </span>
+                                </template>
                                 <!-- Delete question -->
                                 <button @click.stop="deleteQuestion(persona, q)"
                                         class="text-gray-400 hover:text-red-500 opacity-0 group-hover/q:opacity-100 transition-opacity shrink-0 mt-0.5"
@@ -1704,6 +1733,34 @@ const isReviewing = effectiveView !== null && (
                                 }"
                                 x-text="q.type_question || 'validation'"></span>
                           <span class="text-xs text-charcoal-dark flex-1 min-w-0" :class="!q.is_active ? 'line-through text-charcoal-light' : ''" x-text="q.question"></span>
+                          <template x-if="q.intention_cachee || q.signal_positif || q.signal_negatif">
+                            <span class="kpi-tooltip shrink-0 mt-0.5" style="display:inline-flex;">
+                              <svg class="w-3.5 h-3.5 text-gray-300 hover:text-coral cursor-help transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <circle cx="12" cy="12" r="10" stroke-width="2"/>
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 16v-4M12 8h.01"/>
+                              </svg>
+                              <span class="kpi-tip" style="width:340px;">
+                                <template x-if="q.intention_cachee">
+                                  <span style="display:block;margin-bottom:8px;">
+                                    <span style="display:block;font-size:10px;text-transform:uppercase;letter-spacing:0.05em;color:#94a3b8;margin-bottom:2px;">Hidden intent</span>
+                                    <span x-text="q.intention_cachee"></span>
+                                  </span>
+                                </template>
+                                <template x-if="q.signal_positif">
+                                  <span style="display:block;margin-bottom:6px;">
+                                    <span style="color:#6ee7b7;">&#10003; Positive signal</span><br/>
+                                    <span x-text="q.signal_positif"></span>
+                                  </span>
+                                </template>
+                                <template x-if="q.signal_negatif">
+                                  <span style="display:block;">
+                                    <span style="color:#fca5a5;">&#10007; Negative signal</span><br/>
+                                    <span x-text="q.signal_negatif"></span>
+                                  </span>
+                                </template>
+                              </span>
+                            </span>
+                          </template>
                         </div>
                       </template>
                     </div>

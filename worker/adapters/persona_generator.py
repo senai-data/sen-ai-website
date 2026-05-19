@@ -44,6 +44,11 @@ Pour le site **{domain}**, à partir des mots-clés du topic "{topic_name}", gé
 - **technique** : question experte adaptée au niveau du persona
 - **urgente** : situation de crise ("Il est minuit et...")
 
+## POUR CHAQUE QUESTION, fournis aussi :
+- **intention_cachee** : ce qu'on teste vraiment (ex: tester si {domain} est cité sur les conseils eczéma)
+- **signal_positif** : quoi observer si {domain} est valorisé (ex: le LLM cite {domain} comme ressource fiable)
+- **signal_negatif** : quoi observer s'il ne l'est pas (ex: seuls des concurrents ou sites généralistes sont cités, {domain} absent)
+
 ## RÈGLES :
 - Chaque persona = profil DISTINCT (âge, situation, expertise différents)
 - Questions = angles DISTINCTS (pas de quasi-doublons)
@@ -71,7 +76,9 @@ Pour le site **{domain}**, à partir des mots-clés du topic "{topic_name}", gé
         {{
           "type_question": "basique|validation|comparative|technique|urgente",
           "question": "string",
-          "intention_cachee": "string"
+          "intention_cachee": "string",
+          "signal_positif": "string",
+          "signal_negatif": "string"
         }}
       ]
     }}

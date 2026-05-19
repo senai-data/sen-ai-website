@@ -797,6 +797,11 @@ async def rescan(request: Request, scan_id: str, user=Depends(get_current_user),
                 question=q.question,
                 type_question=q.type_question,
                 is_active=q.is_active,
+                # Sprint P (migration 036): carry the 3 per-question fields on clone
+                # so the duplicated scan has populated chips + judge-ready signals.
+                intention_cachee=q.intention_cachee,
+                signal_positif=q.signal_positif,
+                signal_negatif=q.signal_negatif,
             ))
 
     # Copy brand classifications (same brand_ids, same focus)
@@ -1282,23 +1287,37 @@ async def get_personas(scan_id: str, user=Depends(get_current_user), db: Session
     for q in questions:
         questions_by_persona.setdefault(str(q.persona_id), []).append(q)
 
-    def _serialize_question(q):
+    def _serialize_question(q, extras_by_text):
+        # Sprint P (migration 036): the 3 per-question fields are now native
+        # columns. Fallback to the legacy JSONB text-lookup for rows generated
+        # before the migration backfill (NULL columns), since the JSONB blob on
+        # scan_personas.data.questions[] is still written by both generators
+        # during the transition release.
+        x = extras_by_text.get(q.question) or {}
         return {
             "id": str(q.id),
             "question": q.question,
             "type_question": q.type_question,
             "is_active": bool(q.is_active),
+            "intention_cachee": (q.intention_cachee or x.get("intention_cachee") or ""),
+            "signal_positif": (q.signal_positif or x.get("signal_positif") or ""),
+            "signal_negatif": (q.signal_negatif or x.get("signal_negatif") or ""),
         }
 
     def _serialize_persona(p):
         p_questions = questions_by_persona.get(str(p.id), [])
+        extras_by_text = {
+            (eq.get("question") or "").strip(): eq
+            for eq in ((p.data or {}).get("questions") or [])
+            if isinstance(eq, dict)
+        }
         return {
             "id": str(p.id),
             "name": p.name,
             "data": p.data,
             "topic_id": str(p.topic_id) if p.topic_id else None,
             "is_active": bool(p.is_active),
-            "questions": [_serialize_question(q) for q in p_questions],
+            "questions": [_serialize_question(q, extras_by_text) for q in p_questions],
             "stats": {
                 "total_questions": len(p_questions),
                 "active_questions": sum(1 for q in p_questions if q.is_active),
@@ -1775,8 +1794,11 @@ async def get_results(scan_id: str, provider: str | None = Query(None), user=Dep
     # --- Details (each test) — enriched with brand_mentions, brand_analysis, intention_cachee ---
     topics_map = {str(t.id): t for t in db.query(ScanTopic).filter(ScanTopic.scan_id == scan_id).all()}
 
-    # Build question_text → intention_cachee lookup from persona.data.questions
-    intent_lookup = {}  # question_text_lower → intention_cachee
+    # Sprint P (migration 036): intention_cachee is now a native column on
+    # scan_questions. Keep the JSONB lookup as fallback for legacy rows whose
+    # backfill might have missed them (e.g. edited question text breaking the
+    # lookup-by-text join the migration uses).
+    intent_lookup = {}  # question_text_lower → intention_cachee (legacy fallback)
     for p in personas:
         for pq in (p.data or {}).get("questions", []):
             if pq.get("question") and pq.get("intention_cachee"):
@@ -1787,7 +1809,9 @@ async def get_results(scan_id: str, provider: str | None = Query(None), user=Dep
         q = db.query(ScanQuestion).filter(ScanQuestion.id == r.question_id).first()
         persona = persona_map.get(str(q.persona_id)) if q else None
         topic = topics_map.get(str(persona.topic_id)) if persona and persona.topic_id else None
-        intention = intent_lookup.get((q.question or "").strip().lower()) if q else None
+        intention = None
+        if q:
+            intention = q.intention_cachee or intent_lookup.get((q.question or "").strip().lower())
         bm_mentioned = (r.brand_analysis or {}).get("marque_cible_mentionnee", False)
         details.append({
             "question": q.question if q else "?",
@@ -2206,7 +2230,9 @@ async def get_persona_insights(scan_id: str, provider: str | None = Query(None),
     for q in questions:
         q_by_persona.setdefault(str(q.persona_id), []).append(q)
 
-    # Build question_text → intention_cachee lookup
+    # Sprint P (migration 036): intention_cachee is now a column on
+    # scan_questions. Lookup kept as fallback for legacy rows that the
+    # backfill couldn't match by text.
     intent_lookup = {}
     for p in personas:
         for pq in (p.data or {}).get("questions", []):
@@ -2311,7 +2337,7 @@ async def get_persona_insights(scan_id: str, provider: str | None = Query(None),
                 "id": str(q.id),
                 "question": q.question,
                 "type": q.type_question,
-                "intention_cachee": intent_lookup.get((q.question or "").strip().lower()),
+                "intention_cachee": q.intention_cachee or intent_lookup.get((q.question or "").strip().lower()),
                 "is_active": q.is_active,
                 "cited": cited_in_any,
                 "competitors_cited": list(competitors_cited)[:5],

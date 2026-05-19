@@ -365,6 +365,111 @@ class DomainBrief(BaseModel):
         return v
 
 
+# ─── brand brief (per-primary-brand surcharge) ──────────────────────────────
+
+class BrandBrief(BaseModel):
+    """Per-brand brief stored as JSONB on client_brands.brief.
+
+    Surcharges the workspace ``client.apps['client_brief']`` per-field via
+    ``worker/adapters/brief_injector`` 2-level merge (brand wins, workspace
+    fills gaps). Produced by ``worker/handlers/generate_brand_brief.py``.
+
+    All non-``name`` fields default to "" / [] so partial briefs from web-poor
+    LLM passes (or manual user edits) still validate. ``extra='ignore'``
+    keeps it lenient against LLM-side hallucination of unknown fields.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    # Identity
+    name: str = Field(min_length=1)
+    parent_group: str = ""          # ex: "Pierre Fabre" (empty when standalone)
+    description: str = ""           # 2-3 sentences
+    founded_year: int | None = None  # coerced from "1736", "since 1736", "1736-01-01" …
+    headquarters: str = ""
+    languages: list[str] = Field(default_factory=list)  # ISO codes or names — multi-locale brands
+
+    # Positioning
+    positioning_statement: str = ""
+    taglines: list[str] = Field(default_factory=list)   # marketing slogans / hooks
+    differentiators: list[str] = Field(default_factory=list)
+    # Free-form on purpose — pharmacy ≠ price tier in pharma, "enterprise B2B" ≠ tier
+    # in software, etc. The LLM picks the vocabulary that fits the vertical.
+    price_tier: str = ""
+    distribution: list[str] = Field(default_factory=list)
+
+    # Voice & audience (these are the high-value overrides vs workspace)
+    editorial_voice: str = ""
+    tonality: list[str] = Field(default_factory=list)
+    target_audience: str = ""
+    audience_segments: list[str] = Field(default_factory=list)
+
+    # Catalog
+    product_lines: list[str] = Field(default_factory=list)
+    hero_products: list[str] = Field(default_factory=list)
+    # Vertical-neutral name : ingredients in cosmetics, components in automotive,
+    # capabilities in B2B SaaS, instruments in finance, etc.
+    signature_features: list[str] = Field(default_factory=list)
+
+    # Competitive landscape (brand-specific, more precise than workspace.competitors)
+    direct_competitors: list[CompetitorInBrief] = Field(default_factory=list)
+    indirect_competitors: list[str] = Field(default_factory=list)
+
+    # Topics this brand owns / wants to rank on
+    expertise_topics: list[str] = Field(default_factory=list)
+
+    # Regulatory / compliance — vertical-agnostic. The LLM must infer the
+    # relevant jurisdiction (EU 1223/2009, FDA OTC monograph, AMF MIFID II,
+    # GDPR, etc.) from workspace industry+country — no hardcoded list.
+    regulatory_constraints: list[str] = Field(default_factory=list)
+
+    @field_validator("name", "parent_group", "description",
+                     "headquarters", "positioning_statement",
+                     "editorial_voice", "target_audience")
+    @classmethod
+    def _strip_strings(cls, v):
+        return (v or "").strip() if isinstance(v, str) else v
+
+    @field_validator("price_tier", mode="before")
+    @classmethod
+    def _coerce_price_tier(cls, v):
+        # Free-form but lenient : non-string LLM glitches (None, 0, []) → ""
+        if not isinstance(v, str):
+            return ""
+        return v.strip()
+
+    @field_validator("founded_year", mode="before")
+    @classmethod
+    def _coerce_founded_year(cls, v):
+        # LLMs return "1736", "since 1736", "1736-01-01", 1736, None.
+        # Extract the first 4-digit run; None on failure.
+        if v is None or v == "":
+            return None
+        if isinstance(v, int):
+            return v if 1 <= v <= 9999 else None
+        if isinstance(v, str):
+            import re
+            m = re.search(r"\b(\d{4})\b", v)
+            if m:
+                year = int(m.group(1))
+                return year if 1 <= year <= 9999 else None
+        return None
+
+    @field_validator("direct_competitors", mode="before")
+    @classmethod
+    def _normalize_direct_competitors(cls, v):
+        # Mirror CompetitorInBrief — accept list[str] OR list[dict]
+        if isinstance(v, list):
+            normalized = []
+            for c in v:
+                if isinstance(c, str):
+                    normalized.append({"name": c, "products": []})
+                elif isinstance(c, dict):
+                    normalized.append(c)
+            return normalized
+        return v
+
+
 # ─── editorial summary (Claude) ─────────────────────────────────────────────
 
 class EditorialSummary(BaseModel):

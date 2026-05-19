@@ -133,6 +133,12 @@ class ClientBrand(Base):
     # crasher l'autre avec AttributeError sur la nouvelle colonne.
     expert_section_paths = Column(JSONB, nullable=False, default=list)
     product_lines = Column(JSONB, nullable=False, default=list)
+    # Phase BB per-brand brief (migration 039). PARITÉ avec api/models.py.
+    # NULL = not generated; downstream fallback to workspace client.brief via
+    # worker/adapters/brief_injector. Validated by worker/schemas.py:BrandBrief.
+    brief = Column(JSONB)
+    brief_generated_at = Column(DateTime)
+    brief_generations_count = Column(Integer, nullable=False, default=0)
 
     parent = relationship("ClientBrand", remote_side=[id])
 

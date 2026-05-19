@@ -26,14 +26,35 @@ stripe_lib.api_key = settings.stripe_api_key
 
 # ── Credit pack catalog ──────────────────────────────────────────────
 # price_id filled from Stripe Dashboard (Products → Price ID).
-# Set via env: STRIPE_PRICE_SCAN_5, etc. For now, hardcode after creation.
+# Set via env: STRIPE_PRICE_SCAN_STARTER, etc. For now, hardcode after creation.
+#
+# Pricing reform 2026-05-19 (Option 1): 1 scan credit = 1 question (× all providers
+# in parallel). The 90×-over-pricing of the legacy scan_5/scan_15/scan_50 packs is
+# retired — those price_id keys are kept around only so users with pending
+# Stripe Checkout sessions can still complete payment; new purchases must go
+# through the *_starter / *_pro / *_agency / *_enterprise packs.
+# Real cost basis ≈ €0.008/q (OpenAI mini + Gemini Flash + brand analysis).
+# Margin target: 6-13× across tiers.
 CREDIT_PACKS = {
-    "scan_5":      {"credit_type": "scan",    "amount": 5,   "price_eur": 40,  "price_id": "price_1TJKlzAWSRE7HR2Kcvdt8UfR"},
-    "scan_15":     {"credit_type": "scan",    "amount": 15,  "price_eur": 100, "price_id": "price_1TJKnyAWSRE7HR2KLKai7OsG"},
-    "scan_50":     {"credit_type": "scan",    "amount": 50,  "price_eur": 250, "price_id": "price_1TJKoXAWSRE7HR2K5FbkE64A"},
+    # ── Scan credits — new per-question packs (2026-05-19) ──
+    "scan_starter":     {"credit_type": "scan", "amount": 200,   "price_eur": 20,   "price_id": ""},
+    "scan_pro":         {"credit_type": "scan", "amount": 1000,  "price_eur": 80,   "price_id": ""},
+    "scan_agency":      {"credit_type": "scan", "amount": 5000,  "price_eur": 300,  "price_id": ""},
+    "scan_enterprise":  {"credit_type": "scan", "amount": 20000, "price_eur": 1000, "price_id": ""},
+
+    # ── Content credits — unchanged ──
     "content_10":  {"credit_type": "content", "amount": 10,  "price_eur": 40,  "price_id": "price_1TJKp4AWSRE7HR2KtGXhcBEo"},
     "content_30":  {"credit_type": "content", "amount": 30,  "price_eur": 100, "price_id": "price_1TJKpJAWSRE7HR2KFPdHTdvl"},
     "content_100": {"credit_type": "content", "amount": 100, "price_eur": 250, "price_id": "price_1TJKpXAWSRE7HR2KQjsJZdf5"},
+
+    # ── Legacy scan packs (DEPRECATED 2026-05-19) ──
+    # Kept so the Checkout sessions created before the cutover can still complete
+    # payment. Frontend no longer surfaces these. Remove once the Stripe Dashboard
+    # archives the underlying prices (>30 days no purchase activity is the rule
+    # of thumb — coordinate with finance before final removal).
+    "scan_5":  {"credit_type": "scan", "amount": 5,  "price_eur": 40,  "price_id": "price_1TJKlzAWSRE7HR2Kcvdt8UfR", "deprecated": True},
+    "scan_15": {"credit_type": "scan", "amount": 15, "price_eur": 100, "price_id": "price_1TJKnyAWSRE7HR2KLKai7OsG", "deprecated": True},
+    "scan_50": {"credit_type": "scan", "amount": 50, "price_eur": 250, "price_id": "price_1TJKoXAWSRE7HR2K5FbkE64A", "deprecated": True},
 }
 
 
@@ -257,7 +278,12 @@ async def get_credit_history(client_id: str, user=Depends(get_current_user), db:
 
 @router.get("/packs")
 async def get_packs():
-    """Return available credit packs (public, no auth needed)."""
+    """Return active credit packs (public, no auth needed).
+
+    Deprecated packs (legacy scan_5/scan_15/scan_50) are hidden from the
+    listing — they remain in CREDIT_PACKS only so in-flight Checkout sessions
+    created before the 2026-05-19 cutover can still complete.
+    """
     return [
         {
             "id": pack_id,
@@ -267,4 +293,5 @@ async def get_packs():
             "available": bool(pack["price_id"]),
         }
         for pack_id, pack in CREDIT_PACKS.items()
+        if not pack.get("deprecated")
     ]

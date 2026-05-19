@@ -1489,17 +1489,50 @@ const isReviewing = effectiveView !== null && (
                               <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
                             </button>
                             <!-- Persona context tooltip (i) — same hover pattern as the per-question
-                                 "Why this question?" tooltip, lifts the keywords / intentions /
-                                 pain points out of a collapsible row into progressive disclosure. -->
-                            <template x-if="persona.data && (persona.data.mots_cles_associes?.length || persona.data.intentions_recherche?.length || persona.data.points_douleur?.length)">
+                                 "Why this question?" tooltip. Surfaces 6 LLM-generated sections
+                                 (Profile / Journey / Keywords / Intentions / Pain points /
+                                 Opportunities) on hover. Visible when ANY section has data. -->
+                            <template x-if="persona.data && (
+                              persona.data.mots_cles_associes?.length ||
+                              persona.data.intentions_recherche?.length ||
+                              persona.data.points_douleur?.length ||
+                              persona.data.opportunites?.length ||
+                              persona.data.parcours_type ||
+                              (persona.data.profil_demographique && (persona.data.profil_demographique.age || persona.data.profil_demographique.situation_professionnelle || persona.data.profil_demographique.niveau_expertise))
+                            )">
                               <span class="kpi-tooltip shrink-0" style="display:inline-flex;" @click.stop>
                                 <svg class="w-3.5 h-3.5 text-gray-300 hover:text-coral cursor-help transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                   <circle cx="12" cy="12" r="10" stroke-width="2"/>
                                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 16v-4M12 8h.01"/>
                                 </svg>
-                                <span class="kpi-tip" style="width:380px;max-width:min(380px,calc(100vw - 32px));left:0;right:auto;transform:none;">
+                                <span class="kpi-tip" style="width:400px;max-width:min(400px,calc(100vw - 32px));max-height:min(70vh,540px);overflow-y:auto;left:0;right:auto;transform:none;">
+                                  <!-- Profile (age / pro / expertise) -->
+                                  <template x-if="persona.data?.profil_demographique && (persona.data.profil_demographique.age || persona.data.profil_demographique.situation_professionnelle || persona.data.profil_demographique.niveau_expertise)">
+                                    <span style="display:block;margin-bottom:10px;">
+                                      <span style="display:block;font-size:10px;text-transform:uppercase;letter-spacing:0.05em;color:#94a3b8;margin-bottom:4px;">Profile</span>
+                                      <span style="display:flex;flex-wrap:wrap;gap:4px;">
+                                        <template x-if="persona.data.profil_demographique.age">
+                                          <span style="font-size:10px;padding:2px 7px;border-radius:9999px;background:#1e3a8a;color:#dbeafe;" x-text="persona.data.profil_demographique.age"></span>
+                                        </template>
+                                        <template x-if="persona.data.profil_demographique.situation_professionnelle">
+                                          <span style="font-size:10px;padding:2px 7px;border-radius:9999px;background:#581c87;color:#f3e8ff;" x-text="persona.data.profil_demographique.situation_professionnelle"></span>
+                                        </template>
+                                        <template x-if="persona.data.profil_demographique.niveau_expertise">
+                                          <span style="font-size:10px;padding:2px 7px;border-radius:9999px;background:#064e3b;color:#d1fae5;" x-text="'niveau ' + persona.data.profil_demographique.niveau_expertise"></span>
+                                        </template>
+                                      </span>
+                                    </span>
+                                  </template>
+                                  <!-- Journey -->
+                                  <template x-if="persona.data?.parcours_type">
+                                    <span style="display:block;margin-bottom:10px;">
+                                      <span style="display:block;font-size:10px;text-transform:uppercase;letter-spacing:0.05em;color:#94a3b8;margin-bottom:2px;">Parcours type</span>
+                                      <span style="font-size:11px;line-height:1.45;display:block;" x-text="persona.data.parcours_type"></span>
+                                    </span>
+                                  </template>
+                                  <!-- Keywords -->
                                   <template x-if="persona.data?.mots_cles_associes?.length">
-                                    <span style="display:block;margin-bottom:8px;">
+                                    <span style="display:block;margin-bottom:10px;">
                                       <span style="display:block;font-size:10px;text-transform:uppercase;letter-spacing:0.05em;color:#94a3b8;margin-bottom:4px;">Keywords (<span x-text="persona.data.mots_cles_associes.length"></span>)</span>
                                       <span style="display:flex;flex-wrap:wrap;gap:4px;">
                                         <template x-for="kw in persona.data.mots_cles_associes" :key="kw">
@@ -1508,19 +1541,30 @@ const isReviewing = effectiveView !== null && (
                                       </span>
                                     </span>
                                   </template>
+                                  <!-- Intentions de recherche -->
                                   <template x-if="persona.data?.intentions_recherche?.length">
-                                    <span style="display:block;margin-bottom:8px;">
+                                    <span style="display:block;margin-bottom:10px;">
                                       <span style="display:block;font-size:10px;text-transform:uppercase;letter-spacing:0.05em;color:#94a3b8;margin-bottom:2px;">Intentions de recherche</span>
                                       <template x-for="intent in persona.data.intentions_recherche" :key="intent">
-                                        <span style="display:block;font-size:11px;line-height:1.4;padding-left:8px;text-indent:-8px;" x-text="'· ' + intent"></span>
+                                        <span style="display:block;font-size:11px;line-height:1.45;padding-left:8px;text-indent:-8px;" x-text="'· ' + intent"></span>
                                       </template>
                                     </span>
                                   </template>
+                                  <!-- Points de douleur -->
                                   <template x-if="persona.data?.points_douleur?.length">
-                                    <span style="display:block;">
+                                    <span style="display:block;margin-bottom:10px;">
                                       <span style="display:block;font-size:10px;text-transform:uppercase;letter-spacing:0.05em;color:#94a3b8;margin-bottom:2px;">Points de douleur</span>
                                       <template x-for="pain in persona.data.points_douleur" :key="pain">
-                                        <span style="display:block;font-size:11px;line-height:1.4;padding-left:8px;text-indent:-8px;" x-text="'· ' + pain"></span>
+                                        <span style="display:block;font-size:11px;line-height:1.45;padding-left:8px;text-indent:-8px;" x-text="'· ' + pain"></span>
+                                      </template>
+                                    </span>
+                                  </template>
+                                  <!-- Opportunities -->
+                                  <template x-if="persona.data?.opportunites?.length">
+                                    <span style="display:block;">
+                                      <span style="display:block;font-size:10px;text-transform:uppercase;letter-spacing:0.05em;color:#94a3b8;margin-bottom:2px;">Opportunités</span>
+                                      <template x-for="opp in persona.data.opportunites" :key="opp">
+                                        <span style="display:block;font-size:11px;line-height:1.45;padding-left:8px;text-indent:-8px;color:#fbbf24;" x-text="'· ' + opp"></span>
                                       </template>
                                     </span>
                                   </template>

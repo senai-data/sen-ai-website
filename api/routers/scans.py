@@ -1451,10 +1451,44 @@ async def update_topic(scan_id: str, topic_id: str, req: TopicUpdate, user=Depen
         topic.name = strip_tags(req.name)
     if req.description is not None:
         topic.description = strip_tags(req.description)
-    if req.is_active is not None:
-        topic.is_active = req.is_active
+
+    cascaded_personas = 0
+    cascaded_questions = 0
+    if req.is_active is not None and bool(req.is_active) != bool(topic.is_active):
+        # Cascade is_active to every persona + question under this topic so
+        # the Topics and Personas pages can't disagree on which work the
+        # scanner will run. Without this, a topic toggled OFF on Gate 1 still
+        # leaves its personas active in the launch query (which filters on
+        # persona.is_active, not topic.is_active) → ghost work + credit drift.
+        # The Personas page bulk toggle is the symmetric path: it patches
+        # the topic + each persona explicitly, so the two routes converge.
+        new_state = bool(req.is_active)
+        topic.is_active = new_state
+
+        persona_ids = [
+            p.id for p in db.query(ScanPersona.id).filter(
+                ScanPersona.scan_id == scan_id,
+                ScanPersona.topic_id == topic_id,
+            ).all()
+        ]
+        if persona_ids:
+            cascaded_personas = db.query(ScanPersona).filter(
+                ScanPersona.id.in_(persona_ids),
+                ScanPersona.is_active != new_state,
+            ).update({ScanPersona.is_active: new_state}, synchronize_session=False)
+            cascaded_questions = db.query(ScanQuestion).filter(
+                ScanQuestion.persona_id.in_(persona_ids),
+                ScanQuestion.is_active != new_state,
+            ).update({ScanQuestion.is_active: new_state}, synchronize_session=False)
+
     db.commit()
-    return {"id": str(topic.id), "name": topic.name, "is_active": topic.is_active}
+    return {
+        "id": str(topic.id),
+        "name": topic.name,
+        "is_active": topic.is_active,
+        "cascaded_personas": cascaded_personas,
+        "cascaded_questions": cascaded_questions,
+    }
 
 
 @router.delete("/{scan_id}/topics/{topic_id}")
@@ -1824,26 +1858,43 @@ async def launch_scan(request: Request, scan_id: str, user=Depends(get_current_u
     # Lock the client row FIRST so the balance read + debit are atomic.
     # Without the lock, two concurrent launches could both observe the
     # same balance and each pass the check, causing a double-spend.
-    from routers.stripe import get_credit_balance, add_credits, lock_client_credits
-    lock_client_credits(str(scan.client_id), db)
-    balance = get_credit_balance(str(scan.client_id), "scan", db)
-    if balance < active_questions:
-        raise HTTPException(402, {
-            "error": "insufficient_credits",
-            "need": active_questions,
-            "have": balance,
-            "message": f"Need {active_questions} scan credits but only {balance} available",
-        })
+    #
+    # Bypass when scan.config.credits_already_debited = True — set by
+    # import scripts (e.g. worker/scripts/import_seollm_avene.py) that
+    # bring in personas + questions whose underlying work was already
+    # paid for upstream. The real API costs still apply, but the sen-ai
+    # ledger doesn't double-charge.
+    config = scan.config or {}
+    bypass_credits = bool(config.get("credits_already_debited"))
 
-    # Pre-debit credits (re-uses the same lock — re-entrant within this txn)
-    add_credits(
-        client_id=str(scan.client_id),
-        credit_type="scan",
-        amount=-active_questions,
-        description=f"Scan launched: {active_questions} questions",
-        db=db,
-        scan_id=scan_id,
-    )
+    from routers.stripe import get_credit_balance, add_credits, lock_client_credits
+    if not bypass_credits:
+        lock_client_credits(str(scan.client_id), db)
+        balance = get_credit_balance(str(scan.client_id), "scan", db)
+        if balance < active_questions:
+            raise HTTPException(402, {
+                "error": "insufficient_credits",
+                "need": active_questions,
+                "have": balance,
+                "message": f"Need {active_questions} scan credits but only {balance} available",
+            })
+
+        # Pre-debit credits (re-uses the same lock — re-entrant within this txn)
+        add_credits(
+            client_id=str(scan.client_id),
+            credit_type="scan",
+            amount=-active_questions,
+            description=f"Scan launched: {active_questions} questions",
+            db=db,
+            scan_id=scan_id,
+        )
+    else:
+        balance = get_credit_balance(str(scan.client_id), "scan", db)
+        import logging
+        logging.getLogger(__name__).info(
+            f"launch_scan: bypassing credit debit for scan {scan_id} "
+            f"({active_questions} questions, import_origin={config.get('import_origin')})"
+        )
 
     scan.status = "scanning"
     scan.started_at = datetime.utcnow()

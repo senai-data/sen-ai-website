@@ -157,13 +157,16 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
         # Update catalog name with proper capitalization
         new_name = item.get("name") or brand_obj.name
 
-        # 8. Dedup: if another client_brand already has this name for the same client,
-        # re-point SBC to the existing brand and flag the current row as orphaned.
+        # 8. Dedup: if another client_brand already has this name (normalized)
+        # for the same client, re-point SBC to the existing brand and flag the
+        # current row as orphaned. Uses canonical_name (lower + unaccent + trim)
+        # via brand_name_norm so case/accent variants collapse to one row.
+        from services.brand_name_norm import normalize_brand_name as _norm
         existing_dup = (
             db.query(ClientBrand)
             .filter(
                 ClientBrand.client_id == scan.client_id,
-                func.lower(ClientBrand.name) == new_name.lower(),
+                ClientBrand.canonical_name == _norm(new_name),
                 ClientBrand.id != brand_obj.id,
             )
             .first()
@@ -200,8 +203,9 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
             orphaned_brands += 1
         else:
             # Update the catalog entry in place (name only — category is deprecated)
+            from services.brand_name_norm import normalize_brand_name as _norm
             brand_obj.name = new_name
-            brand_obj.canonical_name = new_name
+            brand_obj.canonical_name = _norm(new_name)
             sbc.classification = new_classification
             sbc.classified_by = "claude"
             sbc.updated_at = now
@@ -210,11 +214,12 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
         # 9. Parent linking for product lines (gammes)
         parent_name = item.get("parent")
         if parent_name and raw_category in ("target_gamme", "competitor_gamme"):
+            from services.brand_name_norm import normalize_brand_name as _norm
             parent = (
                 db.query(ClientBrand)
                 .filter(
                     ClientBrand.client_id == scan.client_id,
-                    func.lower(ClientBrand.name) == parent_name.lower(),
+                    ClientBrand.canonical_name == _norm(parent_name),
                 )
                 .first()
             )

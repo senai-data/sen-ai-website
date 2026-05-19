@@ -251,22 +251,31 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
                 if result.get("brand_analysis", {}).get("marque_cible_mentionnee"):
                     brand_mentioned_count += 1
 
-                # Auto-enrich: collect new brands from LLM responses
+                # Auto-enrich: collect new brands from LLM responses.
+                # Filter the obvious noise upstream so the catalog doesn't
+                # balloon with ingredients / product types / domains the
+                # BrandAnalyzer over-extracts (2026-05-19 Avène: 2 041 raw
+                # → ~150 real after this filter).
+                from services.brand_noise_filter import is_noise_brand_name
                 for mention in result.get("brand_mentions", []):
                     bname = mention.get("brand_name_groupby") or mention.get("brand_name")
                     if not bname or len(bname) < 2:
                         continue
+                    if is_noise_brand_name(bname):
+                        continue
 
+                    from services.brand_name_norm import normalize_brand_name
+                    bnorm = normalize_brand_name(bname)
                     existing = db.query(ClientBrand).filter(
                         ClientBrand.client_id == scan.client_id,
-                        sql_func.lower(ClientBrand.name) == bname.lower(),
-                    ).first()
+                        ClientBrand.canonical_name == bnorm,
+                    ).first() if bnorm else None
 
                     if not existing:
                         new_brand = ClientBrand(
                             client_id=scan.client_id,
                             name=bname,
-                            canonical_name=bname,
+                            canonical_name=bnorm,
                             last_seen_at=datetime.utcnow(),
                             detected_in_scan_id=scan_id,
                             detection_source="llm_response",

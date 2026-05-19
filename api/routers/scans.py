@@ -676,6 +676,104 @@ async def classify_scan_brand(scan_id: str, req: BrandClassify, user=Depends(get
     }
 
 
+@router.get("/{scan_id}/pipeline")
+async def get_pipeline(scan_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
+    """Return the scan's job timeline with per-step status + ETA.
+
+    Used by the scanning page to render a transparent progress view (Nielsen's
+    "visibility of system status" + Doherty Threshold). Replaces the lone
+    progress_message line that left users guessing what's happening.
+    """
+    scan = _check_scan_access(scan_id, user, db)
+    jobs = db.query(Job).filter(Job.scan_id == scan_id).order_by(Job.created_at.asc()).all()
+
+    STEP_META = {
+        "fetch_keywords":             ("Fetching keywords from HaloScan",  30),
+        "classify_topics":            ("Identifying topics",               60),
+        "assign_keywords":            ("Linking keywords to topics",       30),
+        "detect_competitors":         ("Detecting competitors",            45),
+        "cleanup_brands":             ("Cleaning up brand catalog",        90),
+        "generate_domain_brief":      ("Generating domain brief",          45),
+        "generate_personas":          ("Generating personas",              120),
+        "generate_persona_questions": ("Generating questions",             60),
+        "classify_question_intent":   ("Classifying question intents",     30),
+        "run_llm_tests":              ("Testing AI providers",             1200),
+        "judge_question_responses":   ("Judging response quality",         60),
+        "generate_opportunities":     ("Identifying opportunities",        45),
+        "generate_editorial":         ("Drafting editorial summary",       90),
+        "materialize_content_items":  ("Preparing content actions",        45),
+    }
+
+    # Re-tune the expensive "Testing AI providers" ETA from actual load.
+    active_q = (
+        db.query(ScanQuestion)
+        .join(ScanPersona, ScanPersona.id == ScanQuestion.persona_id)
+        .filter(
+            ScanQuestion.scan_id == scan_id,
+            ScanQuestion.is_active == True,
+            ScanPersona.is_active == True,
+        )
+        .count()
+    )
+    providers = (scan.config or {}).get("providers", ["openai"]) or ["openai"]
+    if active_q > 0:
+        STEP_META["run_llm_tests"] = (
+            STEP_META["run_llm_tests"][0],
+            int(active_q * len(providers) * 3),
+        )
+
+    now = datetime.utcnow()
+
+    def _serialize_job(j):
+        meta = STEP_META.get(j.job_type, (j.job_type.replace("_", " ").title(), 60))
+        label, eta = meta
+        out = {
+            "job_type": j.job_type,
+            "label": label,
+            "status": j.status,
+            "attempts": j.attempts or 0,
+            "started_at": j.started_at.isoformat() if j.started_at else None,
+            "completed_at": j.completed_at.isoformat() if j.completed_at else None,
+        }
+        if j.status == "completed" and j.started_at and j.completed_at:
+            out["duration_ms"] = int((j.completed_at - j.started_at).total_seconds() * 1000)
+        elif j.status == "running" and j.started_at:
+            out["elapsed_ms"] = int((now - j.started_at).total_seconds() * 1000)
+            out["eta_seconds"] = max(0, eta - int(out["elapsed_ms"] / 1000))
+        else:
+            out["eta_seconds"] = eta
+
+        if isinstance(j.result, dict):
+            r = j.result
+            if r.get("total_tests") is not None:
+                out["details"] = f"{r['total_tests']} tests · {r.get('citation_rate', 0)}% cited · {r.get('brand_mention_rate', 0)}% brand mentions"
+            elif r.get("classified") is not None and r.get("batches") is not None:
+                out["details"] = f"{r['classified']} questions classified"
+            elif r.get("materialized") is not None:
+                out["details"] = f"{r['materialized']} content items"
+            elif r.get("brands") is not None and isinstance(r["brands"], list):
+                out["details"] = f"{len(r['brands'])} brands processed"
+            elif r.get("error"):
+                out["error"] = str(r["error"])[:200]
+        return out
+
+    serialized = [_serialize_job(j) for j in jobs]
+    completed_count = sum(1 for s in serialized if s["status"] == "completed")
+    total_completed_ms = sum(s.get("duration_ms", 0) for s in serialized)
+    remaining_eta = sum(s.get("eta_seconds", 0) for s in serialized if s["status"] in ("running", "pending"))
+
+    return {
+        "scan_status": scan.status,
+        "progress_pct": scan.progress_pct or 0,
+        "progress_message": scan.progress_message,
+        "steps": serialized,
+        "total_steps": len(serialized),
+        "completed_steps": completed_count,
+        "total_elapsed_ms": total_completed_ms,
+        "remaining_eta_seconds": remaining_eta,
+    }
+
+
 @router.post("/{scan_id}/brands/bulk-classify")
 async def bulk_classify_brands(scan_id: str, req: BrandBulkClassify, user=Depends(get_current_user), db: Session = Depends(get_db)):
     """Set classification on N brands at once.
@@ -920,17 +1018,19 @@ async def import_competitors_from_brief(scan_id: str, user=Depends(get_current_u
     seen_brands: set[str] = set()
     for comp in competitors:
         comp_name = (comp.get("name") or "").strip() if isinstance(comp, dict) else ""
-        if not comp_name or comp_name.lower() in seen_brands:
+        from services.brand_name_norm import normalize_brand_name
+        comp_norm = normalize_brand_name(comp_name)
+        if not comp_norm or comp_norm in seen_brands:
             continue
-        seen_brands.add(comp_name.lower())
+        seen_brands.add(comp_norm)
 
         root = db.query(ClientBrand).filter(
             ClientBrand.client_id == scan.client_id,
-            func.lower(ClientBrand.canonical_name) == comp_name.lower(),
+            ClientBrand.canonical_name == comp_norm,
         ).first()
         if root is None:
             root = ClientBrand(
-                client_id=scan.client_id, name=comp_name, canonical_name=comp_name,
+                client_id=scan.client_id, name=comp_name, canonical_name=comp_norm,
                 detected_in_scan_id=scan_id, auto_detected=True,
                 validated_by_user=False, detection_source="brief",
                 last_seen_at=datetime.utcnow(),
@@ -959,19 +1059,20 @@ async def import_competitors_from_brief(scan_id: str, user=Depends(get_current_u
         seen_gammes: set[str] = set()
         for prod_name in (comp.get("products") or []):
             prod_name = (prod_name or "").strip()
-            if not prod_name or prod_name.lower() in seen_gammes:
+            prod_norm = normalize_brand_name(prod_name)
+            if not prod_norm or prod_norm in seen_gammes:
                 continue
-            if prod_name.lower() == comp_name.lower():
+            if prod_norm == comp_norm:
                 continue
-            seen_gammes.add(prod_name.lower())
+            seen_gammes.add(prod_norm)
 
             gamme = db.query(ClientBrand).filter(
                 ClientBrand.client_id == scan.client_id,
-                func.lower(ClientBrand.canonical_name) == prod_name.lower(),
+                ClientBrand.canonical_name == prod_norm,
             ).first()
             if gamme is None:
                 gamme = ClientBrand(
-                    client_id=scan.client_id, name=prod_name, canonical_name=prod_name,
+                    client_id=scan.client_id, name=prod_name, canonical_name=prod_norm,
                     parent_id=root.id, detected_in_scan_id=scan_id,
                     auto_detected=True, validated_by_user=False,
                     detection_source="brief", last_seen_at=datetime.utcnow(),

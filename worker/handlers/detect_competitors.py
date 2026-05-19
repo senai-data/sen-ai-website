@@ -43,10 +43,12 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
         # Extract brand name from domain (e.g., "laroche-posay.fr" → "La Roche Posay")
         brand_name = domain_clean.split(".")[0].replace("-", " ").title()
 
+        from services.brand_name_norm import normalize_brand_name
+        brand_norm = normalize_brand_name(brand_name)
         existing = db.query(ClientBrand).filter(
             ClientBrand.client_id == scan.client_id,
-            ClientBrand.name == brand_name,
-        ).first()
+            ClientBrand.canonical_name == brand_norm,
+        ).first() if brand_norm else None
 
         if not existing:
             # Also check by domain
@@ -60,7 +62,7 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
             brand = ClientBrand(
                 client_id=scan.client_id,
                 name=brand_name,
-                canonical_name=brand_name,
+                canonical_name=brand_norm,
                 domain=domain_clean,
                 detected_in_scan_id=scan_id,
                 detection_source="haloscan_competitors",

@@ -67,8 +67,14 @@ async def list_brands(
 async def create_brand(client_id: str, req: BrandCreate, user=Depends(get_current_user), db: Session = Depends(get_db)):
     _check_client_access(client_id, user, db)
 
+    from services.brand_name_norm import normalize_brand_name
+    name_norm = normalize_brand_name(req.name)
+    if not name_norm:
+        raise HTTPException(400, "Brand name cannot be empty")
+
     existing = db.query(ClientBrand).filter(
-        ClientBrand.client_id == client_id, ClientBrand.name == req.name,
+        ClientBrand.client_id == client_id,
+        ClientBrand.canonical_name == name_norm,
     ).first()
     if existing:
         raise HTTPException(400, f"Brand '{req.name}' already exists")
@@ -77,6 +83,7 @@ async def create_brand(client_id: str, req: BrandCreate, user=Depends(get_curren
         client_id=client_id,
         parent_id=req.parent_id,
         name=req.name,
+        canonical_name=name_norm,
         domain=req.domain,
         aliases=req.aliases or [],
         detection_source="manual",

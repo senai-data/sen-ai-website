@@ -145,12 +145,14 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
             claude_cat = marque.get("category", "")
             category = category_map.get(claude_cat, "unclassified")
 
-        if not name:
+        from services.brand_name_norm import normalize_brand_name
+        name_norm = normalize_brand_name(name)
+        if not name_norm:
             continue
 
         existing = db.query(ClientBrand).filter(
             ClientBrand.client_id == scan.client_id,
-            ClientBrand.name == name,
+            ClientBrand.canonical_name == name_norm,
         ).first()
         if not existing:
             # NOTE: client_brands.category is lazy-deprecated; leave default 'unclassified'
@@ -159,7 +161,7 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
                 client_id=scan.client_id,
                 parent_id=None,
                 name=name,
-                canonical_name=name,
+                canonical_name=name_norm,
                 detected_in_scan_id=scan_id,
                 detection_source="keywords",
                 auto_detected=True,
@@ -171,8 +173,9 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
             brand_row = new_brand
             new_brands += 1
         else:
-            # Refresh canonical_name + last_seen_at on existing rows
-            existing.canonical_name = name
+            # Refresh last_seen_at on existing rows. canonical_name is the
+            # dedup key now (UNIQUE per client) — never overwrite it ; the
+            # display `name` keeps its current casing.
             existing.last_seen_at = now
             brand_row = existing
 

@@ -379,23 +379,25 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
             return True
         return False
 
+    from services.brand_name_norm import normalize_brand_name
     seen_brands: set[str] = set()
     for comp in brief.get("competitors", []):
         comp_name = (comp.get("name") or "").strip()
-        if not comp_name or comp_name.lower() in seen_brands:
+        comp_norm = normalize_brand_name(comp_name)
+        if not comp_norm or comp_norm in seen_brands:
             continue
-        seen_brands.add(comp_name.lower())
+        seen_brands.add(comp_norm)
 
         existing = db.query(ClientBrand).filter(
             ClientBrand.client_id == scan.client_id,
-            func.lower(ClientBrand.canonical_name) == comp_name.lower(),
+            ClientBrand.canonical_name == comp_norm,
         ).first()
 
         if not existing:
             brand = ClientBrand(
                 client_id=scan.client_id,
                 name=comp_name,
-                canonical_name=comp_name,
+                canonical_name=comp_norm,
                 detected_in_scan_id=scan_id,
                 auto_detected=True,
                 validated_by_user=False,
@@ -428,22 +430,23 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
         seen_gammes: set[str] = set()
         for prod_name in (comp.get("products") or []):
             prod_name = (prod_name or "").strip()
-            if not prod_name or prod_name.lower() in seen_gammes:
+            prod_norm = normalize_brand_name(prod_name)
+            if not prod_norm or prod_norm in seen_gammes:
                 continue
             # Drop echoes of the parent name the LLM sometimes injects.
-            if prod_name.lower() == comp_name.lower():
+            if prod_norm == comp_norm:
                 continue
-            seen_gammes.add(prod_name.lower())
+            seen_gammes.add(prod_norm)
 
             existing_gamme = db.query(ClientBrand).filter(
                 ClientBrand.client_id == scan.client_id,
-                func.lower(ClientBrand.canonical_name) == prod_name.lower(),
+                ClientBrand.canonical_name == prod_norm,
             ).first()
             if not existing_gamme:
                 gamme = ClientBrand(
                     client_id=scan.client_id,
                     name=prod_name,
-                    canonical_name=prod_name,
+                    canonical_name=prod_norm,
                     parent_id=brand.id,
                     detected_in_scan_id=scan_id,
                     auto_detected=True,
@@ -472,19 +475,20 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
     # Pre-populate own brands
     for own_brand_name in brief.get("brands", []):
         own_brand_name = (own_brand_name or "").strip()
-        if not own_brand_name:
+        own_norm = normalize_brand_name(own_brand_name)
+        if not own_norm:
             continue
 
         existing = db.query(ClientBrand).filter(
             ClientBrand.client_id == scan.client_id,
-            func.lower(ClientBrand.name) == own_brand_name.lower(),
+            ClientBrand.canonical_name == own_norm,
         ).first()
 
         if not existing:
             brand = ClientBrand(
                 client_id=scan.client_id,
                 name=own_brand_name,
-                canonical_name=own_brand_name,
+                canonical_name=own_norm,
                 detected_in_scan_id=scan_id,
                 auto_detected=True,
                 validated_by_user=False,

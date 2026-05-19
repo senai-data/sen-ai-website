@@ -1488,6 +1488,45 @@ const isReviewing = effectiveView !== null && (
                                     title="Rename persona">
                               <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
                             </button>
+                            <!-- Persona context tooltip (i) — same hover pattern as the per-question
+                                 "Why this question?" tooltip, lifts the keywords / intentions /
+                                 pain points out of a collapsible row into progressive disclosure. -->
+                            <template x-if="persona.data && (persona.data.mots_cles_associes?.length || persona.data.intentions_recherche?.length || persona.data.points_douleur?.length)">
+                              <span class="kpi-tooltip shrink-0" style="display:inline-flex;" @click.stop>
+                                <svg class="w-3.5 h-3.5 text-gray-300 hover:text-coral cursor-help transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <circle cx="12" cy="12" r="10" stroke-width="2"/>
+                                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 16v-4M12 8h.01"/>
+                                </svg>
+                                <span class="kpi-tip" style="width:380px;max-width:min(380px,calc(100vw - 32px));left:0;right:auto;transform:none;">
+                                  <template x-if="persona.data?.mots_cles_associes?.length">
+                                    <span style="display:block;margin-bottom:8px;">
+                                      <span style="display:block;font-size:10px;text-transform:uppercase;letter-spacing:0.05em;color:#94a3b8;margin-bottom:4px;">Keywords (<span x-text="persona.data.mots_cles_associes.length"></span>)</span>
+                                      <span style="display:flex;flex-wrap:wrap;gap:4px;">
+                                        <template x-for="kw in persona.data.mots_cles_associes" :key="kw">
+                                          <span style="font-size:10px;padding:1px 6px;border-radius:4px;background:#334155;color:#e2e8f0;" x-text="kw"></span>
+                                        </template>
+                                      </span>
+                                    </span>
+                                  </template>
+                                  <template x-if="persona.data?.intentions_recherche?.length">
+                                    <span style="display:block;margin-bottom:8px;">
+                                      <span style="display:block;font-size:10px;text-transform:uppercase;letter-spacing:0.05em;color:#94a3b8;margin-bottom:2px;">Intentions de recherche</span>
+                                      <template x-for="intent in persona.data.intentions_recherche" :key="intent">
+                                        <span style="display:block;font-size:11px;line-height:1.4;padding-left:8px;text-indent:-8px;" x-text="'· ' + intent"></span>
+                                      </template>
+                                    </span>
+                                  </template>
+                                  <template x-if="persona.data?.points_douleur?.length">
+                                    <span style="display:block;">
+                                      <span style="display:block;font-size:10px;text-transform:uppercase;letter-spacing:0.05em;color:#94a3b8;margin-bottom:2px;">Points de douleur</span>
+                                      <template x-for="pain in persona.data.points_douleur" :key="pain">
+                                        <span style="display:block;font-size:11px;line-height:1.4;padding-left:8px;text-indent:-8px;" x-text="'· ' + pain"></span>
+                                      </template>
+                                    </span>
+                                  </template>
+                                </span>
+                              </span>
+                            </template>
                           </div>
                         </template>
                         <template x-if="editingPersonaId === persona.id">
@@ -1536,80 +1575,9 @@ const isReviewing = effectiveView !== null && (
                         <span class="text-xs text-charcoal-light">Generating 15 questions...</span>
                       </div>
 
-                      <!-- Persona context — collapsible by default to save vertical space.
-                           Aesthetic-Usability: rich detail available on demand, not in your face.
-                           Auto-shows the keyword count + section counts in the summary so the user
-                           gets the gist without expanding (Recognition over Recall). -->
-                      <template x-if="persona.data && (persona.data.mots_cles_associes?.length || persona.data.intentions_recherche?.length || persona.data.points_douleur?.length)">
-                        <details class="rounded-lg bg-gray-50/70 border border-gray-100 group/ctx">
-                          <summary class="px-3 py-2 cursor-pointer hover:bg-gray-100/60 transition-colors flex items-center gap-2 text-[11px] text-charcoal-dark">
-                            <svg class="w-3 h-3 text-charcoal-light shrink-0 transition-transform group-open/ctx:rotate-90" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
-                              <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
-                            </svg>
-                            <span class="font-medium">Persona context</span>
-                            <span class="text-[10px] text-charcoal-light/80 ml-auto">
-                              <template x-if="persona.data?.mots_cles_associes?.length">
-                                <span><span x-text="persona.data.mots_cles_associes.length"></span> kw<span> · </span></span>
-                              </template>
-                              <template x-if="persona.data?.intentions_recherche?.length">
-                                <span><span x-text="persona.data.intentions_recherche.length"></span> intentions<span> · </span></span>
-                              </template>
-                              <template x-if="persona.data?.points_douleur?.length">
-                                <span><span x-text="persona.data.points_douleur.length"></span> pain points</span>
-                              </template>
-                            </span>
-                          </summary>
-
-                          <div class="px-3 py-2.5 border-t border-gray-200/70 space-y-2.5">
-                            <!-- Keywords as chips -->
-                            <template x-if="persona.data?.mots_cles_associes?.length">
-                              <div>
-                                <div class="flex items-baseline justify-between gap-2 mb-1.5">
-                                  <p class="text-[10px] uppercase tracking-wide text-charcoal-light font-semibold">Keywords that shaped this persona</p>
-                                  <p class="text-[10px] text-charcoal-light/70 italic">
-                                    <span x-text="persona.data.mots_cles_associes.length"></span><span> of </span><span x-text="topic.keyword_count || '?'"></span><span> in topic</span>
-                                  </p>
-                                </div>
-                                <div class="flex flex-wrap gap-1">
-                                  <template x-for="kw in persona.data.mots_cles_associes" :key="kw">
-                                    <span class="inline-flex items-center text-[10px] px-1.5 py-0.5 rounded bg-white border border-gray-200 text-charcoal-dark" x-text="kw"></span>
-                                  </template>
-                                </div>
-                              </div>
-                            </template>
-
-                            <!-- Intentions de recherche -->
-                            <template x-if="persona.data?.intentions_recherche?.length">
-                              <div>
-                                <p class="text-[10px] uppercase tracking-wide text-charcoal-light font-semibold mb-1">Intentions de recherche</p>
-                                <ul class="space-y-0.5">
-                                  <template x-for="intent in persona.data.intentions_recherche" :key="intent">
-                                    <li class="text-[11px] text-charcoal-dark leading-snug flex gap-1.5">
-                                      <span class="text-charcoal-light/60 shrink-0">·</span>
-                                      <span x-text="intent"></span>
-                                    </li>
-                                  </template>
-                                </ul>
-                              </div>
-                            </template>
-
-                            <!-- Points de douleur -->
-                            <template x-if="persona.data?.points_douleur?.length">
-                              <div>
-                                <p class="text-[10px] uppercase tracking-wide text-charcoal-light font-semibold mb-1">Points de douleur</p>
-                                <ul class="space-y-0.5">
-                                  <template x-for="pain in persona.data.points_douleur" :key="pain">
-                                    <li class="text-[11px] text-charcoal-dark leading-snug flex gap-1.5">
-                                      <span class="text-charcoal-light/60 shrink-0">·</span>
-                                      <span x-text="pain"></span>
-                                    </li>
-                                  </template>
-                                </ul>
-                              </div>
-                            </template>
-                          </div>
-                        </details>
-                      </template>
+                      <!-- Persona context moved to (i) tooltip next to the persona name — see
+                           kpi-tooltip block above. Frees up the questions panel of a redundant
+                           collapsible row and keeps the rich data on demand. -->
 
                       <!-- Custom persona without context (added via "+ Add persona") — show a lightweight hint -->
                       <template x-if="persona.data && !persona.data.mots_cles_associes?.length && !persona.data.intentions_recherche?.length && !persona.data.points_douleur?.length">

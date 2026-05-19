@@ -12,6 +12,8 @@ from datetime import datetime
 
 from sqlalchemy.orm import Session
 
+from services.intent_taxonomy import SAFETY_INTENTS, is_safety_intent
+
 logger = logging.getLogger(__name__)
 
 
@@ -22,6 +24,32 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
     scan = db.query(Scan).filter(Scan.id == scan_id).first()
     if not scan:
         raise RuntimeError("Scan not found")
+
+    # Phase B Tier A — NULL guard (PR-1, audit 2026-05-19).
+    # Caller order is normally:
+    #   run_llm_tests → classify_question_intent → generate_opportunities
+    # If someone re-runs this handler directly (e.g. via
+    # scripts/rebuild_opportunities_all.py) on a scan whose questions are
+    # still NULL, every question is treated as promotional_fit (legacy
+    # behavior per migration 035) — including safety / SAV ones, which
+    # then produce critique opps the LLM will later LOW_QUALITY_SKIP.
+    # Fail loud so the operator runs classify_question_intent first
+    # rather than burning content credits on opportunities that
+    # shouldn't exist.
+    unclassified = (
+        db.query(ScanQuestion)
+        .filter(
+            ScanQuestion.scan_id == scan_id,
+            ScanQuestion.intent_category.is_(None),
+        )
+        .count()
+    )
+    if unclassified > 0:
+        raise RuntimeError(
+            f"generate_opportunities: {unclassified} questions in scan "
+            f"{scan_id} have NULL intent_category. Run "
+            f"classify_question_intent first (idempotent, ~$0.0005/question)."
+        )
 
     results = db.query(ScanLLMResult).filter(ScanLLMResult.scan_id == scan_id).all()
     if not results:
@@ -34,15 +62,6 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
     topics = {str(t.id): t for t in db.query(ScanTopic).filter(ScanTopic.scan_id == scan_id).all()}
 
     counts = {"critique": 0, "haute": 0, "moyenne": 0}
-    # Phase B Tier A — intent categories where a third-party brand
-    # placement is editorially inappropriate. The pipeline correctly
-    # refuses to weave the brand into safety / SAV / contre-indication
-    # answers (pharma compliance), which then triggers LOW_QUALITY_SKIP.
-    # Dropping the opportunity upstream is the right fix: user never
-    # sees the opportunity, no content_credit ever debited.
-    # NULL intent_category = unclassified (= treated as promotional_fit
-    # for legacy rows; the classifier handler populates new rows).
-    _SAFETY_INTENTS = {"safety_warning", "side_effects", "contre_indication", "complaint_sav"}
 
     for r in results:
         q = db.query(ScanQuestion).filter(ScanQuestion.id == r.question_id).first()
@@ -95,7 +114,7 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
             # (haute / moyenne) still flow through — they aren't
             # netlinking-prone and the recommended_action is either
             # content_update (existing brand page tweak) or None.
-            if priority == "critique" and q.intent_category in _SAFETY_INTENTS:
+            if priority == "critique" and is_safety_intent(q.intent_category):
                 logger.info(
                     f"Skipped critique opportunity for question {q.id} "
                     f"(intent={q.intent_category})"

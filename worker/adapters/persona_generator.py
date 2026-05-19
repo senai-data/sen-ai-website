@@ -242,37 +242,14 @@ async def _call_claude(prompt: str, api_key: str, model: str | None = None) -> d
     text = data["content"][0]["text"]
     usage = data.get("usage", {})
 
-    text = text.strip()
-    if text.startswith("```"):
-        text = "\n".join(text.split("\n")[1:])
-    if text.endswith("```"):
-        text = text.rsplit("```", 1)[0].strip()
-
-    # Robust JSON extraction — handles Claude's common quirks:
-    # 1. Markdown code blocks  2. Preamble text  3. Trailing text after JSON
-    import re
-    parsed = None
+    # raw_decode-based extraction (respects string context — a `}` literal in
+    # a question/intention/signal field doesn't close the JSON early).
+    from adapters.json_utils import extract_json_object
     try:
-        parsed = json.loads(text)
-    except json.JSONDecodeError:
-        match = re.search(r'\{', text)
-        if match:
-            depth = 0
-            for i in range(match.start(), len(text)):
-                if text[i] == '{':
-                    depth += 1
-                elif text[i] == '}':
-                    depth -= 1
-                    if depth == 0:
-                        try:
-                            parsed = json.loads(text[match.start():i + 1])
-                        except json.JSONDecodeError:
-                            pass
-                        break
-
-    if parsed is None:
-        logger.error(f"JSON extraction failed\nRaw ({len(text)} chars): {text[:2000]}")
-        raise ValueError(f"Could not extract JSON from Claude response ({len(text)} chars)")
+        parsed = extract_json_object(text)
+    except (ValueError, json.JSONDecodeError) as e:
+        logger.error(f"JSON extraction failed: {e}\nRaw ({len(text)} chars): {text[:2000]}")
+        raise ValueError(f"Could not extract JSON from Claude response ({len(text)} chars)") from e
 
     # Pydantic validation on personas (cascades to nested questions).
     # Pre-step (B.1): infer missing/invalid type_question values via heuristic so

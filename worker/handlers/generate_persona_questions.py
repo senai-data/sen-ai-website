@@ -90,21 +90,11 @@ async def _call_claude(prompt: str, api_key: str, model: str) -> dict:
         data = resp.json()
         text = data["content"][0]["text"]
 
-        # Robust JSON extraction (brace-counter approach)
-        start = text.find("{")
-        if start == -1:
-            raise ValueError("No JSON object found in Claude response")
-        depth = 0
-        end = start
-        for i, ch in enumerate(text[start:], start):
-            if ch == "{":
-                depth += 1
-            elif ch == "}":
-                depth -= 1
-                if depth == 0:
-                    end = i
-                    break
-        parsed = json.loads(text[start:end + 1])
+        # raw_decode-based extraction (string-aware; a `}` literal in a
+        # signal_positif / signal_negatif / intention_cachee value won't
+        # truncate the JSON early — fix from seo-llm Phase B audit).
+        from adapters.json_utils import extract_json_object
+        parsed = extract_json_object(text)
         parsed["_usage"] = data.get("usage", {})
         return parsed
 

@@ -30,25 +30,12 @@ import time
 import httpx
 from sqlalchemy.orm import Session
 
+from adapters.json_utils import extract_json_object
 from config import settings
+from services.intent_taxonomy import ALLOWED_CATEGORIES
 from utils import max_tokens_for
 
 logger = logging.getLogger(__name__)
-
-
-# Allowed intent_category values. Mirror the doc in migration 035 and the
-# opportunity scorer's `_SAFETY_INTENTS` set. Adding a new category here
-# requires a corresponding update in worker/handlers/generate_opportunities.py
-# AND the UI chip rendering in src/pages/app/content/[id].astro.
-_ALLOWED_CATEGORIES = {
-    "promotional_fit",
-    "informational_neutral",
-    "safety_warning",
-    "side_effects",
-    "contre_indication",
-    "complaint_sav",
-    "other",
-}
 
 # Batch size — small enough to keep the prompt under ~4k tokens and the
 # JSON output well under Haiku's max_tokens. Larger batches lose precision
@@ -105,24 +92,10 @@ async def _call_haiku(prompt: str, api_key: str, model: str) -> dict:
         data = resp.json()
         text = data["content"][0]["text"]
 
-        # Brace-counter JSON extraction (same pattern as
-        # generate_persona_questions._call_claude — tolerates leading prose
-        # despite the prompt asking for JSON only, which Haiku occasionally
-        # ignores under temperature drift).
-        start = text.find("{")
-        if start == -1:
-            raise ValueError("No JSON object found in Haiku response")
-        depth = 0
-        end = start
-        for i, ch in enumerate(text[start:], start):
-            if ch == "{":
-                depth += 1
-            elif ch == "}":
-                depth -= 1
-                if depth == 0:
-                    end = i
-                    break
-        parsed = json.loads(text[start:end + 1])
+        # raw_decode-based extraction (respects strings — a `}` literal inside
+        # a value doesn't close the JSON early, fixing the brace-counter bug
+        # documented in seo-llm Phase B Tier A port-back).
+        parsed = extract_json_object(text)
         parsed["_usage"] = data.get("usage", {})
         return parsed
 
@@ -154,7 +127,7 @@ def _classify_batch(
     for entry in (result.get("classifications") or []):
         qid = str(entry.get("id") or "").strip()
         cat = str(entry.get("intent_category") or "").strip()
-        if qid and cat in _ALLOWED_CATEGORIES:
+        if qid and cat in ALLOWED_CATEGORIES:
             by_id[qid] = cat
 
     # Fill in anything Haiku omitted with "other" — never leave a row NULL

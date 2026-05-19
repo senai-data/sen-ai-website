@@ -1,103 +1,79 @@
-"""Noise filter for LLM-extracted brand names.
+"""Noise filter for LLM-extracted brand names — multi-vertical, brief-driven.
 
-BrandAnalyzer (seo_llm submodule) over-extracts brand-like strings from LLM
-responses: ingredients ("acide hyaluronique"), product types ("BB crème"),
-publications ("60 millions de consommateurs"), domain names ("aderma.fr"),
-random tokens. On the 2026-05-19 Avène scan this produced 2 041 unclassified
-rows, of which < 10% were real brands.
+The brand_analyzer over-extracts "brand-like" strings from LLM responses:
+ingredients ("acide hyaluronique"), product types ("BB crème"), publications
+("60 millions de consommateurs"), domain names ("aderma.fr"), random tokens.
 
-This module exposes one helper, `is_noise_brand_name(name)`, used in two
-places:
-  1. `worker/handlers/run_llm_tests.py` — before INSERT on `client_brands`,
-     so the noise never enters the catalog.
-  2. `worker/adapters/brand_classifier.py` — before sending to Claude,
-     so the cleanup payload stays small even when noise slipped through
-     (legacy data, race condition, regex miss).
+Two layers:
 
-The filter is intentionally conservative — false negatives (let noise through)
-are preferable to false positives (drop a real brand). We rely on cleanup_brands
-to catch what the regex misses.
+1. **Technical filter** (always on, industry-agnostic): domains, hash-like
+   blobs, leading-digit phrases, stopwords, length thresholds. Generic
+   regex — works identically for cosmetics, automotive, food, B2B SaaS.
+
+2. **Vertical filter** (optional, opt-in via param): a list of lowercase
+   prefixes/terms produced by `generate_domain_brief` for the scan's
+   vertical. The brief's `noise_patterns` field carries cosmetics-specific
+   noise on a cosmetics scan, automotive-specific noise on an automotive
+   scan, etc. Callers pass this list explicitly so the filter stays
+   stateless and multi-tenant safe.
+
+Callers should look up `scan.config.domain_brief.noise_patterns` and pass it
+as `noise_prefixes=` — see `worker/handlers/run_llm_tests.py` and
+`worker/adapters/brand_classifier.py`.
+
+The filter is intentionally conservative — false negatives (let noise
+through) are preferable to false positives (drop a real brand). Cleanup
+downstream catches what slips through.
 """
 
 from __future__ import annotations
 
 import re
+from typing import Sequence
 
-# ── Hard-coded prefixes / patterns ────────────────────────────────────────
-
-# Generic French product types — when a "brand" name starts with one of these,
-# it's overwhelmingly an LLM hallucination ("crème hydratante", "gel moussant"
-# detected as brands). A real product line keeps the brand name itself.
-_PRODUCT_TYPE_PREFIXES: tuple[str, ...] = (
-    "crème ",
-    "creme ",
-    "gel ",
-    "sérum ",
-    "serum ",
-    "lotion ",
-    "spray ",
-    "stick ",
-    "huile ",
-    "mousse ",
-    "lait ",
-    "fluide ",
-    "baume ",
-    "shampooing ",
-    "shampoing ",
-    "soin ",
-    "soins ",
-    "masque ",
-    "eau ",
-    "fond de teint ",
-    "bb crème ",
-    "bb creme ",
-    "cc crème ",
-    "cc creme ",
-    "gelée ",
-    "gelee ",
-)
-
-# French ingredient prefixes — chemistry / botanicals get caught as "brands"
-# when they're cited as components. Same conservative heuristic.
-_INGREDIENT_PREFIXES: tuple[str, ...] = (
-    "acide ",
-    "vitamine ",
-    "extrait ",
-    "extrait de ",
-    "complexe ",
-    "huile de ",
-    "essence de ",
-    "beurre de ",
-    "eau de ",
-)
+# ── Industry-agnostic technical patterns ──────────────────────────────────
 
 # Domain TLDs that signal a URL extracted as brand name.
 _DOMAIN_TLD_RE = re.compile(
     r"\.(com|fr|net|org|io|eu|co|tv|me|de|es|it|be|ch|ca|uk)\b", re.IGNORECASE
 )
 
-# Looks like a hash / random alphanumeric jumble (8+ mixed-case + digits
-# without spaces). LLMs sometimes echo IDs verbatim.
-_HASH_LIKE_RE = re.compile(r"^[A-Za-z0-9]{12,}$")
+# Looks like a hash / random alphanumeric jumble — require 16+ chars AND at
+# least one digit, otherwise long alpha brand names ("Beiersdorf", "Spfectacular")
+# would false-positive. Real LLM-echoed hashes are typically 24+ chars and
+# always contain digits.
+_HASH_LIKE_RE = re.compile(r"^(?=.*\d)[A-Za-z0-9]{16,}$")
 
-# Pure number or starts with digit + word (ex: "60 millions de consommateurs",
+# Pure number or starts with digit + word (e.g. "60 millions de consommateurs",
 # "4-methylbenzylidene camphor"). Real brands rarely lead with a digit.
 _LEADING_DIGIT_PHRASE_RE = re.compile(r"^\d+[\s\-]")
 
-# Common French articles / connectors that shouldn't be a brand on their own
+# Common articles / connectors that shouldn't be a brand on their own. Kept
+# minimal across FR + EN since stopwords are largely universal across
+# Romance/Germanic languages we serve.
 _STOPWORDS: frozenset[str] = frozenset({
     "le", "la", "les", "un", "une", "des", "du", "de", "et", "ou", "ce",
     "cette", "ces", "mon", "ma", "mes", "son", "sa", "ses", "votre", "notre",
-    "the", "a", "an", "and", "or",
+    "the", "a", "an", "and", "or", "el", "los", "las", "der", "die", "das",
 })
 
 # Length thresholds.
 _MIN_LEN = 2
-_MAX_LEN = 60  # Beyond this it's almost certainly a phrase, not a brand
+_MAX_LEN = 60
 
 
-def is_noise_brand_name(name: str) -> bool:
+def is_noise_brand_name(
+    name: str,
+    noise_prefixes: Sequence[str] | None = None,
+) -> bool:
     """Return True if `name` looks like LLM noise rather than a real brand.
+
+    Args:
+        name: candidate brand name to test.
+        noise_prefixes: optional list of lowercase prefixes/terms that are
+            vertical-specific noise. Typically passed from
+            `scan.config.domain_brief.noise_patterns`. None or empty list =
+            technical-only filtering.
 
     Caller should SKIP creating a `client_brands` row when this returns True.
     """
@@ -125,10 +101,25 @@ def is_noise_brand_name(name: str) -> bool:
     if _LEADING_DIGIT_PHRASE_RE.match(s):
         return True
 
-    # Generic product-type or ingredient prefix
-    for prefix in _PRODUCT_TYPE_PREFIXES + _INGREDIENT_PREFIXES:
-        if low.startswith(prefix):
-            return True
+    # Vertical noise — passed in from the brief. Match by prefix (e.g.
+    # "crème" matches "crème hydratante", "crème réparatrice") OR exact
+    # (single-word patterns like "spf" should only match the token itself,
+    # not the start of a real brand). Heuristic: if the pattern contains
+    # a space, prefix-match; otherwise exact-word match anywhere in the
+    # name to avoid false positives like "Spfectacular" being flagged
+    # because the pattern is "spf".
+    if noise_prefixes:
+        tokens = set(re.findall(r"\b[\wÀ-ÿ\-]+\b", low))
+        for p in noise_prefixes:
+            p_low = (p or "").strip().lower()
+            if not p_low:
+                continue
+            if " " in p_low:
+                if low.startswith(p_low + " ") or low == p_low:
+                    return True
+            else:
+                if p_low in tokens:
+                    return True
 
     # Pure punctuation / single chars after strip
     if not re.search(r"[A-Za-zÀ-ÿ]", s):
@@ -137,13 +128,16 @@ def is_noise_brand_name(name: str) -> bool:
     return False
 
 
-def filter_noise(names: list[str]) -> tuple[list[str], list[str]]:
+def filter_noise(
+    names: list[str],
+    noise_prefixes: Sequence[str] | None = None,
+) -> tuple[list[str], list[str]]:
     """Split a list of candidate names into (real, noise) using `is_noise_brand_name`.
 
-    Returns the lists in the input order so caller can preserve any side metadata.
+    Returns the lists in input order so callers can preserve side metadata.
     """
     real: list[str] = []
     noise: list[str] = []
     for n in names or []:
-        (noise if is_noise_brand_name(n) else real).append(n)
+        (noise if is_noise_brand_name(n, noise_prefixes) else real).append(n)
     return real, noise

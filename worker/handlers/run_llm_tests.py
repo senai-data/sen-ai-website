@@ -254,14 +254,18 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
                 # Auto-enrich: collect new brands from LLM responses.
                 # Filter the obvious noise upstream so the catalog doesn't
                 # balloon with ingredients / product types / domains the
-                # BrandAnalyzer over-extracts (2026-05-19 Avène: 2 041 raw
-                # → ~150 real after this filter).
+                # BrandAnalyzer over-extracts. The brief's noise_patterns
+                # carries vertical-specific terms (cosmetics: "crème",
+                # "acide hyaluronique"; automotive: "huile moteur") so the
+                # filter is multi-industry without hardcoded lists.
                 from services.brand_noise_filter import is_noise_brand_name
+                _brief = (scan.config or {}).get("domain_brief") or {}
+                _noise_prefixes = _brief.get("noise_patterns") or []
                 for mention in result.get("brand_mentions", []):
                     bname = mention.get("brand_name_groupby") or mention.get("brand_name")
                     if not bname or len(bname) < 2:
                         continue
-                    if is_noise_brand_name(bname):
+                    if is_noise_brand_name(bname, _noise_prefixes):
                         continue
 
                     from services.brand_name_norm import normalize_brand_name

@@ -774,6 +774,44 @@ async def get_pipeline(scan_id: str, user=Depends(get_current_user), db: Session
     }
 
 
+class EmptyBucketReq(BaseModel):
+    classification: str  # ignored | competitor | my_brand | unclassified
+
+
+@router.post("/{scan_id}/brands/empty-bucket")
+async def empty_bucket(scan_id: str, req: EmptyBucketReq, user=Depends(get_current_user), db: Session = Depends(get_db)):
+    """Drop every SBC row for a given classification on this scan.
+
+    Used by the "Empty Ignored" button — typically called with
+    classification='ignored' to clear the trash bucket after the user has
+    confirmed nothing valuable is in there.
+
+    Removes the per-scan classification rows only. The `client_brands` rows
+    remain so other scans / future runs aren't affected. If the same brand
+    name is detected again on a rescan it re-appears in the inbox for
+    re-triage.
+
+    Refuses to touch the focus brand (safety: even if the user picks the
+    "my_brand" bucket, the row marked is_focus=True is preserved).
+    """
+    scan = _check_scan_access(scan_id, user, db)
+    if req.classification not in ("ignored", "competitor", "my_brand", "unclassified"):
+        raise HTTPException(400, "classification must be ignored | competitor | my_brand | unclassified")
+
+    deleted = (
+        db.query(ScanBrandClassification)
+        .filter(
+            ScanBrandClassification.scan_id == scan_id,
+            ScanBrandClassification.classification == req.classification,
+            ScanBrandClassification.is_focus == False,
+        )
+        .delete(synchronize_session=False)
+    )
+    scan.updated_at = datetime.utcnow()
+    db.commit()
+    return {"deleted": deleted, "classification": req.classification}
+
+
 @router.post("/{scan_id}/brands/bulk-classify")
 async def bulk_classify_brands(scan_id: str, req: BrandBulkClassify, user=Depends(get_current_user), db: Session = Depends(get_db)):
     """Set classification on N brands at once.

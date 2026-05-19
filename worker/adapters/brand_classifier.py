@@ -19,36 +19,45 @@ from utils import max_tokens_for
 
 logger = logging.getLogger(__name__)
 
-BRAND_CLEANUP_PROMPT = """Here is a list of brand names detected in AI responses about the website {domain}.
-The website belongs to the brand "{site_brand}".
+BRAND_CLEANUP_PROMPT = """Classify each detected name for the website {domain} (main brand: "{site_brand}").
 
 {domain_context}
 
-Detected names:
+# ⛔ STRICT WATCHLIST RULE
+The user is tracking a specific set of competitors — the ones listed in
+"Already classified brands" below as `competitor` or `competitor_gamme`. ONLY
+classify a new name as "competitor" if it MATCHES one of those watchlist
+brands (or is a gamme/product line of one). Any other commercial brand you
+recognise but is NOT in the watchlist → use "discovered" instead. That way
+the user can opt-in to track it later without polluting their core metrics.
+
+# Detected names to classify
 {brand_list}
 
-Already classified brands (for context):
+# Already classified brands (watchlist context)
 {existing_brands}
 
-For each detected name, determine:
-1. Is it a real commercial brand/product line? (NOT a medical term, ingredient, institution, or generic word)
-2. If yes: proper capitalized name and category
+# Categories
 
-Categories:
-- "target_brand": the main brand of {domain}
-- "target_gamme": a product line of the main brand
-- "competitor": a competing brand
-- "competitor_gamme": a product line of a competitor (specify which competitor)
-- "ignore": not a brand (medical term, institution, ingredient, generic)
+| Category | Use when... |
+|---|---|
+| `target_brand` | This is the user's own brand (= "{site_brand}"). |
+| `target_gamme` | A product line/gamme of "{site_brand}". |
+| `competitor` | A direct match (or alias) to a brand already listed as `competitor` in the watchlist above. |
+| `competitor_gamme` | A product line of one of the watchlist competitors. Specify the parent. |
+| `discovered` | A commercial brand you recognise but is NOT in the user's watchlist. User reviews later. |
+| `ignore` | Not a brand: ingredient, generic product type, URL, magazine, institution, acronym, etc. |
 
-Reply ONLY in JSON:
+# Output — JSON only, no markdown
 {{
   "brands": [
-    {{"original": "cerave", "name": "CeraVe", "category": "competitor", "parent": null}},
-    {{"original": "eczéma", "name": null, "category": "ignore", "parent": null}},
-    {{"original": "la roche-posay toleriane", "name": "Toleriane", "category": "competitor_gamme", "parent": "La Roche-Posay"}}
+    {{"original": "<input name lowercased>", "name": "<Proper Capitalization>", "category": "<one of the categories above>", "parent": "<parent brand if competitor_gamme/target_gamme, else null>"}}
   ]
-}}"""
+}}
+
+# Vertical calibration
+The `domain_context` block above carries valid brand patterns + noise terms specific to this industry. Use them to calibrate: anything matching a noise pattern → `ignore`; anything matching a valid pattern → real brand category (target_*/competitor_*/discovered). If domain_context is empty, fall back to the abstract category definitions above.
+"""
 
 
 # Chunk size for the Claude classification call. With 16K max_tokens output
@@ -101,12 +110,20 @@ async def _classify_one_batch(
 
 async def classify_brands(domain: str, site_brand: str,
                           unclassified: list[str], existing: list[dict],
-                          anthropic_api_key: str, domain_context: str = "") -> dict:
+                          anthropic_api_key: str, domain_context: str = "",
+                          noise_prefixes: list[str] | None = None) -> dict:
     """Classify unclassified brands using Claude, batched in chunks of 100.
 
     Pre-filters obvious noise (ingredients, domains, product types) before
-    sending to Claude — sees `services.brand_noise_filter`. Noise items are
+    sending to Claude — see `services.brand_noise_filter`. Noise items are
     returned as `category="ignore"` without burning a Claude call.
+
+    Args:
+        noise_prefixes: optional list of lowercase prefixes/terms specific to
+            the scan's vertical (cosmetics → "crème", "acide hyaluronique";
+            automotive → "huile moteur"). Sourced from
+            `scan.config.domain_brief.noise_patterns`. Empty/None = technical-
+            only filtering (domains, hash, leading digits).
 
     Returns:
         dict {brands, model, input_tokens, output_tokens, duration_ms, batches}
@@ -121,7 +138,7 @@ async def classify_brands(domain: str, site_brand: str,
                 "input_tokens": 0, "output_tokens": 0, "duration_ms": 0}
 
     # Pre-filter noise so we don't waste tokens on items the regex catches.
-    real, noise = filter_noise(unclassified)
+    real, noise = filter_noise(unclassified, noise_prefixes)
     pre_ignored = [
         {"original": n, "name": None, "category": "ignore", "parent": None}
         for n in noise

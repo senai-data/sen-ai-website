@@ -843,7 +843,7 @@ const isReviewing = effectiveView !== null && (
       <div x-data={`scanBrands(${JSON.stringify(brandsData)}, '${id}')`}>
         <h2 class="text-xl font-bold text-charcoal-dark mb-2">Classify brands for <span class="text-coral">{brandsData.scan_domain}</span></h2>
         <p class="text-charcoal-light mb-2">We detected brands from your keywords and SEO competitors. Classify each so we know which brands to track in the AI scan.</p>
-        <p class="text-sm text-charcoal-light mb-6"><span class="font-medium text-charcoal-dark">Pick ONE focus brand</span> — it's the single brand whose visibility we'll measure. You can classify others as competitors or ignored.</p>
+        <p class="text-sm text-charcoal-light mb-6"><span class="font-medium text-charcoal-dark">Pick ONE focus brand</span> — it's the single brand whose visibility we'll measure. Add competitors to the right; anything irrelevant can be dragged into <em>Ignored</em> (collapsed strip at the bottom — items there stay silenced across rescans).</p>
 
         <!-- Focus brand missing banner -->
         <div x-show="!hasFocus" class="mb-6 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 flex items-start gap-3">
@@ -876,11 +876,24 @@ const isReviewing = effectiveView !== null && (
               <div class="flex-1 min-w-0">
                 <p class="text-sm font-medium text-amber-800">
                   <span x-text="flatUnclassified.length"></span> new brands detected
+                  <template x-if="discoveredCount > 0">
+                    <span class="text-[11px] font-normal text-amber-700 ml-1">
+                      (<span x-text="discoveredCount"></span> 🔍 discovered)
+                    </span>
+                  </template>
                 </p>
                 <p class="text-[11px] text-amber-700/80">
-                  Auto-extracted from AI responses. Most are noise — bulk-ignore or expand to triage.
+                  Auto-extracted from AI responses. <strong>🔍 Discovered</strong> = commercial brand outside your watchlist — promote to track, or ignore.
                 </p>
               </div>
+              <template x-if="discoveredCount > 0">
+                <button @click.stop="promoteAllDiscovered()"
+                        :disabled="promotingDiscovered"
+                        class="shrink-0 text-xs px-3 py-1.5 rounded-md border border-red-300 bg-white text-red-700 hover:bg-red-50 hover:border-red-400 transition-colors disabled:opacity-50 disabled:cursor-wait font-medium">
+                  <span x-show="!promotingDiscovered">Promote all 🔍 to Competitors</span>
+                  <span x-show="promotingDiscovered">Promoting…</span>
+                </button>
+              </template>
               <button @click.stop="bulkIgnoreUnclassified()"
                       :disabled="bulkIgnoringUnclassified"
                       class="shrink-0 text-xs px-3 py-1.5 rounded-md border border-amber-300 bg-white text-amber-800 hover:bg-amber-50 hover:border-amber-400 transition-colors disabled:opacity-50 disabled:cursor-wait font-medium">
@@ -888,25 +901,100 @@ const isReviewing = effectiveView !== null && (
                 <span x-show="bulkIgnoringUnclassified">Ignoring…</span>
               </button>
             </div>
-            <!-- Pills (collapsed by default) -->
+            <!-- Triage view (collapsed by default). Auto-groups discovered
+                 brands by name-prefix so "Bondi Sands" parents the long
+                 "Bondi Sands Technocolor Caramel Sérum Autobronzant Visage"
+                 pill — visually halves the cognitive load. Per-row actions
+                 replace the drag-only model: ✓ Track / ✗ Ignore in one click
+                 (single item) or per-family for the grouped clusters. -->
             <div x-show="inboxExpanded" x-transition class="border-t border-amber-200 px-5 py-4">
-              <p class="text-[11px] text-amber-700 mb-3">Drag pills into My Brands, Competitors, or Ignored. Each pill is also a drop target if you need to nest under a parent.</p>
-              <div class="flex flex-wrap gap-2">
-                <template x-for="brand in flatUnclassified" :key="brand.brand_id">
-                  <div draggable="true"
-                       @dragstart="onDragStart($event, brand, 'unclassified')"
-                       class="group inline-flex items-center gap-2 bg-white border border-amber-300 rounded-full px-3 py-1.5 text-xs font-medium text-charcoal-dark cursor-move hover:border-amber-400 hover:shadow-sm transition-all">
-                    <svg class="w-3 h-3 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8h16M4 16h16"/></svg>
-                    <span x-text="brand.name"></span>
+              <!-- Search filter — Hick's Law: cut the visible set when the
+                   inbox is long. Lowercase substring match on name. -->
+              <div class="flex items-center gap-2 mb-4">
+                <svg class="w-4 h-4 text-amber-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+                <input type="text" x-model="inboxFilter" placeholder="Filter discovered brands by name…"
+                       class="flex-1 text-sm bg-white border border-amber-200 rounded-md px-3 py-1.5 outline-none focus:border-amber-400 placeholder-amber-500/60" />
+                <template x-if="inboxFilter">
+                  <button @click="inboxFilter = ''" class="text-xs text-amber-700 hover:text-amber-900 px-2">Clear</button>
+                </template>
+                <span class="text-[11px] text-amber-700/80" x-text="discoveredGrouped.length + ' famil' + (discoveredGrouped.length > 1 ? 'ies' : 'y')"></span>
+              </div>
+
+              <!-- Grouped rows. Each parent gets family-level actions. Children
+                   inherit visual nesting + per-item actions. -->
+              <div class="space-y-1.5">
+                <template x-for="family in discoveredGrouped" :key="family.parent.brand_id">
+                  <div>
+                    <!-- Parent row -->
+                    <div class="group/row flex items-center gap-2 py-1.5 px-2 -mx-2 rounded hover:bg-amber-100/40 transition-colors">
+                      <span class="text-[10px] shrink-0" :title="family.parent.source === 'auto_discovered' ? 'Discovered commercial brand' : 'Auto-detected'">
+                        <span x-show="family.parent.source === 'auto_discovered'">🔍</span>
+                        <span x-show="family.parent.source !== 'auto_discovered'" class="text-amber-400">•</span>
+                      </span>
+                      <span draggable="true"
+                            @dragstart="onDragStart($event, family.parent, 'unclassified')"
+                            class="flex-1 min-w-0 text-sm text-charcoal-dark truncate cursor-move"
+                            x-text="family.parent.name"></span>
+                      <template x-if="family.children.length > 0">
+                        <span class="shrink-0 text-[10px] text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded-full" x-text="'+' + family.children.length"></span>
+                      </template>
+                      <button @click="promoteFamily(family)"
+                              :title="family.children.length > 0 ? 'Track this brand + ' + family.children.length + ' product line(s)' : 'Track as competitor'"
+                              class="shrink-0 text-[11px] px-2 py-1 rounded border border-red-200 text-red-700 bg-white hover:bg-red-50 hover:border-red-400 opacity-0 group-hover/row:opacity-100 transition-opacity font-medium">
+                        ✓ <span x-text="family.children.length > 0 ? 'Track family' : 'Track'"></span>
+                      </button>
+                      <button @click="ignoreFamily(family)"
+                              :title="family.children.length > 0 ? 'Ignore this brand + ' + family.children.length + ' product line(s)' : 'Ignore'"
+                              class="shrink-0 text-[11px] px-2 py-1 rounded border border-gray-200 text-charcoal-light bg-white hover:bg-gray-50 opacity-0 group-hover/row:opacity-100 transition-opacity">
+                        ✗ Ignore
+                      </button>
+                    </div>
+                    <!-- Children (gammes / variants) -->
+                    <template x-if="family.children.length > 0">
+                      <div class="ml-6 border-l-2 border-amber-200 pl-3 space-y-1 mt-0.5 mb-1">
+                        <template x-for="child in family.children" :key="child.brand_id">
+                          <div class="group/child flex items-center gap-2 py-1 px-2 -mx-2 rounded hover:bg-amber-100/30 transition-colors">
+                            <span class="shrink-0 text-[10px] text-amber-600">↳</span>
+                            <span draggable="true"
+                                  @dragstart="onDragStart($event, child, 'unclassified')"
+                                  class="flex-1 min-w-0 text-xs text-charcoal-light truncate cursor-move"
+                                  x-text="child.name"></span>
+                            <button @click="promoteOne(child)"
+                                    title="Track this product line as competitor"
+                                    class="shrink-0 text-[10px] px-1.5 py-0.5 rounded border border-red-200 text-red-700 bg-white hover:bg-red-50 opacity-0 group-hover/child:opacity-100 transition-opacity">
+                              ✓ Track
+                            </button>
+                            <button @click="ignoreOne(child)"
+                                    title="Ignore"
+                                    class="shrink-0 text-[10px] px-1.5 py-0.5 rounded border border-gray-200 text-charcoal-light bg-white hover:bg-gray-50 opacity-0 group-hover/child:opacity-100 transition-opacity">
+                              ✗
+                            </button>
+                          </div>
+                        </template>
+                      </div>
+                    </template>
                   </div>
                 </template>
+                <template x-if="discoveredGrouped.length === 0">
+                  <p class="text-xs text-amber-700/70 italic text-center py-4">No matches for that filter.</p>
+                </template>
               </div>
+
+              <p class="text-[10px] text-amber-700/60 mt-4 text-center">
+                Hover any row to reveal actions · drag pill text into a bucket below for fine control
+              </p>
             </div>
           </div>
         </template>
 
-        <!-- 3 column drag & drop -->
-        <div class="grid grid-cols-1 lg:grid-cols-3 gap-5 mb-6">
+        <!-- 2 main columns + Ignored as a collapsed footer strip below.
+             Rationale (Law of UX): Ignored is "trash" — past decisions, not
+             active triage. Equal-weight 3-column grid signalled "all three
+             matter equally" which over-indexed Ignored visually. Now My
+             Brands + Competitors get 50% width each (cleaner scan), Ignored
+             becomes a Gmail-Spam-folder-style strip the user expands only
+             when they need to surface a buried item. -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-3">
 
           <!-- My Brands column (hierarchical: parents + nested children) -->
           <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4 min-h-[240px] transition-all"
@@ -1077,25 +1165,50 @@ const isReviewing = effectiveView !== null && (
             </div>
           </div>
 
-          <!-- Ignored column (hierarchical) -->
-          <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4 min-h-[240px] transition-all"
-               @dragover.prevent="dragOver = 'ignored'"
-               @dragleave="dragOver = null"
-               @drop.prevent="onDrop('ignored')"
-               :class="dragOver === 'ignored' ? 'ring-2 ring-gray-400 border-gray-300' : ''">
-            <div class="flex items-center justify-between mb-3 pb-2 border-b border-gray-100">
-              <div class="flex items-center gap-2">
-                <span class="w-2 h-2 rounded-full bg-gray-400"></span>
-                <h3 class="text-sm font-semibold text-charcoal-dark">Ignored</h3>
-              </div>
-              <span class="text-xs text-charcoal-light" x-text="bucketCount('ignored')"></span>
-            </div>
-            <div class="space-y-2">
+        </div>
+
+        <!-- Ignored — sticky-to-bottom collapsible strip. Law of UX: this is
+             a past-decisions bin (like Gmail Spam), so progressive disclosure
+             keeps it out of the way visually, BUT we keep it always visible
+             so users don't forget it exists. The drag-over auto-expands the
+             panel — drop target works whether collapsed or open. -->
+        <div x-data="{ ignoredExpanded: false }"
+             @dragover.prevent="dragOver = 'ignored'; ignoredExpanded = true"
+             @dragleave="dragOver = null"
+             @drop.prevent="onDrop('ignored')"
+             :class="dragOver === 'ignored' ? 'ring-2 ring-gray-400 border-gray-300' : ''"
+             class="bg-white rounded-xl shadow-sm border border-gray-100 mb-6 transition-all sticky bottom-2 z-10">
+          <div class="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-gray-50 rounded-xl transition-colors"
+               @click="ignoredExpanded = !ignoredExpanded">
+            <svg class="w-4 h-4 text-charcoal-light shrink-0 transition-transform"
+                 :class="ignoredExpanded ? 'rotate-90' : ''"
+                 fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+            </svg>
+            <span class="w-2 h-2 rounded-full bg-gray-400 shrink-0"></span>
+            <h3 class="text-sm font-semibold text-charcoal-dark">Ignored</h3>
+            <span class="text-xs text-charcoal-light" x-text="bucketCount('ignored')"></span>
+            <span class="text-[11px] text-charcoal-light/70 hidden sm:inline">— past decisions, not tracked</span>
+            <span class="flex-1"></span>
+            <template x-if="bucketCount('ignored') > 0">
+              <span class="kpi-tooltip" style="display:inline-flex;">
+                <button @click.stop="emptyIgnored()"
+                        :disabled="emptyingIgnored"
+                        class="text-[10px] px-2 py-0.5 rounded border border-gray-200 text-charcoal-light hover:text-red-600 hover:border-red-200 hover:bg-red-50 transition-colors disabled:opacity-50 disabled:cursor-wait">
+                  <span x-show="!emptyingIgnored">Empty</span>
+                  <span x-show="emptyingIgnored">…</span>
+                </button>
+                <span class="kpi-tip" style="width:240px;">Removes all Ignored brands from this scan. The catalog stays — if the same brand is detected again on a rescan, it comes back in the inbox.</span>
+              </span>
+            </template>
+          </div>
+          <div x-show="ignoredExpanded" x-transition class="border-t border-gray-100 p-4">
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
               <template x-for="brand in buckets.ignored" :key="brand.brand_id">
                 <div>
                   <div draggable="true"
                        @dragstart="onDragStart($event, brand, 'ignored')"
-                       class="group flex items-center gap-2 bg-gray-50 border border-gray-100 rounded-lg px-3 py-2 cursor-move hover:border-gray-300 hover:shadow-sm transition-all opacity-70">
+                       class="group flex items-center gap-2 bg-gray-50 border border-gray-100 rounded-lg px-3 py-1.5 cursor-move hover:border-gray-300 hover:shadow-sm transition-all opacity-70">
                     <button x-show="brand.children && brand.children.length > 0"
                             @click.stop="toggleBrandExpand(brand.brand_id)"
                             :title="isBrandExpanded(brand.brand_id) ? 'Collapse product lines' : 'Expand product lines'"
@@ -1107,14 +1220,13 @@ const isReviewing = effectiveView !== null && (
                       </svg>
                     </button>
                     <div class="flex-1 min-w-0">
-                      <p class="text-sm font-medium text-charcoal-dark truncate" x-text="brand.name"></p>
-                      <p x-show="brand.domain" class="text-[10px] text-charcoal-light truncate" x-text="brand.domain"></p>
+                      <p class="text-xs text-charcoal-dark truncate" x-text="brand.name"></p>
                       <p x-show="brand.children && brand.children.length > 0"
-                         class="text-[10px] text-gray-500 mt-0.5"
+                         class="text-[10px] text-gray-500"
                          x-text="brand.children.length + ' product line' + (brand.children.length > 1 ? 's' : '')"></p>
                     </div>
                     <button @click.stop="deleteBrandFromScan(brand, 'ignored')"
-                            title="Remove from this scan (the brand stays in the workspace but disappears from this scan)"
+                            title="Remove from this scan"
                             class="shrink-0 text-xs text-charcoal-light hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity px-1">
                       &times;
                     </button>
@@ -1140,10 +1252,9 @@ const isReviewing = effectiveView !== null && (
                   </template>
                 </div>
               </template>
-              <p x-show="buckets.ignored.length === 0" class="text-xs text-charcoal-light italic text-center py-6">Drag brands here</p>
+              <p x-show="buckets.ignored.length === 0" class="text-xs text-charcoal-light italic text-center py-6 col-span-full">Drag brands here</p>
             </div>
           </div>
-
         </div>
 
         <!-- Footer with Continue button -->
@@ -2676,6 +2787,201 @@ const isReviewing = effectiveView !== null && (
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ brand_id: brand.brand_id, classification: 'ignored' }),
           }).catch(e => console.error('Remove brand failed:', e));
+        },
+
+        // Count of inbox items the LLM flagged as "commercial brand but not
+        // in your watchlist" (source = 'auto_discovered'). Drives the dedicated
+        // "Promote all 🔍 to Competitors" CTA so the user can opt in to track
+        // them without manually drag-and-dropping each one.
+        get discoveredCount() {
+          return this.flatUnclassified.filter(b => b.source === 'auto_discovered').length;
+        },
+
+        // Free-text filter applied to inbox names (case-insensitive substring).
+        inboxFilter: '',
+
+        // Group inbox brands by name-prefix overlap. If "Bondi Sands" + "Bondi
+        // Sands Technocolor ..." both exist, the second nests under the first.
+        // Generic algo — purely string-based, multi-vertical safe.
+        get discoveredGrouped() {
+          const filter = (this.inboxFilter || '').trim().toLowerCase();
+          let items = this.flatUnclassified;
+          if (filter) items = items.filter(b => (b.name || '').toLowerCase().includes(filter));
+          // Sort shortest first — shorter names become parents, longer "{parent} suffix" become children
+          const sorted = [...items].sort((a, b) => (a.name || '').length - (b.name || '').length);
+          const families = [];
+          const childrenByParentId = new Map();
+          for (const item of sorted) {
+            const lname = (item.name || '').toLowerCase();
+            let parent = null;
+            for (const f of families) {
+              const pname = (f.parent.name || '').toLowerCase();
+              if (!pname) continue;
+              // Match when item's name starts with "{parent} " (parent is a true prefix-word)
+              if (lname.startsWith(pname + ' ') || lname.startsWith(pname + '-')) {
+                parent = f;
+                break;
+              }
+            }
+            if (parent) {
+              parent.children.push(item);
+            } else {
+              families.push({ parent: item, children: [] });
+            }
+          }
+          // Stable sort: discovered (🔍) first, then by name asc, so the user
+          // sees actionable rows at the top.
+          families.sort((a, b) => {
+            const ad = a.parent.source === 'auto_discovered' ? 0 : 1;
+            const bd = b.parent.source === 'auto_discovered' ? 0 : 1;
+            if (ad !== bd) return ad - bd;
+            return (a.parent.name || '').localeCompare(b.parent.name || '');
+          });
+          return families;
+        },
+
+        // Per-row actions — wraps the existing bulk-classify endpoint with a
+        // single-item array. Optimistic UI: remove from inbox first, rollback
+        // on backend error.
+        async _classifyOne(brand, target_bucket) {
+          this._removeFromBucket('unclassified', brand.brand_id);
+          brand.children = [];
+          this._insertIntoBucket(target_bucket, brand);
+          try {
+            const res = await fetch(
+              '/api/scans/' + this.scanId + '/brands/bulk-classify',
+              {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  brand_ids: [brand.brand_id],
+                  classification: target_bucket,
+                }),
+              },
+            );
+            if (!res.ok) {
+              const t = await res.text();
+              alert('Action failed: ' + res.status + ' ' + t);
+              this._removeFromBucket(target_bucket, brand.brand_id);
+              this._insertIntoBucket('unclassified', brand);
+            }
+          } catch (e) {
+            console.error('_classifyOne failed:', e);
+            this._removeFromBucket(target_bucket, brand.brand_id);
+            this._insertIntoBucket('unclassified', brand);
+          }
+        },
+        promoteOne(brand) { return this._classifyOne(brand, 'competitor'); },
+        ignoreOne(brand)  { return this._classifyOne(brand, 'ignored'); },
+
+        // Family actions — apply to parent + all its inbox children in one
+        // call. Server-side bulk-classify is N→1 SQL update so the cost is
+        // identical regardless of family size.
+        async _classifyFamily(family, target_bucket) {
+          const items = [family.parent, ...family.children];
+          for (const b of items) {
+            this._removeFromBucket('unclassified', b.brand_id);
+            b.children = [];
+            this._insertIntoBucket(target_bucket, b);
+          }
+          try {
+            const res = await fetch(
+              '/api/scans/' + this.scanId + '/brands/bulk-classify',
+              {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  brand_ids: items.map(b => b.brand_id),
+                  classification: target_bucket,
+                }),
+              },
+            );
+            if (!res.ok) {
+              const t = await res.text();
+              alert('Family action failed: ' + res.status + ' ' + t);
+            }
+          } catch (e) {
+            console.error('_classifyFamily failed:', e);
+            alert('Family action failed: ' + e.message);
+          }
+        },
+        promoteFamily(family) { return this._classifyFamily(family, 'competitor'); },
+        ignoreFamily(family)  { return this._classifyFamily(family, 'ignored'); },
+
+        // Empty the Ignored bucket — drops the per-scan classification rows
+        // for everything currently ignored on this scan. The client_brands
+        // catalog stays intact; if a rescan re-surfaces the same name it
+        // re-appears in the inbox for fresh triage.
+        emptyingIgnored: false,
+        async emptyIgnored() {
+          if (this.emptyingIgnored) return;
+          const count = this.bucketCount('ignored');
+          if (count === 0) return;
+          if (!confirm(`Empty Ignored (${count} brand${count > 1 ? 's' : ''})?\n\nThis clears them from THIS scan only. The brand catalog stays — they may reappear on a rescan if detected again.`)) return;
+          this.emptyingIgnored = true;
+          const snapshot = this.buckets.ignored;
+          this.buckets.ignored = [];  // optimistic
+          try {
+            const res = await fetch(
+              '/api/scans/' + this.scanId + '/brands/empty-bucket',
+              {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ classification: 'ignored' }),
+              },
+            );
+            if (!res.ok) {
+              const t = await res.text();
+              alert('Empty failed: ' + res.status + ' ' + t);
+              this.buckets.ignored = snapshot;  // rollback
+            }
+          } catch (e) {
+            console.error('emptyIgnored failed:', e);
+            alert('Empty failed: ' + e.message);
+            this.buckets.ignored = snapshot;
+          } finally {
+            this.emptyingIgnored = false;
+          }
+        },
+
+        // Bulk-promote the discovered set to Competitors. Calls the existing
+        // bulk-classify endpoint with classification='competitor'. Optimistic UI:
+        // moves the pills locally first, rolls back on backend failure.
+        promotingDiscovered: false,
+        async promoteAllDiscovered() {
+          if (this.promotingDiscovered) return;
+          const items = this.flatUnclassified.filter(b => b.source === 'auto_discovered');
+          if (items.length === 0) return;
+          if (!confirm(`Promote ${items.length} discovered brand${items.length > 1 ? 's' : ''} to Competitors?\n\nThey become tracked alongside your watchlist competitors.`)) return;
+          this.promotingDiscovered = true;
+          // Optimistic
+          for (const b of items) {
+            this._removeFromBucket('unclassified', b.brand_id);
+            b.children = [];
+            this._insertIntoBucket('competitor', b);
+          }
+          try {
+            const res = await fetch(
+              '/api/scans/' + this.scanId + '/brands/bulk-classify',
+              {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  brand_ids: items.map(b => b.brand_id),
+                  classification: 'competitor',
+                }),
+              },
+            );
+            if (!res.ok) {
+              const t = await res.text();
+              alert('Promote failed: ' + res.status + ' ' + t);
+            }
+          } catch (e) {
+            console.error('promoteAllDiscovered failed:', e);
+            alert('Promote failed: ' + e.message);
+          } finally {
+            this.promotingDiscovered = false;
+          }
         },
 
         // Bulk-ignore every brand currently sitting in the amber inbox.

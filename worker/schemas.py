@@ -156,6 +156,7 @@ class BrandClassification(BaseModel):
     category: Literal[
         "target_brand", "target_gamme", "target_product",
         "competitor", "competitor_gamme",
+        "discovered",  # strict watchlist 2026-05-19: commercial but not user-tracked
         "ignore",
     ] = "ignore"
     parent: str | None = None
@@ -293,11 +294,34 @@ class CompetitorInBrief(BaseModel):
 
     name: str = Field(min_length=1)
     products: list[str] = Field(default_factory=list)
+    # Optional official website — used by generate_domain_brief to populate
+    # `client_brands.domain` so the UI can show "bioderma.fr" under Bioderma
+    # regardless of which detection source created the row. Empty string when
+    # the LLM doesn't know (kept tolerant to bypass legacy briefs).
+    domain: str = ""
 
     @field_validator("name")
     @classmethod
     def _strip(cls, v: str) -> str:
         return (v or "").strip()
+
+    @field_validator("domain", mode="before")
+    @classmethod
+    def _normalize_domain(cls, v):
+        # LLMs occasionally return None, "https://bioderma.fr/", or "bioderma.fr".
+        # Normalize to bare host without scheme/path/trailing slash.
+        if v is None:
+            return ""
+        s = str(v).strip().lower()
+        if not s:
+            return ""
+        for prefix in ("https://", "http://", "www."):
+            if s.startswith(prefix):
+                s = s[len(prefix):]
+        s = s.rstrip("/")
+        # Strip any path after the host
+        s = s.split("/")[0]
+        return s
 
 
 class DomainBrief(BaseModel):
@@ -319,6 +343,12 @@ class DomainBrief(BaseModel):
     competitors: list[CompetitorInBrief] = Field(default_factory=list)
     topics: list[str] = Field(default_factory=list)
     target_audience: str = ""
+    # Vertical-aware noise patterns the LLM produces to keep brand_noise_filter
+    # multi-industry. Each entry is a lowercase prefix or full term that the
+    # filter rejects (e.g. cosmetics → "crème", "acide hyaluronique"; automotive
+    # → "huile moteur", "freins"). Empty list = no vertical-specific filtering,
+    # only the technical regex (domains, hash-like, leading digits) applies.
+    noise_patterns: list[str] = Field(default_factory=list)
 
     @field_validator("competitors", mode="before")
     @classmethod

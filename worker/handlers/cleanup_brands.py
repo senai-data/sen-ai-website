@@ -106,6 +106,11 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
     from adapters.brief_injector import format_analysis_context
     from models import Client as _Client
     _client = db.query(_Client).filter(_Client.id == scan.client_id).first()
+    # Multi-vertical noise filter (Option B) — pass the brief's noise_patterns
+    # so cleanup pre-trims industry-specific noise (cosmetics ingredients,
+    # automotive parts, etc.) without burning Claude tokens on obvious junk.
+    _brief = (scan.config or {}).get("domain_brief") or {}
+    _noise_prefixes = _brief.get("noise_patterns") or []
     classify_result = asyncio.run(
         classify_brands(
             domain=scan.domain,
@@ -114,6 +119,7 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
             existing=existing_context,
             anthropic_api_key=settings.anthropic_api_key,
             domain_context=format_analysis_context(scan.config, _client.apps if _client else None),
+            noise_prefixes=_noise_prefixes,
         )
     )
     result = classify_result["brands"]
@@ -157,7 +163,15 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
             continue
 
         if new_classification == "unclassified":
-            # Defensive: unknown category from adapter — leave SBC as-is
+            # Either the adapter said "discovered" (commercial brand not in
+            # the watchlist) OR returned a category we don't recognise. Both
+            # cases: leave the SBC as unclassified BUT tag the source so the
+            # UI can render the "🔍 Discovered" badge and offer a "Promote
+            # to competitor" action.
+            if raw_category == "discovered":
+                sbc.source = "auto_discovered"
+                sbc.classified_by = "claude"
+                sbc.updated_at = now
             continue
 
         # Update catalog name with proper capitalization

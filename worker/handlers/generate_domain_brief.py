@@ -51,14 +51,30 @@ Return ONLY valid JSON (no markdown, no explanation) with this exact structure:
   "product_lines": ["Product line name (purpose/category)" for each major product range],
   "services": ["Any services offered beyond products"],
   "competitors": [
-    {{"name": "Competitor Name", "products": ["Their competing product lines"]}}
+    {{"name": "Competitor Name", "domain": "their-official-site.com", "products": ["Their competing product lines"]}}
   ],
   "topics": ["Key themes/topics the website covers"],
-  "target_audience": "Description of who their customers are, demographics, needs"
+  "target_audience": "Description of who their customers are, demographics, needs",
+  "noise_patterns": [
+    "list of 15-30 lowercase prefixes/terms that should NEVER be classified as brands in this industry"
+  ]
 }}
 
 Be thorough and specific. For competitors, list 5-10 direct competitors with their key product lines.
 For product_lines, list the actual product range names, not generic categories.
+
+For `noise_patterns`, list lowercase terms specific to this industry that an over-eager brand extractor would mistakenly tag as brands. Include:
+- Generic product categories ("crème", "shampoo", "huile moteur", "smartphone")
+- Common ingredients / materials ("acide hyaluronique", "vitamine c", "lithium", "coton")
+- Sector-specific publications / magazines / institutions ("60 millions de consommateurs", "Que Choisir", "JD Power")
+- Common acronyms in the field ("SPF", "OBD2", "ABS")
+- Generic services or technical terms ("livraison", "abonnement", "open-source")
+DO NOT include actual brand names. Match the language of the country (French for .fr, English for .com, etc.).
+Examples by vertical:
+- Cosmetics FR: ["crème", "gel", "sérum", "shampooing", "acide hyaluronique", "rétinol", "spf", "huile", "lait", "lotion", "bb crème", "60 millions de consommateurs", "que choisir"]
+- Automotive: ["moteur", "freins", "huile moteur", "pneus", "obd2", "abs", "esp", "boite vitesse"]
+- Food: ["huile d'olive", "sel", "sucre", "beurre", "farine", "bio", "label rouge"]
+- Generic SaaS/B2B: ["subscription", "freemium", "open-source", "saas", "api", "white-label"]
 """
 
 CLAUDE_FALLBACK_PROMPT = """Based on your training knowledge, provide structured business intelligence about the website {domain}.
@@ -75,13 +91,18 @@ Return ONLY valid JSON (no markdown, no explanation) with this exact structure:
   "product_lines": ["Product line names"],
   "services": ["Any services offered beyond products"],
   "competitors": [
-    {{"name": "Competitor Name", "products": ["Their competing product lines"]}}
+    {{"name": "Competitor Name", "domain": "their-official-site.com", "products": ["Their competing product lines"]}}
   ],
   "topics": ["Key themes/topics the website covers"],
-  "target_audience": "Description of who their customers are"
+  "target_audience": "Description of who their customers are",
+  "noise_patterns": [
+    "lowercase prefixes/terms in this industry that should NEVER be classified as brands"
+  ]
 }}
 
 For competitors, list 5-10 direct competitors with their key product lines.
+
+For noise_patterns, list 15-30 lowercase terms specific to this industry that an over-eager brand extractor would wrongly tag as brands (generic product categories, ingredients, sector publications, common acronyms). DO NOT include actual brand names. Match the country language.
 """
 
 
@@ -393,11 +414,17 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
             ClientBrand.canonical_name == comp_norm,
         ).first()
 
+        # The LLM may have given us the competitor's official domain — set it
+        # on the catalog row so the UI shows "bioderma.fr" under "Bioderma"
+        # consistently. Empty string from the LLM = unknown → leave alone.
+        comp_domain = (comp.get("domain") or "").strip().lower() or None
+
         if not existing:
             brand = ClientBrand(
                 client_id=scan.client_id,
                 name=comp_name,
                 canonical_name=comp_norm,
+                domain=comp_domain,
                 detected_in_scan_id=scan_id,
                 auto_detected=True,
                 validated_by_user=False,
@@ -409,6 +436,11 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
         else:
             brand = existing
             existing.last_seen_at = datetime.utcnow()
+            # Backfill domain when missing — never overwrite a domain the
+            # user may have curated. Same idea as parent_id reparent: only
+            # touch rows that are still in their auto-detected default.
+            if comp_domain and not existing.domain:
+                existing.domain = comp_domain
 
         if _classify_as_competitor(brand.id):
             competitors_created += 1

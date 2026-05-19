@@ -98,17 +98,75 @@ def format_workspace_brief(client_apps: dict | None) -> str:
     return "\n".join(lines)
 
 
+def format_vertical_examples(scan_config: dict | None) -> str:
+    """Build a vertical-aware examples block for brand analysis prompts.
+
+    Replaces the hardcoded "Cicalfate vs acide hyaluronique" dermo-cosmétique
+    examples that used to live inside BRAND_ANALYSIS_PROMPT and
+    BRAND_CLEANUP_PROMPT. Now the LLM gets industry-specific examples
+    derived from the scan's own brief — multi-vertical by construction:
+      - Cosmetics scan → ["Avène", "Cicalfate"] valid, ["crème", "rétinol"] noise
+      - Automotive scan → ["Castrol", "GTX"] valid, ["huile moteur", "freins"] noise
+      - SaaS scan → ["Stripe", "Salesforce"] valid, ["api", "subscription"] noise
+
+    Returns "" when the brief lacks the data (legacy scans pre Option B);
+    callers should be tolerant of an empty string in that case.
+    """
+    if not scan_config:
+        return ""
+    brief = scan_config.get("domain_brief") or {}
+    if not brief:
+        return ""
+
+    valid_examples: list[str] = []
+    for b in (brief.get("brands") or []):
+        if isinstance(b, str) and b.strip():
+            valid_examples.append(b.strip())
+    for c in (brief.get("competitors") or []):
+        if isinstance(c, dict):
+            name = (c.get("name") or "").strip()
+            if name:
+                valid_examples.append(name)
+            for p in (c.get("products") or [])[:3]:  # cap to keep prompt short
+                if isinstance(p, str) and p.strip():
+                    valid_examples.append(p.strip())
+    # Dedup case-insensitive while keeping order
+    seen: set[str] = set()
+    valid: list[str] = []
+    for v in valid_examples:
+        k = v.lower()
+        if k in seen:
+            continue
+        seen.add(k)
+        valid.append(v)
+    valid = valid[:15]
+
+    noise = [n for n in (brief.get("noise_patterns") or []) if isinstance(n, str) and n.strip()][:15]
+
+    if not valid and not noise:
+        return ""
+
+    lines = ["## Vertical examples (use these to calibrate what counts as a brand)"]
+    if brief.get("industry"):
+        lines.append(f"Industry: {brief['industry']}")
+    if valid:
+        lines.append(f"✓ Real brand patterns: {', '.join(valid)}")
+    if noise:
+        lines.append(f"✗ Noise to filter (NOT brands): {', '.join(noise)}")
+    return "\n".join(lines)
+
+
 def format_analysis_context(scan_config: dict | None, client_apps: dict | None) -> str:
-    """Combine domain + workspace briefs for analysis-stage prompts.
+    """Combine domain brief + workspace brief + vertical examples for analysis prompts.
 
-    Analysers (classify_topics, generate_personas, generate_editorial, …)
-    benefit from BOTH briefs : the domain brief tells the LLM what the
-    scanned site is, the workspace brief tells it whose perspective to
-    adopt. Without the latter, analysers default to "neutral observer"
-    framing, which loses the SaaS angle — the user's own brand context.
+    Analysers (classify_topics, generate_personas, brand_analyzer, brand_cleanup,
+    generate_editorial, …) benefit from all three layers :
+      1. Domain brief — what the scanned site is.
+      2. Workspace brief — whose perspective to adopt.
+      3. Vertical examples — concrete valid/noise patterns for this industry,
+         so the LLM stops over-extracting ingredients/generics as brands.
 
-    Returns "" if neither brief exists. Concatenates with a blank line
-    separator when both are present.
+    Returns "" if all three are empty. Blocks are separated by blank lines.
     """
     parts: list[str] = []
     db_block = format_brief_context(scan_config)
@@ -117,6 +175,9 @@ def format_analysis_context(scan_config: dict | None, client_apps: dict | None) 
     wb_block = format_workspace_brief(client_apps)
     if wb_block:
         parts.append(wb_block)
+    ve_block = format_vertical_examples(scan_config)
+    if ve_block:
+        parts.append(ve_block)
     return "\n\n".join(parts)
 
 

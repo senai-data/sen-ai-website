@@ -536,8 +536,9 @@ const isReviewing = effectiveView !== null && (
                   </template>
                   <template x-if="topic.editing">
                     <input type="text" x-model="topic.name" @click.stop x-ref="editInput"
-                           @keydown.enter="topic.editing = false; fetch(`/api/scans/${id}/topics/${topic.id}`, {method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({name:topic.name})})"
-                           @blur="topic.editing = false; fetch(`/api/scans/${id}/topics/` + topic.id, {method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({name:topic.name})})"
+                           @keydown.enter="$event.target.blur()"
+                           @keydown.escape="topic.editing = false"
+                           @blur="topic.editing = false; const _n=(topic.name||'').trim(); if(!_n){alert('Topic name cannot be empty.');return;} topic.name=_n; fetch('/api/scans/' + scanId + '/topics/' + topic.id, {method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({name:_n})}).then(r => { if (!r.ok) r.text().then(t => alert('Rename failed: ' + r.status + ' ' + t)); }).catch(e => alert('Rename failed: ' + e.message))"
                            class="text-sm font-medium px-2 py-1 border border-coral rounded w-full" />
                   </template>
                 </div>
@@ -1394,9 +1395,27 @@ const isReviewing = effectiveView !== null && (
                     class="absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform"></span>
                 </button>
 
-                <!-- Topic name + stats -->
+                <!-- Topic name + stats — editable in place (mirrors the Topics page UX) -->
                 <div class="flex-1 min-w-0">
-                  <p class="text-sm font-medium text-charcoal-dark truncate" x-text="topic.topic_name"></p>
+                  <template x-if="!topic.editing">
+                    <div class="group/topicname flex items-center gap-1.5">
+                      <p class="text-sm font-medium text-charcoal-dark truncate" x-text="topic.topic_name"></p>
+                      <button @click.stop="topic.editing = true; $nextTick(() => $refs['topicNameInput_' + topic.topic_id]?.focus())"
+                              title="Rename this topic"
+                              class="text-gray-300 hover:text-coral opacity-0 group-hover/topicname:opacity-100 transition-opacity shrink-0">
+                        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
+                      </button>
+                    </div>
+                  </template>
+                  <template x-if="topic.editing">
+                    <input type="text" x-model="topic.topic_name"
+                           :x-ref="'topicNameInput_' + topic.topic_id"
+                           @click.stop
+                           @keydown.enter="saveTopicName(topic)"
+                           @keydown.escape="topic.editing = false"
+                           @blur="saveTopicName(topic)"
+                           class="text-sm font-medium px-2 py-1 border border-coral rounded w-full outline-none" />
+                  </template>
                   <p class="text-xs text-charcoal-light">
                     <span x-text="topic.stats.active_personas + '/' + topic.stats.total_personas"></span> personas ·
                     <span x-text="topic.stats.active_questions + '/' + topic.stats.total_questions"></span> questions
@@ -2208,10 +2227,17 @@ const isReviewing = effectiveView !== null && (
         dragged: null,
         draggedFrom: null,
 
-        // Expand/collapse state for parent brands. Default = all expanded so
-        // first-time users see the full hierarchy at a glance (Progressive
-        // Disclosure for a returning user who wants to collapse).
-        collapsedBrandIds: {},
+        // Expand/collapse state for parent brands.
+        // Default: my_brand + ignored stay expanded (showing the user's
+        // own product lines is informative); competitors start COLLAPSED
+        // (when a brief surfaces 30+ competitors with 5 gammes each, an
+        // expanded tree would push the page below the fold and dilute
+        // the focus signal). Users still click the chevron to expand.
+        collapsedBrandIds: Object.fromEntries(
+          ((initialData.buckets && initialData.buckets.competitor) || [])
+            .filter(b => b.children && b.children.length > 0)
+            .map(b => [b.brand_id, true])
+        ),
         isBrandExpanded(brandId) {
           return !this.collapsedBrandIds[brandId];
         },
@@ -2220,6 +2246,16 @@ const isReviewing = effectiveView !== null && (
             delete this.collapsedBrandIds[brandId];
           } else {
             this.collapsedBrandIds[brandId] = true;
+          }
+        },
+        // Mark every competitor parent (that has children) as collapsed.
+        // Used after refreshFromBrief / classify changes that may add new
+        // competitor rows — keeps the bucket compact by default.
+        _collapseAllCompetitorParents() {
+          for (const b of (this.buckets.competitor || [])) {
+            if (b.children && b.children.length > 0) {
+              this.collapsedBrandIds[b.brand_id] = true;
+            }
           }
         },
 
@@ -2352,24 +2388,44 @@ const isReviewing = effectiveView !== null && (
           }).catch(e => console.error('Classify failed:', e));
         },
 
-        toggleFocus(brand) {
+        async toggleFocus(brand) {
           // Already focus → no-op (user must star a different brand to unset)
           if (brand.is_focus) return;
-          // Clear is_focus on all my_brand parents (children are never focus-eligible)
+
+          // Snapshot prior focus so we can revert if the backend refuses
+          // (e.g. brand has parent_id ≠ NULL → "must be a root brand" 400).
+          const priorFocusId = this.focusBrandId;
           this.buckets.my_brand = this.buckets.my_brand.map(b => ({
             ...b,
             is_focus: b.brand_id === brand.brand_id,
           }));
           this.focusBrandId = brand.brand_id;
 
-          fetch('/api/scans/' + this.scanId + '/brands/classify', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ brand_id: brand.brand_id, classification: 'my_brand', is_focus: true }),
-          }).catch(e => {
+          try {
+            const res = await fetch('/api/scans/' + this.scanId + '/brands/classify', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ brand_id: brand.brand_id, classification: 'my_brand', is_focus: true }),
+            });
+            if (!res.ok) {
+              const t = await res.text();
+              // Revert optimistic state — the star never persisted.
+              this.buckets.my_brand = this.buckets.my_brand.map(b => ({
+                ...b,
+                is_focus: b.brand_id === priorFocusId,
+              }));
+              this.focusBrandId = priorFocusId;
+              alert('Cannot set focus: ' + res.status + ' ' + t);
+            }
+          } catch (e) {
             console.error('Set focus failed:', e);
-            alert('Failed to set focus brand. Refresh the page.');
-          });
+            this.buckets.my_brand = this.buckets.my_brand.map(b => ({
+              ...b,
+              is_focus: b.brand_id === priorFocusId,
+            }));
+            this.focusBrandId = priorFocusId;
+            alert('Set focus failed: ' + e.message);
+          }
         },
 
         removeBrand(brand, fromBucket) {
@@ -2493,6 +2549,10 @@ const isReviewing = effectiveView !== null && (
               this.buckets.ignored = fresh.buckets?.ignored || [];
               this.buckets.unclassified = fresh.buckets?.unclassified || [];
               this.focusBrandId = fresh.focus_brand_id || null;
+              // Keep competitor parents collapsed after refresh — same default
+              // as initial page load (avoids the bucket exploding to N×5 rows
+              // when a brief surfaces a long competitor list).
+              this._collapseAllCompetitorParents();
             }
             const parts = [];
             if (data.created_brands) parts.push(data.created_brands + ' new competitor' + (data.created_brands > 1 ? 's' : ''));
@@ -2536,7 +2596,9 @@ const isReviewing = effectiveView !== null && (
 
       window.Alpine.data('personasWizard', (initialData, scanId, initialProviders) => ({
         scanId: scanId,
-        topics: (initialData && initialData.topics) || [],
+        // Annotate each topic with `editing` so the in-place rename UI in the
+        // topic header has a flag to toggle. Mirrors topicsWizard's pattern.
+        topics: ((initialData && initialData.topics) || []).map(t => ({ ...t, editing: false })),
         orphanPersonas: (initialData && initialData.orphan_personas) || [],
         totals: (initialData && initialData.totals) || { total_personas: 0, active_personas: 0, total_questions: 0, active_questions: 0 },
         selectedProviders: initialProviders || ['openai'],
@@ -2549,6 +2611,39 @@ const isReviewing = effectiveView !== null && (
         editingQuestionText: '',
         generatingPersonaId: null,
         expandedTypeGroups: {},  // { 'personaId:type': true }
+
+        // Rename a topic from the Personas page. Same endpoint as the Topics
+        // page edit. Idempotent + tolerates double-fire (Enter+blur cascade)
+        // by checking that the local name actually changed.
+        _lastSavedTopicName: {},
+        async saveTopicName(topic) {
+          topic.editing = false;
+          const text = (topic.topic_name || '').trim();
+          if (!text) {
+            alert('Topic name cannot be empty.');
+            return;
+          }
+          topic.topic_name = text;
+          if (this._lastSavedTopicName[topic.topic_id] === text) return;
+          this._lastSavedTopicName[topic.topic_id] = text;
+          try {
+            const res = await fetch(
+              '/api/scans/' + this.scanId + '/topics/' + topic.topic_id,
+              {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: text }),
+              },
+            );
+            if (!res.ok) {
+              const t = await res.text();
+              alert('Could not rename topic: ' + res.status + ' ' + t);
+            }
+          } catch (e) {
+            console.error('saveTopicName failed:', e);
+            alert('Rename failed: ' + e.message);
+          }
+        },
 
         // "+ Add persona" modal — replaces the old prompt() with a structured form
         // so users can OPTIONALLY pre-fill profile / intentions / pain points / keywords.

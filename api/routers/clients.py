@@ -1,3 +1,4 @@
+from datetime import datetime
 from uuid import UUID
 
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response
@@ -296,7 +297,22 @@ async def update_brand_parent(client_id: str, brand_id: str, req: BrandParentUpd
 @router.put("/{client_id}/promotion")
 async def update_client_promotion(client_id: str, req: PromotionUpdate,
                                   user=Depends(get_current_user), db: Session = Depends(get_db)):
-    """Replace the client's primary_brand_ids (workspace default for content gen)."""
+    """Replace the client's primary_brand_ids (workspace default for content gen).
+
+    Cross-scan consistency : a brand the user just declared as their OWN
+    (workspace level) must never be classified as `competitor` on any
+    existing scan — that would skew visibility metrics (Avène mentions
+    counted as competitor mentions) AND poison generated content (the
+    promote-vs-avoid resolver would tell the LLM to actively NOT recommend
+    the brand). Sweep all of this client's ScanBrandClassification rows
+    and flip any matching `competitor` to `my_brand`.
+
+    Inverse direction (brand removed from primary_brand_ids) is left alone
+    : per-scan classifications stay so the user can keep treating a brand
+    as my_brand on a specific scan without re-adding it to the workspace
+    primaries (e.g. a one-off audit of a no-longer-owned subsidiary).
+    """
+    from models import Scan
     _check_client_access(client_id, user, db)
     client = db.query(Client).filter(Client.id == client_id).first()
     if not client:
@@ -311,15 +327,44 @@ async def update_client_promotion(client_id: str, req: PromotionUpdate,
         raise HTTPException(400, f"Brand IDs not in this client: {invalid[:3]}")
 
     try:
-        client.primary_brand_ids = [UUID(bid) for bid in req.primary_brand_ids]
+        new_primary_uuids = [UUID(bid) for bid in req.primary_brand_ids]
     except ValueError as e:
         raise HTTPException(400, f"Malformed UUID: {e}")
+
+    old_primary_ids = {str(b) for b in (client.primary_brand_ids or [])}
+    new_primary_ids = {str(b) for b in new_primary_uuids}
+    added = new_primary_ids - old_primary_ids
+
+    client.primary_brand_ids = new_primary_uuids
+
+    # Sweep competitor classifications for newly-added primaries — only
+    # touch rows that are currently `competitor`, never demote my_brand
+    # or focus rows (idempotent on re-clicks).
+    flipped = 0
+    if added:
+        scan_ids_for_client = [
+            s.id for s in db.query(Scan).filter(Scan.client_id == UUID(client_id)).all()
+        ]
+        if scan_ids_for_client:
+            sbc_rows = db.query(ScanBrandClassification).filter(
+                ScanBrandClassification.brand_id.in_([UUID(b) for b in added]),
+                ScanBrandClassification.scan_id.in_(scan_ids_for_client),
+                ScanBrandClassification.classification == "competitor",
+            ).all()
+            for sbc in sbc_rows:
+                sbc.classification = "my_brand"
+                sbc.classified_by = "primary_brand_sync"
+                sbc.source = "primary_brand_sync"
+                sbc.updated_at = datetime.utcnow()
+                flipped += 1
+
     db.commit()
 
     return {
         "ok": True,
         "primary_brand_ids": req.primary_brand_ids,
         "count": len(req.primary_brand_ids),
+        "competitor_to_my_brand_flipped": flipped,
     }
 
 

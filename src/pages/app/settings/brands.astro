@@ -106,17 +106,27 @@ if (clientId) {
     ) : (
       <div x-data={`primaryBrands(${JSON.stringify(initialData)}, '${clientId}')`}>
 
-        {/* Workspace brief panel — feeds Phase B/C content gen with brand voice context */}
+        {/* Workspace brief panel — feeds Phase B/C content gen with brand voice context.
+             Body collapsed by default (Progressive Disclosure) — mirrors the per-brand
+             brief panel pattern (Recognition over Recall). Expand via chevron. */}
         <div class="bg-white rounded-xl border border-gray-200 mb-6 overflow-hidden"
              x-data={`workspaceBrief(${JSON.stringify(initialBrief)}, '${clientId}', ${JSON.stringify(briefBudget)})`}>
-          <div class="px-5 py-3 border-b border-gray-100 flex items-baseline justify-between gap-3">
-            <div>
-              <h2 class="text-sm font-semibold text-charcoal-dark">Workspace brief</h2>
-              <p class="text-[11px] text-charcoal-light italic mt-0.5">
-                Brand voice + positioning · injected into FAQ + article generation
-              </p>
+          <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between gap-3 cursor-pointer hover:bg-gray-50 transition-colors"
+               @click="expanded = !expanded">
+            <div class="flex items-center gap-2 min-w-0">
+              <svg class="w-3.5 h-3.5 text-charcoal-light shrink-0 transition-transform"
+                   :class="expanded ? 'rotate-90' : ''"
+                   fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7"/>
+              </svg>
+              <div class="min-w-0">
+                <h2 class="text-sm font-semibold text-charcoal-dark">Workspace brief</h2>
+                <p class="text-[11px] text-charcoal-light italic mt-0.5 truncate">
+                  Brand voice + positioning · injected into FAQ + article generation
+                </p>
+              </div>
             </div>
-            <div class="flex items-center gap-2">
+            <div class="flex items-center gap-2 shrink-0" @click.stop>
               <span x-show="brief && !brief.edited_by_user" class="text-[10px] uppercase tracking-wide font-semibold px-2 py-1 rounded bg-blue-50 text-blue-700"
                     title="Auto-generated — regenerate to refresh">Auto</span>
               <span x-show="brief && brief.edited_by_user" class="text-[10px] uppercase tracking-wide font-semibold px-2 py-1 rounded bg-emerald-50 text-emerald-700"
@@ -143,7 +153,7 @@ if (clientId) {
                     :title="'Workspace brief defines your company voice + positioning. It\\'s auto-injected when generating FAQs or articles so the output sounds like your brand. Regeneration capped at ' + budget.generations_cap + ' per workspace to bound LLM cost (~$0.05/call). Once exhausted, edit the brief inline.'">ⓘ</span>
             </div>
           </div>
-          <div class="p-5 text-sm">
+          <div x-show="expanded" x-transition class="p-5 text-sm">
             <p x-show="!brief" class="text-charcoal-light italic">
               No workspace brief yet. Click Generate — uses your selected primary brands as input
               (web-searched via OpenAI, falls back to Gemini / Claude). Takes ~10s.
@@ -956,6 +966,9 @@ if (clientId) {
         budget: budget || { generations_used: 0, generations_cap: 5, can_regenerate: true },
         generating: false,
         pollHandle: null,
+        // Collapsed by default — Progressive Disclosure. Header (title + status
+        // + Regenerate + counter) stays visible ; body opens on chevron click.
+        expanded: false,
 
         async generate() {
           if (this.generating) return;

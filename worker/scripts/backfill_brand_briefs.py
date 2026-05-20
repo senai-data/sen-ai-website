@@ -39,16 +39,78 @@ if str(_WORKER_DIR) not in sys.path:
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
-from models import Client, ClientBrand, get_db
+from models import Client, ClientBrand, Scan, ScanBrandClassification, get_db
 
 
-def _build_partial_brief(brand: ClientBrand, workspace_brief: dict) -> dict:
+def _brand_level_competitors(brand: ClientBrand, db: Session) -> list[dict]:
+    """Resolve the brand-level competitors from the Gate-2 classifications.
+
+    Avoids the workspace.key_competitors trap : those are group-level
+    (L'Oréal, Sanofi…) because the workspace brief describes the COMPANY.
+    For a per-brand brief, we want BRAND-level competitors (Bioderma,
+    La Roche-Posay…) — they live in ScanBrandClassification across all
+    scans of this client. Order by tag frequency, exclude self / children
+    / primaries.
+    """
+    from collections import Counter
+
+    client = db.query(Client).filter(Client.id == brand.client_id).first()
+    primary_ids = {str(b) for b in (client.primary_brand_ids if client else []) or []}
+    scan_ids = [s.id for s in db.query(Scan).filter(Scan.client_id == brand.client_id).all()]
+    if not scan_ids:
+        return []
+
+    rows = (
+        db.query(ScanBrandClassification.brand_id)
+        .filter(
+            ScanBrandClassification.scan_id.in_(scan_ids),
+            ScanBrandClassification.classification == "competitor",
+        )
+        .all()
+    )
+    counter = Counter(str(r.brand_id) for r in rows if r.brand_id)
+    if not counter:
+        return []
+
+    top_ids = [bid for bid, _ in counter.most_common(30)]
+    child_ids = {
+        str(c.id) for c in db.query(ClientBrand.id).filter(
+            ClientBrand.parent_id == brand.id
+        ).all()
+    }
+    candidates = (
+        db.query(ClientBrand)
+        .filter(ClientBrand.id.in_(top_ids))
+        .all()
+    )
+    by_id = {str(c.id): c for c in candidates}
+
+    out: list[dict] = []
+    for bid, _ in counter.most_common():
+        if bid == str(brand.id) or bid in child_ids or bid in primary_ids:
+            continue
+        row = by_id.get(bid)
+        if not row or not row.name or row.parent_id is not None:
+            continue
+        out.append({
+            "name": row.name,
+            "products": list(row.product_lines or [])[:5],
+            "domain": (row.domain or "").strip(),
+        })
+        if len(out) >= 10:
+            break
+    return out
+
+
+def _build_partial_brief(brand: ClientBrand, workspace_brief: dict, db: Session) -> dict:
     """Assemble a minimal BrandBrief dict from the workspace brief.
 
     Conservative split : we copy general workspace fields onto every primary
     brand and surface the brand-specific entry from workspace.primary_brands
-    when names match. The result satisfies the Pydantic shape but generations_count
-    stays 0 so the UI nudges the user to regenerate with web search.
+    when names match. direct_competitors comes from Gate-2 classifications,
+    NOT from workspace.key_competitors (which are group-level). The result
+    satisfies the Pydantic shape but generations_count stays 0 so the UI
+    nudges the user to regenerate with web search.
     """
     out: dict = {
         "name": brand.name,
@@ -90,14 +152,11 @@ def _build_partial_brief(brand: ClientBrand, workspace_brief: dict) -> dict:
     if workspace_brief.get("brand_positioning"):
         out["positioning_statement"] = workspace_brief["brand_positioning"].strip()
 
-    # Map workspace key_competitors to direct_competitors with empty products
-    for c_name in (workspace_brief.get("key_competitors") or []):
-        if isinstance(c_name, str) and c_name.strip():
-            out["direct_competitors"].append({
-                "name": c_name.strip(),
-                "products": [],
-                "domain": "",
-            })
+    # BB.8 : prefer brand-level Gate-2 competitors over workspace.key_competitors.
+    # workspace.key_competitors lists GROUPS (L'Oréal, Sanofi, …) — that's
+    # correct for the workspace brief but wrong for a per-brand brief.
+    # The Gate-2 classification surfaces BRANDS (Bioderma, LRP, Eucerin).
+    out["direct_competitors"] = _brand_level_competitors(brand, db)
 
     # Provenance markers — generations_count stays 0 so the UI shows
     # "Click Generate to enrich". edited_by_user=False keeps regen unblocked.
@@ -149,7 +208,7 @@ def backfill_client(client: Client, db: Session, dry_run: bool = False) -> tuple
         if brand.brief is not None:
             skipped += 1
             continue
-        partial = _build_partial_brief(brand, workspace_brief)
+        partial = _build_partial_brief(brand, workspace_brief, db)
         if not _has_meaningful_content(partial):
             no_content += 1
             print(f"  [warn] brand {brand.name} → partial brief is empty, recommend manual regen")

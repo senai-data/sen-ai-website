@@ -140,6 +140,47 @@ class TestMerged:
         assert "topic-24" not in topics_line
 
 
+class TestBrandingProRendering:
+    """BB.8 — 5 new branding-pro fields surface in the merged block."""
+
+    def test_heritage_and_brand_story_render(self):
+        bb = dict(BB_AVENE, heritage="Founded 1736 at Avène-les-Bains.",
+                  brand_story="Three centuries of thermal-water dermatology.")
+        out = format_workspace_brief({"client_brief": WS_BRIEF}, bb)
+        assert "Heritage: Founded 1736" in out
+        assert "Brand story: Three centuries" in out
+
+    def test_tone_dos_donts_render(self):
+        bb = dict(BB_AVENE,
+                  tone_dos=["soulager", "apaiser", "protéger"],
+                  tone_donts=["miracle", "instantané"])
+        out = format_workspace_brief({"client_brief": WS_BRIEF}, bb)
+        dos = next(l for l in out.split("\n") if l.startswith("Tone DOs"))
+        donts = next(l for l in out.split("\n") if l.startswith("Tone DON'Ts"))
+        assert "soulager" in dos and "apaiser" in dos
+        assert "miracle" in donts and "instantané" in donts
+
+    def test_claims_guidelines_separator(self):
+        # claims_guidelines uses " · " separator (visual marker that each
+        # entry is a rule, not a comma-listed entity)
+        bb = dict(BB_AVENE,
+                  claims_guidelines=["No 'cures' without AMM",
+                                      "Cite study for health claim"])
+        out = format_workspace_brief({"client_brief": WS_BRIEF}, bb)
+        line = next(l for l in out.split("\n") if l.startswith("Claims guidelines"))
+        assert " · " in line
+        assert "AMM" in line
+
+    def test_empty_branding_fields_skip_lines(self):
+        # When the branding-pro fields are empty, no labelled line appears
+        out = format_workspace_brief({"client_brief": WS_BRIEF}, BB_AVENE)
+        assert "Heritage:" not in out
+        assert "Brand story:" not in out
+        assert "Tone DOs" not in out
+        assert "Tone DON'Ts" not in out
+        assert "Claims guidelines" not in out
+
+
 class TestPartialBrand:
     def test_brand_with_only_name(self):
         # Brand brief with just the name (LLM hallucinated an empty shell)

@@ -348,9 +348,29 @@ if (clientId) {
                               <p><span class="text-[9px] uppercase tracking-wide font-semibold text-charcoal-light">Parent group</span>
                                 <span class="text-charcoal-dark ml-1" x-text="brandBriefs[b.id]?.brief?.parent_group"></span></p>
                             </template>
+                            <template x-if="brandBriefs[b.id]?.brief?.heritage">
+                              <p><span class="text-[9px] uppercase tracking-wide font-semibold text-charcoal-light">Heritage</span><br/>
+                                <span class="text-charcoal-dark italic" x-text="brandBriefs[b.id]?.brief?.heritage"></span></p>
+                            </template>
+                            <template x-if="brandBriefs[b.id]?.brief?.brand_story">
+                              <p><span class="text-[9px] uppercase tracking-wide font-semibold text-charcoal-light">Brand story</span><br/>
+                                <span class="text-charcoal-dark" x-text="brandBriefs[b.id]?.brief?.brand_story"></span></p>
+                            </template>
                             <template x-if="brandBriefs[b.id]?.brief?.editorial_voice">
                               <p><span class="text-[9px] uppercase tracking-wide font-semibold text-charcoal-light">Editorial voice</span><br/>
                                 <span class="text-charcoal-dark italic" x-text="brandBriefs[b.id]?.brief?.editorial_voice"></span></p>
+                            </template>
+                            <template x-if="(brandBriefs[b.id]?.brief?.tone_dos || []).length > 0">
+                              <p><span class="text-[9px] uppercase tracking-wide font-semibold text-emerald-700">Tone DOs</span>
+                                <span class="text-charcoal-dark ml-1" x-text="(brandBriefs[b.id]?.brief?.tone_dos || []).join(' · ')"></span></p>
+                            </template>
+                            <template x-if="(brandBriefs[b.id]?.brief?.tone_donts || []).length > 0">
+                              <p><span class="text-[9px] uppercase tracking-wide font-semibold text-red-700">Tone DON'Ts</span>
+                                <span class="text-charcoal-dark ml-1" x-text="(brandBriefs[b.id]?.brief?.tone_donts || []).join(' · ')"></span></p>
+                            </template>
+                            <template x-if="(brandBriefs[b.id]?.brief?.claims_guidelines || []).length > 0">
+                              <p><span class="text-[9px] uppercase tracking-wide font-semibold text-amber-700">Claims guidelines</span>
+                                <span class="text-charcoal-dark ml-1" x-text="(brandBriefs[b.id]?.brief?.claims_guidelines || []).join(' · ')"></span></p>
                             </template>
                             <template x-if="brandBriefs[b.id]?.brief?.target_audience">
                               <p><span class="text-[9px] uppercase tracking-wide font-semibold text-charcoal-light">Target audience</span><br/>

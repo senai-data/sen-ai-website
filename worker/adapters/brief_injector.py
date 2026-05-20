@@ -158,12 +158,24 @@ def format_workspace_brief(client_apps: dict | None,
             lines.append(f"Parent group: {brand['parent_group']}")
         if brand.get("description"):
             lines.append(f"Description: {brand['description']}")
+        # BB.8 narrative blocks — surfaced right after description so article
+        # intros/conclusions can pull from them without scrolling.
+        if brand.get("heritage"):
+            lines.append(f"Heritage: {brand['heritage']}")
+        if brand.get("brand_story"):
+            lines.append(f"Brand story: {brand['brand_story']}")
         if brand.get("positioning_statement"):
             lines.append(f"Positioning: {brand['positioning_statement']}")
         if brand.get("editorial_voice"):
             lines.append(f"Editorial voice (override): {brand['editorial_voice']}")
         if brand.get("tonality"):
             lines.append(f"Tonality: {', '.join(brand['tonality'])}")
+        # BB.8 tone DO / DON'T : the highest-leverage signal for a copywriter.
+        # Surface verbatim so the downstream LLM can lift the exact vocabulary.
+        if brand.get("tone_dos"):
+            lines.append(f"Tone DOs (use these): {', '.join(brand['tone_dos'])}")
+        if brand.get("tone_donts"):
+            lines.append(f"Tone DON'Ts (avoid these): {', '.join(brand['tone_donts'])}")
         if brand.get("target_audience"):
             lines.append(f"Target audience (override): {brand['target_audience']}")
         if brand.get("audience_segments"):
@@ -183,6 +195,13 @@ def format_workspace_brief(client_apps: dict | None,
             # to balloon token count for brands that own 30+ topics.
             topics = list(brand["expertise_topics"])[:10]
             lines.append(f"Expertise topics (bias toward these): {', '.join(topics)}")
+        # BB.8 claims guidelines : copywriter-facing rules combining brand
+        # voice + regulatory framing. Distinct from regulatory_constraints
+        # which is the legal list.
+        if brand.get("claims_guidelines"):
+            lines.append(
+                f"Claims guidelines: {' · '.join(brand['claims_guidelines'])}"
+            )
         if brand.get("regulatory_constraints"):
             lines.append(
                 f"Regulatory constraints: {', '.join(brand['regulatory_constraints'])}"

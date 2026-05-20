@@ -55,6 +55,7 @@ Brand: {brand_name}
 {brand_domain_block}
 Workspace context:
 {workspace_context}
+{known_competitors_block}
 
 Use web search to verify and enrich. Return ONLY valid JSON (no markdown, no commentary) with this exact structure :
 
@@ -66,6 +67,9 @@ Use web search to verify and enrich. Return ONLY valid JSON (no markdown, no com
   "headquarters": "City, Country — empty string when unknown",
   "languages": ["ISO-639 codes OR plain names for the markets this brand serves — e.g., fr, en, es, de, jp"],
 
+  "heritage": "1-2 sentences on the brand's founding event / terroir / founder myth. Anchors content intros and conclusions. Different from founded_year — this is the *story*.",
+  "brand_story": "3-5 sentences on what the brand has come to stand for, its evolution, its myth. Used by editorial blocks when the topic supports a 'brand chapter'.",
+
   "positioning_statement": "1 sentence on this brand's market positioning (NOT the parent group)",
   "taglines": ["Brand marketing slogans or hooks — verbatim if you know them, omit otherwise"],
   "differentiators": ["3-6 concrete things that set this brand apart from peers"],
@@ -74,7 +78,11 @@ Use web search to verify and enrich. Return ONLY valid JSON (no markdown, no com
 
   "editorial_voice": "1 sentence on tone for content written FOR this brand (e.g., 'expert, reassuring, science-led — never salesy or alarmist'). This is the high-value field — be specific.",
   "tonality": ["3-6 adjectives that ground the voice — e.g., 'expert', 'warm', 'evidence-driven'"],
-  "target_audience": "1-2 sentences on the brand's audience (age, demographic, need, mindset)",
+  "tone_dos": ["6-12 verbs / postures / vocabulary that signal this brand's voice. E.g. pharma-grade dermo : 'soulager', 'apaiser', 'protéger', 'cliniquement prouvé', 'recommandé par les dermatologues'. Be verbatim — these go into copywriter guidance."],
+  "tone_donts": ["6-12 forbidden vocabulary / framings. E.g. 'miracle', 'instantané', direct competitor comparison, 'guérit', 'lifestyle/glamour', hyperbole. Be specific to this brand's category and positioning."],
+  "claims_guidelines": ["3-8 marketing-claim rules combining regulatory + brand voice. E.g. 'Never claim cures or treats without medical authorisation', 'Always disclose allergen list inline', 'Cite study reference when health claim is made', 'Do not promise transformation in <X days'."],
+
+  "target_audience": "1-2 sentences on the brand's audience (age, demographic, need, mindset) — be specific to THIS brand, not its parent company's broader audience",
   "audience_segments": ["3-6 distinct audience segments served by the brand"],
 
   "product_lines": ["Named product ranges / gammes / sub-brands owned by this brand"],
@@ -95,7 +103,8 @@ Rules :
 - This brand is the {brand_name} brand SPECIFICALLY, not its parent group. If parent has 6 brands, your job is to differentiate THIS one from the other 5.
 - Stay concise — this brief is read by other LLMs, not humans. Every word costs input tokens downstream.
 - For unknown fields, return "" or [] — never invent.
-- direct_competitors should be 3-8 BRANDS (not parent companies) that compete head-to-head with {brand_name} on the same audience + use case.
+- **direct_competitors MUST be BRANDS at the same level as {brand_name}, never parent companies.** If you're tempted to list "L'Oréal", instead list their relevant brand (La Roche-Posay, CeraVe, Vichy…). If the user provided a "Known competitors" list above, treat those as priority candidates and add web-verified ones on top.
+- tone_dos / tone_donts / claims_guidelines : these are what a copywriter pins on the wall. Be concrete, verbatim, category-aware. Avoid generic platitudes.
 - regulatory_constraints : infer the relevant frameworks from workspace industry + country. Do not list generic disclaimers; only frameworks that actually shape what the brand can claim or sell.
 """
 
@@ -106,6 +115,7 @@ Brand: {brand_name}
 {brand_domain_block}
 Workspace context:
 {workspace_context}
+{known_competitors_block}
 
 If you don't recognise this specific brand, infer conservatively from its name + workspace industry. Note uncertainty in the description rather than fabricating facts. Empty string / empty list is always acceptable.
 
@@ -118,6 +128,8 @@ Return ONLY valid JSON with the same structure as the web-search prompt :
   "founded_year": null,
   "headquarters": "",
   "languages": [],
+  "heritage": "",
+  "brand_story": "",
   "positioning_statement": "...",
   "taglines": [],
   "differentiators": [],
@@ -125,6 +137,9 @@ Return ONLY valid JSON with the same structure as the web-search prompt :
   "distribution": [],
   "editorial_voice": "...",
   "tonality": [],
+  "tone_dos": [],
+  "tone_donts": [],
+  "claims_guidelines": [],
   "target_audience": "...",
   "audience_segments": [],
   "product_lines": [],
@@ -135,6 +150,8 @@ Return ONLY valid JSON with the same structure as the web-search prompt :
   "expertise_topics": [],
   "regulatory_constraints": []
 }}
+
+Rules : direct_competitors must be BRANDS, not parent companies. If a "Known competitors" list is provided above, prioritize those.
 
 Output JSON only — no markdown.
 """
@@ -168,6 +185,96 @@ def _extract_json(text: str) -> dict | None:
     return None
 
 
+def _resolve_known_competitors(brand: ClientBrand, db: Session) -> list[str]:
+    """Resolve the brand-level competitors the user has already classified on this client.
+
+    Reads ScanBrandClassification rows across every scan owned by the client,
+    filters to classification='competitor', dedups by ClientBrand row, and
+    excludes :
+      - The brand itself
+      - The brand's children (gammes — they're not competitors at the brand
+        level)
+      - Any brand that's currently a primary on the client (caught a couple
+        of edge cases where a brand was both primary AND historically tagged
+        competitor on an old scan)
+
+    Returns a list of canonical brand names sorted by detection frequency
+    (most-tagged first), capped at 12 to keep the prompt tight.
+    """
+    from collections import Counter
+    from models import ScanBrandClassification, Scan
+    from sqlalchemy import select
+
+    client = db.query(Client).filter(Client.id == brand.client_id).first()
+    primary_ids = {str(b) for b in (client.primary_brand_ids if client else []) or []}
+
+    # All scans on this client
+    scan_ids = [s.id for s in db.query(Scan).filter(Scan.client_id == brand.client_id).all()]
+    if not scan_ids:
+        return []
+
+    # SBC rows classified competitor across those scans
+    rows = (
+        db.query(ScanBrandClassification.brand_id)
+        .filter(
+            ScanBrandClassification.scan_id.in_(scan_ids),
+            ScanBrandClassification.classification == "competitor",
+        )
+        .all()
+    )
+    counter = Counter(str(r.brand_id) for r in rows if r.brand_id)
+    if not counter:
+        return []
+
+    # Hydrate ClientBrand for the top N candidates (cap at 30 candidates to
+    # bound the secondary lookup), exclude self / children / primaries.
+    top_ids = [bid for bid, _ in counter.most_common(30)]
+    child_ids = {
+        str(c.id) for c in db.query(ClientBrand.id).filter(
+            ClientBrand.parent_id == brand.id
+        ).all()
+    }
+    candidates = (
+        db.query(ClientBrand)
+        .filter(ClientBrand.id.in_(top_ids))
+        .all()
+    )
+    by_id = {str(c.id): c for c in candidates}
+
+    out: list[str] = []
+    for bid, _ in counter.most_common():
+        if bid == str(brand.id) or bid in child_ids or bid in primary_ids:
+            continue
+        row = by_id.get(bid)
+        if not row or not row.name:
+            continue
+        # Skip child brands (gammes) — they're not competitors at brand level.
+        if row.parent_id is not None:
+            continue
+        out.append(row.name)
+        if len(out) >= 12:
+            break
+    return out
+
+
+def _format_known_competitors_block(names: list[str]) -> str:
+    """Build the 'Known competitors' context block injected into the prompt.
+
+    Empty string when no competitors are known — the prompt skips the block
+    gracefully. When present, this anchors the LLM on the user's curated
+    Competitors taxonomy (Gate 2) so direct_competitors comes back at the
+    correct level (brand, not parent company).
+    """
+    if not names:
+        return ""
+    bullet = ", ".join(names)
+    return (
+        f"\nKnown competitors (already curated by the user in their workspace, "
+        f"USE AS PRIORITY in direct_competitors — verify with web search and "
+        f"rank by directness of competition):\n  {bullet}\n"
+    )
+
+
 def _format_workspace_context(client: Client) -> str:
     """One-block string describing the workspace's industry + country for prompt context.
 
@@ -193,12 +300,14 @@ def _format_workspace_context(client: Client) -> str:
 
 
 def _try_openai(brand_name: str, brand_domain_block: str, workspace_context: str,
+                known_competitors_block: str,
                 api_key: str, model: str) -> tuple[dict | None, str, dict]:
     client = openai.OpenAI(api_key=api_key, timeout=60)
     prompt = BRAND_BRIEF_PROMPT.format(
         brand_name=brand_name,
         brand_domain_block=brand_domain_block,
         workspace_context=workspace_context,
+        known_competitors_block=known_competitors_block,
     )
     # NW.2 - inject anti-AI-detection humanizer block (compact mode).
     from services.natural_writing_helpers import inject_humanizer
@@ -217,6 +326,7 @@ def _try_openai(brand_name: str, brand_domain_block: str, workspace_context: str
 
 
 def _try_gemini(brand_name: str, brand_domain_block: str, workspace_context: str,
+                known_competitors_block: str,
                 api_key: str, model: str) -> tuple[dict | None, str, dict]:
     from seo_llm.src.llm_client import LLMClient
     llm = LLMClient(provider="gemini", api_key=api_key, model=model)
@@ -224,6 +334,7 @@ def _try_gemini(brand_name: str, brand_domain_block: str, workspace_context: str
         brand_name=brand_name,
         brand_domain_block=brand_domain_block,
         workspace_context=workspace_context,
+        known_competitors_block=known_competitors_block,
     )
     from services.natural_writing_helpers import inject_humanizer
     prompt = inject_humanizer(prompt, mode="compact")
@@ -241,11 +352,13 @@ def _try_gemini(brand_name: str, brand_domain_block: str, workspace_context: str
 
 
 def _try_claude(brand_name: str, brand_domain_block: str, workspace_context: str,
+                known_competitors_block: str,
                 api_key: str, model: str) -> tuple[dict | None, str, dict]:
     prompt = CLAUDE_FALLBACK_PROMPT.format(
         brand_name=brand_name,
         brand_domain_block=brand_domain_block,
         workspace_context=workspace_context,
+        known_competitors_block=known_competitors_block,
     )
     from services.natural_writing_helpers import inject_humanizer
     prompt = inject_humanizer(prompt, mode="compact")
@@ -317,9 +430,17 @@ def execute(job_payload: dict, scan_id: str | None, db: Session) -> dict:
     )
     workspace_context = _format_workspace_context(client)
 
+    # BB.8 : pre-seed the prompt with the brand-level competitors the user
+    # already validated in Gate 2 / brand setup. Anchors direct_competitors
+    # at the BRAND level (Bioderma, La Roche-Posay) instead of letting the
+    # LLM drift to GROUP level (L'Oréal, Sanofi).
+    known_competitors = _resolve_known_competitors(brand, db)
+    known_competitors_block = _format_known_competitors_block(known_competitors)
+
     logger.info(
         f"Generating brand brief for {brand.name} (client={client.name}, "
-        f"brand_id={brand_id}, attempt #{used + 1}/{MAX_BRAND_BRIEF_GENERATIONS})"
+        f"brand_id={brand_id}, attempt #{used + 1}/{MAX_BRAND_BRIEF_GENERATIONS}, "
+        f"known_competitors={len(known_competitors)})"
     )
 
     parsed_brief = None
@@ -332,6 +453,7 @@ def execute(job_payload: dict, scan_id: str | None, db: Session) -> dict:
         try:
             parsed, raw, usage = _try_openai(
                 brand.name, brand_domain_block, workspace_context,
+                known_competitors_block,
                 settings.openai_api_key, primary_model,
             )
             raw_texts["openai"] = raw
@@ -368,6 +490,7 @@ def execute(job_payload: dict, scan_id: str | None, db: Session) -> dict:
         try:
             parsed, raw, usage = _try_gemini(
                 brand.name, brand_domain_block, workspace_context,
+                known_competitors_block,
                 gemini_key, gemini_model,
             )
             raw_texts["gemini"] = raw
@@ -399,6 +522,7 @@ def execute(job_payload: dict, scan_id: str | None, db: Session) -> dict:
         try:
             parsed, raw, usage = _try_claude(
                 brand.name, brand_domain_block, workspace_context,
+                known_competitors_block,
                 settings.anthropic_api_key, claude_model,
             )
             raw_texts["claude"] = raw

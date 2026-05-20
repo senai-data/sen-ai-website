@@ -423,9 +423,42 @@ class BrandBrief(BaseModel):
     # GDPR, etc.) from workspace industry+country — no hardcoded list.
     regulatory_constraints: list[str] = Field(default_factory=list)
 
+    # ── BB.8 branding-pro fields (added after first content review) ─────
+    # These are the high-value signals a copywriter / journalist needs that
+    # the original 22 fields didn't surface. All optional, all string-or-list.
+    # Brand wins per-field in the 2-level merge — see brief_injector.
+
+    # Heritage : 1-2 sentence origin story (founding event, terroir, founder).
+    # Used in article intros/conclusions to anchor brand narrative. Different
+    # from `founded_year` (just the int) — this is the *story*.
+    heritage: str = ""
+
+    # Long-form brand narrative : 3-5 sentences describing what the brand
+    # has come to stand for, its evolution, its myth. Editorial / narrative
+    # blocks pull from this when the topic supports a "brand chapter."
+    brand_story: str = ""
+
+    # Tone DO list : verbatim verbs / postures / vocabulary the brand uses.
+    # E.g. for a pharma-grade dermo brand : "soulager", "apaiser", "protéger",
+    # "cliniquement prouvé", "recommandé par les dermatologues".
+    tone_dos: list[str] = Field(default_factory=list)
+
+    # Tone DON'T list : forbidden vocabulary / framings / claim types.
+    # E.g. "miracle", "instantané", "comparaison directe avec concurrents",
+    # "promesse de guérison", "lifestyle / glamour".
+    tone_donts: list[str] = Field(default_factory=list)
+
+    # Marketing claim guidelines — vertical-agnostic phrasing rules that flow
+    # from regulatory constraints AND brand voice (not the same as the legal
+    # list in `regulatory_constraints`). E.g. "Never claim cures or treats
+    # without medical authorisation", "Always disclose allergen list inline",
+    # "Cite study reference when health claim is made".
+    claims_guidelines: list[str] = Field(default_factory=list)
+
     @field_validator("name", "parent_group", "description",
                      "headquarters", "positioning_statement",
-                     "editorial_voice", "target_audience")
+                     "editorial_voice", "target_audience",
+                     "heritage", "brand_story")
     @classmethod
     def _strip_strings(cls, v):
         return (v or "").strip() if isinstance(v, str) else v

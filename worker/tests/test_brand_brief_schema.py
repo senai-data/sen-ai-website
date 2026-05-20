@@ -39,6 +39,53 @@ class TestRequired:
         assert b.taglines == []
         assert b.languages == []
         assert b.signature_features == []
+        # BB.8 branding-pro defaults
+        assert b.heritage == ""
+        assert b.brand_story == ""
+        assert b.tone_dos == []
+        assert b.tone_donts == []
+        assert b.claims_guidelines == []
+
+
+class TestBrandingProFields:
+    def test_heritage_and_story_stripped(self):
+        b = BrandBrief.model_validate({
+            "name": "Avène",
+            "heritage": "  Founded in 1736 at Avène-les-Bains thermal spring.\n",
+            "brand_story": "\tThree centuries of dermo-cosmetic science.\t",
+        })
+        assert b.heritage == "Founded in 1736 at Avène-les-Bains thermal spring."
+        assert b.brand_story == "Three centuries of dermo-cosmetic science."
+
+    def test_tone_lists_independent(self):
+        a = BrandBrief.model_validate({
+            "name": "A",
+            "tone_dos": ["soulager"],
+            "tone_donts": ["miracle"],
+            "claims_guidelines": ["cite clinical study"],
+        })
+        b = BrandBrief.model_validate({"name": "B"})
+        a.tone_dos.append("apaiser")
+        # default_factory must not share instances
+        assert b.tone_dos == []
+        assert b.tone_donts == []
+        assert b.claims_guidelines == []
+        assert a.tone_dos == ["soulager", "apaiser"]
+
+    def test_full_branding_payload(self):
+        b = BrandBrief.model_validate({
+            "name": "Eau Thermale Avène",
+            "heritage": "Founded 1736 at Avène-les-Bains.",
+            "brand_story": "Three centuries of thermal-water dermatology.",
+            "tone_dos": ["soulager", "apaiser", "protéger", "cliniquement prouvé"],
+            "tone_donts": ["miracle", "instantané", "lifestyle"],
+            "claims_guidelines": ["No 'cures' without AMM",
+                                   "Cite clinical study for health claim"],
+        })
+        assert "1736" in b.heritage
+        assert b.tone_dos[0] == "soulager"
+        assert "miracle" in b.tone_donts
+        assert b.claims_guidelines[0].startswith("No 'cures'")
 
 
 class TestPriceTier:

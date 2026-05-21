@@ -146,7 +146,8 @@ def _serialize_item(item: ScanContentItem, brand_names: dict[str, str] | None = 
                     primary_brand_domains: list[str] | None = None,
                     target_url_share_count: int = 0,
                     scan_brand_groups: dict[str, list[str]] | None = None,
-                    competitor_snapshot: dict | None = None) -> dict:
+                    competitor_snapshot: dict | None = None,
+                    primary_brand_info: list[dict] | None = None) -> dict:
     """Convert a ScanContentItem ORM row into the dict shape the UI consumes.
 
     `primary_brand_domains` is the list of domains from the client's
@@ -204,6 +205,11 @@ def _serialize_item(item: ScanContentItem, brand_names: dict[str, str] | None = 
         "platform_link": item.platform_link,
         "promoted_brand_ids": [str(b) for b in (item.promoted_brand_ids or [])],
         "promoted_brand_names": promoted_names,
+        # Workspace primary brands the user can include / exclude on this item.
+        # When None, the UI falls back to the legacy promoted_brand_names list
+        # (no multi-select control). Detail endpoint populates this ; the
+        # kanban list endpoint omits it to keep payload small.
+        "client_primary_brand_info": primary_brand_info,
         "status": item.status,
         "column": COLUMN_BY_STATUS.get(item.status, "to_create"),
         "validation": item.validation,
@@ -271,6 +277,41 @@ def _resolve_primary_brand_domains(client_id: str, db: Session) -> list[str]:
         seen.add(normalized)
         domains.append(normalized)
     return domains
+
+
+def _resolve_primary_brand_info(client_id: str, db: Session) -> list[dict]:
+    """Return the client's primary brands as [{id, name, domain}] ordered by primary_brand_ids.
+
+    Powers the multi-select brand-promotion UI on the content-item detail page :
+    the UI needs to know ALL primary brands (not just the ones currently
+    promoted on the item) so the user can check / uncheck them per item.
+    Distinct from _resolve_primary_brand_domains which only returns domains.
+    """
+    from models import Client
+
+    client = db.query(Client).filter(Client.id == client_id).first()
+    if not client or not client.primary_brand_ids:
+        return []
+    rows = (
+        db.query(ClientBrand)
+        .filter(
+            ClientBrand.client_id == client_id,
+            ClientBrand.id.in_(client.primary_brand_ids),
+        )
+        .all()
+    )
+    by_id = {b.id: b for b in rows}
+    out: list[dict] = []
+    for bid in client.primary_brand_ids:
+        b = by_id.get(bid)
+        if not b:
+            continue
+        out.append({
+            "id": str(b.id),
+            "name": b.name,
+            "domain": (b.domain or "").strip(),
+        })
+    return out
 
 
 # ── Endpoints ───────────────────────────────────────────────────────────
@@ -381,10 +422,12 @@ async def get_content_item(item_id: str, user=Depends(get_current_user),
         db,
     )
     primary_domains = _resolve_primary_brand_domains(client_id_str, db)
+    primary_brand_info = _resolve_primary_brand_info(client_id_str, db)
     share_count = _count_sibling_items_at_url(item, db)
     groups = _resolve_scan_brand_groups(str(item.scan_id), db)
     competitor_snapshot = _build_competitor_snapshot(item, db, primary_brand_domains=primary_domains)
-    return _serialize_item(item, brand_names, primary_domains, share_count, groups, competitor_snapshot)
+    return _serialize_item(item, brand_names, primary_domains, share_count, groups,
+                           competitor_snapshot, primary_brand_info=primary_brand_info)
 
 
 def _build_competitor_snapshot(
@@ -999,6 +1042,12 @@ async def generate_content(item_id: str, user=Depends(get_current_user),
         max_attempts=2,
     )
     db.add(job)
+    # Flip item.status to 'generating' at enqueue time (not when the worker picks
+    # up the job) so the detail page renders the "Generating…" state immediately.
+    # Without this, a busy worker leaves item.status='identified' for minutes,
+    # and navigating from the tile to the detail page shows the Generate button
+    # as if nothing happened. The worker handler re-sets the same value, idempotent.
+    item.status = "generating"
     db.commit()
     db.refresh(job)
 

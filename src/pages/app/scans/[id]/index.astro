@@ -231,7 +231,16 @@ const isReviewing = effectiveView !== null && (
       <div class="px-5 py-4 border-t border-gray-100" x-data={`{
         brief: ${JSON.stringify(domainBrief || {})},
         budget: ${JSON.stringify(briefBudget)},
-        saving: false,
+        // saveState : 'idle' | 'dirty' | 'saving' | 'saved' | 'error'.
+        // Replaces the legacy 'saving' boolean : the UI used to flip from
+        // "Saving..." straight back to "Auto-saved on edit" even when the
+        // PUT failed silently (no try/catch, no status check), so users
+        // got false-positive confirmation while their edits never reached
+        // the DB. Tracking 5 explicit states + lastSaveError surfaces real
+        // failure modes.
+        saveState: 'idle',
+        lastSaveError: '',
+        _saveTimer: null,
         generating: ${briefStatus === 'pending' || briefStatus === 'running' ? 'true' : 'false'},
         async generateBrief() {
           if (!this.budget.can_regenerate) return;
@@ -265,14 +274,38 @@ const isReviewing = effectiveView !== null && (
             }
           }, 2000);
         },
+        // Debounced save : every keystroke marks dirty, then 700ms after
+        // the last keystroke we PUT. Replaces blur-only save which never
+        // fired when the user closed the <details> panel, reloaded, or
+        // navigated away without first tabbing out of the field (observed
+        // in prod : edited_by_user flag was NULL on a Ducray scan even
+        // after the user reported editing fields).
+        queueSave() {
+          this.saveState = 'dirty';
+          if (this._saveTimer) clearTimeout(this._saveTimer);
+          this._saveTimer = setTimeout(() => this.saveBrief(), 700);
+        },
         async saveBrief() {
-          this.saving = true;
-          await fetch('/api/scans/${id}/brief', {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ domain_brief: this.brief }),
-          });
-          this.saving = false;
+          if (this._saveTimer) { clearTimeout(this._saveTimer); this._saveTimer = null; }
+          this.saveState = 'saving';
+          this.lastSaveError = '';
+          try {
+            const r = await fetch('/api/scans/${id}/brief', {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ domain_brief: this.brief }),
+            });
+            if (!r.ok) {
+              const body = await r.json().catch(() => ({}));
+              this.lastSaveError = body.detail?.message || body.detail || ('HTTP ' + r.status);
+              this.saveState = 'error';
+              return;
+            }
+            this.saveState = 'saved';
+          } catch (e) {
+            this.lastSaveError = e.message || 'Network error';
+            this.saveState = 'error';
+          }
         }
       }`}>
         {/* Generating state */}
@@ -313,46 +346,59 @@ const isReviewing = effectiveView !== null && (
             <div class="grid grid-cols-2 gap-3">
               <div>
                 <label class="text-[10px] uppercase tracking-wide text-charcoal-light font-semibold">Company</label>
-                <input type="text" x-model="brief.company" @blur="saveBrief()" class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 mt-1 outline-none focus:border-coral" />
+                <input type="text" x-model="brief.company" @input="queueSave()" @blur="saveBrief()" class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 mt-1 outline-none focus:border-coral" />
               </div>
               <div>
                 <label class="text-[10px] uppercase tracking-wide text-charcoal-light font-semibold">Industry</label>
-                <input type="text" x-model="brief.industry" @blur="saveBrief()" class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 mt-1 outline-none focus:border-coral" />
+                <input type="text" x-model="brief.industry" @input="queueSave()" @blur="saveBrief()" class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 mt-1 outline-none focus:border-coral" />
               </div>
             </div>
             <div>
               <label class="text-[10px] uppercase tracking-wide text-charcoal-light font-semibold">Description</label>
-              <textarea x-model="brief.description" @blur="saveBrief()" rows="2" class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 mt-1 outline-none focus:border-coral resize-y"></textarea>
+              <textarea x-model="brief.description" @input="queueSave()" @blur="saveBrief()" rows="2" class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 mt-1 outline-none focus:border-coral resize-y"></textarea>
             </div>
             <div class="grid grid-cols-2 gap-3">
               <div>
                 <label class="text-[10px] uppercase tracking-wide text-charcoal-light font-semibold">Own Brands (comma-separated)</label>
-                <input type="text" :value="(brief.brands || []).join(', ')" @blur="brief.brands = $event.target.value.split(',').map(s => s.trim()).filter(Boolean); saveBrief()" class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 mt-1 outline-none focus:border-coral" />
+                <input type="text" :value="(brief.brands || []).join(', ')" @input="brief.brands = $event.target.value.split(',').map(s => s.trim()).filter(Boolean); queueSave()" @blur="saveBrief()" class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 mt-1 outline-none focus:border-coral" />
               </div>
               <div>
                 <label class="text-[10px] uppercase tracking-wide text-charcoal-light font-semibold">Product Lines (comma-separated)</label>
-                <input type="text" :value="(brief.product_lines || []).join(', ')" @blur="brief.product_lines = $event.target.value.split(',').map(s => s.trim()).filter(Boolean); saveBrief()" class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 mt-1 outline-none focus:border-coral" />
+                <input type="text" :value="(brief.product_lines || []).join(', ')" @input="brief.product_lines = $event.target.value.split(',').map(s => s.trim()).filter(Boolean); queueSave()" @blur="saveBrief()" class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 mt-1 outline-none focus:border-coral" />
               </div>
             </div>
             <div>
               <label class="text-[10px] uppercase tracking-wide text-charcoal-light font-semibold">Competitors (one per line: Name — Products)</label>
-              <textarea x-effect="$el.value = (brief.competitors || []).map(c => c.name + (c.products?.length ? ' — ' + c.products.join(', ') : '')).join('\n')"
-                        @blur="brief.competitors = $event.target.value.split('\n').map(line => { const parts = line.split(' — '); return { name: parts[0]?.trim(), products: parts[1] ? parts[1].split(',').map(s => s.trim()) : [] }; }).filter(c => c.name); saveBrief()"
+              <textarea x-effect="if (document.activeElement !== $el) $el.value = (brief.competitors || []).map(c => c.name + (c.products?.length ? ' — ' + c.products.join(', ') : '')).join('\n')"
+                        @input="brief.competitors = $event.target.value.split('\n').map(line => { const parts = line.split(' — '); return { name: parts[0]?.trim(), products: parts[1] ? parts[1].split(',').map(s => s.trim()) : [] }; }).filter(c => c.name); queueSave()"
+                        @blur="saveBrief()"
                         rows="4" class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 mt-1 outline-none focus:border-coral resize-y font-mono text-xs">{(domainBrief?.competitors || []).map((c: any) => c.name + (c.products?.length ? ' — ' + c.products.join(', ') : '')).join('\n')}</textarea>
             </div>
             <div class="grid grid-cols-2 gap-3">
               <div>
                 <label class="text-[10px] uppercase tracking-wide text-charcoal-light font-semibold">Key Topics (comma-separated)</label>
-                <input type="text" :value="(brief.topics || []).join(', ')" @blur="brief.topics = $event.target.value.split(',').map(s => s.trim()).filter(Boolean); saveBrief()" class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 mt-1 outline-none focus:border-coral" />
+                <input type="text" :value="(brief.topics || []).join(', ')" @input="brief.topics = $event.target.value.split(',').map(s => s.trim()).filter(Boolean); queueSave()" @blur="saveBrief()" class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 mt-1 outline-none focus:border-coral" />
               </div>
               <div>
                 <label class="text-[10px] uppercase tracking-wide text-charcoal-light font-semibold">Target Audience</label>
-                <input type="text" x-model="brief.target_audience" @blur="saveBrief()" class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 mt-1 outline-none focus:border-coral" />
+                <input type="text" x-model="brief.target_audience" @input="queueSave()" @blur="saveBrief()" class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 mt-1 outline-none focus:border-coral" />
               </div>
             </div>
             <div class="flex items-center justify-between pt-2">
-              <span x-show="saving" class="text-[10px] text-charcoal-light animate-pulse">Saving...</span>
-              <span x-show="!saving" class="text-[10px] text-emerald-600">Auto-saved on edit</span>
+              {/* Real save status — replaces the static "Auto-saved on edit"
+                  label that always claimed success even on silent failure. */}
+              <span class="text-[10px]" :class="{
+                'text-charcoal-light': saveState === 'idle' || saveState === 'dirty',
+                'text-charcoal-light animate-pulse': saveState === 'saving',
+                'text-emerald-600': saveState === 'saved',
+                'text-red-600 font-medium': saveState === 'error',
+              }" :title="saveState === 'error' ? lastSaveError : ''">
+                <span x-show="saveState === 'idle'">Auto-saved on edit</span>
+                <span x-show="saveState === 'dirty'">Unsaved changes…</span>
+                <span x-show="saveState === 'saving'">Saving…</span>
+                <span x-show="saveState === 'saved'">✓ Saved</span>
+                <span x-show="saveState === 'error'" x-text="'⚠ Save failed: ' + lastSaveError"></span>
+              </span>
               <span class="flex items-center gap-2">
                 {/* Regen budget counter (Tesler's). Same pattern as workspace
                      brief + FAQ rematch — surface budget BEFORE cap fires. */}

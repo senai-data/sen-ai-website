@@ -433,15 +433,32 @@ if (clientId) {
                             <textarea x-model="editBuffer[b.id]"
                                       rows="14"
                                       class="w-full text-[11px] font-mono text-charcoal-dark bg-white border border-gray-200 rounded p-2 outline-none focus:border-blue-400"></textarea>
-                            <div class="flex items-center justify-end gap-2">
-                              <button type="button" @click.stop="discardEditBrief(b.id)"
-                                      class="text-[10px] text-charcoal-light hover:text-charcoal-dark px-2 py-1">
-                                Discard
-                              </button>
-                              <button type="button" @click.stop="saveEditBrief(b.id)"
-                                      class="text-[10px] bg-coral text-white px-3 py-1 rounded font-medium hover:bg-coral-dark">
-                                Save changes
-                              </button>
+                            <div class="flex items-center justify-between gap-2">
+                              {/* Inline save status — mirrors the Domain Brief saveState
+                                  pattern so users get the same visual feedback across
+                                  all brief editors instead of an alert() popup. */}
+                              <span class="text-[10px]" :class="{
+                                'text-charcoal-light': !briefSaveState[b.id] || briefSaveState[b.id] === 'idle',
+                                'text-charcoal-light animate-pulse': briefSaveState[b.id] === 'saving',
+                                'text-emerald-600': briefSaveState[b.id] === 'saved',
+                                'text-red-600 font-medium': briefSaveState[b.id] === 'error',
+                              }" :title="briefSaveState[b.id] === 'error' ? briefSaveError[b.id] : ''">
+                                <span x-show="briefSaveState[b.id] === 'saving'">Saving…</span>
+                                <span x-show="briefSaveState[b.id] === 'saved'">✓ Saved</span>
+                                <span x-show="briefSaveState[b.id] === 'error'" x-text="'⚠ ' + (briefSaveError[b.id] || 'Save failed')"></span>
+                              </span>
+                              <span class="flex items-center gap-2">
+                                <button type="button" @click.stop="discardEditBrief(b.id)"
+                                        class="text-[10px] text-charcoal-light hover:text-charcoal-dark px-2 py-1">
+                                  Discard
+                                </button>
+                                <button type="button" @click.stop="saveEditBrief(b.id)"
+                                        :disabled="briefSaveState[b.id] === 'saving'"
+                                        :class="briefSaveState[b.id] === 'saving' ? 'opacity-50 cursor-not-allowed' : 'hover:bg-coral-dark'"
+                                        class="text-[10px] bg-coral text-white px-3 py-1 rounded font-medium">
+                                  Save changes
+                                </button>
+                              </span>
                             </div>
                           </div>
                         </template>
@@ -565,6 +582,11 @@ if (clientId) {
         briefGenerating: {},       // brandId → bool
         editingBrief: {},          // brandId → bool
         editBuffer: {},            // brandId → string (raw JSON being edited)
+        // Per-brand save state for the BB JSON editor — mirrors the Domain
+        // Brief saveState pattern so save failures surface inline instead of
+        // via an alert() popup (which used to be the failure path here).
+        briefSaveState: {},        // brandId → 'idle' | 'saving' | 'saved' | 'error'
+        briefSaveError: {},        // brandId → human-readable error string
         isBriefExpanded(brandId) {
           return !!this.expandedBriefIds[brandId];
         },
@@ -645,15 +667,20 @@ if (clientId) {
         discardEditBrief(brandId) {
           delete this.editingBrief[brandId];
           delete this.editBuffer[brandId];
+          delete this.briefSaveState[brandId];
+          delete this.briefSaveError[brandId];
         },
         async saveEditBrief(brandId) {
+          this.briefSaveError[brandId] = '';
           let parsed;
           try {
             parsed = JSON.parse(this.editBuffer[brandId] || '{}');
           } catch (e) {
-            alert('Invalid JSON: ' + e.message);
+            this.briefSaveError[brandId] = 'Invalid JSON: ' + e.message;
+            this.briefSaveState[brandId] = 'error';
             return;
           }
+          this.briefSaveState[brandId] = 'saving';
           try {
             const res = await fetch(
               `/api/clients/${this.clientId}/brands/${brandId}/brief`,
@@ -665,14 +692,18 @@ if (clientId) {
               }
             );
             if (!res.ok) {
-              alert('Save failed: ' + res.statusText);
+              const body = await res.json().catch(() => ({}));
+              this.briefSaveError[brandId] = body.detail?.message || body.detail || ('HTTP ' + res.status);
+              this.briefSaveState[brandId] = 'error';
               return;
             }
             // Re-fetch to pick up the edited_by_user flag + can_regenerate
             await this._fetchBrandBrief(brandId);
+            this.briefSaveState[brandId] = 'saved';
             this.discardEditBrief(brandId);
           } catch (e) {
-            alert('Save failed: ' + e.message);
+            this.briefSaveError[brandId] = e.message || 'Network error';
+            this.briefSaveState[brandId] = 'error';
           }
         },
 

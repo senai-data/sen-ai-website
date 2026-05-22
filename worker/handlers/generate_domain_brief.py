@@ -51,7 +51,7 @@ Return ONLY valid JSON (no markdown, no explanation) with this exact structure:
   "product_lines": ["Product line name (purpose/category)" for each major product range],
   "services": ["Any services offered beyond products"],
   "competitors": [
-    {{"name": "Competitor Name", "domain": "their-official-site.com", "products": ["Their competing product lines"]}}
+    {{"name": "Competitor Name", "domain": "their-official-site.com", "products": ["Their ACTUAL named product ranges / sub-lines — NOT generic categories"]}}
   ],
   "topics": ["Key themes/topics the website covers"],
   "target_audience": "Description of who their customers are, demographics, needs",
@@ -65,7 +65,9 @@ If this website belongs to a corporate group (e.g. L'Oréal owns CeraVe + La Roc
   - `brands` MUST contain ONLY the brand of the scanned domain. Example: scan = ducray.com → brands = ["Ducray"], NOT ["Ducray", "Avène", "Klorane", …]. The sister brands are siblings, not "owned by Ducray".
   - The sister brands of the SAME parent group MUST appear in `competitors` if they compete on overlapping therapeutic areas / categories. Example: scan = ducray.com → competitors include Klorane (chute de cheveux competes Anaphase), Avène (Dermatite atopique competes Dexyane), René Furterer (chute capillaire), etc. Same-group brands are direct competitors on the shelf even if they share a parent.
 
-For competitors, list 8-15 direct competitors with their key product lines. Include same-group sister brands when they compete on overlapping categories.
+For competitors, list 8-15 direct competitors. For each competitor's `products`, use their ACTUAL named product ranges / sub-lines (the specific line names a customer would recognise on the shelf, e.g. the named ranges — not "shampoo", "face care", "soins capillaires" or other generic categories) — same rule as `product_lines` below. These named ranges are what LLM answers actually cite, so generic categories are useless for competitor-mention detection.
+IMPORTANT — relevance filter: list ONLY the competitor ranges that compete in the SAME categories as THIS brand's own product_lines / topics. Omit a competitor's ranges in categories this brand does NOT operate in (e.g. if this brand is hair-care + baby, skip a rival's acne, eczema or anti-ageing ranges — keep only its hair-care and baby ranges). Drop any competitor that has no overlapping range at all. The goal is a competitive set where every listed range is a true alternative to one of this brand's own ranges.
+Include same-group sister brands when they compete on overlapping categories.
 For product_lines, list the actual product range names of the scanned brand only, not generic categories.
 
 For `noise_patterns`, list lowercase terms specific to this industry that an over-eager brand extractor would mistakenly tag as brands. Include:
@@ -96,7 +98,7 @@ Return ONLY valid JSON (no markdown, no explanation) with this exact structure:
   "product_lines": ["Product line names"],
   "services": ["Any services offered beyond products"],
   "competitors": [
-    {{"name": "Competitor Name", "domain": "their-official-site.com", "products": ["Their competing product lines"]}}
+    {{"name": "Competitor Name", "domain": "their-official-site.com", "products": ["Their ACTUAL named product ranges / sub-lines — NOT generic categories"]}}
   ],
   "topics": ["Key themes/topics the website covers"],
   "target_audience": "Description of who their customers are",
@@ -110,7 +112,9 @@ If this website belongs to a corporate group (e.g. L'Oréal owns CeraVe + La Roc
   - `brands` MUST contain ONLY the brand of the scanned domain.
   - Sister brands of the SAME parent group MUST appear in `competitors` if they compete on overlapping categories. Even when they share a parent, they're direct competitors on the shelf.
 
-For competitors, list 8-15 direct competitors with their key product lines, including same-group sister brands when relevant.
+For competitors, list 8-15 direct competitors. For each competitor's `products`, use their ACTUAL named product ranges / sub-lines (the specific line names), NOT generic product categories — these named ranges are what LLM answers cite.
+IMPORTANT — relevance filter: list ONLY the competitor ranges that compete in the SAME categories as THIS brand's own product_lines / topics. Omit ranges in categories this brand does not operate in, and drop any competitor with no overlapping range. Every listed range should be a true alternative to one of this brand's own ranges.
+Include same-group sister brands when relevant.
 
 For noise_patterns, list 15-30 lowercase terms specific to this industry that an over-eager brand extractor would wrongly tag as brands (generic product categories, ingredients, sector publications, common acronyms). DO NOT include actual brand names. Match the country language.
 """
@@ -144,7 +148,54 @@ def _extract_json(text: str) -> dict | None:
                     return json.loads(text[match.start():i + 1])
                 except json.JSONDecodeError:
                     return None
-    return None
+
+    # Salvage a TRUNCATED object (provider stopped mid-output): the braces never
+    # balanced. Walk the tail, drop the trailing partial token, and append the
+    # missing closers. Recovers the common "cut between fields/array items" case;
+    # gives up if truncation lands inside a string value.
+    return _salvage_truncated_json(text[match.start():])
+
+
+def _salvage_truncated_json(frag: str) -> dict | None:
+    """Best-effort recovery of an unterminated JSON object.
+
+    Cut at the last top-level separator (comma) — where every preceding value is
+    complete — then append the closers for whatever containers were open AT that
+    point. Snapshotting the stack at the cut (not at EOF) is essential.
+    """
+    stack: list[str] = []
+    in_str = False
+    escape = False
+    cut_at = -1
+    cut_stack: list[str] | None = None
+    for i, ch in enumerate(frag):
+        if in_str:
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+        elif ch in "{[":
+            stack.append("}" if ch == "{" else "]")
+        elif ch in "}]":
+            if stack:
+                stack.pop()
+        elif ch == ",":
+            cut_at = i  # values before a comma are complete
+            cut_stack = list(stack)
+    # cut_at is always a structural comma (commas inside strings are skipped), so
+    # an unterminated string in the discarded tail doesn't matter here.
+    if cut_at < 0 or not cut_stack:
+        return None
+    candidate = frag[:cut_at] + "".join(reversed(cut_stack))
+    try:
+        return json.loads(candidate)
+    except json.JSONDecodeError:
+        return None
 
 
 def _try_openai(domain: str, api_key: str, model: str) -> tuple[dict | None, str, dict]:
@@ -159,6 +210,9 @@ def _try_openai(domain: str, api_key: str, model: str) -> tuple[dict | None, str
         tools=[{"type": "web_search"}],
         input=prompt,
         temperature=0.3,
+        # Explicit ceiling so the richer named-gammes brief can't get clipped by a
+        # low default (truncated JSON → silent fallback to the sloppier Gemini).
+        max_output_tokens=8000,
     )
     text = response.output_text or ""
     usage_obj = getattr(response, "usage", None)
@@ -515,6 +569,8 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
             _classify_as_competitor(gamme.id)
 
     # Pre-populate own brands
+    own_gammes_created = 0
+    primary_own_brand = None
     for own_brand_name in brief.get("brands", []):
         own_brand_name = (own_brand_name or "").strip()
         own_norm = normalize_brand_name(own_brand_name)
@@ -541,6 +597,9 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
         else:
             brand = existing
 
+        if primary_own_brand is None:
+            primary_own_brand = brand
+
         sbc = db.query(ScanBrandClassification).filter(
             ScanBrandClassification.scan_id == scan_id,
             ScanBrandClassification.brand_id == brand.id,
@@ -555,10 +614,67 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
                 source="brief",
             ))
 
+    # Own product lines (gammes) → my_brand children of the primary own brand.
+    # Mirror of the competitor-gamme pre-population: without this the focus brand
+    # has no tracked sub-lines while every competitor does. product_lines arrive
+    # as "Name (purpose/category)" strings — keep only the line name. Attribute to
+    # the first own brand (single-brand briefs); portfolio scans that share a
+    # domain curate their own-brand gammes via a dedicated fix script instead.
+    if primary_own_brand is not None:
+        seen_own_gammes: set[str] = set()
+        for pl in (brief.get("product_lines") or []):
+            pl_name = re.split(r"\s*\(", (pl or "").strip(), maxsplit=1)[0].strip()
+            pl_norm = normalize_brand_name(pl_name)
+            if (not pl_norm or pl_norm in seen_own_gammes
+                    or pl_norm == primary_own_brand.canonical_name):
+                continue
+            seen_own_gammes.add(pl_norm)
+
+            existing_g = db.query(ClientBrand).filter(
+                ClientBrand.client_id == scan.client_id,
+                ClientBrand.canonical_name == pl_norm,
+            ).first()
+            if not existing_g:
+                g = ClientBrand(
+                    client_id=scan.client_id,
+                    name=pl_name,
+                    canonical_name=pl_norm,
+                    parent_id=primary_own_brand.id,
+                    detected_in_scan_id=scan_id,
+                    auto_detected=True,
+                    validated_by_user=False,
+                    detection_source="brief",
+                    last_seen_at=datetime.utcnow(),
+                )
+                db.add(g)
+                db.flush()
+                own_gammes_created += 1
+            else:
+                g = existing_g
+                existing_g.last_seen_at = datetime.utcnow()
+                if existing_g.parent_id is None:
+                    existing_g.parent_id = primary_own_brand.id
+
+            # Classify my_brand — but never flip an existing competitor/focus row.
+            g_sbc = db.query(ScanBrandClassification).filter(
+                ScanBrandClassification.scan_id == scan_id,
+                ScanBrandClassification.brand_id == g.id,
+            ).first()
+            if g_sbc is None:
+                db.add(ScanBrandClassification(
+                    scan_id=scan_id, brand_id=g.id, classification="my_brand",
+                    is_focus=False, classified_by="brief", source="brief",
+                ))
+            elif g_sbc.classification == "unclassified":
+                g_sbc.classification = "my_brand"
+                g_sbc.classified_by = "brief"
+                g_sbc.source = "brief"
+
     db.commit()
     logger.info(
         f"Gate 2 pre-populated from brief: "
-        f"{competitors_created} competitors + {gammes_created} product lines"
+        f"{competitors_created} competitors + {gammes_created} product lines "
+        f"+ {own_gammes_created} own product lines"
     )
 
     return {

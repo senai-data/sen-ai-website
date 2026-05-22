@@ -118,6 +118,22 @@ def execute(job_payload: dict, scan_id: str | None, db: Session) -> dict:
         )
         logger.info(f"discover_media_catalog: linkfinder enrichment {linkfinder_stats}")
 
+    # Step 4c : Haiku audience/voice classification — fills audience_tags +
+    # editorial_voice (activates persona_audience + editorial_voice_match
+    # scoring weights). Classifies rows with empty audience_tags, highest
+    # llm_citation_decayed first. Skippable via payload {classify: false}.
+    classify_stats: dict = {"skipped": True}
+    if bool(job_payload.get("classify", True)):
+        try:
+            from services.media_catalog_classify import classify_catalog_rows, CLASSIFY_MAX_PER_RUN
+            classify_stats = classify_catalog_rows(
+                db, max_rows=int(job_payload.get("max_classify") or CLASSIFY_MAX_PER_RUN),
+            )
+            logger.info(f"discover_media_catalog: classification {classify_stats}")
+        except Exception:
+            logger.exception("discover_media_catalog: classification step crashed")
+            classify_stats = {"error": "crashed"}
+
     elapsed = round(time.time() - t0, 1)
     result = {
         "status": "ok",
@@ -127,6 +143,7 @@ def execute(job_payload: dict, scan_id: str | None, db: Session) -> dict:
         "updated": updated,
         "babbar": babbar_stats,
         "linkfinder": linkfinder_stats,
+        "classify": classify_stats,
         "elapsed_sec": elapsed,
     }
     logger.info(f"discover_media_catalog done in {elapsed}s: {result}")

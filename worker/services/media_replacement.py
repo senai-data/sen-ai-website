@@ -130,6 +130,8 @@ class _Candidate:
     llm_citation_decayed: float = 0.0
     llm_citation_last_seen: datetime | None = None
     topic_areas: list[str] = field(default_factory=list)
+    audience_tags: list[str] = field(default_factory=list)   # Haiku-classified (MR.4 #2)
+    editorial_voice: str | None = None                       # Haiku-classified (MR.4 #2)
     # Phase MR.2 patch 1 — "LinkFinder confirmed not-buyable" signal.
     # When linkfinder_last_check is set AND price_eur is NULL, the
     # endpoint refused this domain in the last check window. Used by
@@ -212,6 +214,10 @@ def suggest(
     competitor_domains = _resolve_competitor_domains(str(scan.id), db)
     trust_domains = _resolve_trust_domains(scan.client_id, db)
 
+    # Phase MR.4 #2 — target audience + voice tokens (from brand + workspace
+    # brief) for persona_audience + editorial_voice_match scoring. Built once.
+    audience_tokens, voice_tokens = _resolve_audience_voice_context(scan, db)
+
     # User-rejected on THIS item (hard skip)
     rejected_for_item = _resolve_rejected_for_item(str(content_item.id), db)
     exclude_norm |= rejected_for_item
@@ -283,7 +289,10 @@ def suggest(
         if price_max is not None and cand.price_eur and cand.price_eur > price_max:
             drop_reasons["price_above_max"] += 1
             continue
-        sug = _score_to_suggestion(cand, weights, strategy, footprint_cap)
+        sug = _score_to_suggestion(
+            cand, weights, strategy, footprint_cap,
+            audience_tokens, voice_tokens,
+        )
         scored.append(sug)
 
     scored.sort(key=lambda s: s.score, reverse=True)
@@ -596,7 +605,8 @@ def _ingest_media_catalog(
         SELECT
             domain, price_eur, da, tf, cf, rd, media_group,
             reputation_flags, llm_citation_count, llm_citation_decayed,
-            llm_citation_last_seen, topic_areas, linkfinder_last_check
+            llm_citation_last_seen, topic_areas, linkfinder_last_check,
+            audience_tags, editorial_voice
           FROM media_catalog
          WHERE country = :c AND language = :l
     """), {"c": country, "l": language}).fetchall()
@@ -622,6 +632,8 @@ def _ingest_media_catalog(
         cand.llm_citation_last_seen = r.llm_citation_last_seen
         cand.topic_areas = list(r.topic_areas or [])
         cand.linkfinder_last_check = r.linkfinder_last_check
+        cand.audience_tags = list(r.audience_tags or [])
+        cand.editorial_voice = r.editorial_voice
 
 
 def _ingest_llm_web_search(
@@ -826,11 +838,15 @@ def _score_to_suggestion(
     weights: dict[str, float],
     strategy: str,
     footprint_cap: int,
+    audience_tokens: set[str] | None = None,
+    voice_tokens: set[str] | None = None,
 ) -> Suggestion:
     """Compute the weighted score per component, build human-readable breakdown."""
     reasons: list[str] = []
     risks: list[str] = []
     score = 0.0
+    audience_tokens = audience_tokens or set()
+    voice_tokens = voice_tokens or set()
 
     # llm_citation_topic — combine same-scan (strongest) and decayed catalog count
     same = cand.same_scan_citation_count
@@ -852,13 +868,27 @@ def _score_to_suggestion(
         # Source-5-only candidate : no citation history, found via live web search.
         reasons.append("Found by AI web search — relevant outlet for this topic")
 
-    # persona_audience — STUB Sprint 2. Will use brief target_audience + audience_tags in Sprint 3.
-    # Document the stub so callers know why component is dark.
-    if weights.get("persona_audience"):
-        # No contrib for now ; reserved
-        pass
+    # persona_audience (Phase MR.4 #2) — overlap between this media's
+    # Haiku-classified audience_tags and the brand/persona target-audience
+    # tokens. Overlap-coefficient (intersection / min set size) so a media
+    # with few but matching tags isn't penalized vs one with many tags.
+    if weights.get("persona_audience") and audience_tokens and cand.audience_tags:
+        media_aud = _tokenize(" ".join(cand.audience_tags))
+        sig = _overlap_coefficient(media_aud, audience_tokens)
+        if sig > 0:
+            score += weights["persona_audience"] * sig
+            if sig >= 0.34:
+                reasons.append("Audience matches your target reader")
 
-    # editorial_voice_match — STUB Sprint 2. Same rationale.
+    # editorial_voice_match (Phase MR.4 #2) — token overlap between this
+    # media's voice descriptor and the brand's editorial voice.
+    if weights.get("editorial_voice_match") and voice_tokens and cand.editorial_voice:
+        media_voice = _tokenize(cand.editorial_voice)
+        sig = _overlap_coefficient(media_voice, voice_tokens)
+        if sig > 0:
+            score += weights["editorial_voice_match"] * sig
+            if sig >= 0.34:
+                reasons.append("Editorial tone fits your brand voice")
 
     # authority — log scale on DA
     if cand.da is not None and cand.da > 0:
@@ -1035,6 +1065,79 @@ def _diversify(scored: list[Suggestion], top_k: int) -> list[Suggestion]:
 
 
 # ─── Utilities ──────────────────────────────────────────────────────────
+
+# Stopwords dropped from audience / voice token sets so overlap reflects
+# meaningful terms, not glue words. Small bilingual (FR/EN) set — the inputs
+# are short brief snippets, not prose.
+_TOKEN_STOPWORDS: frozenset[str] = frozenset({
+    "the", "and", "for", "with", "you", "your", "who", "are", "our", "des",
+    "les", "une", "des", "pour", "avec", "qui", "que", "aux", "leur", "leurs",
+    "from", "this", "that", "their", "them", "ages", "age", "based",
+})
+
+
+def _tokenize(text_in: str | None) -> set[str]:
+    """Lowercase word set, len>=3, stopwords dropped. For lexical overlap."""
+    if not text_in:
+        return set()
+    words = re.findall(r"[a-zA-Zà-ÿ]+", str(text_in).lower())
+    return {w for w in words if len(w) >= 3 and w not in _TOKEN_STOPWORDS}
+
+
+def _overlap_coefficient(a: set[str], b: set[str]) -> float:
+    """|a ∩ b| / min(|a|, |b|). 0..1. Robust to size mismatch (a few good tags
+    vs a long brief shouldn't dilute the signal like Jaccard would)."""
+    if not a or not b:
+        return 0.0
+    inter = len(a & b)
+    return inter / min(len(a), len(b))
+
+
+def _resolve_audience_voice_context(scan, db: Session) -> tuple[set[str], set[str]]:
+    """Build (audience_tokens, voice_tokens) from the workspace brief +
+    focus-brand brief. Used to score persona_audience + editorial_voice_match.
+
+    Sources, merged :
+      - client.apps['client_brief'] : target_audience, editorial_voice (workspace)
+      - client_brands.brief (focus brand) : target_audience, audience_segments,
+        editorial_voice, tonality, tone_dos
+    Returns empty sets when no brief exists (scoring components stay dark).
+    """
+    audience_parts: list[str] = []
+    voice_parts: list[str] = []
+
+    try:
+        from models import Client, ClientBrand
+        client = db.query(Client).filter(Client.id == scan.client_id).first()
+        workspace = ((client.apps if client else None) or {}).get("client_brief") or {}
+        if workspace.get("target_audience"):
+            audience_parts.append(str(workspace["target_audience"]))
+        if workspace.get("editorial_voice"):
+            voice_parts.append(str(workspace["editorial_voice"]))
+
+        # Focus brand brief (per-brand overrides). scan.focus_brand_id, fallback
+        # to the first promotion brand.
+        brand_id = getattr(scan, "focus_brand_id", None)
+        if not brand_id:
+            pbids = getattr(scan, "promotion_brand_ids", None) or []
+            brand_id = pbids[0] if pbids else None
+        if brand_id:
+            brand = db.query(ClientBrand).filter(ClientBrand.id == brand_id).first()
+            brief = (brand.brief if brand else None) or {}
+            if brief.get("target_audience"):
+                audience_parts.append(str(brief["target_audience"]))
+            for seg in (brief.get("audience_segments") or []):
+                audience_parts.append(str(seg))
+            if brief.get("editorial_voice"):
+                voice_parts.append(str(brief["editorial_voice"]))
+            for t in (brief.get("tonality") or []):
+                voice_parts.append(str(t))
+            for t in (brief.get("tone_dos") or []):
+                voice_parts.append(str(t))
+    except Exception:
+        logger.exception("media_replacement: audience/voice context resolution crashed")
+
+    return _tokenize(" ".join(audience_parts)), _tokenize(" ".join(voice_parts))
 
 
 def _normalize_domain(raw: str | None) -> str:

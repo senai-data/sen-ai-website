@@ -77,7 +77,10 @@ services:
     env_file: ./worker/.env
     environment:
       WORKER_ID: worker-content
-      WORKER_JOB_TYPES_INCLUDE: generate_article,generate_faq
+      # Phase MR.2 : suggest_media (~2-3s, user-facing modal) added so it
+      # doesn't sit behind a 30-60min run_llm_tests on senai-worker.
+      # FOR UPDATE SKIP LOCKED in poll_and_execute prevents double-pickup.
+      WORKER_JOB_TYPES_INCLUDE: generate_article,generate_faq,suggest_media
     volumes:
       - ./shared:/app/shared:ro
       - nw_cache:/app/cache/natural_writing

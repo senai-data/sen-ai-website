@@ -73,6 +73,14 @@ POST_PUBLISH_MEASUREMENT_DELAY_DAYS = 14
 POST_PUBLISH_SCAN_INTERVAL_SECONDS = 3600  # check at most every 1 hour
 _LAST_POST_PUBLISH_SCAN_TS = 0.0
 
+# Phase MR.1 — Media catalog discovery loop.
+# Every 24h we enqueue a discover_media_catalog job which re-aggregates
+# scan_llm_results.citations into media_catalog and asks LinkFinder for
+# prices on stale rows. Idempotent handler (additive UPSERT + 7-day
+# LinkFinder recheck throttle), so re-running at restart is harmless.
+MEDIA_CATALOG_SWEEP_INTERVAL_SECONDS = 86400  # 24h
+_LAST_MEDIA_CATALOG_SWEEP_TS = 0.0
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
@@ -104,7 +112,9 @@ def load_handlers():
                           rematch_target_url, discover_trust_sources,
                           crawl_brand_sitemap, fetch_brand_pages,
                           embed_brand_pages, purge_stale_pages,
-                          refresh_ai_snapshot)  # noqa: F401
+                          refresh_ai_snapshot,
+                          discover_media_catalog,
+                          suggest_media)  # noqa: F401
     HANDLERS["fetch_keywords"] = fetch_keywords.execute
     HANDLERS["classify_topics"] = classify_topics.execute
     HANDLERS["assign_keywords"] = assign_keywords.execute
@@ -130,6 +140,8 @@ def load_handlers():
     HANDLERS["embed_brand_pages"] = embed_brand_pages.execute
     HANDLERS["purge_stale_pages"] = purge_stale_pages.execute
     HANDLERS["refresh_ai_snapshot"] = refresh_ai_snapshot.execute
+    HANDLERS["discover_media_catalog"] = discover_media_catalog.execute
+    HANDLERS["suggest_media"] = suggest_media.execute
 
 
 # Job types that operate on a single content item (one FAQ / article / …)
@@ -528,6 +540,72 @@ def enqueue_post_publish_measurements() -> None:
     ping_t14_sweep()
 
 
+def enqueue_media_catalog_discovery() -> None:
+    """Daily sweep — enqueue ONE discover_media_catalog job if none in-flight.
+
+    The handler is workspace-wide (scan_id=NULL, payload={}) and idempotent.
+    It re-aggregates scan_llm_results.citations into media_catalog, then
+    asks LinkFinder for prices on rows whose linkfinder_last_check is
+    older than LINKFINDER_RECHECK_DAYS (7d).
+
+    Dedup : skip if any pending/running discover_media_catalog already exists.
+    The pair "24h throttle + DB dedup" handles the case where both
+    senai-worker and senai-worker-content try to enqueue simultaneously
+    after a restart (only senai-worker actually picks the job up — content
+    worker's WORKER_JOB_TYPES_INCLUDE excludes it).
+    """
+    global _LAST_MEDIA_CATALOG_SWEEP_TS
+    now = time.time()
+    if now - _LAST_MEDIA_CATALOG_SWEEP_TS < MEDIA_CATALOG_SWEEP_INTERVAL_SECONDS:
+        return
+    _LAST_MEDIA_CATALOG_SWEEP_TS = now
+
+    db = SessionLocal()
+    try:
+        from models import Job
+
+        # Dedup window covers pending + running AND recently-completed jobs.
+        # The "recent" arm prevents the boot-race where two workers (scan +
+        # content) start near-simultaneously with _LAST_MEDIA_CATALOG_SWEEP_TS
+        # = 0.0 in separate process memory : worker A enqueues + runs (13 s),
+        # then worker B's enqueue check fires AFTER worker A's job already
+        # completed, so the pending/running dedup misses it. Without this
+        # arm, every container restart would burn one extra discovery run.
+        recent_cutoff = datetime.utcnow() - timedelta(seconds=MEDIA_CATALOG_SWEEP_INTERVAL_SECONDS // 2)
+        in_flight = (
+            db.query(Job)
+            .filter(
+                Job.job_type == "discover_media_catalog",
+                (Job.status.in_(("pending", "running")))
+                | ((Job.status == "completed") & (Job.completed_at >= recent_cutoff)),
+            )
+            .order_by(Job.created_at.desc())
+            .first()
+        )
+        if in_flight:
+            logger.info(
+                f"media_catalog_discovery: skipping enqueue — recent job "
+                f"{in_flight.id} (status={in_flight.status})"
+            )
+            return
+
+        job = Job(
+            scan_id=None,
+            job_type="discover_media_catalog",
+            status="pending",
+            payload={},
+            max_attempts=2,
+        )
+        db.add(job)
+        db.commit()
+        logger.info(f"media_catalog_discovery: enqueued job {job.id}")
+    except Exception:
+        db.rollback()
+        logger.exception("enqueue_media_catalog_discovery failed")
+    finally:
+        db.close()
+
+
 def poll_and_execute():
     """Pick one pending job and execute it.
 
@@ -749,6 +827,7 @@ def main():
             ping_heartbeat()  # throttled to 5min; no-op if HEALTHCHECK_WORKER_URL unset
             cleanup_stuck_jobs()  # cheap no-op except every CLEANUP_INTERVAL_SECONDS
             enqueue_post_publish_measurements()  # Pilier 7 T+14 sweep, every 1h
+            enqueue_media_catalog_discovery()    # Phase MR.1 catalog refresh, every 24h
             had_job = poll_and_execute()
             if not had_job:
                 time.sleep(settings.poll_interval)

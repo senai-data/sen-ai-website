@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import (
-    Column, String, Integer, Float, Text, DateTime, ForeignKey, Enum, Boolean, create_engine
+    Column, String, Integer, BigInteger, Float, Text, DateTime, ForeignKey, Enum, Boolean, UniqueConstraint, create_engine
 )
 from sqlalchemy.dialects.postgresql import JSONB, ARRAY
 from sqlalchemy.dialects.postgresql import UUID
@@ -578,6 +578,88 @@ class LlmUsageLog(Base):
     client_id = Column(UUID(as_uuid=True), ForeignKey("clients.id", ondelete="SET NULL"))
     error = Column(Boolean, nullable=False, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class MediaCatalog(Base):
+    """Phase MR.1 — Buyable-media catalog for suggest-media endpoint.
+
+    PK is (domain, country, language). Bootstrapped from
+    scan_llm_results.citations aggregation and enriched per-domain via
+    LinkFinder.get_prices_batch. See worker/handlers/discover_media_catalog.py.
+
+    Multi-vertical: vertical[] is populated from client.vertical of citing
+    scans — no hardcoded allowlist. Cf. feedback_no_hardcoded_vertical.md.
+
+    PARITÉ obligatoire avec api/models.py (foot-gun #18).
+    """
+    __tablename__ = "media_catalog"
+    __table_args__ = (
+        UniqueConstraint("domain", "country", "language", name="media_catalog_domain_locale_uniq"),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    domain = Column(Text, nullable=False)
+    country = Column(Text, nullable=False)
+    language = Column(Text, nullable=False)
+    vertical = Column(ARRAY(Text), nullable=False, default=list)
+    topic_areas = Column(ARRAY(Text), nullable=False, default=list)
+    editorial_voice = Column(Text)
+    audience_tags = Column(ARRAY(Text), nullable=False, default=list)
+    media_group = Column(Text)
+    price_eur = Column(Float)
+    da = Column(Integer)
+    tf = Column(Integer)
+    cf = Column(Integer)
+    rd = Column(BigInteger)  # backlinks count — large sites exceed int4 (migration 044)
+    llm_citation_count = Column(Integer, nullable=False, default=0)
+    llm_citation_decayed = Column(Float, nullable=False, default=0)
+    llm_citation_last_seen = Column(DateTime)
+    reputation_flags = Column(ARRAY(Text), nullable=False, default=list)
+    site_type = Column(Text)
+    linkfinder_last_check = Column(DateTime)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class MediaFeedback(Base):
+    """Phase MR.1 — Per-(item, domain) user decisions on suggest-media output.
+
+    action in {'accepted', 'rejected', 'replaced'}.
+
+    PARITÉ obligatoire avec api/models.py (foot-gun #18).
+    """
+    __tablename__ = "media_feedback"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    client_id = Column(UUID(as_uuid=True), ForeignKey("clients.id", ondelete="CASCADE"), nullable=False)
+    opportunity_id = Column(UUID(as_uuid=True), ForeignKey("scan_opportunities.id", ondelete="SET NULL"))
+    content_item_id = Column(UUID(as_uuid=True), ForeignKey("scan_content_items.id", ondelete="CASCADE"))
+    domain = Column(Text, nullable=False)
+    action = Column(Text, nullable=False)
+    reason = Column(Text)
+    ts = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class MediaPublishOutcome(Base):
+    """Phase MR.1 — T+14 LLM-citation lift per provider after publishing
+    on a media suggested by /suggest-media. Populated by Sprint 4.
+
+    PARITÉ obligatoire avec api/models.py (foot-gun #18).
+    """
+    __tablename__ = "media_publish_outcome"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    content_item_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("scan_content_items.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+    )
+    domain = Column(Text, nullable=False)
+    published_at = Column(DateTime, nullable=False)
+    measured_at = Column(DateTime)
+    citation_lift_t14_per_provider = Column(JSONB, nullable=False, default=dict)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
 
 engine = create_engine(settings.database_url)

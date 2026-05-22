@@ -19,9 +19,24 @@
  */
 export const prerender = false;
 import DashboardLayout from '../../layouts/DashboardLayout.astro';
+import Tip from '../../components/Tip.astro';
 
 const token = Astro.cookies.get('token')?.value;
 if (!token) return Astro.redirect('/login');
+
+// Phase MR.2 — tooltip texts for the suggest-media modal KPIs. Defined once
+// here (these KPIs appear ONLY in this modal). If they later show up elsewhere
+// (e.g. validation page), promote to the shared TIPS dict in
+// src/components/Tip.astro per feedback_tooltips.md. Format : ≤2 lines, a
+// concrete example in <em>, <br/> for line breaks.
+const mediaTips = {
+  strategy:
+    'Follow = media where a competitor already appears (proven open to articles, on-topic).<br/>'
+    + '<em>Avoid = media with no competitor — stand out instead.</em>',
+  require_price:
+    'On = only media with a known publishing price.<br/>'
+    + '<em>Off = also show media you\'d have to contact directly.</em>',
+};
 
 // Read filter from query params for SSR-friendly state (browser back/forward)
 const ctParam = Astro.url.searchParams.get('content_type') || 'all';
@@ -356,16 +371,22 @@ function ageLabel(iso: string | null): string {
                           enriched) so user sees the "real" target at a glance
                           without opening validation page. FAQ items show
                           target_url in the existing layout below. */}
-                      {item.content_type === 'netlinking_article' && item.target_url && item.target_url_source === 'media_picker' && (
+                      {item.content_type === 'netlinking_article' && item.target_url && (item.target_url_source === 'media_picker' || item.target_url_source === 'media_replacement') && (
                         <div class="mb-2 -mt-1 inline-flex items-center gap-1.5 text-[11px] text-purple-700 font-medium">
                           <span>→ {(item.target_page_title || item.target_url.replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '').slice(0, 30))}</span>
-                          {item.target_url_candidates?.[0]?.price_eur != null && (
+                          {item.target_url_source === 'media_replacement' && (
+                            <span class="text-[9px] font-bold rounded px-1 py-0.5 bg-purple-100 text-purple-700"
+                                  title="You replaced the auto-picked media with this one via Find alternative.">
+                              ✓ Picked
+                            </span>
+                          )}
+                          {Array.isArray(item.target_url_candidates) && item.target_url_candidates?.[0]?.price_eur != null && (
                             <span class="text-amber-700 text-[10px]" title="LinkFinder published price (HT) for a sponsored placement">
                               💰 €{Math.round(item.target_url_candidates[0].price_eur).toLocaleString('fr-FR')}
                             </span>
                           )}
-                          {item.target_url_candidates?.[0]?.da != null && (
-                            <span class="text-charcoal-light text-[10px]" title="Domain Authority (LinkFinder / Majestic)">
+                          {Array.isArray(item.target_url_candidates) && item.target_url_candidates?.[0]?.da != null && (
+                            <span class="text-charcoal-light text-[10px]" title="Domain Authority">
                               DA {item.target_url_candidates[0].da}
                             </span>
                           )}
@@ -460,36 +481,59 @@ function ageLabel(iso: string | null): string {
                             </p>
                           </div>
 
-                          <!-- Idle : score + Generate button -->
-                          <div x-show="!generating" class="flex items-center justify-between gap-2">
+                          <!-- Idle : score + Generate button + (article only) Find alternative -->
+                          <div x-show="!generating" class="flex items-center justify-between gap-2 flex-wrap">
                             {item.opportunity_score != null && (
                               <span class="text-[10px] text-charcoal-light">Score <strong class="text-charcoal-dark">{Math.round(item.opportunity_score)}</strong></span>
                             )}
-                            {item.target_url ? (
-                              item.content_type === 'faq' ? (
-                                <button @click="startGen()" type="button"
-                                        class="text-[10px] rounded px-2 py-1 font-medium bg-coral text-white hover:bg-coral-dark transition-all"
-                                        title="Generate FAQ content (~60s, 1 content credit)">
-                                  ⚡ Generate FAQ
-                                </button>
-                              ) : item.content_type === 'netlinking_article' ? (
-                                <button @click="startGen()" type="button"
-                                        class="text-[10px] rounded px-2 py-1 font-medium bg-purple-600 text-white hover:bg-purple-700 transition-all"
-                                        title="Generate netlinking article (~5-15 min, 3 content credits)">
-                                  ⚡ Generate Article
-                                </button>
+                            <div class="flex items-center gap-1.5 flex-wrap">
+                              {item.target_url ? (
+                                item.content_type === 'faq' ? (
+                                  <button @click="startGen()" type="button"
+                                          class="text-[10px] rounded px-2 py-1 font-medium bg-coral text-white hover:bg-coral-dark transition-all"
+                                          title="Generate FAQ content (~60s, 1 content credit)">
+                                    ⚡ Generate FAQ
+                                  </button>
+                                ) : item.content_type === 'netlinking_article' ? (
+                                  <button @click="startGen()" type="button"
+                                          class="text-[10px] rounded px-2 py-1 font-medium bg-purple-600 text-white hover:bg-purple-700 transition-all"
+                                          title="Generate netlinking article (~5-15 min, 3 content credits)">
+                                    ⚡ Generate Article
+                                  </button>
+                                ) : (
+                                  <span class="text-[10px] text-gray-400 italic">Unsupported content_type</span>
+                                )
                               ) : (
-                                <span class="text-[10px] text-gray-400 italic">Unsupported content_type</span>
-                              )
-                            ) : (
-                              <a href={`/app/content/${item.id}`}
-                                 class="text-[10px] rounded px-2 py-1 font-medium bg-amber-100 text-amber-800 hover:bg-amber-200 transition-all"
-                                 title={item.content_type === 'netlinking_article'
-                                   ? 'Open validation page → set the media partner URL where the article will be published, then Generate.'
-                                   : 'Open validation page → set a target URL on your site, then Generate.'}>
-                                {item.content_type === 'netlinking_article' ? 'Set media URL →' : 'Set URL →'}
-                              </a>
-                            )}
+                                <a href={`/app/content/${item.id}`}
+                                   class="text-[10px] rounded px-2 py-1 font-medium bg-amber-100 text-amber-800 hover:bg-amber-200 transition-all"
+                                   title={item.content_type === 'netlinking_article'
+                                     ? 'Open validation page → set the media partner URL where the article will be published, then Generate.'
+                                     : 'Open validation page → set a target URL on your site, then Generate.'}>
+                                  {item.content_type === 'netlinking_article' ? 'Set media URL →' : 'Set URL →'}
+                                </a>
+                              )}
+                              {/* Phase MR.2 — Find alternative media button.
+                                  Shown when : netlinking_article AND user hasn't
+                                  already picked an alternative AND (no target_url
+                                  OR auto-picked media has no price). Once
+                                  target_url_source='media_replacement' the user
+                                  has committed — hide the button to reduce
+                                  visual clutter (Hick's Law). They can rematch
+                                  from the validation page if needed. */}
+                              {item.content_type === 'netlinking_article'
+                                && item.target_url_source !== 'media_replacement'
+                                && (
+                                  !item.target_url
+                                  || (Array.isArray(item.target_url_candidates)
+                                      && item.target_url_candidates?.[0]?.price_eur == null)
+                                ) && (
+                                <button type="button" @click.stop={`$dispatch('open-suggest-media', { id: '${item.id}', target_question: ${JSON.stringify(item.target_question || '')}, topic: ${JSON.stringify(item.topic_name || '')} })`}
+                                        class="text-[10px] rounded px-2 py-1 font-medium bg-white border border-purple-300 text-purple-700 hover:bg-purple-50 transition-all"
+                                        title="Get up to 5 ranked alternative media partners based on LLM citations + Babbar + LinkFinder data.">
+                                  🔄 Find alternative
+                                </button>
+                              )}
+                            </div>
                             <p x-show="error" x-text="error" class="text-[9px] text-red-600"></p>
                           </div>
                         </div>
@@ -530,5 +574,312 @@ function ageLabel(iso: string | null): string {
         })}
       </div>
     )}
+  </div>
+
+  {/* ── Phase MR.2 — Suggest alternative media modal ──────────────────────────
+      Single global Alpine component. Opens via custom event :
+        $dispatch('open-suggest-media', { id, target_question, topic })
+      Calls POST /suggest-media → polls /suggest-media-result every 600ms →
+      shows top-5 with breakdown → Accept (POST /accept-suggestion) or Reject
+      (local exclude → re-fetch). Closes on Escape, backdrop click, or × button. */}
+  <div x-data={`{
+         open: false,
+         loading: false,
+         item: null,
+         strategy: 'match_competitor',
+         requirePrice: true,
+         suggestions: [],
+         rejected: [],
+         attemptsUsed: 0,
+         attemptsCap: 5,
+         intentBlocked: false,
+         intentMessage: '',
+         diagnostics: null,
+         strategyFallback: false,
+         error: '',
+         async open_(detail) {
+           this.open = true;
+           this.item = detail;
+           this.rejected = [];
+           await this._fetch();
+         },
+         async _fetch() {
+           this.loading = true;
+           this.error = '';
+           this.intentBlocked = false;
+           this.suggestions = [];
+           try {
+             const r = await fetch('/api/content-items/' + this.item.id + '/suggest-media', {
+               method: 'POST',
+               headers: { 'Content-Type': 'application/json' },
+               credentials: 'same-origin',
+               body: JSON.stringify({
+                 strategy: this.strategy,
+                 require_price: this.requirePrice,
+                 exclude_domains: this.rejected,
+                 top_k: 5,
+               }),
+             });
+             if (!r.ok) {
+               const j = await r.json().catch(() => ({}));
+               this.error = (j.detail && (j.detail.message || j.detail)) || ('HTTP ' + r.status);
+               this.loading = false;
+               return;
+             }
+             const body = await r.json();
+             this.attemptsUsed = body.attempts_used || 0;
+             this.attemptsCap = body.attempts_cap || 5;
+             await this._poll(body.job_id);
+           } catch (e) {
+             this.error = e.message || 'Network error';
+             this.loading = false;
+           }
+         },
+         async _poll(jobId) {
+           const start = Date.now();
+           const timeoutMs = 90000;  // 90s — covers worker queue contention
+           while (this.open && Date.now() - start < timeoutMs) {
+             try {
+               const r = await fetch('/api/content-items/' + this.item.id + '/suggest-media-result?job_id=' + jobId, {
+                 credentials: 'same-origin',
+               });
+               if (r.ok) {
+                 const j = await r.json();
+                 if (j.status === 'completed') {
+                   const res = j.result || {};
+                   if (res.status === 'intent_not_eligible') {
+                     this.intentBlocked = true;
+                     this.intentMessage = res.message || 'This question is not eligible for netlinking placement.';
+                   } else if (res.status === 'error') {
+                     this.error = res.error || 'Suggestion failed';
+                   } else {
+                     this.suggestions = res.suggestions || [];
+                     this.diagnostics = res.diagnostics || null;
+                     this.strategyFallback = !!(res.diagnostics && res.diagnostics.strategy_fallback);
+                   }
+                   this.loading = false;
+                   return;
+                 } else if (j.status === 'failed') {
+                   this.error = j.error || 'Job failed';
+                   this.loading = false;
+                   return;
+                 }
+               }
+             } catch (e) { /* network blip — keep polling */ }
+             await new Promise(r => setTimeout(r, 600));
+           }
+           if (this.open) {
+             this.error = 'Timeout (>90s) — the worker may be busy generating an article. Wait a moment then click Refresh.';
+             this.loading = false;
+           }
+         },
+         reject(domain) {
+           if (!this.rejected.includes(domain)) this.rejected.push(domain);
+           this.suggestions = this.suggestions.filter(s => s.domain !== domain);
+         },
+         async accept(s) {
+           try {
+             const r = await fetch('/api/content-items/' + this.item.id + '/accept-suggestion', {
+               method: 'POST',
+               headers: { 'Content-Type': 'application/json' },
+               credentials: 'same-origin',
+               body: JSON.stringify({
+                 domain: s.domain,
+                 url: s.url,
+                 rejected_domains: this.rejected,
+                 price_eur: s.price_eur,
+                 da: s.da, tf: s.tf, cf: s.cf, rd: s.rd,
+                 media_group: s.media_group,
+               }),
+             });
+             if (r.ok) {
+               this.close();
+               window.location.reload();
+             } else {
+               const j = await r.json().catch(() => ({}));
+               this.error = (j.detail && (j.detail.message || j.detail)) || ('HTTP ' + r.status);
+             }
+           } catch (e) {
+             this.error = e.message || 'Network error';
+           }
+         },
+         async refresh() {
+           await this._fetch();
+         },
+         close() {
+           this.open = false;
+           this.item = null;
+           this.suggestions = [];
+           this.rejected = [];
+           this.error = '';
+           this.intentBlocked = false;
+         },
+         fmtPrice(p) {
+           if (p == null) return '—';
+           return '€' + Math.round(p).toLocaleString('fr-FR');
+         },
+         badgeClass(b) {
+           if (b === 'tier-1') return 'bg-emerald-100 text-emerald-800';
+           if (b === 'mid') return 'bg-blue-100 text-blue-800';
+           if (b === 'niche') return 'bg-gray-100 text-gray-700';
+           return 'bg-amber-50 text-amber-700';
+         },
+         badgeLabel(b) {
+           const map = { 'tier-1': 'Major media', 'mid': 'Mid-size', 'niche': 'Small / niche', 'unknown': 'Not rated' };
+           return map[b] || 'Not rated';
+         },
+         sourceLabel(s) {
+           const map = { scan_citation: 'Cited in your scan', cross_scan: 'Cited elsewhere', trust_sources: 'Trusted source', media_catalog: 'Our database', llm_web_search: 'AI search' };
+           return map[s] || s;
+         }
+       }`}
+       @open-suggest-media.window="open_($event.detail)"
+       @keydown.escape.window="if (open) close()"
+       x-show="open" x-cloak
+       class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+       @click.self="close()">
+    <div class="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col"
+         @click.stop>
+      <!-- Header -->
+      <div class="px-5 py-4 border-b border-gray-100 flex items-start justify-between gap-4">
+        <div class="flex-1 min-w-0">
+          <h2 class="text-base font-semibold text-charcoal-dark">Find alternative media</h2>
+          <p class="text-[11px] text-charcoal-light mt-0.5" x-show="item">
+            <span x-text="item?.topic" class="font-medium"></span><span x-show="item?.topic"> · </span>
+            <span class="italic" x-text="item?.target_question?.slice(0, 110) + (item?.target_question?.length > 110 ? '…' : '')"></span>
+          </p>
+        </div>
+        <button @click="close()" type="button" class="text-charcoal-light hover:text-charcoal-dark text-xl leading-none">×</button>
+      </div>
+
+      <!-- Controls -->
+      <div class="px-5 py-3 border-b border-gray-100 bg-gray-50/60">
+        <div class="flex items-center gap-4 flex-wrap text-[12px]">
+          <div class="flex items-center gap-2">
+            <span class="text-charcoal-light underline decoration-dotted decoration-charcoal-light/50 cursor-help">
+              <Tip text={mediaTips.strategy} position="bottom">Strategy:</Tip>
+            </span>
+            <label class="flex items-center gap-1 cursor-pointer">
+              <input type="radio" x-model="strategy" value="match_competitor" @change="refresh()" class="accent-purple-600" />
+              <span title="Media where a competitor already appears">Follow competitors</span>
+            </label>
+            <label class="flex items-center gap-1 cursor-pointer">
+              <input type="radio" x-model="strategy" value="avoid_competitor" @change="refresh()" class="accent-purple-600" />
+              <span title="Media with no competitor — stand out">Avoid competitors</span>
+            </label>
+          </div>
+          <label class="flex items-center gap-1 cursor-pointer">
+            <input type="checkbox" x-model="requirePrice" @change="refresh()" class="accent-purple-600" />
+            <span class="underline decoration-dotted decoration-charcoal-light/50 cursor-help">
+              <Tip text={mediaTips.require_price} position="bottom">Only media with a known price</Tip>
+            </span>
+          </label>
+        </div>
+        <!-- Plain-language legend (always visible, never clipped by modal scroll).
+             One definition per line for scannability — Law of Proximity +
+             Aesthetic-Usability (lawsofux). -->
+        <dl class="mt-2 grid grid-cols-[auto_1fr] gap-x-2 gap-y-1 text-[10px] text-charcoal-light leading-snug">
+          <dt class="font-semibold text-charcoal-dark whitespace-nowrap">Authority</dt>
+          <dd>how trusted a site is across the web — 0-100, based on its backlinks</dd>
+          <dt class="font-semibold text-charcoal-dark whitespace-nowrap">Major / Mid-size / Niche</dt>
+          <dd>media ranked by that authority score</dd>
+          <dt class="font-semibold text-charcoal-dark whitespace-nowrap">€ price</dt>
+          <dd>what the media charges to publish your article</dd>
+        </dl>
+      </div>
+
+      <!-- Body -->
+      <div class="flex-1 overflow-y-auto px-5 py-4 space-y-3">
+        <!-- Loading -->
+        <div x-show="loading" class="text-center py-12 text-charcoal-light text-sm">
+          <div class="inline-block w-6 h-6 border-2 border-purple-300 border-t-purple-600 rounded-full animate-spin mb-2"></div>
+          <p>Searching alternative media…</p>
+        </div>
+
+        <!-- Error -->
+        <div x-show="!loading && error" class="bg-red-50 border border-red-200 text-red-800 text-[12px] rounded p-3" x-text="error"></div>
+
+        <!-- Intent blocked -->
+        <div x-show="!loading && intentBlocked" class="bg-amber-50 border border-amber-200 text-amber-900 text-[12px] rounded p-3">
+          <strong>This question can't get netlinking suggestions.</strong>
+          <p class="mt-1" x-text="intentMessage"></p>
+        </div>
+
+        <!-- Empty -->
+        <div x-show="!loading && !error && !intentBlocked && suggestions.length === 0" class="text-center py-10 text-charcoal-light text-sm">
+          <p>No matching media found with the current filters.</p>
+          <p class="text-[11px] mt-1">Try unchecking "Require LinkFinder price" or switching strategy.</p>
+        </div>
+
+        <!-- Strategy fallback notice (when avoid/match strict filter emptied the list) -->
+        <div x-show="!loading && !error && !intentBlocked && strategyFallback && suggestions.length > 0"
+             class="bg-amber-50 border border-amber-200 text-amber-900 text-[11px] rounded p-2.5">
+          <strong>No media matched your strategy strictly.</strong>
+          <span x-show="strategy === 'avoid_competitor'">All candidates have at least one competitor co-cited. Showing best ranked anyway — consider Match strategy or relax filters.</span>
+          <span x-show="strategy === 'match_competitor'">No candidate has a competitor co-cited. Showing best ranked anyway — try Avoid strategy.</span>
+        </div>
+
+        <!-- Suggestions list -->
+        <template x-for="s in suggestions" :key="s.domain">
+          <div class="border border-gray-200 rounded-lg p-3 hover:border-purple-200 transition-all">
+            <div class="flex items-start justify-between gap-3">
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-2 flex-wrap">
+                  <span class="font-medium text-charcoal-dark" x-text="s.domain"></span>
+                  <span class="text-[9px] font-bold rounded px-1.5 py-0.5"
+                        :class="badgeClass(s.authority_badge)"
+                        x-text="badgeLabel(s.authority_badge)"></span>
+                  <span class="text-[10px] text-charcoal-light" x-show="s.da != null">Authority <span x-text="s.da"></span>/100</span>
+                  <span class="text-[10px] text-amber-700 font-medium" x-text="fmtPrice(s.price_eur)" x-show="s.price_eur != null"></span>
+                  <span class="text-[9px] text-gray-500 italic" x-text="sourceLabel(s.source)"></span>
+                </div>
+                <ul class="mt-1.5 space-y-0.5">
+                  <template x-for="r in s.breakdown?.reasons || []" :key="r">
+                    <li class="text-[11px] text-emerald-700">✓ <span x-text="r"></span></li>
+                  </template>
+                  <template x-for="r in s.breakdown?.risks || []" :key="r">
+                    <li class="text-[11px] text-amber-700">⚠ <span x-text="r"></span></li>
+                  </template>
+                </ul>
+                <a x-show="s.sample_recent_article_url" :href="s.sample_recent_article_url" target="_blank" rel="noopener"
+                   class="text-[10px] text-purple-600 hover:underline mt-1 inline-block">
+                  Sample article ↗
+                </a>
+              </div>
+              <div class="flex flex-col gap-1.5">
+                <button @click="accept(s)" type="button"
+                        class="text-[10px] rounded px-2.5 py-1 font-medium bg-purple-600 text-white hover:bg-purple-700 transition-all whitespace-nowrap">
+                  Accept →
+                </button>
+                <button @click="reject(s.domain)" type="button"
+                        class="text-[10px] rounded px-2 py-1 font-medium text-charcoal-light hover:text-red-600 transition-all">
+                  Reject
+                </button>
+              </div>
+            </div>
+          </div>
+        </template>
+      </div>
+
+      <!-- Footer -->
+      <div class="px-5 py-3 border-t border-gray-100 bg-gray-50/60 flex items-center justify-between text-[11px]">
+        <span class="text-charcoal-light">
+          <span x-text="attemptsUsed"></span>/<span x-text="attemptsCap"></span> attempts used
+          <span x-show="rejected.length > 0" class="ml-2">· <span x-text="rejected.length"></span> rejected in this session</span>
+        </span>
+        <div class="flex items-center gap-2">
+          <button @click="refresh()" type="button"
+                  :disabled="loading || attemptsUsed >= attemptsCap"
+                  class="text-[11px] rounded px-2.5 py-1 font-medium bg-white border border-gray-200 text-charcoal-dark hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                  title="Re-run with current filters, excluding rejected domains.">
+            ↻ Refresh (5 more)
+          </button>
+          <button @click="close()" type="button"
+                  class="text-[11px] rounded px-2.5 py-1 font-medium text-charcoal-light hover:text-charcoal-dark">
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </DashboardLayout>

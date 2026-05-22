@@ -28,9 +28,10 @@ from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.orm.attributes import flag_modified
 
 from models import (
-    ClientBrand, Job, Scan, ScanBrandClassification, ScanContentItem,
+    ClientBrand, Job, MediaFeedback, Scan, ScanBrandClassification, ScanContentItem,
     ScanLLMResult, ScanQuestion, UserClient, get_db,
 )
+from sqlalchemy import text as sa_text
 from routers.scans import _check_scan_access
 from services.audit import audit_log
 from services.auth_service import get_current_user
@@ -1158,6 +1159,321 @@ async def rematch_target_url(item_id: str, user=Depends(get_current_user),
     )
 
     return {"ok": True, "job_id": str(job.id), "status": "pending"}
+
+
+# ── Phase MR.2 — Suggest alternative media ────────────────────────────
+# Three endpoints powering the "Find alternative media" modal on netlinking
+# article items :
+#   POST /suggest-media          → enqueue suggest_media job, return job_id
+#   GET  /suggest-media-result   → poll job status + result
+#   POST /accept-suggestion      → PATCH target_url + log media_feedback
+#
+# Async via job queue : the worker-side service (media_replacement.py) has
+# cross-tenant dependencies (intent_taxonomy, competitor_domains, etc.) not
+# available in the api container. ~1-3s latency is acceptable for explicit
+# user clicks. See cheeky-questing-lemur.md Sprint 2.
+
+# Hard cap on user-triggered suggest-media jobs per item. Each job is FREE
+# (DB-only Sprint 2) but we cap to prevent spam. Sprint 3 LLM fallback will
+# debit one content_credit per call ; the hard cap still applies on top of
+# the credit floor.
+SUGGEST_MEDIA_MAX_ATTEMPTS_PER_ITEM = 5
+
+
+class SuggestMediaRequest(BaseModel):
+    strategy: str = "match_competitor"  # | "avoid_competitor"
+    price_max: float | None = None
+    require_price: bool = False
+    exclude_domains: list[str] = []
+    top_k: int = 5
+
+
+class AcceptSuggestionRequest(BaseModel):
+    domain: str
+    url: str
+    rejected_domains: list[str] = []
+    # Phase MR.2 — carry the accepted suggestion's enrichment so the card +
+    # validation page can show price / authority without a re-fetch.
+    price_eur: float | None = None
+    da: int | None = None
+    tf: int | None = None
+    cf: int | None = None
+    rd: int | None = None
+    media_group: str | None = None
+
+
+@router.post("/content-items/{item_id}/suggest-media")
+async def suggest_media(
+    item_id: str,
+    body: SuggestMediaRequest,
+    user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Enqueue a suggest_media job + return job_id. Frontend polls
+    /content-items/{id}/suggest-media-result?job_id=X until completed.
+
+    Free in Sprint 2 (sources 1-4 = DB-only). Sprint 3 adds LLM web_search
+    fallback as source 5 with content_credit debit. The cap below applies
+    to BOTH modes.
+    """
+    item = (
+        db.query(ScanContentItem)
+        .options(joinedload(ScanContentItem.scan))
+        .filter(ScanContentItem.id == item_id)
+        .first()
+    )
+    if not item:
+        raise HTTPException(404, "Content item not found")
+
+    _check_scan_access(str(item.scan_id), user, db)
+
+    if item.content_type != "netlinking_article":
+        raise HTTPException(400, {
+            "error": "wrong_content_type",
+            "message": "suggest-media is only for netlinking_article items.",
+        })
+
+    if item.status not in ("identified", "draft"):
+        raise HTTPException(409, {
+            "error": "invalid_status",
+            "message": f"Item is in status '{item.status}' — suggest-media only "
+                       f"available on 'identified' or 'draft'.",
+        })
+
+    # Cap : count of suggest_media jobs ever fired for this item. JSONB key
+    # lookup via raw SQL to keep the count cheap.
+    attempts_used = db.execute(sa_text("""
+        SELECT COUNT(*) FROM jobs
+         WHERE job_type = 'suggest_media' AND payload->>'item_id' = :iid
+    """), {"iid": item_id}).scalar() or 0
+
+    if attempts_used >= SUGGEST_MEDIA_MAX_ATTEMPTS_PER_ITEM:
+        raise HTTPException(429, {
+            "error": "suggest_cap_reached",
+            "message": (
+                f"You've explored {attempts_used} suggestion runs on this item. "
+                f"That's our budget cap. Pick one from history, accept manually, "
+                f"or reject the item if no good fit exists."
+            ),
+            "attempts_used": attempts_used,
+            "cap": SUGGEST_MEDIA_MAX_ATTEMPTS_PER_ITEM,
+        })
+
+    # Dedup in-flight (double-click guard)
+    in_flight = (
+        db.query(Job)
+        .filter(
+            Job.job_type == "suggest_media",
+            Job.status.in_(["pending", "running"]),
+        )
+        .all()
+    )
+    for j in in_flight:
+        if (j.payload or {}).get("item_id") == item_id:
+            return {
+                "ok": True, "job_id": str(j.id), "status": j.status,
+                "attempts_used": attempts_used, "attempts_cap": SUGGEST_MEDIA_MAX_ATTEMPTS_PER_ITEM,
+                "message": "Suggestion already in flight",
+            }
+
+    payload = {
+        "item_id": item_id,
+        "strategy": body.strategy,
+        "price_max": body.price_max,
+        "require_price": body.require_price,
+        "exclude_domains": [d for d in (body.exclude_domains or []) if d],
+        "top_k": max(1, min(20, body.top_k or 5)),
+    }
+    job = Job(
+        scan_id=item.scan_id,
+        job_type="suggest_media",
+        status="pending",
+        payload=payload,
+        max_attempts=2,
+    )
+    db.add(job)
+    db.commit()
+    db.refresh(job)
+
+    audit_log(
+        db, user_id=str(user.id),
+        action="content_item.suggest_media",
+        target_type="content_item", target_id=item_id,
+        details={"job_id": str(job.id), "strategy": body.strategy,
+                 "require_price": body.require_price,
+                 "attempts_used": attempts_used + 1},
+    )
+
+    return {
+        "ok": True,
+        "job_id": str(job.id),
+        "status": "pending",
+        "attempts_used": attempts_used + 1,
+        "attempts_cap": SUGGEST_MEDIA_MAX_ATTEMPTS_PER_ITEM,
+    }
+
+
+@router.get("/content-items/{item_id}/suggest-media-result")
+async def suggest_media_result(
+    item_id: str,
+    job_id: str = Query(...),
+    user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Poll the result of a previously-enqueued suggest_media job.
+
+    Frontend pattern : after POST /suggest-media returns job_id, poll this
+    endpoint every 500ms until status != 'pending' and != 'running'.
+    Typical wall time 1-3s in Sprint 2 (DB-only).
+
+    Validates that the job belongs to this content item (security : prevents
+    cross-item job_id sniffing).
+    """
+    item = (
+        db.query(ScanContentItem)
+        .options(joinedload(ScanContentItem.scan))
+        .filter(ScanContentItem.id == item_id)
+        .first()
+    )
+    if not item:
+        raise HTTPException(404, "Content item not found")
+
+    _check_scan_access(str(item.scan_id), user, db)
+
+    job = db.query(Job).filter(Job.id == job_id).first()
+    if not job or job.job_type != "suggest_media":
+        raise HTTPException(404, "Job not found")
+    if (job.payload or {}).get("item_id") != item_id:
+        raise HTTPException(403, {"error": "job_item_mismatch"})
+
+    if job.status in ("pending", "running"):
+        return {"status": job.status, "result": None}
+
+    if job.status == "failed":
+        return {
+            "status": "failed",
+            "result": None,
+            "error": (job.result or {}).get("error", "unknown"),
+        }
+
+    # completed → return the result payload as-is (handler shape matches the
+    # /suggest-media response contract documented in cheeky-questing-lemur.md)
+    return {"status": "completed", "result": job.result or {}}
+
+
+@router.post("/content-items/{item_id}/accept-suggestion")
+async def accept_suggestion(
+    item_id: str,
+    body: AcceptSuggestionRequest,
+    user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Apply a chosen suggestion : PATCH target_url + log media_feedback.
+
+    `rejected_domains` is the list of domains the user explicitly rejected
+    in the SAME modal session — each gets a media_feedback row with
+    action='rejected' so future suggestions exclude them on this item.
+
+    Returns the patched item snapshot the UI can swap in without a refresh.
+    """
+    item = (
+        db.query(ScanContentItem)
+        .options(joinedload(ScanContentItem.scan))
+        .filter(ScanContentItem.id == item_id)
+        .first()
+    )
+    if not item:
+        raise HTTPException(404, "Content item not found")
+
+    _check_scan_access(str(item.scan_id), user, db)
+
+    if item.content_type != "netlinking_article":
+        raise HTTPException(400, {"error": "wrong_content_type"})
+
+    if item.status not in ("identified", "draft"):
+        raise HTTPException(409, {
+            "error": "invalid_status",
+            "message": f"Item is in status '{item.status}'. accept-suggestion "
+                       f"only on 'identified' or 'draft'.",
+        })
+
+    domain = (body.domain or "").strip().lower()
+    url = (body.url or "").strip()
+    if not domain or not url:
+        raise HTTPException(400, {"error": "missing_domain_or_url"})
+
+    # PATCH the item (record previous target_url for audit)
+    prev_url = item.target_url
+    item.target_url = url
+    item.target_url_source = "media_replacement"
+    # Persist the accepted suggestion as a single-element target_url_candidates
+    # array — same shape media_picker writes — so the Kanban card chip and the
+    # validation page show price / DA without a re-fetch. Keeping the ARRAY
+    # contract is critical : content.astro reads `target_url_candidates[0]`.
+    item.target_url_candidates = [{
+        "domain": domain,
+        "url": url,
+        "price_eur": body.price_eur,
+        "da": body.da,
+        "tf": body.tf,
+        "cf": body.cf,
+        "rd": body.rd,
+        "media_group": body.media_group,
+        "source": "media_replacement",
+    }]
+    flag_modified(item, "target_url_candidates")
+    if body.price_eur is not None:
+        item.estimated_price = float(body.price_eur)
+    # Audit trail in content_metadata (unstructured JSONB).
+    metadata = dict(item.content_metadata or {})
+    metadata["last_suggestion_accepted"] = {
+        "domain": domain,
+        "url": url,
+        "previous_url": prev_url,
+        "price_eur": body.price_eur,
+        "accepted_at": datetime.utcnow().isoformat() + "Z",
+        "rejected_count": len(body.rejected_domains or []),
+    }
+    item.content_metadata = metadata
+    flag_modified(item, "content_metadata")
+
+    # Log accepted
+    db.add(MediaFeedback(
+        client_id=item.scan.client_id,
+        content_item_id=item.id,
+        domain=domain,
+        action="accepted",
+    ))
+    # Log rejected (dedup against the accepted one)
+    for rd in (body.rejected_domains or []):
+        rd_norm = (rd or "").strip().lower()
+        if rd_norm and rd_norm != domain:
+            db.add(MediaFeedback(
+                client_id=item.scan.client_id,
+                content_item_id=item.id,
+                domain=rd_norm,
+                action="rejected",
+            ))
+
+    db.commit()
+    db.refresh(item)
+
+    audit_log(
+        db, user_id=str(user.id),
+        action="content_item.accept_suggestion",
+        target_type="content_item", target_id=item_id,
+        details={
+            "accepted_domain": domain, "new_url": url,
+            "previous_url": prev_url,
+            "rejected_count": len(body.rejected_domains or []),
+        },
+    )
+
+    return {
+        "ok": True,
+        "target_url": item.target_url,
+        "target_url_source": item.target_url_source,
+    }
 
 
 # Phase C.1.3 — manual refresh of LinkFinder enrichment on existing

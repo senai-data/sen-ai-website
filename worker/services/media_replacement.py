@@ -249,6 +249,12 @@ def suggest(
             openai_api_key,
         )
 
+    # ── Competitor co-citation map (built ONCE, batched — Phase MR.4) ─────
+    # Replaces a per-candidate N+1 (2 queries × N) with 2 queries total.
+    competitor_cocitation = _build_competitor_cocitation_map(
+        db, str(scan.id), competitor_domains, str(scan.client_id),
+    )
+
     # ── Hard filters ─────────────────────────────────────────────────────
     kept: dict[str, _Candidate] = {}
     drop_reasons: dict[str, int] = defaultdict(int)
@@ -262,12 +268,12 @@ def suggest(
             continue
         # Stamp the footprint count for scoring
         cand.footprint_count = footprint.get(domain, 0)
-        # Strategy : did this domain see a competitor in this scan? Also
-        # collect the competitor BRAND NAMES so the breakdown can name them
-        # ("Le concurrent Bioderma y est cité" >>> "Le concurrent y est cité").
-        cand.competitor_match, cand.competitor_names = _competitor_co_cited_for_domain(
-            db, str(scan.id), domain, competitor_domains, str(scan.client_id),
-        )
+        # Strategy : did this domain see a competitor in this scan? Plain dict
+        # lookup now (no SQL) — the names drive the breakdown explainer
+        # ("Your competitors are already cited here: Bioderma").
+        names = competitor_cocitation.get(domain, [])
+        cand.competitor_match = bool(names)
+        cand.competitor_names = names
         cand.in_trust_sources = domain in trust_domains
         kept[domain] = cand
 
@@ -742,67 +748,74 @@ def _hard_filter(
     return True, ""
 
 
-def _competitor_co_cited_for_domain(
-    db: Session, scan_id: str, domain: str,
+def _build_competitor_cocitation_map(
+    db: Session, scan_id: str,
     competitor_domains: set[str], client_id: str,
-) -> tuple[bool, list[str]]:
-    """For one candidate media domain, find which competitor BRAND NAMES were
-    cited in the SAME LLM responses that cited the media in this scan.
+) -> dict[str, list[str]]:
+    """Phase MR.4 — batch replacement for the per-domain N+1.
 
-    Returns ``(has_competitor, [name, ...])`` — used by :
-      - The strategy toggle scoring (match_competitor / avoid_competitor)
-      - The breakdown explainer ("Bioderma y est cité" — informs user decision)
+    Builds, in 2 queries for the WHOLE scan, a map
+    ``{cited_media_domain: [competitor_brand_name, ...]}`` of which competitor
+    brands were cited in the SAME LLM responses as each media domain.
 
-    Resolves the brand names via `client_brands` (domain → name). Falls back
-    to the raw domain when no client_brands row matches. Distinct, sorted.
+    Was: 2 SQL queries × N surviving candidates (~255s on dense scans).
+    Now: 1 query to expand citations × responses-with-competitors + 1 query to
+    translate competitor domains → brand names. The per-candidate lookup is a
+    plain dict access. Only domains WITH a competitor co-citation appear in the
+    map; absence = (False, []).
     """
     if not competitor_domains:
-        return False, []
+        return {}
+
+    # Query 1 — every (cited_domain, competitor_domains_dict) pair for responses
+    # that have at least one competitor. One row per citation per qualifying
+    # response ; we fold them into a per-domain set of competitor domains.
     rows = db.execute(text("""
-        SELECT slr.competitor_domains
-          FROM scan_llm_results slr
+        SELECT
+            lower(c->>'domaine')        AS domain,
+            slr.competitor_domains      AS comp
+          FROM scan_llm_results slr,
+               jsonb_array_elements(slr.citations) c
          WHERE slr.scan_id = :sid
            AND jsonb_typeof(slr.citations) = 'array'
            AND slr.competitor_domains IS NOT NULL
            AND slr.competitor_domains <> '{}'::jsonb
-           AND EXISTS (
-               SELECT 1 FROM jsonb_array_elements(slr.citations) c
-                WHERE lower(c->>'domaine') = :d
-                   OR lower(c->>'domaine') = :wd
-           )
-    """), {"sid": scan_id, "d": domain, "wd": f"www.{domain}"}).fetchall()
+    """), {"sid": scan_id}).fetchall()
 
-    co_domains: set[str] = set()
-    for (jr,) in rows:
-        if isinstance(jr, dict):
-            for k in jr.keys():
-                if not k:
-                    continue
-                co_domains.add(_normalize_domain(k))
-    co_domains.discard("")
-    co_domains &= competitor_domains  # intersect with this scan's known competitors
-    if not co_domains:
-        return False, []
+    domain_to_comp_domains: dict[str, set[str]] = defaultdict(set)
+    all_comp_domains: set[str] = set()
+    for raw_domain, comp in rows:
+        d = _normalize_domain(raw_domain)
+        if not d or not isinstance(comp, dict):
+            continue
+        for k in comp.keys():
+            cd = _normalize_domain(k)
+            if cd and cd in competitor_domains:
+                domain_to_comp_domains[d].add(cd)
+                all_comp_domains.add(cd)
 
-    # Translate domains → brand names via client_brands. Some competitors
-    # may not be registered as ClientBrand (cross-tenant inference) ; for
-    # those fall back to the bare domain so user still sees the signal.
-    names: set[str] = set()
-    name_rows = db.execute(text("""
-        SELECT DISTINCT name, lower(domain) AS d
-          FROM client_brands
-         WHERE client_id = :cid
-           AND lower(domain) = ANY(:doms)
-    """), {"cid": client_id, "doms": list(co_domains)}).fetchall()
-    found_domains: set[str] = set()
-    for n, d in name_rows:
-        if n:
-            names.add(n.strip())
-        if d:
-            found_domains.add(d)
-    for d in co_domains - found_domains:
-        names.add(d)
-    return True, sorted(names)
+    if not domain_to_comp_domains:
+        return {}
+
+    # Query 2 — translate the competitor domains we actually saw → brand names.
+    name_by_domain: dict[str, str] = {}
+    if all_comp_domains:
+        name_rows = db.execute(text("""
+            SELECT DISTINCT lower(domain) AS d, name
+              FROM client_brands
+             WHERE client_id = :cid
+               AND lower(domain) = ANY(:doms)
+        """), {"cid": client_id, "doms": list(all_comp_domains)}).fetchall()
+        for d, n in name_rows:
+            if d and n:
+                name_by_domain[d] = n.strip()
+
+    # Fold to {media_domain: sorted([brand names | bare domain fallback])}
+    out: dict[str, list[str]] = {}
+    for media_domain, comp_set in domain_to_comp_domains.items():
+        names = {name_by_domain.get(cd, cd) for cd in comp_set}
+        out[media_domain] = sorted(n for n in names if n)
+    return out
 
 
 # ─── Scoring + explainability ───────────────────────────────────────────

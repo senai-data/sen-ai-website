@@ -114,7 +114,8 @@ def load_handlers():
                           embed_brand_pages, purge_stale_pages,
                           refresh_ai_snapshot,
                           discover_media_catalog,
-                          suggest_media)  # noqa: F401
+                          suggest_media,
+                          measure_publish_outcome)  # noqa: F401
     HANDLERS["fetch_keywords"] = fetch_keywords.execute
     HANDLERS["classify_topics"] = classify_topics.execute
     HANDLERS["assign_keywords"] = assign_keywords.execute
@@ -142,6 +143,7 @@ def load_handlers():
     HANDLERS["refresh_ai_snapshot"] = refresh_ai_snapshot.execute
     HANDLERS["discover_media_catalog"] = discover_media_catalog.execute
     HANDLERS["suggest_media"] = suggest_media.execute
+    HANDLERS["measure_publish_outcome"] = measure_publish_outcome.execute
 
 
 # Job types that operate on a single content item (one FAQ / article / …)
@@ -540,6 +542,80 @@ def enqueue_post_publish_measurements() -> None:
     ping_t14_sweep()
 
 
+def enqueue_media_publish_outcomes() -> None:
+    """Phase MR.4 #3 — sweep for media-suggested articles ready for T+14
+    outcome measurement, enqueue measure_publish_outcome jobs.
+
+    Eligible item :
+      - target_url_source = 'media_replacement' (published on a suggested media)
+      - published_at < now - POST_PUBLISH_MEASUREMENT_DELAY_DAYS
+      - has a ScanLLMResult dated AFTER published_at (the Pilier 7 refresh
+        produced the post-publish data point this loop reads)
+      - no media_publish_outcome row measured yet
+      - no in-flight measure_publish_outcome job
+
+    Runs on the same throttle window as the post-publish sweep (called right
+    after it in the main loop). Cheap no-op when nothing is ripe.
+    """
+    db = SessionLocal()
+    try:
+        from models import Job
+        cutoff = datetime.utcnow() - timedelta(days=POST_PUBLISH_MEASUREMENT_DELAY_DAYS)
+        rows = db.execute(text("""
+            SELECT sci.id::text AS item_id, sci.scan_id::text AS scan_id
+              FROM scan_content_items sci
+             WHERE sci.target_url_source = 'media_replacement'
+               AND sci.published_at IS NOT NULL
+               AND sci.published_at < :cutoff
+               AND EXISTS (
+                   SELECT 1 FROM scan_questions sq
+                     JOIN scan_llm_results slr ON slr.question_id = sq.id
+                    WHERE sq.scan_id = sci.scan_id
+                      AND lower(sq.question) = lower(sci.target_question)
+                      AND slr.created_at > sci.published_at
+               )
+               AND NOT EXISTS (
+                   SELECT 1 FROM media_publish_outcome mpo
+                    WHERE mpo.content_item_id = sci.id
+                      AND mpo.measured_at IS NOT NULL
+               )
+             LIMIT 200
+        """), {"cutoff": cutoff}).fetchall()
+        if not rows:
+            return
+
+        in_flight = (
+            db.query(Job)
+            .filter(
+                Job.job_type == "measure_publish_outcome",
+                Job.status.in_(("pending", "running")),
+            )
+            .all()
+        )
+        in_flight_items = {(j.payload or {}).get("item_id") for j in in_flight}
+
+        enqueued = 0
+        for r in rows:
+            if r.item_id in in_flight_items:
+                continue
+            db.add(Job(
+                scan_id=r.scan_id,
+                job_type="measure_publish_outcome",
+                status="pending",
+                payload={"item_id": r.item_id},
+                max_attempts=2,
+            ))
+            enqueued += 1
+        if enqueued:
+            db.commit()
+            logger.info(f"media_publish_outcome: enqueued {enqueued} outcome job(s)")
+    except Exception:
+        db.rollback()
+        logger.exception("enqueue_media_publish_outcomes failed")
+    finally:
+        db.close()
+
+
 def enqueue_media_catalog_discovery() -> None:
     """Daily sweep — enqueue ONE discover_media_catalog job if none in-flight.
 
@@ -827,6 +903,7 @@ def main():
             ping_heartbeat()  # throttled to 5min; no-op if HEALTHCHECK_WORKER_URL unset
             cleanup_stuck_jobs()  # cheap no-op except every CLEANUP_INTERVAL_SECONDS
             enqueue_post_publish_measurements()  # Pilier 7 T+14 sweep, every 1h
+            enqueue_media_publish_outcomes()     # Phase MR.4 #3 media outcome sweep
             enqueue_media_catalog_discovery()    # Phase MR.1 catalog refresh, every 24h
             had_job = poll_and_execute()
             if not had_job:

@@ -757,7 +757,27 @@ async def get_pipeline(scan_id: str, user=Depends(get_current_user), db: Session
                 out["error"] = str(r["error"])[:200]
         return out
 
-    serialized = [_serialize_job(j) for j in jobs]
+    # Scan-phase filter — the Scan step UI should show ONLY the scan-execution
+    # steps (run_llm_tests onward), not the upstream setup pipeline (keywords,
+    # topics, personas) which belong to earlier wizard stages. Showing the full
+    # 15-step process on the Scan view confuses users ("if setup is done, why
+    # is it still listed?"). We split on the LAUNCH moment = the created_at of
+    # the most recent run_llm_tests job. Everything at-or-after = scan phase.
+    launch_at = None
+    for j in jobs:
+        if j.job_type == "run_llm_tests" and j.created_at:
+            # keep the latest one (re-launch / rescan creates a fresh job)
+            if launch_at is None or j.created_at > launch_at:
+                launch_at = j.created_at
+
+    if launch_at is not None:
+        scan_jobs = [j for j in jobs if j.created_at and j.created_at >= launch_at]
+    else:
+        # No run_llm_tests yet — scan not launched. Return everything so the
+        # earlier wizard stages still get a progress view if they poll.
+        scan_jobs = jobs
+
+    serialized = [_serialize_job(j) for j in scan_jobs]
     completed_count = sum(1 for s in serialized if s["status"] == "completed")
     total_completed_ms = sum(s.get("duration_ms", 0) for s in serialized)
     remaining_eta = sum(s.get("eta_seconds", 0) for s in serialized if s["status"] in ("running", "pending"))
@@ -771,6 +791,7 @@ async def get_pipeline(scan_id: str, user=Depends(get_current_user), db: Session
         "completed_steps": completed_count,
         "total_elapsed_ms": total_completed_ms,
         "remaining_eta_seconds": remaining_eta,
+        "phase": "scan" if launch_at is not None else "setup",
     }
 
 

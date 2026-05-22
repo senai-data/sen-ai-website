@@ -47,7 +47,7 @@ Return ONLY valid JSON (no markdown, no explanation) with this exact structure:
   "description": "2-3 sentence description of what the company does, what they sell, through which channels",
   "industry": "Industry / Sub-industry",
   "country": "Primary market country",
-  "brands": ["Brand names owned by this company"],
+  "brands": ["The brand of THIS website ONLY — not its parent group's other brands"],
   "product_lines": ["Product line name (purpose/category)" for each major product range],
   "services": ["Any services offered beyond products"],
   "competitors": [
@@ -60,8 +60,13 @@ Return ONLY valid JSON (no markdown, no explanation) with this exact structure:
   ]
 }}
 
-Be thorough and specific. For competitors, list 5-10 direct competitors with their key product lines.
-For product_lines, list the actual product range names, not generic categories.
+# ⚠ Critical rule on "brands" vs "competitors" for grouped brands
+If this website belongs to a corporate group (e.g. L'Oréal owns CeraVe + La Roche-Posay + Vichy; Pierre Fabre owns Avène + Ducray + Klorane; Beiersdorf owns Eucerin + Nivea):
+  - `brands` MUST contain ONLY the brand of the scanned domain. Example: scan = ducray.com → brands = ["Ducray"], NOT ["Ducray", "Avène", "Klorane", …]. The sister brands are siblings, not "owned by Ducray".
+  - The sister brands of the SAME parent group MUST appear in `competitors` if they compete on overlapping therapeutic areas / categories. Example: scan = ducray.com → competitors include Klorane (chute de cheveux competes Anaphase), Avène (Dermatite atopique competes Dexyane), René Furterer (chute capillaire), etc. Same-group brands are direct competitors on the shelf even if they share a parent.
+
+For competitors, list 8-15 direct competitors with their key product lines. Include same-group sister brands when they compete on overlapping categories.
+For product_lines, list the actual product range names of the scanned brand only, not generic categories.
 
 For `noise_patterns`, list lowercase terms specific to this industry that an over-eager brand extractor would mistakenly tag as brands. Include:
 - Generic product categories ("crème", "shampoo", "huile moteur", "smartphone")
@@ -87,7 +92,7 @@ Return ONLY valid JSON (no markdown, no explanation) with this exact structure:
   "description": "2-3 sentence description of what the company does, what they sell, through which channels",
   "industry": "Industry / Sub-industry",
   "country": "Primary market country",
-  "brands": ["Brand names owned by this company"],
+  "brands": ["The brand of THIS website ONLY — not its parent group's other brands"],
   "product_lines": ["Product line names"],
   "services": ["Any services offered beyond products"],
   "competitors": [
@@ -100,7 +105,12 @@ Return ONLY valid JSON (no markdown, no explanation) with this exact structure:
   ]
 }}
 
-For competitors, list 5-10 direct competitors with their key product lines.
+# ⚠ Critical rule on "brands" vs "competitors" for grouped brands
+If this website belongs to a corporate group (e.g. L'Oréal owns CeraVe + La Roche-Posay + Vichy; Pierre Fabre owns Avène + Ducray + Klorane; Beiersdorf owns Eucerin + Nivea):
+  - `brands` MUST contain ONLY the brand of the scanned domain.
+  - Sister brands of the SAME parent group MUST appear in `competitors` if they compete on overlapping categories. Even when they share a parent, they're direct competitors on the shelf.
+
+For competitors, list 8-15 direct competitors with their key product lines, including same-group sister brands when relevant.
 
 For noise_patterns, list 15-30 lowercase terms specific to this industry that an over-eager brand extractor would wrongly tag as brands (generic product categories, ingredients, sector publications, common acronyms). DO NOT include actual brand names. Match the country language.
 """

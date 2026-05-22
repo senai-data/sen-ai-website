@@ -155,7 +155,7 @@ const allScanIds = scans.map(s => s.id);
                 <th class="text-left px-3 py-3"><Tip id="scan_type" position="bottom">Type</Tip></th>
                 <th class="text-left px-3 py-3"><Tip id="focus_brand" position="bottom">Focus brand</Tip></th>
                 <th class="text-center px-3 py-3"><Tip id="status" position="bottom">Status</Tip></th>
-                <th class="text-center px-3 py-3"><Tip id="citation_rate" position="bottom">Visibility</Tip></th>
+                <th class="text-center px-3 py-3"><Tip id="visibility" position="bottom">Visibility</Tip></th>
                 <th class="text-center px-3 py-3"><Tip id="opportunities" position="bottom">Opportunities</Tip></th>
                 <th class="text-right px-3 py-3">Date</th>
                 <th class="text-right px-3 py-3 rounded-tr-xl">Actions</th>
@@ -228,8 +228,8 @@ const allScanIds = scans.map(s => s.id);
                       </span>
                     </td>
                     <td class="px-3 py-4 text-center">
-                      {root.summary?.brand_mention_rate ?? root.summary?.citation_rate !== undefined
-                        ? <span class="font-semibold">{root.summary.citation_rate}%</span>
+                      {(root.summary?.brand_mention_rate ?? root.summary?.citation_rate) !== undefined
+                        ? <span class="font-semibold">{root.summary.brand_mention_rate ?? root.summary.citation_rate}%</span>
                         : <span class="text-charcoal-light">—</span>
                       }
                     </td>
@@ -317,8 +317,8 @@ const allScanIds = scans.map(s => s.id);
                         </span>
                       </td>
                       <td class="px-3 py-3 text-center">
-                        {child.summary?.brand_mention_rate ?? child.summary?.citation_rate !== undefined
-                          ? <span class="font-semibold">{child.summary.citation_rate}%</span>
+                        {(child.summary?.brand_mention_rate ?? child.summary?.citation_rate) !== undefined
+                          ? <span class="font-semibold">{child.summary.brand_mention_rate ?? child.summary.citation_rate}%</span>
                           : <span class="text-charcoal-light">—</span>
                         }
                       </td>

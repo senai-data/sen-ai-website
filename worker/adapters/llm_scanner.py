@@ -16,6 +16,7 @@ Quick wins applied vs LLMClient OpenAI path :
 """
 
 import logging
+import re
 import time
 
 import openai
@@ -27,6 +28,25 @@ from seo_llm.src.config import get_llm_test_prompt
 from seo_llm.src.api_pricing import calculate_cost
 
 logger = logging.getLogger(__name__)
+
+
+def bare_host(domain: str) -> str:
+    """Strip protocol, path and leading www from a domain for citation matching.
+
+    The seo_llm CitationExtractor._is_target_site compares the citation host
+    (e.g. "ducray.com") against site_domain by equality after a www-strip. If
+    site_domain carries a path/locale folder ("ducray.com/fr-fr") the equality
+    NEVER matches → est_site_cible stays false on every citation → citation_rate
+    reads 0% even though the brand's site IS cited. Brands with a bare host
+    (eau-thermale-avene.fr, aderma.fr) were unaffected; only path/subfolder
+    domains broke. Normalising to the bare host here fixes the headline metric
+    for all locale-folder domains (ducray.com/fr-fr, fr.svr.com paths, etc.).
+    """
+    d = (domain or "").strip().lower()
+    d = re.sub(r"^https?://", "", d)
+    d = d.split("/")[0]          # drop path
+    d = d.split("?")[0]          # drop query
+    return d.replace("www.", "")
 
 # OpenAI client tuning — see module docstring for rationale
 OPENAI_DIRECT_TIMEOUT = 120  # seconds per call (vs LLMClient's 300)
@@ -92,7 +112,7 @@ def test_question(question: str, persona: dict, llm_client: LLMClient,
     duration_ms = int((time.time() - start) * 1000)
 
     # 2. Extract citations (seo-llm CitationExtractor)
-    extractor = CitationExtractor(site_domain=target_domain)
+    extractor = CitationExtractor(site_domain=bare_host(target_domain))
     citations = extractor.extract_citations(
         response_text=response["text"],
         grounding_sources=response.get("grounding_sources", []),
@@ -213,7 +233,7 @@ def test_question_openai_direct(question: str, persona: dict, target_domain: str
                             seen_urls.add(url)
                             grounding_sources.append({"url": url, "title": title})
 
-    extractor = CitationExtractor(site_domain=target_domain)
+    extractor = CitationExtractor(site_domain=bare_host(target_domain))
     citations = extractor.extract_citations(
         response_text=response_text,
         grounding_sources=grounding_sources,

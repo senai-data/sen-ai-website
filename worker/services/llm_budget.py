@@ -89,6 +89,22 @@ def get_today_llm_cost(client_id: str, db: Session) -> float:
     return float(val or 0.0)
 
 
+def _is_unlimited(client_id: str, db: Session) -> bool:
+    """Per-client opt-out flag — set `clients.apps.budget.unlimited = true` to
+    bypass the daily cap entirely. Used for production/internal accounts where
+    the cap would block legitimate heavy usage (multi-scan brand portfolios,
+    agency clients running 100+ daily refreshes, etc.).
+    """
+    if not client_id:
+        return False
+    from models import Client
+    c = db.query(Client).filter(Client.id == client_id).first()
+    if not c or not c.apps:
+        return False
+    budget = (c.apps or {}).get("budget") or {}
+    return bool(budget.get("unlimited"))
+
+
 def assert_within_budget(
     client_id: str | None,
     db: Session,
@@ -106,9 +122,15 @@ def assert_within_budget(
     No-ops silently when `client_id` is None — some legacy code paths
     enqueue jobs without a client_id (early scan ingest, system-level
     handlers). Those are a tiny fraction of spend and not worth gating.
+
+    Also no-ops when `clients.apps.budget.unlimited = true` — per-client
+    bypass for prod/internal accounts (read `_is_unlimited`).
     """
     if not client_id:
         return 0.0
+    if _is_unlimited(str(client_id), db):
+        # Track today's cost still (for observability) but never raise.
+        return get_today_llm_cost(str(client_id), db)
     today = get_today_llm_cost(str(client_id), db)
     if today + projected_cost_usd > DAILY_LLM_COST_CAP_USD:
         raise BudgetExceeded(

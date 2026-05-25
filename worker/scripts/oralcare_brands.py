@@ -95,13 +95,15 @@ BRAND_CONFIG = {
         "topics": _topics("gel_gencive"),
         "slug_to_prefix": {"gencive-art": "Gel gingival"},
         "source_ids": [34],
+        # NOTE: Eludril / Pansoral / Lyso 6 are Pierre Fabre's OWN oral brands
+        # (sisters), NOT competitors — they're handled by the sister-ignore step.
         "competitors": [
             {"name": "Parodontax", "domain": "parodontax.fr", "products": ["Soin Gencives"]},
             {"name": "Meridol", "domain": "meridol.fr", "products": ["Protection Gencives"]},
             {"name": "Hextril", "domain": "hextril.fr", "products": ["Bain de bouche"]},
-            {"name": "Eludril", "domain": "eludril.fr", "products": ["Eludril Protect", "Eludril Classic"]},
-            {"name": "Pansoral", "domain": "pansoral.fr", "products": ["Pansoral Aphtes", "Premières Dents"]},
             {"name": "Hyalugel", "domain": "hyalugel.fr", "products": ["Gel buccal", "Bain de bouche"]},
+            {"name": "Bloxaphte", "domain": "bloxaphte.fr", "products": ["Spray aphtes", "Gel aphtes"]},
+            {"name": "Urgo", "domain": "urgo.fr", "products": ["Urgo Aphtes", "Filmogel Aphtes"]},
         ],
     },
     "elu": {

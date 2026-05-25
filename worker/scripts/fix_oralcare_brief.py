@@ -136,6 +136,30 @@ def main():
         db.delete(sbc); deleted += 1
     print(f"→ Competitors: kept {kept} (curated), deleted {deleted} (off-brand auto)")
 
+    # 4. The shared PF site tags ALL its brands my_brand. Keep only the target +
+    # its own lines as my_brand; ignore the sisters/umbrella/other PF oral brands
+    # (each tracked in its own scan). Keeps this scan's "My Brands" = the brand.
+    tgt_norm = normalize_brand_name(brand_name)
+    ignored = 0
+    for sbc in db.query(ScanBrandClassification).filter(
+        ScanBrandClassification.scan_id == SCAN_ID,
+        ScanBrandClassification.classification == "my_brand").all():
+        if sbc.is_focus:
+            continue
+        b = db.query(ClientBrand).filter(ClientBrand.id == sbc.brand_id).first()
+        if not b:
+            continue
+        keep = (b.id == target.id or b.parent_id == target.id
+                or normalize_brand_name(b.name).startswith(tgt_norm))
+        if keep:
+            continue
+        sbc.classification = "ignored"
+        sbc.classified_by = "user_bulk"
+        sbc.source = "oralcare_sister_ignore"
+        sbc.updated_at = datetime.utcnow()
+        ignored += 1
+    print(f"→ Non-target PF brands ignored: {ignored}")
+
     scan.updated_at = datetime.utcnow()
     db.commit()
 

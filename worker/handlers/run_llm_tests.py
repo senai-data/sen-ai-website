@@ -5,6 +5,7 @@ DB writes stay in the main thread (SQLAlchemy session is not thread-safe).
 """
 
 import logging
+import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 
@@ -21,6 +22,63 @@ logger = logging.getLogger(__name__)
 # Single executor over ALL tasks (no batching) eliminates head-of-line blocking
 # where one slow OpenAI call held up an entire batch.
 MAX_WORKERS = 20
+
+# 429 signatures (rate-limit OR monthly spend cap). "spend cap"/"resource_exhausted"
+# = a cap that won't clear in 30s → park the key for a long cooldown.
+_RATE_LIMIT_MARKERS = ("429", "resource_exhausted", "rate limit", "too many requests", "quota")
+_SPEND_CAP_MARKERS = ("spend cap", "resource_exhausted")
+
+
+class PoolRotatingGeminiClient:
+    """Gemini client that draws a fresh key from the pool per `.generate()` call
+    and, on a 429, parks the offending key (long cooldown for a spend cap) and
+    retries with the next key. Fixes the "one pinned key per scan" flaw where a
+    single capped/limited key killed the whole scan (provider tests AND the brand
+    analyzer). Thread-safe: per-call key draw + per-key client cache, no shared
+    mutable rotation state. Non-generate calls (extract_json, .provider) proxy
+    through — they're pure-parsing/metadata, key-agnostic.
+    """
+
+    def __init__(self, pool, model: str | None = None):
+        self._pool = pool
+        self._model = model
+        self.provider = "gemini"
+        self._clients: dict[str, object] = {}
+        self._lock = threading.Lock()
+
+    def _client_for(self, key: str):
+        with self._lock:
+            c = self._clients.get(key)
+            if c is None:
+                c = (create_llm_client("gemini", key, model=self._model)
+                     if self._model else create_llm_client("gemini", key))
+                self._clients[key] = c
+            return c
+
+    def generate(self, *args, **kwargs):
+        last_exc = None
+        for _ in range(max(1, self._pool.num_keys)):
+            key = self._pool.next_key()
+            try:
+                return self._client_for(key).generate(*args, **kwargs)
+            except Exception as e:  # noqa: BLE001 — inspect message to classify
+                msg = str(e).lower()
+                if any(m in msg for m in _RATE_LIMIT_MARKERS):
+                    self._pool.mark_rate_limited(
+                        key, long=any(m in msg for m in _SPEND_CAP_MARKERS))
+                    last_exc = e
+                    continue
+                raise
+        if last_exc is not None:
+            raise last_exc
+        raise RuntimeError("PoolRotatingGeminiClient: empty pool")
+
+    def __getattr__(self, name: str):
+        # Only reached for attrs not defined above (e.g. extract_json). Guard the
+        # private names so half-built instances don't recurse.
+        if name.startswith("_"):
+            raise AttributeError(name)
+        return getattr(self._client_for(self._pool.next_key()), name)
 
 
 def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
@@ -59,12 +117,10 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
     ).all()}
 
     # --- Build LLM clients ---
-    # For Gemini, draw the key from GeminiKeyPool (round-robin across GEMINI_API_KEYS).
-    # Single-key deployments still work: the pool falls back to GEMINI_API_KEY.
-    # NOTE: the key is drawn ONCE per scan and reused across all tests, so
-    # mark_rate_limited() can't be wired here cleanly — a 429 mid-scan is
-    # handled inside seo_llm.LLMClient retry loop. With multi-key pools,
-    # rotation kicks in on the NEXT scan, which is the practical use case.
+    # Gemini goes through PoolRotatingGeminiClient: per-call key draw from the pool
+    # with park-and-retry on 429 (long cooldown for spend-cap). This rotates WITHIN
+    # a scan, so one capped/limited key no longer kills the run (both the provider
+    # tests below and the brand analyzer share this resilience).
     providers = job_payload.get("providers", ["openai"])
     gemini_pool = get_gemini_pool()
     llm_clients = {}
@@ -73,12 +129,12 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
             if not gemini_pool.has_keys():
                 logger.warning("No Gemini key in pool, skipping")
                 continue
-            api_key = gemini_pool.next_key()
-        else:
-            api_key = getattr(settings, f"{provider}_api_key", "")
-            if not api_key:
-                logger.warning(f"No API key for {provider}, skipping")
-                continue
+            llm_clients["gemini"] = PoolRotatingGeminiClient(gemini_pool)
+            continue
+        api_key = getattr(settings, f"{provider}_api_key", "")
+        if not api_key:
+            logger.warning(f"No API key for {provider}, skipping")
+            continue
         try:
             llm_clients[provider] = create_llm_client(provider, api_key)
         except Exception as e:
@@ -114,7 +170,7 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
         elif not gemini_pool.has_keys():
             logger.info("EntityAnalyzer skipped: no Gemini key in pool")
         else:
-            gemini_client = create_llm_client("gemini", gemini_pool.next_key(), model="gemini-2.5-flash-lite")
+            gemini_client = PoolRotatingGeminiClient(gemini_pool, model="gemini-2.5-flash-lite")
             from adapters.brief_injector import format_analysis_context
             from models import Client as _Client
             _client = db.query(_Client).filter(_Client.id == scan.client_id).first()

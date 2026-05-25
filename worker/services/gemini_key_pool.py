@@ -60,6 +60,9 @@ class GeminiKeyPool:
             if cooldown_seconds is not None
             else int(os.getenv("GEMINI_COOLDOWN_SECONDS", "30"))
         )
+        # Spend-cap (RESOURCE_EXHAUSTED) 429s don't clear in 30s — park the key
+        # for much longer so it stops being fed back into rotation every cooldown.
+        self._spend_cap_cooldown = int(os.getenv("GEMINI_SPEND_CAP_COOLDOWN_SECONDS", "3600"))
         self._cooldowns: dict[int, float] = {}  # idx -> cooldown_until_ts
         self._next_idx = 0
         self._lock = threading.Lock()
@@ -110,18 +113,25 @@ class GeminiKeyPool:
             )
             return self._keys[earliest_idx]
 
-    def mark_rate_limited(self, key: str) -> None:
-        """Put `key` in cooldown for `cooldown_seconds`. No-op if key not in pool."""
+    def mark_rate_limited(self, key: str, long: bool = False) -> None:
+        """Put `key` in cooldown. No-op if key not in pool.
+
+        `long=True` (spend-cap / RESOURCE_EXHAUSTED) parks the key for
+        GEMINI_SPEND_CAP_COOLDOWN_SECONDS (default 1h) instead of the short
+        rate-limit cooldown — a monthly spend cap won't clear in 30s, so a short
+        cooldown would just feed the capped key back into rotation repeatedly.
+        """
         with self._lock:
             try:
                 idx = self._keys.index(key)
             except ValueError:
                 return
-            self._cooldowns[idx] = time.time() + self._cooldown_seconds
+            cd = self._spend_cap_cooldown if long else self._cooldown_seconds
+            self._cooldowns[idx] = time.time() + cd
             active = len(self._keys) - len(self._cooldowns)
             logger.warning(
                 f"Gemini key #{idx + 1}/{len(self._keys)} cooldown "
-                f"({self._cooldown_seconds}s) — {active} key(s) still active"
+                f"({cd}s{', spend-cap' if long else ''}) — {active} key(s) still active"
             )
 
 

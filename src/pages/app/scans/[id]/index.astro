@@ -2572,9 +2572,17 @@ const isReviewing = effectiveView !== null && (
             let partial = 0;
             for (const s of this.steps) {
               if (s.status !== 'running') continue;
-              partial += (s.job_type === 'run_llm_tests' && data.progress_pct != null)
-                ? Math.min(1, data.progress_pct / 100)
-                : 0.5;
+              if (s.providers && s.providers.length) {
+                // Drive from the per-provider committed sum so the overall bar
+                // stays consistent with the sub-bars. (scan.progress_pct tracks
+                // only the CURRENT provider's %, so it can't be used here — it
+                // resets to 0 when the next provider starts.)
+                const d = s.providers.reduce((a, p) => a + p.done, 0);
+                const t = s.providers.reduce((a, p) => a + p.total, 0);
+                partial += t ? Math.min(1, d / t) : 0.5;
+              } else {
+                partial += 0.5;
+              }
             }
             const computed = Math.min(99, Math.round(((done + partial) / total) * 100));
             // Monotonic: total_steps grows when downstream jobs (judge/opportunities/

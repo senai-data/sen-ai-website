@@ -2546,13 +2546,25 @@ const isReviewing = effectiveView !== null && (
               total: data.total_steps,
               eta: this.formatDuration(data.remaining_eta_seconds * 1000),
             };
-            // Compute overall pct from steps (completed = full weight, running = half).
-            // Pure-progress UX trick: each step contributes evenly, running adds 50%
-            // of its weight so we don't ever look stuck at integer percentages.
+            // Overall pct from steps. A running step normally counts as half-done,
+            // BUT run_llm_tests is the long-pole (~95% of scan time) and reports its
+            // own fine-grained progress via scan.progress_pct (X/Y tests). Use that
+            // as its fraction — otherwise a single running step pegs the bar at 50%
+            // the instant scanning starts (total_steps=1 at launch).
             const total = Math.max(1, data.total_steps);
             const done = data.completed_steps;
-            const partial = this.steps.filter(s => s.status === 'running').length * 0.5;
-            this.overallPct = Math.min(99, Math.round(((done + partial) / total) * 100));
+            let partial = 0;
+            for (const s of this.steps) {
+              if (s.status !== 'running') continue;
+              partial += (s.job_type === 'run_llm_tests' && data.progress_pct != null)
+                ? Math.min(1, data.progress_pct / 100)
+                : 0.5;
+            }
+            const computed = Math.min(99, Math.round(((done + partial) / total) * 100));
+            // Monotonic: total_steps grows when downstream jobs (judge/opportunities/
+            // editorial) are enqueued AFTER run_llm_tests completes, which would
+            // otherwise make the bar jump backward. Never decrease within a session.
+            this.overallPct = Math.max(this.overallPct, computed);
             if (data.scan_status === 'completed') {
               this.overallPct = 100;
               this._stopPolling();

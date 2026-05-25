@@ -722,6 +722,15 @@ async def get_pipeline(scan_id: str, user=Depends(get_current_user), db: Session
             int(active_q * len(providers) * 3),
         )
 
+    # Per-provider completion (run_llm_tests writes one row per question×provider)
+    # so the Scan UI can split "Testing AI providers" into OpenAI / Gemini / …
+    prov_done = dict(
+        db.query(ScanLLMResult.provider, func.count())
+        .filter(ScanLLMResult.scan_id == scan_id)
+        .group_by(ScanLLMResult.provider)
+        .all()
+    )
+
     now = datetime.utcnow()
 
     def _serialize_job(j):
@@ -742,6 +751,13 @@ async def get_pipeline(scan_id: str, user=Depends(get_current_user), db: Session
             out["eta_seconds"] = max(0, eta - int(out["elapsed_ms"] / 1000))
         else:
             out["eta_seconds"] = eta
+
+        # Per-provider split for the long "Testing AI providers" step.
+        if j.job_type == "run_llm_tests" and active_q > 0:
+            out["providers"] = [
+                {"provider": p, "done": min(int(prov_done.get(p, 0)), active_q), "total": active_q}
+                for p in providers
+            ]
 
         if isinstance(j.result, dict):
             r = j.result

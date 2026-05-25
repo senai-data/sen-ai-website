@@ -1398,6 +1398,22 @@ const isReviewing = effectiveView !== null && (
                 <template x-if="step.details">
                   <p class="text-[11px] text-charcoal-light mt-0.5" x-text="step.details"></p>
                 </template>
+                <!-- Per-provider split for "Testing AI providers" (OpenAI / Gemini / …) -->
+                <template x-if="step.providers && step.providers.length && (step.status === 'running' || step.status === 'completed')">
+                  <div class="mt-1.5 space-y-1 max-w-md">
+                    <template x-for="p in step.providers" :key="p.provider">
+                      <div class="flex items-center gap-2">
+                        <span class="text-[10px] uppercase tracking-wide text-charcoal-light w-16 shrink-0" x-text="p.provider"></span>
+                        <div class="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                          <div class="h-1.5 rounded-full transition-all duration-500"
+                               :class="p.done >= p.total ? 'bg-emerald-400' : 'bg-coral'"
+                               :style="'width:' + (p.total ? Math.round(p.done / p.total * 100) : 0) + '%'"></div>
+                        </div>
+                        <span class="text-[10px] tabular-nums text-charcoal-light shrink-0" x-text="p.done + '/' + p.total"></span>
+                      </div>
+                    </template>
+                  </div>
+                </template>
                 <template x-if="step.error">
                   <p class="text-[11px] text-red-500 mt-0.5" x-text="step.error"></p>
                 </template>

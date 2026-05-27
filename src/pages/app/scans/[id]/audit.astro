@@ -1,0 +1,292 @@
+---
+/**
+ * Page Audit - Princeton GEO 7-pattern content audit.
+ *
+ * Surfaces the score and ticketable issues for every URL of the user's site
+ * the LLMs cited during this scan. Source data comes from
+ * GET /api/scans/{id}/page-audit (worker handler audit_scan_pages.py).
+ *
+ * Laws of UX :
+ *   - Peak-End : single hero number (avg GEO score) + worst issue type chip.
+ *   - Aesthetic-Usability : 3-color gauge per pattern (red / amber / emerald).
+ *   - Jakob's Law : table sortable, same expandable card pattern as the rest.
+ *   - Doherty Threshold : Refresh button enqueues a job and reloads after a
+ *     short wait so the user gets fresh data without page polling.
+ *   - Miller's 7+/-2 : top 30 worst pages by default with a "show all" toggle.
+ *
+ * Natural writing : tooltips and copy avoid em-dashes (use space-hyphen-space)
+ * and LLM tells. See feedback_no_em_dash.md.
+ */
+export const prerender = false;
+import ScanResultsLayout from '../../../../layouts/ScanResultsLayout.astro';
+
+const token = Astro.cookies.get('token')?.value;
+if (!token) return Astro.redirect('/login');
+const scanId = Astro.params.id as string;
+
+const headers = { Cookie: `token=${token}` };
+let data: any = null;
+try {
+  const res = await fetch(`http://api:8000/api/scans/${scanId}/page-audit`, { headers });
+  if (res.ok) data = await res.json();
+} catch (_) {}
+
+const pages: any[] = data?.pages || [];
+const summary = data?.summary || {};
+const lastFetched = data?.last_fetched;
+
+function timeAgo(iso?: string): string {
+  if (!iso) return 'never';
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return 'never';
+  const mins = Math.round((Date.now() - t) / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins} min ago`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.round(hrs / 24);
+  if (days < 14) return `${days}d ago`;
+  return new Date(iso).toISOString().slice(0, 10);
+}
+
+function scoreClasses(score?: number | null) {
+  if (score == null) return { bg: 'bg-gray-100', text: 'text-charcoal-light', label: 'n/a' };
+  if (score >= 70) return { bg: 'bg-emerald-100', text: 'text-emerald-700', label: 'strong' };
+  if (score >= 40) return { bg: 'bg-amber-100', text: 'text-amber-700', label: 'thin' };
+  return { bg: 'bg-red-100', text: 'text-red-700', label: 'weak' };
+}
+
+// Pattern metadata - human label + 1-line explanation drawn from the
+// Princeton paper. Anchored vocabulary the user can map to their content
+// team's checklist.
+const PATTERN_META: Record<string, { label: string; explain: string }> = {
+  statistics_addition:    { label: 'Statistics',     explain: 'Numerical claims, percentages, patient counts.' },
+  cite_sources:           { label: 'Cite sources',   explain: 'Outbound links to authoritative sites (ANSM, journals, peer-reviewed studies).' },
+  quotation_addition:     { label: 'Quotations',     explain: 'Direct quotes from experts, dermatologists, clinical leads.' },
+  authoritative_phrasing: { label: 'Authority',      explain: 'Credentials (Dr., PhD), study references, professional bodies.' },
+  fluency:                { label: 'Fluency',        explain: 'Sentence length sweet spot is 12 to 22 words.' },
+  easy_to_understand:     { label: 'Readability',    explain: 'Flesch reading ease 60 to 80 = plain language.' },
+  unique_words:           { label: 'Vocabulary',     explain: 'Domain-specific terminology (depth, not jargon).' },
+};
+const PATTERN_ORDER = [
+  'statistics_addition', 'cite_sources', 'quotation_addition',
+  'authoritative_phrasing', 'fluency', 'easy_to_understand', 'unique_words',
+];
+
+// Severity tiers for issue chips.
+function severityClasses(s: string) {
+  if (s === 'high') return 'bg-red-100 text-red-700';
+  if (s === 'medium') return 'bg-amber-100 text-amber-700';
+  return 'bg-gray-100 text-charcoal-light';
+}
+
+const topIssues = Object.entries(summary.issues_by_pattern || {})
+  .sort((a: any, b: any) => b[1] - a[1])
+  .slice(0, 3);
+---
+
+<ScanResultsLayout scanId={scanId} activeTab="audit">
+  <div x-data="{ expanded: null, refreshing: false, viewAll: false }">
+
+    <p class="text-sm text-charcoal-light mb-6">
+      Page-by-page audit of the URLs the LLMs already cite for your site.
+      Each page is scored against the seven content patterns from the
+      Princeton GEO paper (Aggarwal et al., KDD 2024). Stats, sources and
+      quotes lift LLM citation rate by up to 40 % when added properly.
+    </p>
+
+    {/* Hero KPI banner */}
+    <div class="grid grid-cols-1 lg:grid-cols-4 gap-4 mb-6">
+      <div class="bg-white rounded-xl shadow-sm p-6 lg:col-span-2">
+        <p class="text-[11px] text-charcoal-light uppercase tracking-wide mb-2">Average GEO score</p>
+        <div class="flex items-baseline gap-3">
+          {summary.avg_geo_score != null ? (
+            <>
+              <span class={`text-3xl font-bold ${scoreClasses(summary.avg_geo_score).text}`}>
+                {summary.avg_geo_score}
+              </span>
+              <span class="text-base text-charcoal-light">/ 100 across {summary.succeeded} page(s)</span>
+            </>
+          ) : (
+            <span class="text-base text-charcoal-light">No pages audited yet.</span>
+          )}
+        </div>
+        {summary.failed > 0 && (
+          <p class="text-xs text-amber-700 mt-1">{summary.failed} page(s) failed to fetch.</p>
+        )}
+      </div>
+
+      <div class="bg-white rounded-xl shadow-sm p-6">
+        <p class="text-[11px] text-charcoal-light uppercase tracking-wide mb-2">Top recurring issues</p>
+        {topIssues.length > 0 ? (
+          <ul class="space-y-1">
+            {topIssues.map(([pattern, count]: any) => (
+              <li class="flex items-center justify-between text-xs">
+                <span class="text-charcoal-dark">{PATTERN_META[pattern]?.label || pattern}</span>
+                <span class="text-charcoal-light">{count} page(s)</span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p class="text-sm text-charcoal-light mt-2">Nothing flagged yet.</p>
+        )}
+      </div>
+
+      <div class="bg-white rounded-xl shadow-sm p-6 flex flex-col justify-between">
+        <div>
+          <p class="text-[11px] text-charcoal-light uppercase tracking-wide mb-2">Last audit</p>
+          <p class="text-sm text-charcoal-dark">{timeAgo(lastFetched)}</p>
+          <p class="text-[10px] text-charcoal-light mt-1">Audit is free (no LLM cost).</p>
+        </div>
+        <button
+          @click={`if (refreshing) return; refreshing = true; fetch('/api/scans/${scanId}/page-audit/refresh?reset=true', { method: 'POST' }).then(r => r.json()).then(_ => { setTimeout(() => location.reload(), 6000); }).catch(() => { refreshing = false; });`}
+          :disabled="refreshing"
+          class="mt-3 px-3 py-1.5 text-xs font-medium rounded-lg bg-coral text-white hover:bg-coral-dark disabled:bg-gray-300 transition-colors"
+        >
+          <span x-show="!refreshing">Refresh audit</span>
+          <span x-show="refreshing">Running audit...</span>
+        </button>
+      </div>
+    </div>
+
+    {pages.length === 0 && (
+      <div class="bg-amber-50 border border-amber-200 rounded-xl p-6 text-sm text-amber-800">
+        No pages audited yet. Click <strong>Refresh audit</strong> above. The handler
+        will fetch every URL of your site cited at least once by an LLM during this
+        scan (~1 to 2 seconds per page) and score it against the Princeton GEO
+        seven-pattern heuristic. The score is deterministic and does not consume
+        any LLM credits.
+      </div>
+    )}
+
+    {pages.length > 0 && (
+      <div class="space-y-2">
+        <div class="flex items-end justify-between mb-2">
+          <h3 class="text-[10px] uppercase tracking-wide text-charcoal-light font-semibold">
+            Pages cited by AI <span class="text-charcoal-light/70 font-normal normal-case">- worst score first, optimize from the top</span>
+          </h3>
+          <span class="text-[11px] text-charcoal-light">{summary.audited} audited</span>
+        </div>
+
+        {pages.slice(0, 30).map((p, pi) => {
+          const sc = scoreClasses(p.geo_score);
+          const cardKey = `p${pi}`;
+          let pathOnly = p.url;
+          try { pathOnly = new URL(p.url).pathname || '/'; } catch (_) {}
+          return (
+            <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+              <div class="px-6 py-3 cursor-pointer hover:bg-gray-50 transition-colors flex items-center gap-3"
+                   @click={`expanded = expanded === '${cardKey}' ? null : '${cardKey}'`}>
+                <span class="text-[11px] text-charcoal-light w-6 text-right shrink-0">{pi + 1}</span>
+                <div class="flex-1 min-w-0">
+                  <a href={p.url} target="_blank" rel="noopener noreferrer" class="text-sm text-charcoal-dark hover:underline truncate block" @click.stop title={p.url}>
+                    {p.title || pathOnly}
+                  </a>
+                  <p class="text-[10px] text-charcoal-light truncate">{pathOnly}</p>
+                </div>
+                {p.fetch_error && (
+                  <span class="text-[9px] px-1.5 py-0.5 rounded bg-red-50 text-red-600 shrink-0" title={p.fetch_error}>fetch failed</span>
+                )}
+                {p.citation_count > 0 && (
+                  <span class="text-[10px] text-charcoal-light shrink-0">{p.citation_count} cite(s)</span>
+                )}
+                {p.geo_score != null && (
+                  <span class={`text-[10px] px-2 py-0.5 rounded font-semibold ${sc.bg} ${sc.text} shrink-0`}>
+                    {p.geo_score} / 100 - {sc.label}
+                  </span>
+                )}
+                <svg class="w-4 h-4 text-gray-400 shrink-0 transition-transform" :class={`expanded === '${cardKey}' ? 'rotate-180' : ''`}
+                     fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                </svg>
+              </div>
+
+              <div x-show={`expanded === '${cardKey}'`} x-transition class="border-t border-gray-100 px-6 py-4 bg-gray-50/30">
+                {p.fetch_error ? (
+                  <p class="text-xs text-red-700">Fetch failed : {p.fetch_error}</p>
+                ) : (
+                  <>
+                    {/* Per-pattern scores */}
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                      {PATTERN_ORDER.map(pat => {
+                        const s = p.scores?.[pat];
+                        const cls = scoreClasses(s);
+                        const meta = PATTERN_META[pat];
+                        return (
+                          <div class="bg-white rounded-lg p-3 border border-gray-100">
+                            <p class="text-[10px] text-charcoal-light uppercase tracking-wide mb-1">{meta?.label || pat}</p>
+                            <div class="flex items-baseline gap-1">
+                              <span class={`text-lg font-bold ${cls.text}`}>{s ?? '-'}</span>
+                              <span class="text-[10px] text-charcoal-light">/100</span>
+                            </div>
+                            {meta?.explain && <p class="text-[10px] text-charcoal-light mt-1 leading-tight">{meta.explain}</p>}
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Raw signals */}
+                    {p.signals && (
+                      <div class="flex flex-wrap gap-3 text-[10px] text-charcoal-light mb-4">
+                        <span>{p.signals.word_count ?? 0} words</span>
+                        <span>{p.signals.sentence_count ?? 0} sentences</span>
+                        <span>avg {p.signals.avg_sentence_length ?? 0} w/sent.</span>
+                        <span>{p.signals.statistics_count ?? 0} stats</span>
+                        <span>{p.signals.external_citations_count ?? 0} ext. links</span>
+                        <span>{p.signals.quotation_count ?? 0} quotes</span>
+                        <span>{p.signals.authoritative_phrases_count ?? 0} authority terms</span>
+                        {p.signals.flesch_score != null && <span>Flesch {p.signals.flesch_score}</span>}
+                      </div>
+                    )}
+
+                    {/* Issues list */}
+                    {(p.issues || []).length > 0 && (
+                      <div>
+                        <p class="text-[10px] uppercase tracking-wide text-charcoal-light font-semibold mb-2">Action items</p>
+                        <ul class="space-y-2">
+                          {p.issues.map((iss: any) => (
+                            <li class="flex items-start gap-2">
+                              <span class={`text-[9px] px-1.5 py-0.5 rounded font-bold shrink-0 mt-0.5 ${severityClasses(iss.severity)}`}>
+                                {iss.severity}
+                              </span>
+                              <div class="flex-1 min-w-0">
+                                <p class="text-[11px] font-medium text-charcoal-dark">{PATTERN_META[iss.pattern]?.label || iss.pattern}</p>
+                                <p class="text-xs text-charcoal-light">{iss.message}</p>
+                              </div>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {/* Sample evidence */}
+                    {p.signals?.statistics_examples?.length > 0 && (
+                      <div class="mt-3">
+                        <p class="text-[10px] uppercase tracking-wide text-charcoal-light font-semibold mb-1">Statistics detected</p>
+                        <p class="text-[11px] text-charcoal-light">{p.signals.statistics_examples.join(' . ')}</p>
+                      </div>
+                    )}
+                    {p.signals?.quotation_examples?.length > 0 && (
+                      <div class="mt-3">
+                        <p class="text-[10px] uppercase tracking-wide text-charcoal-light font-semibold mb-1">Quotes detected</p>
+                        <ul class="text-[11px] text-charcoal-light space-y-1">
+                          {p.signals.quotation_examples.map((q: string) => <li class="italic">"{q}..."</li>)}
+                        </ul>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+          );
+        })}
+        {pages.length > 30 && (
+          <p class="text-xs text-charcoal-light text-center py-3">
+            +{pages.length - 30} more pages audited. Worst scores shown first - keep clicking through if you want the rest.
+          </p>
+        )}
+      </div>
+    )}
+
+  </div>
+</ScanResultsLayout>

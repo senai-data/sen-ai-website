@@ -4,21 +4,21 @@ Why this exists : Phase C Article generation lands soon (12-15j of LLM-heavy
 code). A logic bug in there could fire $500 of LLM calls on a single client
 in a few hours before anyone notices. The Stripe credit system caps how many
 content_credits a user has, but doesn't cap dollar burn from the LLM provider's
-side — a content_credit reservation that's translated to a runaway loop of
+side - a content_credit reservation that's translated to a runaway loop of
 LLM calls still burns real cash regardless of credit balance.
 
 The cap is a circuit breaker, not a billing primitive : it should never trip
 under normal usage. Defaults to $1/day/client, matching the existing
 worker/services/embeddings.DAILY_COST_CAP_USD ceiling (which stays in place
-for the embed_* subpath — this module covers all OTHER LLM operations).
+for the embed_* subpath - this module covers all OTHER LLM operations).
 
 Public surface :
-    BudgetExceeded               — exception class
-    DAILY_LLM_COST_CAP_USD       — module constant (env override)
+    BudgetExceeded               - exception class
+    DAILY_LLM_COST_CAP_USD       - module constant (env override)
     get_today_llm_cost(client_id, db) -> float
     assert_within_budget(client_id, db, projected_cost_usd=0.0)
 
-Pattern at call sites — cap-then-call, never call-then-cap :
+Pattern at call sites - cap-then-call, never call-then-cap :
 
     from services.llm_budget import assert_within_budget
     assert_within_budget(client_id, db)          # raises BudgetExceeded
@@ -48,7 +48,7 @@ class BudgetExceeded(Exception):
     """Raised by assert_within_budget when the daily cap would be exceeded.
 
     Marked as a PermanentScanError-equivalent at the call site if you want
-    the worker to fail-fast without retry — but typically you want this to
+    the worker to fail-fast without retry - but typically you want this to
     retry next day, so the default poll_and_execute retry chain is fine.
     Failed retries will surface in Sentry as repeated occurrences for the
     same client, which is the alert signal.
@@ -69,7 +69,7 @@ class BudgetExceeded(Exception):
 def get_today_llm_cost(client_id: str, db: Session) -> float:
     """Sum LlmUsageLog.cost_usd for this client since UTC midnight.
 
-    Counts ALL operations (including embed_*) — the cap is a global per-client
+    Counts ALL operations (including embed_*) - the cap is a global per-client
     fence regardless of which subsystem spent it. The embedding-specific cap
     in worker/services/embeddings.py is narrower (embed_* only) and stays in
     place as an inner layer.
@@ -90,7 +90,7 @@ def get_today_llm_cost(client_id: str, db: Session) -> float:
 
 
 def _is_unlimited(client_id: str, db: Session) -> bool:
-    """Per-client opt-out flag — set `clients.apps.budget.unlimited = true` to
+    """Per-client opt-out flag - set `clients.apps.budget.unlimited = true` to
     bypass the daily cap entirely. Used for production/internal accounts where
     the cap would block legitimate heavy usage (multi-scan brand portfolios,
     agency clients running 100+ daily refreshes, etc.).
@@ -105,6 +105,30 @@ def _is_unlimited(client_id: str, db: Session) -> bool:
     return bool(budget.get("unlimited"))
 
 
+def _get_cap_for_client(client_id: str | None, db: Session) -> float:
+    """Resolve the effective daily cap for a client.
+
+    Sprint N-runs : per-client override via `clients.apps.budget.daily_cap_usd`.
+    A scan at runs_depth=10 across 290 questions costs ~$1 - the default $1
+    global cap would trip immediately. Clients running statistical multi-sampling
+    set their cap to $5-10/day to fit a few brands per day.
+
+    Resolution order : per-client override → env LLM_DAILY_COST_CAP_USD → $1.0.
+    """
+    if not client_id:
+        return DAILY_LLM_COST_CAP_USD
+    from models import Client
+    c = db.query(Client).filter(Client.id == client_id).first()
+    if not c or not c.apps:
+        return DAILY_LLM_COST_CAP_USD
+    budget = (c.apps or {}).get("budget") or {}
+    override = budget.get("daily_cap_usd")
+    try:
+        return float(override) if override is not None else DAILY_LLM_COST_CAP_USD
+    except (TypeError, ValueError):
+        return DAILY_LLM_COST_CAP_USD
+
+
 def assert_within_budget(
     client_id: str | None,
     db: Session,
@@ -112,18 +136,18 @@ def assert_within_budget(
 ) -> float:
     """Raise BudgetExceeded if today's spend (+ projection) crosses the cap.
 
-    `projected_cost_usd` is optional — when caller knows the operation costs
+    `projected_cost_usd` is optional - when caller knows the operation costs
     ~$X, pass it so the check rejects an operation that would START in budget
     but FINISH over (e.g. a generate_article expected to cost $0.30 when
     we're already at $0.85 today).
 
     Returns the today's pre-call cost (useful for caller logging).
 
-    No-ops silently when `client_id` is None — some legacy code paths
+    No-ops silently when `client_id` is None - some legacy code paths
     enqueue jobs without a client_id (early scan ingest, system-level
     handlers). Those are a tiny fraction of spend and not worth gating.
 
-    Also no-ops when `clients.apps.budget.unlimited = true` — per-client
+    Also no-ops when `clients.apps.budget.unlimited = true` - per-client
     bypass for prod/internal accounts (read `_is_unlimited`).
     """
     if not client_id:
@@ -132,11 +156,12 @@ def assert_within_budget(
         # Track today's cost still (for observability) but never raise.
         return get_today_llm_cost(str(client_id), db)
     today = get_today_llm_cost(str(client_id), db)
-    if today + projected_cost_usd > DAILY_LLM_COST_CAP_USD:
+    cap = _get_cap_for_client(str(client_id), db)
+    if today + projected_cost_usd > cap:
         raise BudgetExceeded(
             client_id=str(client_id),
             today_cost=today,
             projected=projected_cost_usd,
-            cap=DAILY_LLM_COST_CAP_USD,
+            cap=cap,
         )
     return today

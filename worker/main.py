@@ -1,4 +1,4 @@
-"""Worker main loop — polls PostgreSQL for pending jobs and executes handlers."""
+"""Worker main loop - polls PostgreSQL for pending jobs and executes handlers."""
 
 import logging
 import time
@@ -23,7 +23,7 @@ def _format_user_error(exc: Exception) -> str:
 
     httpx.HTTPStatusError stringifies as 'Client error 'XYZ' for url ...' which
     is meaningless to end users. Most provider errors carry a JSON body with a
-    human-readable message (`{"error": {"type": ..., "message": ...}}`) — we
+    human-readable message (`{"error": {"type": ..., "message": ...}}`) - we
     extract it and prepend the provider name so the user knows where to act.
 
     Special-cases the common billing/quota error so it reads as a clear billing
@@ -51,20 +51,20 @@ def _format_user_error(exc: Exception) -> str:
                     f"Recharge your {provider} account, then click Retry."
                 )
             if exc.response.status_code == 429:
-                return f"{provider} rate-limited: {provider_msg or 'too many requests'} — try again in a few minutes."
+                return f"{provider} rate-limited: {provider_msg or 'too many requests'} - try again in a few minutes."
             return f"{provider} error ({err_type or exc.response.status_code}): {provider_msg[:300]}"
         except Exception:
             pass
     return str(exc)[:500]
 
 # H4: stuck-job sweep config. The longest legitimate handler is run_llm_tests
-# (LLM calls per question × providers — can run 30-60 min for big scans).
+# (LLM calls per question × providers - can run 30-60 min for big scans).
 # 2h is a comfortable cap; anything past that is definitely worker-killed.
 STUCK_JOB_TIMEOUT_HOURS = 2
 CLEANUP_INTERVAL_SECONDS = 300  # run sweep at most every 5 min
 _LAST_CLEANUP_TS = 0.0
 
-# Phase E Pilier 7 — T+14 post-publish measurement loop.
+# Phase E Pilier 7 - T+14 post-publish measurement loop.
 # Every hour we sweep for content items that were published ≥ N days ago and
 # haven't had a post-publish LLM measurement yet, and enqueue a
 # refresh_ai_snapshot job for each. The handler already exists (Pilier 5),
@@ -73,7 +73,7 @@ POST_PUBLISH_MEASUREMENT_DELAY_DAYS = 14
 POST_PUBLISH_SCAN_INTERVAL_SECONDS = 3600  # check at most every 1 hour
 _LAST_POST_PUBLISH_SCAN_TS = 0.0
 
-# Phase MR.1 — Media catalog discovery loop.
+# Phase MR.1 - Media catalog discovery loop.
 # Every 24h we enqueue a discover_media_catalog job which re-aggregates
 # scan_llm_results.citations into media_catalog and asks LinkFinder for
 # prices on stale rows. Idempotent handler (additive UPSERT + 7-day
@@ -115,7 +115,9 @@ def load_handlers():
                           refresh_ai_snapshot,
                           discover_media_catalog,
                           suggest_media,
-                          measure_publish_outcome)  # noqa: F401
+                          measure_publish_outcome,
+                          check_brand_wikipedia,
+                          audit_scan_pages)  # noqa: F401
     HANDLERS["fetch_keywords"] = fetch_keywords.execute
     HANDLERS["classify_topics"] = classify_topics.execute
     HANDLERS["assign_keywords"] = assign_keywords.execute
@@ -144,6 +146,8 @@ def load_handlers():
     HANDLERS["discover_media_catalog"] = discover_media_catalog.execute
     HANDLERS["suggest_media"] = suggest_media.execute
     HANDLERS["measure_publish_outcome"] = measure_publish_outcome.execute
+    HANDLERS["check_brand_wikipedia"] = check_brand_wikipedia.execute
+    HANDLERS["audit_scan_pages"] = audit_scan_pages.execute
 
 
 # Job types that operate on a single content item (one FAQ / article / …)
@@ -180,7 +184,7 @@ def _refund_content_item_credit(scan_id, item_id: str, db: Session,
         _CONTENT_LABEL_BY_JOB_TYPE.
 
     If the net (sum of debit + refund amounts) is negative, the user is
-    owed that amount — insert one refund row. If net is 0 or positive,
+    owed that amount - insert one refund row. If net is 0 or positive,
     no-op (already fully refunded).
 
     This handles the retry flow correctly : debit → fail → refund → user
@@ -189,11 +193,11 @@ def _refund_content_item_credit(scan_id, item_id: str, db: Session,
 
     This is a per-item refund, distinct from `_refund_scan_credits` which
     nets all credits tied to a scan. Using the scan-level refund here
-    would also refund the parent scan's scan_credits — wrong, because the
+    would also refund the parent scan's scan_credits - wrong, because the
     scan itself completed long ago, only this content gen attempt failed.
 
     The `job_type` arg drives the refund row label only (cosmetic, for
-    audit readability) — matching against the existing debit row is
+    audit readability) - matching against the existing debit row is
     label-agnostic since we query all known labels at once.
     """
     if not scan_id or not item_id:
@@ -217,7 +221,7 @@ def _refund_content_item_credit(scan_id, item_id: str, db: Session,
     if not rows:
         logger.info(
             f"No content_credit ledger rows for item {item_id} on scan {scan_id} "
-            f"— skipping refund (likely a job enqueued outside the API path)"
+            f"- skipping refund (likely a job enqueued outside the API path)"
         )
         return
 
@@ -333,7 +337,7 @@ def cleanup_stuck_jobs() -> None:
     """Sweep for jobs stuck in 'running' for too long and reclaim them.
 
     H4: a worker that crashes (OOM, kill -9, container restart, host reboot)
-    leaves its job in status='running' forever — the existing retry logic
+    leaves its job in status='running' forever - the existing retry logic
     only fires when the handler raises an exception in the same process,
     so a hard-killed worker bypasses C2 entirely. This sweep is the safety
     net: any job that started > STUCK_JOB_TIMEOUT_HOURS ago gets marked
@@ -366,7 +370,7 @@ def cleanup_stuck_jobs() -> None:
 
         logger.warning(
             f"Stuck-job sweep: found {len(stuck_rows)} job(s) running > "
-            f"{STUCK_JOB_TIMEOUT_HOURS}h — reclaiming"
+            f"{STUCK_JOB_TIMEOUT_HOURS}h - reclaiming"
         )
 
         from models import Scan  # local import: only loaded if there's work
@@ -380,7 +384,7 @@ def cleanup_stuck_jobs() -> None:
             if job.started_at:
                 elapsed_min = int((datetime.utcnow() - job.started_at).total_seconds() / 60)
             error_msg = (
-                f"Job stuck — no progress for {elapsed_min} min "
+                f"Job stuck - no progress for {elapsed_min} min "
                 f"(worker likely killed mid-execution)"
             )
 
@@ -425,7 +429,7 @@ def enqueue_post_publish_measurements() -> None:
       - No pending/running refresh_ai_snapshot job is in flight for this item
 
     Each match enqueues a refresh_ai_snapshot job with `trigger='t14_post_publish'`
-    in the payload (informational — the handler is provider-agnostic to its
+    in the payload (informational - the handler is provider-agnostic to its
     caller). Cost ≈ $0.04 per item.
 
     No global rate cap : we expect 1 measurement per item per 14 days in
@@ -477,7 +481,7 @@ def enqueue_post_publish_measurements() -> None:
 
             # Already-measured guard : any ScanLLMResult dated after the
             # T+14 threshold means a measurement has happened. Manual refresh
-            # before T+14 also satisfies this (the user already has data —
+            # before T+14 also satisfies this (the user already has data -
             # auto-rescan would be redundant).
             measurement_cutoff = item.published_at + timedelta(
                 days=POST_PUBLISH_MEASUREMENT_DELAY_DAYS - 1,
@@ -536,14 +540,14 @@ def enqueue_post_publish_measurements() -> None:
         db.close()
 
     # Liveness ping outside the try/except so a DB blip doesn't suppress the
-    # "cron ran" signal — but still inside the throttle gate above, so it
+    # "cron ran" signal - but still inside the throttle gate above, so it
     # fires at most once per POST_PUBLISH_SCAN_INTERVAL_SECONDS. No-op if
     # HEALTHCHECK_T14_URL is unset.
     ping_t14_sweep()
 
 
 def enqueue_media_publish_outcomes() -> None:
-    """Phase MR.4 #3 — sweep for media-suggested articles ready for T+14
+    """Phase MR.4 #3 - sweep for media-suggested articles ready for T+14
     outcome measurement, enqueue measure_publish_outcome jobs.
 
     Eligible item :
@@ -617,7 +621,7 @@ def enqueue_media_publish_outcomes() -> None:
 
 
 def enqueue_media_catalog_discovery() -> None:
-    """Daily sweep — enqueue ONE discover_media_catalog job if none in-flight.
+    """Daily sweep - enqueue ONE discover_media_catalog job if none in-flight.
 
     The handler is workspace-wide (scan_id=NULL, payload={}) and idempotent.
     It re-aggregates scan_llm_results.citations into media_catalog, then
@@ -627,7 +631,7 @@ def enqueue_media_catalog_discovery() -> None:
     Dedup : skip if any pending/running discover_media_catalog already exists.
     The pair "24h throttle + DB dedup" handles the case where both
     senai-worker and senai-worker-content try to enqueue simultaneously
-    after a restart (only senai-worker actually picks the job up — content
+    after a restart (only senai-worker actually picks the job up - content
     worker's WORKER_JOB_TYPES_INCLUDE excludes it).
     """
     global _LAST_MEDIA_CATALOG_SWEEP_TS
@@ -660,7 +664,7 @@ def enqueue_media_catalog_discovery() -> None:
         )
         if in_flight:
             logger.info(
-                f"media_catalog_discovery: skipping enqueue — recent job "
+                f"media_catalog_discovery: skipping enqueue - recent job "
                 f"{in_flight.id} (status={in_flight.status})"
             )
             return
@@ -686,7 +690,7 @@ def poll_and_execute():
     """Pick one pending job and execute it.
 
     Optional job_type filter via env (`WORKER_JOB_TYPES_INCLUDE` /
-    `WORKER_JOB_TYPES_EXCLUDE`). Empty lists mean "no filter" — legacy
+    `WORKER_JOB_TYPES_EXCLUDE`). Empty lists mean "no filter" - legacy
     single-worker behavior. The split-worker setup uses INCLUDE on the
     content-gen worker and EXCLUDE on the scan-pipeline worker so the
     10-min `generate_article` never sits in front of a 3-sec
@@ -698,7 +702,7 @@ def poll_and_execute():
         exclude = settings.job_types_exclude
 
         # Build WHERE fragment for type filter. We deliberately use ANY(:list)
-        # rather than IN/NOT IN with a tuple so the SQL stays static — easier
+        # rather than IN/NOT IN with a tuple so the SQL stays static - easier
         # to read in logs and no SQL-injection surface (job_type values are
         # registered handler keys, not user input).
         params: dict = {}
@@ -759,7 +763,7 @@ def poll_and_execute():
             db.commit()
             logger.info(f"Job {job_obj.id} completed: {result}")
 
-            # End-of-chain status flip — `run_llm_tests` sets `scan.status` to
+            # End-of-chain status flip - `run_llm_tests` sets `scan.status` to
             # 'completed' the moment its own LLM work finishes, but a retry of
             # any downstream job (cleanup_brands, materialize_content_items, …)
             # routes through `retry_scan` which sets the scan back to
@@ -796,7 +800,7 @@ def poll_and_execute():
             db.rollback()
             logger.exception(f"Job {job_obj.id} failed: {e}")
 
-            # PermanentScanError signals "retrying won't help" — typically a
+            # PermanentScanError signals "retrying won't help" - typically a
             # data-availability issue on user input (e.g., HaloScan has no
             # ranking data for the domain). Skip the retry loop, fail fast,
             # and tell the UI to hide the retry button.
@@ -820,7 +824,7 @@ def poll_and_execute():
                         # Content-item job (one FAQ / article). The parent scan
                         # already completed; only this item failed. Don't cascade
                         # to scan.status='failed' and don't run the scan-wide
-                        # refund — refund the per-item content_credit instead.
+                        # refund - refund the per-item content_credit instead.
                         item_id = (job_obj.payload or {}).get("item_id")
                         if item_id:
                             try:
@@ -844,7 +848,7 @@ def poll_and_execute():
                         except Exception:
                             logger.exception(f"Failed to reset content item {item_id}")
                     else:
-                        # Scan-pipeline job — mark scan failed + refund all
+                        # Scan-pipeline job - mark scan failed + refund all
                         # net-debited credits for the scan.
                         from models import Scan
                         from sqlalchemy.orm.attributes import flag_modified

@@ -40,7 +40,7 @@ class Client(Base):
     # Cross-scan persistent default for content promotion (FAQ / Article generation).
     # See migration 019 + worker/services/brand_resolver.py for resolution chain.
     primary_brand_ids = Column(ARRAY(UUID(as_uuid=True)), nullable=True)
-    # Phase E.C — owning organization. Nullable for legacy rows but the
+    # Phase E.C - owning organization. Nullable for legacy rows but the
     # migration 029 backfill populated every existing client.
     organization_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="SET NULL"))
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -52,7 +52,7 @@ class Client(Base):
 
 
 class Organization(Base):
-    """Agency / workspace top-level entity. Phase E.C — see migration 029."""
+    """Agency / workspace top-level entity. Phase E.C - see migration 029."""
     __tablename__ = "organizations"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -89,13 +89,13 @@ class OrgUserClient(Base):
     organization_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), primary_key=True)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
     client_id = Column(UUID(as_uuid=True), ForeignKey("clients.id", ondelete="CASCADE"), primary_key=True)
-    role = Column(Text, nullable=False)  # 'viewer' | 'editor' | 'manager' (renamed from 'owner' 2026-05-16 — Phase E.C.5.1 to disambiguate from organization_users.role='owner')
+    role = Column(Text, nullable=False)  # 'viewer' | 'editor' | 'manager' (renamed from 'owner' 2026-05-16 - Phase E.C.5.1 to disambiguate from organization_users.role='owner')
 
 
 class Invitation(Base):
     """Org-level invitation (Phase E.C.4). See migration 030 for lifecycle.
 
-    Per-client access is NOT granted on accept — admins promote the new
+    Per-client access is NOT granted on accept - admins promote the new
     member from the members page once they've joined.
     """
     __tablename__ = "invitations"
@@ -121,7 +121,7 @@ class UserClient(Base):
 
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), primary_key=True)
     client_id = Column(UUID(as_uuid=True), ForeignKey("clients.id"), primary_key=True)
-    # Phase E.C.5.1 — value 'owner' renamed to 'manager' via ALTER TYPE
+    # Phase E.C.5.1 - value 'owner' renamed to 'manager' via ALTER TYPE
     # user_role RENAME VALUE in migration 031. Disambiguates from the
     # org-level OrganizationUser.role='owner' which means something
     # different (org admin vs per-client manager).
@@ -145,7 +145,7 @@ class Subscription(Base):
 
 
 class ClientCredit(Base):
-    """Credit ledger — each row is a transaction (purchase or consumption)."""
+    """Credit ledger - each row is a transaction (purchase or consumption)."""
     __tablename__ = "client_credits"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -256,14 +256,44 @@ class ClientBrand(Base):
     brief = Column(JSONB)
     brief_generated_at = Column(DateTime)
     brief_generations_count = Column(Integer, nullable=False, default=0)
+    # Sprint 4 (migration 046) - Wikipedia presence cache per language. TTL 7 days,
+    # refreshed by worker/handlers/check_brand_wikipedia.py. Populated for the
+    # focus brand + classified competitors of each scan. Empty dict = never checked.
+    # Shape : {checked_at, by_lang: {fr: {exists, url, title, extract,
+    # last_modified, references_count, categories_count, quality_score}, en: {...}}}
+    wikipedia = Column(JSONB, nullable=False, default=dict)
 
     parent = relationship("ClientBrand", remote_side=[id])
+
+
+class ScanPageAudit(Base):
+    """Sprint 5 (migration 047) - Princeton GEO 7-pattern audit per cited page.
+
+    One row per (scan, url) where url is a page of the user's own site cited
+    by an LLM. PARITÉ obligatoire avec worker/models.py.
+    """
+    __tablename__ = "scan_page_audits"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    scan_id = Column(UUID(as_uuid=True), ForeignKey("scans.id", ondelete="CASCADE"), nullable=False)
+    url = Column(Text, nullable=False)
+    title = Column(Text)
+    lang = Column(Text)
+    fetched_at = Column(DateTime, default=datetime.utcnow)
+    fetch_status = Column(Integer)
+    fetch_error = Column(Text)
+    audit = Column(JSONB, nullable=False, default=dict)
+    geo_score = Column(Integer)
+    citation_count = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (UniqueConstraint("scan_id", "url", name="uq_scan_page_audits_scan_url"),)
 
 
 class ClientBrandPage(Base):
     """Sitemap-discovered page for a client_brand domain.
 
-    Phase D — see migration 025_client_brand_pages.sql for the lifecycle
+    Phase D - see migration 025_client_brand_pages.sql for the lifecycle
     diagram and column semantics. One row per URL on a primary brand's
     sitemap; embedding (1536 floats, JSONB) is filled by embed_brand_pages
     and queried by sitemap_matcher to suggest target_url for FAQ items.
@@ -447,19 +477,19 @@ class ScanQuestion(Base):
     question = Column(Text, nullable=False)
     type_question = Column(String(30))
     is_active = Column(Boolean, default=True)
-    # Phase C.1.5 (migration 034) — cached fan-out queries selected from
+    # Phase C.1.5 (migration 034) - cached fan-out queries selected from
     # cross-provider LLM search queries. Index [0] = primary (sent to YTG).
     # Populated lazily by services.fan_out_extractor on first article gen.
     # PARITÉ obligatoire avec worker/models.py (foot-gun #18).
     fan_out_queries = Column(JSONB, nullable=False, default=list)
-    # Phase B Tier A (migration 035) — Haiku-classified intent category.
+    # Phase B Tier A (migration 035) - Haiku-classified intent category.
     # NULL = not yet classified (legacy / unclassified rows; opportunity
     # scorer treats as promotional_fit). One of: promotional_fit,
     # informational_neutral, safety_warning, side_effects,
     # contre_indication, complaint_sav, other.
     # PARITÉ obligatoire avec worker/models.py (foot-gun #18).
     intent_category = Column(String(40), nullable=True)
-    # Sprint P (migration 036) — per-question fields lifted out of
+    # Sprint P (migration 036) - per-question fields lifted out of
     # scan_personas.data.questions[] JSONB to fix fragile text-lookup join.
     # Generated by persona_generator.py + generate_persona_questions.py,
     # consumed by Sprint J judge handler. NULL on legacy rows.
@@ -503,14 +533,14 @@ class ScanContentItem(Base):
     target_url = Column(Text)
     target_page_title = Column(String(500))
     target_question = Column(Text)
-    # Provenance of target_url — drives Kanban "Needs URL" badge + validation UI.
+    # Provenance of target_url - drives Kanban "Needs URL" badge + validation UI.
     # Values: scan_result | pending_user | user_input | auto_suggest | sitemap_index.
     # See api/migrations/020_target_url_source.sql + 026_target_url_score_and_candidates.sql.
     target_url_source = Column(Text)
     # Sitemap matcher final score (cosine × authority × gamme bias) for target_url.
     # NULL when no sitemap match available. Migration 026.
     target_url_score = Column(Float)
-    # Top-3 sitemap matcher picks [{"url","title","score"}] — drives top-3 picker UX.
+    # Top-3 sitemap matcher picks [{"url","title","score"}] - drives top-3 picker UX.
     # Migration 026.
     target_url_candidates = Column(JSONB, nullable=False, default=list)
 
@@ -556,7 +586,7 @@ class ScanContentItem(Base):
     # URLs the user has explicitly rejected via "Find a different page".
     # FAQPageMatcher reruns skip these so the same page never re-suggests.
     rejected_target_urls = Column(JSONB, nullable=False, default=list)
-    # Audit payload written by the worker on every successful generation —
+    # Audit payload written by the worker on every successful generation -
     # quality_score, sources cited (with org names), denylist drops. Migration
     # 024. Shape documented in 024_content_metadata.sql.
     content_metadata = Column(JSONB, nullable=False, default=dict)
@@ -586,16 +616,23 @@ class ScanLLMResult(Base):
     input_tokens = Column(Integer)
     output_tokens = Column(Integer)
     created_at = Column(DateTime, default=datetime.utcnow)
-    # Phase C.1.5 (migration 034) — per-provider list of search queries the
+    # Phase C.1.5 (migration 034) - per-provider list of search queries the
     # LLM actually issued during this response. Gemini grounding_metadata.
     # web_search_queries / OpenAI output[].action.queries (Claude future).
     # Empty list = grounding not triggered. Consumed by fan_out_extractor.
     # PARITÉ obligatoire avec worker/models.py (foot-gun #18).
     web_search_queries = Column(JSONB, nullable=False, default=list)
+    # Sprint N-runs (migration 045) - multi-sampling. run_index >= 1 = a real
+    # LLM call ; run_index = 0 = consensus row (brand_analysis populated from
+    # EntityAnalyzer over the N concatenated responses ; response_text NULL).
+    # Default 1 = legacy single-run scan. Aggregation contract :
+    #   AVG(target_cited::int) WHERE run_index > 0 = "% cited" KPI.
+    # See migration 045 + plan lovely-skipping-sunset.md.
+    run_index = Column(Integer, nullable=False, default=1)
 
 
 class ScanQuestionJudgment(Base):
-    """Sprint J (migration 037) — LLM-as-judge per-response signals.
+    """Sprint J (migration 037) - LLM-as-judge per-response signals.
 
     One row per (question, provider) i.e. per ScanLLMResult. Reads each
     response against scan_questions.signal_positif/signal_negatif/intention_cachee
@@ -705,7 +742,7 @@ class AuditLog(Base):
 class AuditRequest(Base):
     """018: Public audit-gratuit submissions from the homepage modal.
 
-    Decoupled from User/Client — created by anonymous visitors before any
+    Decoupled from User/Client - created by anonymous visitors before any
     account exists. Lifecycle:
       pending → confirmed (magic-link clicked) → launched (admin runs scan)
       → completed (results delivered) | rejected (spam / out of scope)
@@ -750,14 +787,14 @@ class Report(Base):
 
 
 class MediaCatalog(Base):
-    """Phase MR.1 — Buyable-media catalog for suggest-media endpoint.
+    """Phase MR.1 - Buyable-media catalog for suggest-media endpoint.
 
     PK is (domain, country, language). Bootstrapped from
     scan_llm_results.citations aggregation and enriched per-domain via
     LinkFinder.get_prices_batch. See worker/handlers/discover_media_catalog.py.
 
     Multi-vertical: vertical[] is populated from client.vertical of citing
-    scans — no hardcoded allowlist. Cf. feedback_no_hardcoded_vertical.md.
+    scans - no hardcoded allowlist. Cf. feedback_no_hardcoded_vertical.md.
 
     PARITÉ obligatoire avec worker/models.py (foot-gun #18).
     """
@@ -779,7 +816,7 @@ class MediaCatalog(Base):
     da = Column(Integer)
     tf = Column(Integer)
     cf = Column(Integer)
-    rd = Column(BigInteger)  # backlinks count — large sites exceed int4 (migration 044)
+    rd = Column(BigInteger)  # backlinks count - large sites exceed int4 (migration 044)
     llm_citation_count = Column(Integer, nullable=False, default=0)
     # 0.9^months_old weighted sum of citations. Use this for ranking.
     llm_citation_decayed = Column(Float, nullable=False, default=0)
@@ -792,7 +829,7 @@ class MediaCatalog(Base):
 
 
 class MediaFeedback(Base):
-    """Phase MR.1 — Per-(item, domain) user decisions on suggest-media output.
+    """Phase MR.1 - Per-(item, domain) user decisions on suggest-media output.
 
     action in {'accepted', 'rejected', 'replaced'}. Drives anti-repeat filter
     (rejected per item) and per-client footprint cap (accepted count).
@@ -812,7 +849,7 @@ class MediaFeedback(Base):
 
 
 class MediaPublishOutcome(Base):
-    """Phase MR.1 — T+14 LLM-citation lift per provider after publishing
+    """Phase MR.1 - T+14 LLM-citation lift per provider after publishing
     on a media suggested by /suggest-media. Populated by Sprint 4.
 
     citation_lift_t14_per_provider shape:

@@ -1,8 +1,8 @@
 ---
 /**
- * Citations — Web sources analysis.
+ * Citations - Web sources analysis.
  *
- * "Who's being cited by AI?" — Domain-level analysis of which websites
+ * "Who's being cited by AI?" - Domain-level analysis of which websites
  * AI chatbots reference in their responses, your site's position,
  * and competitor domain presence.
  *
@@ -45,6 +45,23 @@ interface DomainStats {
   sourceTypes: { grounding: number; text: number };
   questions: Array<{ question: string; persona: string; topic: string; position: number; brand_mentioned: boolean; contexte: string; sourceType: string }>;
 }
+
+// Sprint 3 - Source Attribution sub-feature. Drill INSIDE the "Your Site"
+// domain bucket : which specific URLs of your own site do the LLMs cite ?
+// Each LLM response that includes one of your URLs sets `est_site_cible=true`
+// on the citation row. We group those by URL to surface "AI doorways"
+// (= the pages the LLMs find when answering brand questions). Cf.
+// project_10_action_features.md #2 (Source Attribution Dashboard).
+interface YourUrlStats {
+  url: string;
+  domain: string;
+  count: number;
+  providers: Record<string, number>;
+  sourceTypes: { grounding: number; text: number };
+  positions: number[];
+  questions: Array<{ question: string; persona: string; topic: string; position: number; brand_mentioned: boolean; contexte: string; sourceType: string; provider: string }>;
+}
+const yourUrlMap: Record<string, YourUrlStats> = {};
 
 const domainMap: Record<string, DomainStats> = {};
 let totalCitations = 0;
@@ -91,13 +108,61 @@ details.forEach((d: any) => {
       contexte: c.contexte || '',
       sourceType,
     });
-    if (scanDomain && dom.includes(scanDomain)) {
+    const isYourSiteCit = !!c.est_site_cible || (scanDomain && dom.includes(scanDomain));
+    if (isYourSiteCit) {
       domainMap[dom].isYou = true;
       yourSiteCited = true;
+      // Source Attribution : URL-level breakdown for your site.
+      // Skip empty URLs (some citations carry domain only).
+      const url = c.url || '';
+      if (url) {
+        if (!yourUrlMap[url]) {
+          yourUrlMap[url] = {
+            url,
+            domain: dom,
+            count: 0,
+            providers: {},
+            sourceTypes: { grounding: 0, text: 0 },
+            positions: [],
+            questions: [],
+          };
+        }
+        const u = yourUrlMap[url];
+        u.count++;
+        const prov = d.provider || (isAggregated ? (d.latest?.provider || 'unknown') : 'unknown');
+        u.providers[prov] = (u.providers[prov] || 0) + 1;
+        if (sourceType === 'grounding') u.sourceTypes.grounding++;
+        else u.sourceTypes.text++;
+        const pos = c.position_dans_reponse || ci + 1;
+        u.positions.push(pos);
+        u.questions.push({
+          question: d.question,
+          persona: d.persona,
+          topic,
+          position: pos,
+          brand_mentioned: brandMentioned,
+          contexte: c.contexte || '',
+          sourceType,
+          provider: prov,
+        });
+      }
     }
   });
   if (yourSiteCited) questionsWithYourSite++;
 });
+
+// Sort URLs by citation count desc. Trim contexte snippets server-side
+// to keep the payload small even when 100+ pages are cited.
+const yourUrls = Object.values(yourUrlMap)
+  .map(u => ({
+    ...u,
+    avgPosition: u.positions.length ? Math.round(u.positions.reduce((a, b) => a + b, 0) / u.positions.length * 10) / 10 : null,
+    pathOnly: (() => { try { return new URL(u.url).pathname || '/'; } catch { return u.url; } })(),
+  }))
+  .sort((a, b) => b.count - a.count);
+const yourUrlsTopShare = yourUrls.length && yourUrls[0].count
+  ? Math.round(yourUrls[0].count / yourUrls.reduce((s, u) => s + u.count, 0) * 100)
+  : 0;
 
 // Sort: your site first, then by count
 const domains = Object.values(domainMap).sort((a, b) => {
@@ -134,7 +199,7 @@ const sourceTypeValues = Object.values(sourceTypes);
 
     <p class="text-sm text-charcoal-light mb-6">Which websites AI chatbots reference when answering questions about your topics. Your goal: be cited more often than competitors.</p>
 
-    {/* KPI cards — 2 rows */}
+    {/* KPI cards - 2 rows */}
     <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
       <div class="bg-white rounded-xl shadow-sm p-6">
         <p class="text-[11px] text-charcoal-light uppercase tracking-wide mb-2">Total Citations</p>
@@ -212,7 +277,7 @@ const sourceTypeValues = Object.values(sourceTypes);
       </div>
     </div>
 
-    {/* Domain list — expandable */}
+    {/* Domain list - expandable */}
     <div class="mb-8">
       <h2 class="text-sm font-semibold text-charcoal-dark mb-4">All Cited Domains</h2>
 
@@ -255,6 +320,79 @@ const sourceTypeValues = Object.values(sourceTypes);
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Source Attribution - URL-level drill-down inside "your site"
+           Laws of UX :
+             - Peak-End : hero count + top-page share in a banner.
+             - Aesthetic-Usability : ranked bars + provider chips.
+             - Miller's 7±2 : show top 10 by default, accordion for the rest.
+             - Jakob's Law : same expandable card pattern as the domain list above.
+           Why this is here and not a separate tab : it's a drill-down of
+           "Your Site" already shown above, not a new mental model. (Hick's Law).
+           See project_10_action_features.md #2. */}
+      {yourUrls.length > 0 && (
+        <div class="mb-6">
+          <div class="flex items-end justify-between mb-2">
+            <h3 class="text-[10px] uppercase tracking-wide text-charcoal-light font-semibold">Your Pages Cited <span class="text-charcoal-light/70 normal-case font-normal">- which pages of your site the LLMs found</span></h3>
+            {yourUrls.length > 0 && (
+              <span class="text-[11px] text-charcoal-light">{yourUrls.length} page{yourUrls.length > 1 ? 's' : ''}{yourUrlsTopShare > 0 ? ` · top page = ${yourUrlsTopShare}% of all your citations` : ''}</span>
+            )}
+          </div>
+          <div class="space-y-2" x-data="{ expandedUrl: null }">
+            {yourUrls.slice(0, 20).map((u, ui) => (
+              <div class="bg-white rounded-xl shadow-sm overflow-hidden ring-1 ring-emerald-100">
+                <div class="px-6 py-3 cursor-pointer hover:bg-emerald-50/40 transition-colors flex items-center gap-3"
+                     @click={`expandedUrl = expandedUrl === 'u${ui}' ? null : 'u${ui}'`}>
+                  <span class="text-[11px] text-emerald-600 w-5 text-right shrink-0">{ui + 1}</span>
+                  <a href={u.url} target="_blank" rel="noopener noreferrer" class="text-sm text-emerald-700 flex-1 truncate hover:underline" @click.stop title={u.url}>
+                    {u.pathOnly}
+                  </a>
+                  {u.sourceTypes.grounding > 0 && <span class="text-[9px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-600 shrink-0">{u.sourceTypes.grounding} grounding</span>}
+                  {u.sourceTypes.text > 0 && <span class="text-[9px] px-1.5 py-0.5 rounded bg-purple-50 text-purple-600 shrink-0">{u.sourceTypes.text} text</span>}
+                  {Object.entries(u.providers).map(([prov, n]) => (
+                    <span class="text-[9px] px-1.5 py-0.5 rounded bg-gray-100 text-charcoal-light shrink-0 font-medium">{prov} · {n}</span>
+                  ))}
+                  <div class="flex-1 max-w-[160px] bg-gray-100 rounded-full h-2 overflow-hidden">
+                    <div class="bg-emerald-500 h-full rounded-full" style={`width: ${Math.round(u.count / (yourUrls[0]?.count || 1) * 100)}%`}></div>
+                  </div>
+                  <span class="text-sm font-semibold text-emerald-700 shrink-0 w-20 text-right">{u.count} cit.</span>
+                  {u.avgPosition !== null && <span class="text-[10px] text-charcoal-light shrink-0">pos. {u.avgPosition}</span>}
+                  <svg class="w-4 h-4 text-gray-400 shrink-0 transition-transform" :class={`expandedUrl === 'u${ui}' ? 'rotate-180' : ''`}
+                       fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                  </svg>
+                </div>
+                <div x-show={`expandedUrl === 'u${ui}'`} x-transition class="border-t border-gray-100 px-6 py-3 bg-emerald-50/20">
+                  <p class="text-[11px] text-charcoal-light mb-2 break-all">{u.url}</p>
+                  <div class="space-y-1.5">
+                    {u.questions.slice(0, 15).map(q => (
+                      <div class="flex items-start gap-2 py-1">
+                        {q.brand_mentioned
+                          ? <span class="text-emerald-500 mt-0.5 shrink-0">&#10003;</span>
+                          : <span class="text-red-400 mt-0.5 shrink-0">&#10007;</span>
+                        }
+                        <div class="flex-1 min-w-0">
+                          <p class="text-xs text-charcoal-dark">{q.question}</p>
+                          <div class="flex items-center gap-2 mt-0.5">
+                            <span class="text-[10px] text-charcoal-light">{q.persona} · {q.topic} · pos. {q.position}</span>
+                            <span class={`text-[9px] px-1.5 py-0.5 rounded font-medium ${q.sourceType === 'grounding' ? 'bg-blue-50 text-blue-600' : 'bg-purple-50 text-purple-600'}`}>{q.sourceType}</span>
+                            <span class="text-[9px] px-1.5 py-0.5 rounded bg-gray-100 text-charcoal-light font-medium">{q.provider}</span>
+                          </div>
+                          {q.contexte && <p class="text-[10px] text-charcoal-light italic mt-0.5 line-clamp-2">"{q.contexte}"</p>}
+                        </div>
+                      </div>
+                    ))}
+                    {u.questions.length > 15 && <p class="text-[10px] text-charcoal-light">+{u.questions.length - 15} more questions citing this page</p>}
+                  </div>
+                </div>
+              </div>
+            ))}
+            {yourUrls.length > 20 && (
+              <p class="text-xs text-charcoal-light text-center py-2">+{yourUrls.length - 20} more pages cited</p>
+            )}
+          </div>
         </div>
       )}
 

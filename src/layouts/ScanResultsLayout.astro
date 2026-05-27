@@ -1,6 +1,6 @@
 ---
 /**
- * Scan Results Layout — nested inside DashboardLayout.
+ * Scan Results Layout - nested inside DashboardLayout.
  * Provides: breadcrumb, sticky scan header (grade + brand + sparkline + run selector),
  * horizontal tabs, and content slot.
  *
@@ -26,7 +26,7 @@ import { fetchScanHeader } from '../lib/scan-header';
 
 interface Props {
   scanId: string;
-  activeTab: 'overview' | 'topics' | 'personas' | 'questions' | 'citations' | 'actions';
+  activeTab: 'overview' | 'topics' | 'personas' | 'questions' | 'citations' | 'wikipedia' | 'audit' | 'actions';
 }
 
 const { scanId, activeTab } = Astro.props;
@@ -62,7 +62,8 @@ const rootScanId = runs.length > 0 ? (runs[0]?.id || scanId) : scanId;
 // Tab label mapping for breadcrumb
 const tabLabels: Record<string, string> = {
   overview: 'Overview', topics: 'Topics', personas: 'Personas',
-  questions: 'Questions', citations: 'Citations', actions: 'Actions',
+  questions: 'Questions', citations: 'Citations', wikipedia: 'Wikipedia',
+  audit: 'Page Audit', actions: 'Actions',
 };
 
 // Derive current tab path for date picker links
@@ -78,7 +79,7 @@ const currentQuery = Astro.url.searchParams.toString();
 const rangeContext = rangeParam === 'all' && runs.length > 1 ? ` (${runs.length} runs)` : '';
 ---
 
-<DashboardLayout title={`${scan.focus_brand || scan.name || scan.domain} — ${tabLabels[activeTab]}`} activeSection="scans">
+<DashboardLayout title={`${scan.focus_brand || scan.name || scan.domain} - ${tabLabels[activeTab]}`} activeSection="scans">
 
   {/* Breadcrumb (Recognition > Recall) */}
   <ScanBreadcrumb
@@ -157,10 +158,10 @@ const rangeContext = rangeParam === 'all' && runs.length > 1 ? ` (${runs.length}
     <slot />
   </div>
 
-  {/* Chart.js CDN — loaded only on scan result pages */}
+  {/* Chart.js CDN - loaded only on scan result pages */}
   <script is:inline src="https://cdn.jsdelivr.net/npm/chart.js@4.4.9/dist/chart.umd.min.js"></script>
 
-  {/* Chart.js global defaults — storytellingwithdata: eliminate clutter */}
+  {/* Chart.js global defaults - storytellingwithdata: eliminate clutter */}
   <script is:inline>
     if (typeof Chart !== 'undefined') {
       Chart.defaults.font.family = "system-ui, -apple-system, 'Segoe UI', sans-serif";

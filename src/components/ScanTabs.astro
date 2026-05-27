@@ -3,7 +3,10 @@
  * Horizontal tab bar for scan result sub-pages.
  *
  * Laws of UX:
- * - Hick's: exactly 5 tabs, no more
+ * - Miller's 7±2 : currently 7 tabs after Wikipedia was added in Sprint 4.
+ *   Past this point we should consolidate the "GEO toolkit" features
+ *   (Wikipedia + future Princeton audit + Schema generator + ...) into a
+ *   single tab with sub-nav. Tracked in project_revised_roadmap_2026_05_27.md.
  * - Serial Position: Overview first (most visited), Actions last (CTA)
  * - Von Restorff: active tab = coral underline, Actions red badge
  * - Fitts's: large touch targets (py-3)
@@ -11,13 +14,15 @@
  */
 interface Props {
   scanId: string;
-  activeTab: 'overview' | 'topics' | 'personas' | 'questions' | 'citations' | 'actions';
+  activeTab: 'overview' | 'topics' | 'personas' | 'questions' | 'citations' | 'wikipedia' | 'audit' | 'actions';
   counts?: {
     topics?: number;
     personas?: number;
     questions?: number;
     citations?: number;
     actions?: number;
+    wikipedia?: number;
+    audit?: number;
   };
   criticalCount?: number;
   queryString?: string;
@@ -31,6 +36,8 @@ const tabs = [
   { id: 'personas', label: 'Personas', href: 'personas', badge: counts.personas || null },
   { id: 'questions', label: 'Questions', href: 'questions', badge: counts.questions || null },
   { id: 'citations', label: 'Citations', href: 'citations', badge: counts.citations || null },
+  { id: 'wikipedia', label: 'Wikipedia', href: 'wikipedia', badge: counts.wikipedia || null },
+  { id: 'audit', label: 'Page Audit', href: 'audit', badge: counts.audit || null },
   { id: 'actions', label: 'Actions', href: 'actions', badge: criticalCount > 0 ? criticalCount : (counts.actions || null) },
 ];
 ---

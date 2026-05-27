@@ -12,6 +12,7 @@ from models import (
     Scan, ScanKeyword, ScanTopic, ScanPersona, ScanQuestion, ScanLLMResult,
     ScanQuestionJudgment,
     ScanBrandClassification, ScanBrandTopic, ScanOpportunity, ClientBrand,
+    ScanPageAudit,
     Client,
     Job, UserClient, get_db,
 )
@@ -82,20 +83,20 @@ class ScanCreate(BaseModel):
     config: dict = {}
     # User-declared scan intent. 'own_brand' = measuring my own brand visibility,
     # 'competitor_audit' = auditing a competitor's visibility. None = legacy /
-    # wizard didn't ask — downstream falls back to the domain-vs-primary-brands
+    # wizard didn't ask - downstream falls back to the domain-vs-primary-brands
     # heuristic in is_competitor_scan().
     scan_type: str | None = None
 
 
 class ScanUpdate(BaseModel):
-    """PATCH payload — all fields optional."""
+    """PATCH payload - all fields optional."""
     name: str | None = None
     focus_brand_id: str | None = None
     schedule: str | None = None  # manual | weekly | monthly
 
 
 class ScanConfigUpdate(BaseModel):
-    """PATCH /scans/{id}/config — update scan configuration."""
+    """PATCH /scans/{id}/config - update scan configuration."""
     providers: list[str] | None = None
 
 
@@ -106,7 +107,7 @@ class BrandClassify(BaseModel):
 
 
 class BrandReparent(BaseModel):
-    """Payload for drag-to-parent — moves brand under a new parent.
+    """Payload for drag-to-parent - moves brand under a new parent.
     parent_id=None ⇒ promote to root.
     """
     parent_id: str | None = None
@@ -155,7 +156,7 @@ class PersonaCreate(BaseModel):
 
 
 class PersonaUpdate(BaseModel):
-    """PATCH payload — every field optional. Used for rename / toggle / reassign."""
+    """PATCH payload - every field optional. Used for rename / toggle / reassign."""
     name: str | None = None
     data: dict | None = None
     topic_id: str | None = None
@@ -169,7 +170,7 @@ class QuestionCreate(BaseModel):
 
 
 class QuestionUpdate(BaseModel):
-    """PATCH payload — every field optional."""
+    """PATCH payload - every field optional."""
     question: str | None = None
     type_question: str | None = None
     is_active: bool | None = None
@@ -187,7 +188,7 @@ class MoveKeywordRequest(BaseModel):
 # --- Helpers ---
 
 # H6: role hierarchy. Higher number = more permissions.
-# Phase E.C.5.1 — _ROLE_RANK + _DESTRUCTIVE_METHODS dead since
+# Phase E.C.5.1 - _ROLE_RANK + _DESTRUCTIVE_METHODS dead since
 # _check_scan_access was refactored to delegate to services/access.py.
 # Removed.
 
@@ -199,7 +200,7 @@ def _check_scan_access(scan_id: str, user, db: Session) -> Scan:
     `org_user_clients` table is honored alongside the legacy `user_clients`
     fallback (Phase E.C.2). Without this, a user who gained access to a
     client through the org layer (no legacy `user_clients` row) would get
-    a spurious 403 — observed when switching to a freshly-created org with
+    a spurious 403 - observed when switching to a freshly-created org with
     a client they own via `org_user_clients` only.
     """
     from services.access import check_client_access
@@ -392,7 +393,7 @@ async def update_scan(scan_id: str, req: ScanUpdate, user=Depends(get_current_us
 
 @router.patch("/{scan_id}/config")
 async def update_scan_config(scan_id: str, req: ScanConfigUpdate, user=Depends(get_current_user), db: Session = Depends(get_db)):
-    """Update scan config (providers, etc.). JSONB merge — only provided keys are updated."""
+    """Update scan config (providers, etc.). JSONB merge - only provided keys are updated."""
     scan = _check_scan_access(scan_id, user, db)
     from sqlalchemy.orm.attributes import flag_modified
     config = dict(scan.config or {})
@@ -435,7 +436,7 @@ async def generate_brief(request: Request, scan_id: str, user=Depends(get_curren
             "error": "brief_regen_cap_reached",
             "message": f"This scan's brief has been generated {used} times "
                        f"(max {MAX_DOMAIN_BRIEF_GENERATIONS}). Edit the brief manually "
-                       f"on Gate 1 — further regenerations are blocked.",
+                       f"on Gate 1 - further regenerations are blocked.",
             "generations_used": used,
             "cap": MAX_DOMAIN_BRIEF_GENERATIONS,
         })
@@ -503,7 +504,7 @@ async def get_scan_brands(scan_id: str, user=Depends(get_current_user), db: Sess
 
     The `my_brand` bucket is hierarchical: parent brands carry a `.children` array
     containing their descendants that are ALSO classified as my_brand in this scan.
-    Other buckets (competitor/ignored/unclassified) stay flat — hierarchy only
+    Other buckets (competitor/ignored/unclassified) stay flat - hierarchy only
     matters for the focus-brand semantics (a focus brand's visibility includes
     its product lines).
 
@@ -572,7 +573,7 @@ async def get_scan_brands(scan_id: str, user=Depends(get_current_user), db: Sess
 
     def _nest(items: list) -> list:
         """Group children under their parent root. Only nest if BOTH parent and child
-        are in the SAME bucket — otherwise children are promoted to top-level (orphans).
+        are in the SAME bucket - otherwise children are promoted to top-level (orphans).
         """
         ids_in_bucket = {item["brand_id"] for item in items}
         children_by_parent: dict[str, list] = {}
@@ -773,7 +774,7 @@ async def get_pipeline(scan_id: str, user=Depends(get_current_user), db: Session
                 out["error"] = str(r["error"])[:200]
         return out
 
-    # Scan-phase filter — the Scan step UI should show ONLY the scan-execution
+    # Scan-phase filter - the Scan step UI should show ONLY the scan-execution
     # steps (run_llm_tests onward), not the upstream setup pipeline (keywords,
     # topics, personas) which belong to earlier wizard stages. Showing the full
     # 15-step process on the Scan view confuses users ("if setup is done, why
@@ -789,7 +790,7 @@ async def get_pipeline(scan_id: str, user=Depends(get_current_user), db: Session
     if launch_at is not None:
         scan_jobs = [j for j in jobs if j.created_at and j.created_at >= launch_at]
     else:
-        # No run_llm_tests yet — scan not launched. Return everything so the
+        # No run_llm_tests yet - scan not launched. Return everything so the
         # earlier wizard stages still get a progress view if they poll.
         scan_jobs = jobs
 
@@ -819,7 +820,7 @@ class EmptyBucketReq(BaseModel):
 async def empty_bucket(scan_id: str, req: EmptyBucketReq, user=Depends(get_current_user), db: Session = Depends(get_db)):
     """Drop every SBC row for a given classification on this scan.
 
-    Used by the "Empty Ignored" button — typically called with
+    Used by the "Empty Ignored" button - typically called with
     classification='ignored' to clear the trash bucket after the user has
     confirmed nothing valuable is in there.
 
@@ -853,7 +854,7 @@ async def empty_bucket(scan_id: str, req: EmptyBucketReq, user=Depends(get_curre
 async def bulk_classify_brands(scan_id: str, req: BrandBulkClassify, user=Depends(get_current_user), db: Session = Depends(get_db)):
     """Set classification on N brands at once.
 
-    Used by the "Mark all as ignored" inbox shortcut — N≈2000 individual
+    Used by the "Mark all as ignored" inbox shortcut - N≈2000 individual
     PATCH calls would burn 30s+ of round-trips, and cleanup_brands often
     fails on dense scans anyway. This is the manual escape hatch.
 
@@ -923,7 +924,7 @@ async def bulk_classify_brands(scan_id: str, req: BrandBulkClassify, user=Depend
 async def remove_brand_from_scan(scan_id: str, brand_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
     """Remove the brand from this scan's view.
 
-    Drops the per-scan classification row only — the canonical `client_brands`
+    Drops the per-scan classification row only - the canonical `client_brands`
     row is preserved (it may be referenced by other scans or future runs).
     Used by the × button on the Ignored bucket to fully discard a brand from
     the current scan after the user has already moved it through the buckets.
@@ -939,7 +940,7 @@ async def remove_brand_from_scan(scan_id: str, brand_id: str, user=Depends(get_c
     if sbc is None:
         return {"deleted": False, "message": "no classification existed"}
 
-    # Refuse to drop the focus brand — protects the scan from accidental
+    # Refuse to drop the focus brand - protects the scan from accidental
     # focus loss when a user gets click-happy in the Ignored column.
     if sbc.is_focus:
         raise HTTPException(
@@ -959,7 +960,7 @@ async def reparent_brand(scan_id: str, brand_id: str, req: BrandReparent, user=D
 
     The hierarchy lives on `client_brands.parent_id` (client-scoped, not
     scan-scoped), so a successful PATCH affects every scan in the client.
-    That's the intended behaviour — brand hierarchy is canonical knowledge
+    That's the intended behaviour - brand hierarchy is canonical knowledge
     about the workspace, not per-scan opinion.
 
     Validations:
@@ -967,7 +968,7 @@ async def reparent_brand(scan_id: str, brand_id: str, req: BrandReparent, user=D
     - parent_id != brand_id (no self-loop).
     - parent_id must not be a descendant of brand (no circular hierarchy).
     - parent and brand must share the same bucket in THIS scan
-      (e.g. competitor cannot nest under my_brand) — keeps the UI sane.
+      (e.g. competitor cannot nest under my_brand) - keeps the UI sane.
     """
     scan = _check_scan_access(scan_id, user, db)
 
@@ -980,7 +981,7 @@ async def reparent_brand(scan_id: str, brand_id: str, req: BrandReparent, user=D
 
     parent_id = req.parent_id
     if parent_id is None:
-        # Promote to root — always safe (cycle-free by definition).
+        # Promote to root - always safe (cycle-free by definition).
         brand.parent_id = None
         db.commit()
         return {"brand_id": str(brand.id), "parent_id": None}
@@ -995,7 +996,7 @@ async def reparent_brand(scan_id: str, brand_id: str, req: BrandReparent, user=D
     if not parent:
         raise HTTPException(404, "Parent brand not found for this client")
 
-    # Cycle detection — walk up the candidate parent's ancestry; if we hit
+    # Cycle detection - walk up the candidate parent's ancestry; if we hit
     # `brand.id`, the proposed move would create a loop.
     cursor = parent
     depth = 0
@@ -1007,7 +1008,7 @@ async def reparent_brand(scan_id: str, brand_id: str, req: BrandReparent, user=D
             break
         depth += 1
 
-    # Bucket sanity — both must be classified the same way in this scan, so a
+    # Bucket sanity - both must be classified the same way in this scan, so a
     # competitor doesn't end up nested under a my_brand parent.
     brand_sbc = db.query(ScanBrandClassification).filter(
         ScanBrandClassification.scan_id == scan_id,
@@ -1026,12 +1027,12 @@ async def reparent_brand(scan_id: str, brand_id: str, req: BrandReparent, user=D
             f"Move the brand into the same bucket as the target parent first."
         )
 
-    # Parent must be a ROOT in that bucket (single-level nesting — mirrors
+    # Parent must be a ROOT in that bucket (single-level nesting - mirrors
     # the GET /brands tree-building logic that only nests one level).
     if parent.parent_id is not None:
         raise HTTPException(
             400,
-            "Cannot nest under a brand that already has a parent — pick a root brand."
+            "Cannot nest under a brand that already has a parent - pick a root brand."
         )
 
     brand.parent_id = parent.id
@@ -1086,7 +1087,7 @@ async def import_competitors_from_brief(scan_id: str, user=Depends(get_current_u
             sbc.source = "brief"
             sbc.updated_at = datetime.utcnow()
             return "classified"
-        # ignored — explicit user choice, don't override
+        # ignored - explicit user choice, don't override
         return "skipped_existing_ignored"
 
     created_brands = created_gammes = reparented = classified = skipped_existing = 0
@@ -1123,7 +1124,7 @@ async def import_competitors_from_brief(scan_id: str, user=Depends(get_current_u
             skipped_existing += 1
 
         # Skip products if root resolved to anything but competitor/unclassified
-        # (LLM hallucination guard — my_brand listed as competitor in brief).
+        # (LLM hallucination guard - my_brand listed as competitor in brief).
         root_sbc = db.query(ScanBrandClassification).filter(
             ScanBrandClassification.scan_id == scan_id,
             ScanBrandClassification.brand_id == root.id,
@@ -1184,7 +1185,7 @@ async def validate_scan_brands(scan_id: str, user=Depends(get_current_user), db:
     """Gate 2: validate the per-scan brand classification and enqueue persona generation.
 
     Requires:
-    - scan.status == 'brands_ready' (set by assign_keywords handler in J2 — until then this gate
+    - scan.status == 'brands_ready' (set by assign_keywords handler in J2 - until then this gate
       is not reachable from the happy path; the endpoint is wired up so Gate 2 UI can call it
       as soon as the worker refactor lands)
     - focus_brand_id IS NOT NULL
@@ -1210,12 +1211,12 @@ async def validate_scan_brands(scan_id: str, user=Depends(get_current_user), db:
         ScanBrandClassification.brand_id == scan.focus_brand_id,
     ).first()
     if not focus_sbc or focus_sbc.classification != "my_brand" or not focus_sbc.is_focus:
-        raise HTTPException(400, "Focus brand row is inconsistent — reclassify it as my_brand with is_focus=true")
+        raise HTTPException(400, "Focus brand row is inconsistent - reclassify it as my_brand with is_focus=true")
 
-    # NOTE 2026-05-21 — auto-promote of focus_brand to client.primary_brand_ids
+    # NOTE 2026-05-21 - auto-promote of focus_brand to client.primary_brand_ids
     # REMOVED here. The previous behavior prepended every validated focus brand
     # at index 0 of the workspace primaries, which polluted the workspace
-    # whenever the user ran exploratory scans (test domains, one-off audits) —
+    # whenever the user ran exploratory scans (test domains, one-off audits) -
     # foot-gun observed on Pierre Fabre when cocoonr.fr and praxedo.fr scans
     # added those non-PF brands as workspace primaries (with auto-generated
     # briefs via BB.6 chain). Documented as foot-gun #19 in
@@ -1223,7 +1224,7 @@ async def validate_scan_brands(scan_id: str, user=Depends(get_current_user), db:
     #
     # Explicit promotion to workspace primaries is now opt-in via
     # /app/settings/brands (drag Available → Selected → Save). The brand brief
-    # auto-enqueue below stays untouched — briefs are per-brand identity, cheap,
+    # auto-enqueue below stays untouched - briefs are per-brand identity, cheap,
     # and dormant on non-primary brands until they're promoted later (idempotent).
 
     scan.status = "generating_personas"
@@ -1233,9 +1234,9 @@ async def validate_scan_brands(scan_id: str, user=Depends(get_current_user), db:
     # SECOND so the worker FIFO ensures the brief is in the DB when personas
     # boot (personas read focus_brand.brief via format_analysis_context).
     # Brief generation = 30-60s ; personas = 10-30 min. Order matters because
-    # both jobs are queued in the same transaction — if personas is inserted
+    # both jobs are queued in the same transaction - if personas is inserted
     # first, the worker picks it up first and personas miss the brief.
-    # Idempotent — handler checks brand.brief IS NULL and the cap before regen.
+    # Idempotent - handler checks brand.brief IS NULL and the cap before regen.
     focus_brand = db.query(ClientBrand).filter(
         ClientBrand.id == scan.focus_brand_id
     ).first()
@@ -1261,7 +1262,7 @@ async def validate_scan_brands(scan_id: str, user=Depends(get_current_user), db:
             ))
             logger.info(
                 f"validate_brands: enqueued generate_brand_brief for focus "
-                f"brand {focus_brand.id} ({focus_brand.name}) — runs BEFORE personas"
+                f"brand {focus_brand.id} ({focus_brand.name}) - runs BEFORE personas"
             )
 
     _create_job(db, scan_id, "generate_personas")
@@ -1276,7 +1277,7 @@ async def validate_scan_brands(scan_id: str, user=Depends(get_current_user), db:
 @limiter.limit("10/minute")
 async def rescan(request: Request, scan_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
     """Create a child scan that inherits topics, personas, questions and brand classifications
-    from the parent. Skips Gate 1 and Gate 2 — goes straight to fetching_keywords (fresh HaloScan
+    from the parent. Skips Gate 1 and Gate 2 - goes straight to fetching_keywords (fresh HaloScan
     + fresh LLM) while reusing the validated setup.
 
     Phase 1: copies topics, personas, questions, scan_brand_classifications.
@@ -1284,7 +1285,7 @@ async def rescan(request: Request, scan_id: str, user=Depends(get_current_user),
     """
     parent = _check_scan_access(scan_id, user, db)
 
-    # Count the active questions that will be copied to the child — this is
+    # Count the active questions that will be copied to the child - this is
     # what `run_llm_tests` will execute, and what we must charge for.
     active_personas = db.query(ScanPersona).filter(
         ScanPersona.scan_id == parent.id, ScanPersona.is_active == True
@@ -1302,18 +1303,31 @@ async def rescan(request: Request, scan_id: str, user=Depends(get_current_user),
     if active_personas == 0 or active_questions == 0:
         raise HTTPException(400, "Parent scan has no active personas/questions to rescan")
 
-    # Credit gate: same pattern as launch_scan — lock client, check balance,
+    # Sprint N-runs : rescan inherits parent.config (and thus runs_depth) by default.
+    # Same credit formula as launch_scan : credits = questions × runs_depth.
+    parent_config = parent.config or {}
+    runs_depth = int(parent_config.get("runs_depth", 1)) or 1
+    if runs_depth < 1:
+        runs_depth = 1
+    credits_needed = active_questions * runs_depth
+
+    # Credit gate: same pattern as launch_scan - lock client, check balance,
     # then debit (with scan_id=child.id once it exists, so a worker failure
     # auto-refunds against the child).
     from routers.stripe import get_credit_balance, add_credits, lock_client_credits
     lock_client_credits(str(parent.client_id), db)
     balance = get_credit_balance(str(parent.client_id), "scan", db)
-    if balance < active_questions:
+    if balance < credits_needed:
         raise HTTPException(402, {
             "error": "insufficient_credits",
-            "need": active_questions,
+            "need": credits_needed,
             "have": balance,
-            "message": f"Need {active_questions} scan credits but only {balance} available",
+            "questions": active_questions,
+            "runs_depth": runs_depth,
+            "message": (
+                f"Need {credits_needed} scan credits ({active_questions} questions "
+                f"× {runs_depth} runs) but only {balance} available"
+            ),
         })
 
     # Compute run_index: (max run_index of the lineage) + 1
@@ -1405,12 +1419,14 @@ async def rescan(request: Request, scan_id: str, user=Depends(get_current_user),
     child.status = "scanning"
     child.progress_message = "Re-running AI tests with same setup..."
 
-    # Pre-debit credits — same lock from above is still held within this txn.
+    # Pre-debit credits - same lock from above is still held within this txn.
     add_credits(
         client_id=str(parent.client_id),
         credit_type="scan",
-        amount=-active_questions,
-        description=f"Rescan launched: {active_questions} questions",
+        amount=-credits_needed,
+        description=(
+            f"Rescan launched: {active_questions} questions × {runs_depth} runs"
+        ),
         db=db,
         scan_id=str(child.id),
     )
@@ -1428,7 +1444,7 @@ async def rescan(request: Request, scan_id: str, user=Depends(get_current_user),
 async def get_scan_lineage(scan_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
     """Return the full lineage of a scan: root (initial scan) + all its rescans, ordered by run_index.
 
-    Works whether scan_id points at the root or at any child — we resolve to the root first.
+    Works whether scan_id points at the root or at any child - we resolve to the root first.
     """
     scan = _check_scan_access(scan_id, user, db)
     root_id = scan.parent_scan_id or scan.id
@@ -1507,7 +1523,7 @@ async def get_topics(scan_id: str, user=Depends(get_current_user), db: Session =
         # Get keywords for this topic
         topic_kws = db.query(ScanKeyword).filter(ScanKeyword.topic_id == t.id).order_by(ScanKeyword.traffic.desc().nullslast()).all()
 
-        # Top 5 keywords — deduplicated by keyword text, aggregated across pages
+        # Top 5 keywords - deduplicated by keyword text, aggregated across pages
         # HaloScan returns 1 row per (keyword, url) pair; we collapse into 1 row per concept
         kw_agg = {}
         for k in topic_kws:
@@ -1821,7 +1837,7 @@ async def auto_classify_topics(scan_id: str, user=Depends(get_current_user), db:
 
     # Idempotency guard: don't create a duplicate classify_topics job if one is
     # already pending or running. The page auto-refreshes every 3s and re-triggers
-    # this endpoint while status is 'keywords_fetched' — without this guard, each
+    # this endpoint while status is 'keywords_fetched' - without this guard, each
     # refresh creates a new job that DELETES all existing topics and recreates them
     # with new IDs, breaking any user interaction that started between refreshes.
     existing = db.query(Job).filter(
@@ -2009,7 +2025,7 @@ async def create_persona(scan_id: str, req: PersonaCreate, user=Depends(get_curr
 
 @router.patch("/{scan_id}/personas/{persona_id}")
 async def update_persona(scan_id: str, persona_id: str, req: PersonaUpdate, user=Depends(get_current_user), db: Session = Depends(get_db)):
-    """Update a persona — all fields optional. Used for rename, toggle, reassign."""
+    """Update a persona - all fields optional. Used for rename, toggle, reassign."""
     _check_scan_access(scan_id, user, db)
     persona = db.query(ScanPersona).filter(ScanPersona.id == persona_id, ScanPersona.scan_id == scan_id).first()
     if not persona:
@@ -2073,7 +2089,7 @@ async def generate_persona_questions(request: Request, scan_id: str, persona_id:
             "error": "persona_questions_regen_cap_reached",
             "message": f"Questions have been regenerated {used} times for this persona "
                        f"(max {MAX_PERSONA_QUESTIONS_GENERATIONS}). Edit questions manually "
-                       f"— further regenerations are blocked.",
+                       f"- further regenerations are blocked.",
             "generations_used": used,
             "cap": MAX_PERSONA_QUESTIONS_GENERATIONS,
         })
@@ -2108,7 +2124,7 @@ async def create_question(scan_id: str, req: QuestionCreate, user=Depends(get_cu
 
 @router.patch("/{scan_id}/questions/{question_id}")
 async def update_question(scan_id: str, question_id: str, req: QuestionUpdate, user=Depends(get_current_user), db: Session = Depends(get_db)):
-    """Update a question — all fields optional. Used for toggle, inline edit, retype."""
+    """Update a question - all fields optional. Used for toggle, inline edit, retype."""
     _check_scan_access(scan_id, user, db)
     q = db.query(ScanQuestion).filter(ScanQuestion.id == question_id, ScanQuestion.scan_id == scan_id).first()
     if not q:
@@ -2164,37 +2180,52 @@ async def launch_scan(request: Request, scan_id: str, user=Depends(get_current_u
     if active_personas == 0 or active_questions == 0:
         raise HTTPException(400, "Need at least one active persona and question")
 
-    # Credit check: debit scan credits (1 credit = 1 question).
+    # Sprint N-runs : credits scale with runs_depth (statistical multi-sampling).
+    # 1 credit = 1 question × 1 run. Default runs_depth=1 keeps legacy semantics
+    # until Sprint 3 flips the default to 10.
+    config = scan.config or {}
+    runs_depth = int(config.get("runs_depth", 1)) or 1
+    if runs_depth < 1:
+        runs_depth = 1
+    credits_needed = active_questions * runs_depth
+
+    # Credit check: debit scan credits (credits_needed = questions × runs).
     # Lock the client row FIRST so the balance read + debit are atomic.
     # Without the lock, two concurrent launches could both observe the
     # same balance and each pass the check, causing a double-spend.
     #
-    # Bypass when scan.config.credits_already_debited = True — set by
+    # Bypass when scan.config.credits_already_debited = True - set by
     # import scripts (e.g. worker/scripts/import_seollm_avene.py) that
     # bring in personas + questions whose underlying work was already
     # paid for upstream. The real API costs still apply, but the sen-ai
     # ledger doesn't double-charge.
-    config = scan.config or {}
     bypass_credits = bool(config.get("credits_already_debited"))
 
     from routers.stripe import get_credit_balance, add_credits, lock_client_credits
     if not bypass_credits:
         lock_client_credits(str(scan.client_id), db)
         balance = get_credit_balance(str(scan.client_id), "scan", db)
-        if balance < active_questions:
+        if balance < credits_needed:
             raise HTTPException(402, {
                 "error": "insufficient_credits",
-                "need": active_questions,
+                "need": credits_needed,
                 "have": balance,
-                "message": f"Need {active_questions} scan credits but only {balance} available",
+                "questions": active_questions,
+                "runs_depth": runs_depth,
+                "message": (
+                    f"Need {credits_needed} scan credits ({active_questions} questions "
+                    f"× {runs_depth} runs) but only {balance} available"
+                ),
             })
 
-        # Pre-debit credits (re-uses the same lock — re-entrant within this txn)
+        # Pre-debit credits (re-uses the same lock - re-entrant within this txn)
         add_credits(
             client_id=str(scan.client_id),
             credit_type="scan",
-            amount=-active_questions,
-            description=f"Scan launched: {active_questions} questions",
+            amount=-credits_needed,
+            description=(
+                f"Scan launched: {active_questions} questions × {runs_depth} runs"
+            ),
             db=db,
             scan_id=scan_id,
         )
@@ -2203,7 +2234,8 @@ async def launch_scan(request: Request, scan_id: str, user=Depends(get_current_u
         import logging
         logging.getLogger(__name__).info(
             f"launch_scan: bypassing credit debit for scan {scan_id} "
-            f"({active_questions} questions, import_origin={config.get('import_origin')})"
+            f"({active_questions} questions × {runs_depth} runs, "
+            f"import_origin={config.get('import_origin')})"
         )
 
     scan.status = "scanning"
@@ -2217,9 +2249,19 @@ async def launch_scan(request: Request, scan_id: str, user=Depends(get_current_u
     audit_log(db, action="scan.launch", user_id=str(user.id),
               target_type="scan", target_id=scan_id,
               ip=request.client.host if request.client else None,
-              details={"questions": active_questions, "credits_used": active_questions})
+              details={
+                  "questions": active_questions,
+                  "runs_depth": runs_depth,
+                  "credits_used": credits_needed,
+              })
     db.commit()
-    return {"status": "scanning", "credits_used": active_questions, "credits_remaining": balance - active_questions}
+    return {
+        "status": "scanning",
+        "credits_used": credits_needed,
+        "credits_remaining": balance - credits_needed,
+        "questions": active_questions,
+        "runs_depth": runs_depth,
+    }
 
 
 @router.post("/{scan_id}/retry")
@@ -2228,19 +2270,19 @@ async def retry_scan(request: Request, scan_id: str,
                      user=Depends(get_current_user), db: Session = Depends(get_db)):
     """Re-enqueue failed jobs for a scan instead of starting from scratch.
 
-    When a scan fails — typically because a downstream Claude/OpenAI call hits
-    an API outage or quota limit — the worker marks the scan failed and
+    When a scan fails - typically because a downstream Claude/OpenAI call hits
+    an API outage or quota limit - the worker marks the scan failed and
     auto-refunds credits. This endpoint reverses that: pending jobs that ran
     successfully (e.g., run_llm_tests, generate_opportunities) keep their
     completed state, and only the actually-failed jobs are reset to pending.
     Scan status flips back to whatever it should be given the job state.
 
     Note on credits: when a scan is auto-refunded, retrying gets the deferred
-    work for free. We accept this small leak — the case is rare (only when
+    work for free. We accept this small leak - the case is rare (only when
     upstream succeeded but downstream failed) and the user already paid the
     cost in waiting / dealing with a failure they didn't cause. Re-debiting
     here would require knowing how much was refunded, which means scanning
-    the credit ledger — overkill for a recovery path.
+    the credit ledger - overkill for a recovery path.
     """
     scan = _check_scan_access(scan_id, user, db)
 
@@ -2252,11 +2294,11 @@ async def retry_scan(request: Request, scan_id: str,
 
     # Permanent failures (e.g., HaloScan has no data for the domain) are
     # flagged at handler level via PermanentScanError. Retrying would just
-    # re-fail with the same message — block it.
+    # re-fail with the same message - block it.
     if (scan.summary or {}).get("retryable") is False:
         raise HTTPException(400, {
             "error": "permanent_failure",
-            "message": "This scan can't be retried — the failure is permanent (e.g., the domain has no data). Start a new scan with different inputs.",
+            "message": "This scan can't be retried - the failure is permanent (e.g., the domain has no data). Start a new scan with different inputs.",
         })
 
     failed_jobs = (
@@ -2279,10 +2321,10 @@ async def retry_scan(request: Request, scan_id: str,
         j.result = None
 
     # Did upstream succeed? If run_llm_tests is completed, the scan is
-    # essentially done — only the chained post-processing failed. Status
+    # essentially done - only the chained post-processing failed. Status
     # should be "scanning" so the UI shows progress (worker flips it to
     # completed once all chained jobs finish, in run_llm_tests' final step).
-    # If run_llm_tests itself failed, status stays "scanning" too — same flow.
+    # If run_llm_tests itself failed, status stays "scanning" too - same flow.
     scan.status = "scanning"
     scan.error_message = None
     scan.updated_at = datetime.utcnow()
@@ -2326,6 +2368,17 @@ async def get_results(scan_id: str, provider: str | None = Query(None), user=Dep
     positions = [r.target_position for r in results if r.target_position]
     if positions:
         avg_position = round(sum(positions) / len(positions), 1)
+
+    # Sprint J: fetch judgments for these llm_results in one query (avoid N+1).
+    # Indexed by scan_llm_result_id ; UI uses these to render Pos/Neg chips.
+    # NOTE: this block was duplicated further down and the variable was being
+    # used before assignment - moved up here so the aggregations below can use it.
+    judgments_by_result_id = {
+        str(j.scan_llm_result_id): j
+        for j in db.query(ScanQuestionJudgment).filter(
+            ScanQuestionJudgment.scan_id == scan_id
+        ).all()
+    }
 
     # Sprint M aggregations: SOV by entity_type + 4-issues funnel from judgments.
     from services.composite_scores import aggregate_entity_sov, aggregate_judgment_funnel
@@ -2385,7 +2438,7 @@ async def get_results(scan_id: str, provider: str | None = Query(None), user=Dep
         })
     by_persona.sort(key=lambda x: -x["citation_rate"])
 
-    # --- Competitors — cross-referenced with Gate 2 classifications ---
+    # --- Competitors - cross-referenced with Gate 2 classifications ---
     focus_brand_obj = None
     if scan.focus_brand_id:
         focus_brand_obj = db.query(ClientBrand).filter(ClientBrand.id == scan.focus_brand_id).first()
@@ -2428,7 +2481,7 @@ async def get_results(scan_id: str, provider: str | None = Query(None), user=Dep
         for name, c in sorted(discovered_brands.items(), key=lambda x: -x[1])[:10]
     ]
 
-    # --- Details (each test) — enriched with brand_mentions, brand_analysis, intention_cachee ---
+    # --- Details (each test) - enriched with brand_mentions, brand_analysis, intention_cachee ---
     topics_map = {str(t.id): t for t in db.query(ScanTopic).filter(ScanTopic.scan_id == scan_id).all()}
 
     # Sprint P (migration 036): intention_cachee is now a native column on
@@ -2441,14 +2494,8 @@ async def get_results(scan_id: str, provider: str | None = Query(None), user=Dep
             if pq.get("question") and pq.get("intention_cachee"):
                 intent_lookup[pq["question"].strip().lower()] = pq["intention_cachee"]
 
-    # Sprint J: fetch judgments for these llm_results in one query (avoid N+1).
-    # Indexed by scan_llm_result_id ; UI uses these to render Pos/Neg chips.
-    judgments_by_result_id = {
-        str(j.scan_llm_result_id): j
-        for j in db.query(ScanQuestionJudgment).filter(
-            ScanQuestionJudgment.scan_id == scan_id
-        ).all()
-    }
+    # judgments_by_result_id is now fetched earlier (see top of get_results)
+    # so the overview aggregations can use it.
 
     from services.composite_scores import compute_scores
 
@@ -2502,7 +2549,7 @@ async def get_results(scan_id: str, provider: str | None = Query(None), user=Dep
             "brand_analysis": r.brand_analysis or {},
             "response_text": r.response_text or "",
             "duration_ms": r.duration_ms,
-            # Sprint J judgment payload — None when not yet judged.
+            # Sprint J judgment payload - None when not yet judged.
             "judgment": None if j is None else {
                 "positive_signal_hit": j.positive_signal_hit,
                 "positive_signal_evidence": j.positive_signal_evidence or "",
@@ -2887,7 +2934,7 @@ async def get_results_aggregated(
 async def get_persona_insights(scan_id: str, provider: str | None = Query(None), user=Depends(get_current_user), db: Session = Depends(get_db)):
     """Per-persona deep dive: full profile + visibility + brand perception + competitors + opportunities.
 
-    Returns rich Persona Cards data — the centerpiece of the AI Brand Audit deep dive.
+    Returns rich Persona Cards data - the centerpiece of the AI Brand Audit deep dive.
     """
     scan = _check_scan_access(scan_id, user, db)
 
@@ -3118,3 +3165,214 @@ async def get_opportunities(scan_id: str, user=Depends(get_current_user), db: Se
         })
 
     return {"summary": summary, "opportunities": items}
+
+
+# --- Sprint 4 : Wikipedia Entity Action -------------------------------------
+# Surfaces the Wikipedia presence cache (client_brands.wikipedia JSONB,
+# migration 046) for all brands attached to the scan : focus + competitors +
+# my_brand children. ChatGPT cites Wikipedia ~48% of the time so a missing
+# page is structurally costly. Cf. project_10_action_features.md #1.
+
+@router.get("/{scan_id}/wikipedia")
+async def get_scan_wikipedia(
+    scan_id: str,
+    include_all: bool = False,
+    user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return Wikipedia presence per brand attached to this scan.
+
+    Response shape :
+        {
+            "scan_id": "...",
+            "brands": [
+                {
+                    "brand_id": "...",
+                    "name": "Ducray",
+                    "canonical_name": "ducray",
+                    "classification": "target_brand",
+                    "is_focus": True,
+                    "wikipedia": { "checked_at": ..., "by_lang": {...} },
+                    "stale": False  # true if older than the TTL or never checked
+                },
+                ...
+            ],
+            "last_refresh": "..."  # max(checked_at) across brands, or null
+        }
+
+    Always returns 200, even when wikipedia={} for every brand - the UI
+    handles the empty state via a "Refresh" button that POSTs to the
+    /refresh endpoint below.
+    """
+    scan = _check_scan_access(scan_id, user, db)
+
+    # Sprint 4.7 - surface only the brands worth auditing on Wikipedia :
+    # the focus brand of the scan + classified MASTER brands (parent_id NULL).
+    # Sub-products / gammes (parent_id NOT NULL) are excluded because they
+    # virtually never have a dedicated Wikipedia page and they generate
+    # constant name-collision false positives.
+    # include_all=true returns every brand attached to the scan (debug view).
+    DEFAULT_CLASSIFICATIONS = ("my_brand", "competitor")
+    from sqlalchemy import or_ as _or_
+    q = (
+        db.query(ScanBrandClassification, ClientBrand)
+        .join(ClientBrand, ClientBrand.id == ScanBrandClassification.brand_id)
+        .filter(ScanBrandClassification.scan_id == scan_id)
+    )
+    if not include_all:
+        q = q.filter(
+            ScanBrandClassification.classification.in_(DEFAULT_CLASSIFICATIONS)
+        ).filter(
+            _or_(
+                ScanBrandClassification.is_focus.is_(True),
+                ClientBrand.parent_id.is_(None),
+            )
+        )
+    sbc_rows = q.all()
+
+    from datetime import datetime as _dt, timedelta as _td
+    TTL_DAYS = 7
+    now = _dt.utcnow()
+    items = []
+    last_refresh = None
+    for sbc, brand in sbc_rows:
+        wiki = brand.wikipedia or {}
+        checked = wiki.get("checked_at")
+        stale = True
+        if checked:
+            try:
+                ts = _dt.fromisoformat(str(checked).rstrip("Z"))
+                stale = ts < (now - _td(days=TTL_DAYS))
+                if not last_refresh or ts > last_refresh:
+                    last_refresh = ts
+            except ValueError:
+                stale = True
+        items.append({
+            "brand_id": str(brand.id),
+            "name": brand.name,
+            "canonical_name": brand.canonical_name,
+            "domain": brand.domain,
+            "classification": sbc.classification,
+            "is_focus": bool(sbc.is_focus),
+            "wikipedia": wiki,
+            "stale": stale,
+        })
+
+    # Sort : focus first, then my_brand → competitor → unclassified → ignored.
+    classif_order = {"my_brand": 0, "competitor": 1, "unclassified": 5, "ignored": 9}
+    items.sort(key=lambda i: (
+        0 if i["is_focus"] else 1,
+        classif_order.get(i["classification"], 6),
+        (i["name"] or "").lower(),
+    ))
+
+    return {
+        "scan_id": scan_id,
+        "brands": items,
+        "last_refresh": last_refresh.isoformat() + "Z" if last_refresh else None,
+        "ttl_days": TTL_DAYS,
+    }
+
+
+@router.post("/{scan_id}/wikipedia/refresh")
+async def refresh_scan_wikipedia(
+    scan_id: str,
+    force: bool = False,
+    user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Enqueue a check_brand_wikipedia job for this scan.
+
+    No-cost (Wikipedia REST + Action API are free). If `force=true`, ignore the
+    7-day TTL and re-check every brand. Idempotent at the job level -
+    re-clicking enqueues a fresh job, but the handler itself is no-op for
+    fresh entries unless force=true.
+    """
+    scan = _check_scan_access(scan_id, user, db)
+    _create_job(db, scan_id, "check_brand_wikipedia", {"force": bool(force)})
+    db.commit()
+    return {"status": "enqueued", "scan_id": scan_id, "force": bool(force)}
+
+
+# --- Sprint 5 : Princeton GEO content audit -------------------------------
+# Audit each URL of the user's own site that was cited by at least one LLM
+# during the scan, scoring it against the 7 patterns from Aggarwal et al.
+# (KDD 24). Heuristic, deterministic, no LLM cost. Cf.
+# project_10_action_features.md #4 + worker/handlers/audit_scan_pages.py.
+
+@router.get("/{scan_id}/page-audit")
+async def get_scan_page_audit(scan_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
+    """Return the audited pages for a scan, sorted by GEO score ASC (worst
+    first) so the action surface highlights the highest-leverage fixes."""
+    scan = _check_scan_access(scan_id, user, db)
+
+    rows = (
+        db.query(ScanPageAudit)
+        .filter(ScanPageAudit.scan_id == scan_id)
+        .order_by(
+            ScanPageAudit.fetch_error.is_(None).desc(),   # successful audits first
+            ScanPageAudit.geo_score.asc().nullslast(),     # worst score first inside successes
+            ScanPageAudit.citation_count.desc(),
+        )
+        .all()
+    )
+
+    # Aggregate KPIs for the hero banner.
+    success_rows = [r for r in rows if r.fetch_error is None and r.geo_score is not None]
+    avg_score = round(sum(r.geo_score for r in success_rows) / len(success_rows), 1) if success_rows else None
+    top_issues: dict[str, int] = {}
+    for r in success_rows:
+        for issue in (r.audit or {}).get("issues", []):
+            top_issues[issue["pattern"]] = top_issues.get(issue["pattern"], 0) + 1
+
+    items = []
+    last_fetched = None
+    for r in rows:
+        if r.fetched_at and (last_fetched is None or r.fetched_at > last_fetched):
+            last_fetched = r.fetched_at
+        items.append({
+            "url": r.url,
+            "title": r.title,
+            "lang": r.lang,
+            "fetch_status": r.fetch_status,
+            "fetch_error": r.fetch_error,
+            "geo_score": r.geo_score,
+            "citation_count": r.citation_count,
+            "fetched_at": r.fetched_at.isoformat() + "Z" if r.fetched_at else None,
+            "signals": (r.audit or {}).get("signals", {}),
+            "scores": (r.audit or {}).get("scores", {}),
+            "issues": (r.audit or {}).get("issues", []),
+        })
+
+    return {
+        "scan_id": scan_id,
+        "pages": items,
+        "summary": {
+            "audited": len(rows),
+            "succeeded": len(success_rows),
+            "failed": len(rows) - len(success_rows),
+            "avg_geo_score": avg_score,
+            "issues_by_pattern": top_issues,
+        },
+        "last_fetched": last_fetched.isoformat() + "Z" if last_fetched else None,
+    }
+
+
+@router.post("/{scan_id}/page-audit/refresh")
+async def refresh_scan_page_audit(
+    scan_id: str,
+    reset: bool = False,
+    limit: int = 400,
+    user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Enqueue an `audit_scan_pages` worker job. Free (no LLM). If `reset=true`,
+    the handler wipes prior audit rows before re-running so a stale page that
+    has since 404'd doesn't linger in the UI."""
+    scan = _check_scan_access(scan_id, user, db)
+    _create_job(db, scan_id, "audit_scan_pages", {
+        "reset": bool(reset),
+        "limit": int(limit) if limit else 400,
+    })
+    db.commit()
+    return {"status": "enqueued", "scan_id": scan_id, "reset": bool(reset), "limit": limit}

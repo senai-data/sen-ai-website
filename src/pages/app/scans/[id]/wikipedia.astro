@@ -1,0 +1,376 @@
+---
+/**
+ * Wikipedia - brand entity presence on Wikipedia (FR + EN).
+ *
+ * Why this page exists : ChatGPT cites Wikipedia ~48 % of the time
+ * (Stackmatix 30M citations analysis, May 2026). A brand without a proper
+ * Wikipedia page is structurally invisible in the single most-cited source
+ * on the planet - and this is the page where the user spots that gap.
+ *
+ * Data flow :
+ *   GET /api/scans/{id}/wikipedia → cached client_brands.wikipedia JSONB
+ *   POST /api/scans/{id}/wikipedia/refresh → enqueues a worker job that
+ *   calls the Wikipedia REST + Action API for every brand attached to the
+ *   scan and writes the result back to the cache.
+ *
+ * Laws of UX applied :
+ *   - Peak-End : single big "X / Y brands on Wikipedia" headline.
+ *   - Aesthetic-Usability : quality score chip (red / amber / emerald).
+ *   - Jakob's Law : same expandable card pattern as the citations page.
+ *   - Von Restorff : focus brand wears the emerald ring.
+ *   - Doherty Threshold : optimistic spinner on refresh + auto-reload after
+ *     the worker is expected to be done (rough handler runtime ≈ 1s/brand).
+ *   - Miller's 7±2 : brands sorted into focus → target → competitor blocks,
+ *     never more than ~12 cards on screen before the rest collapses.
+ *
+ * Natural writing rule : the copy here avoids the "Furthermore / Moreover"
+ * cadence and the long em-dash pattern that flags an LLM-written page.
+ * See project_phase_nw_natural_writing.md.
+ */
+export const prerender = false;
+import ScanResultsLayout from '../../../../layouts/ScanResultsLayout.astro';
+
+const token = Astro.cookies.get('token')?.value;
+if (!token) return Astro.redirect('/login');
+const scanId = Astro.params.id as string;
+
+const headers = { Cookie: `token=${token}` };
+let data: any = null;
+try {
+  const res = await fetch(`http://api:8000/api/scans/${scanId}/wikipedia`, { headers });
+  if (res.ok) data = await res.json();
+} catch (_) {}
+
+const brands = data?.brands || [];
+const lastRefresh = data?.last_refresh;
+const ttlDays = data?.ttl_days || 7;
+
+// Roll up the headline numbers. Sprint 4.6 splits the "X / Y on Wikipedia"
+// count into two : confirmed matches (confidence='match', no flag) and
+// possible matches (confidence='low', still on screen but needing user
+// verification). Without the split the headline is misleading - a fuzzy
+// match on a homonymie page reads as "we found you on Wikipedia" when in
+// fact the user has nothing.
+const totalBrands = brands.length;
+
+function langConfidence(l: any): 'match' | 'low' | null {
+  if (!l?.exists) return null;
+  return l.confidence === 'low' ? 'low' : 'match';
+}
+
+const confirmedAny = brands.filter((b: any) => {
+  const langs = b.wikipedia?.by_lang || {};
+  return Object.values(langs).some((l: any) => langConfidence(l) === 'match');
+}).length;
+const possibleOnly = brands.filter((b: any) => {
+  const langs = b.wikipedia?.by_lang || {};
+  const states = Object.values(langs).map(langConfidence);
+  return !states.some(s => s === 'match') && states.some(s => s === 'low');
+}).length;
+
+const confirmedFr = brands.filter((b: any) => langConfidence(b.wikipedia?.by_lang?.fr) === 'match').length;
+const confirmedEn = brands.filter((b: any) => langConfidence(b.wikipedia?.by_lang?.en) === 'match').length;
+
+const focusBrand = brands.find((b: any) => b.is_focus);
+const focusFr = focusBrand?.wikipedia?.by_lang?.fr;
+const focusEn = focusBrand?.wikipedia?.by_lang?.en;
+const focusConfirmedFr = langConfidence(focusFr) === 'match';
+const focusConfirmedEn = langConfidence(focusEn) === 'match';
+const focusConfirmedAny = focusConfirmedFr || focusConfirmedEn;
+
+// Format the "last refreshed" line - relative when fresh, ISO date past 24h.
+function timeAgo(iso?: string): string {
+  if (!iso) return 'never';
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return 'never';
+  const mins = Math.round((Date.now() - t) / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins} min ago`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.round(hrs / 24);
+  if (days < 14) return `${days}d ago`;
+  return new Date(iso).toISOString().slice(0, 10);
+}
+
+// Quality score → tailwind classes. 0–29 red, 30–59 amber, 60+ emerald.
+// The thresholds are intentionally coarse so a glance is enough - the
+// detailed extract / refs count under the accordion is what the user
+// actually reads.
+function scoreClasses(score?: number) {
+  if (score == null) return { bg: 'bg-gray-100', text: 'text-charcoal-light', label: 'n/a' };
+  if (score >= 60) return { bg: 'bg-emerald-100', text: 'text-emerald-700', label: 'strong' };
+  if (score >= 30) return { bg: 'bg-amber-100', text: 'text-amber-700', label: 'thin' };
+  return { bg: 'bg-red-100', text: 'text-red-700', label: 'weak' };
+}
+
+// Group brands by classification block. The SBC enum is
+// { my_brand, competitor, unclassified, ignored } - focus is a separate flag
+// on top of `my_brand`. We surface focus + your family first, then competitors.
+const blocks = [
+  { title: 'Focus brand', items: brands.filter((b: any) => b.is_focus) },
+  { title: 'Your brand family', items: brands.filter((b: any) => !b.is_focus && b.classification === 'my_brand') },
+  { title: 'Competitors', items: brands.filter((b: any) => b.classification === 'competitor') },
+  { title: 'Other', items: brands.filter((b: any) => b.classification !== 'my_brand' && b.classification !== 'competitor') },
+];
+const visibleBlocks = blocks.filter(b => b.items.length > 0);
+---
+
+<ScanResultsLayout scanId={scanId} activeTab="wikipedia">
+  <div x-data="{ expanded: null, refreshing: false }">
+
+    <p class="text-sm text-charcoal-light mb-6">
+      LLMs lean on Wikipedia heavily - ChatGPT cites it on roughly half its sources.
+      A missing or thin Wikipedia page makes a brand harder to surface in AI answers.
+      This page shows where each of your scan's brands stands.
+    </p>
+
+    {/* Hero KPI banner (Peak-End). The "confirmed" count is what we
+        actually trust - possible matches are the user's job to vet. */}
+    <div class="grid grid-cols-1 lg:grid-cols-4 gap-4 mb-6">
+      <div class="bg-white rounded-xl shadow-sm p-6 lg:col-span-2">
+        <p class="text-[11px] text-charcoal-light uppercase tracking-wide mb-2">Brands on Wikipedia</p>
+        <div class="flex items-baseline gap-3">
+          <span class="text-3xl font-bold text-emerald-600">{confirmedAny}</span>
+          <span class="text-base text-charcoal-light">of {totalBrands} confirmed</span>
+          {possibleOnly > 0 && (
+            <span class="text-[11px] px-2 py-0.5 rounded font-medium bg-amber-100 text-amber-700">
+              +{possibleOnly} possible
+            </span>
+          )}
+        </div>
+        <p class="text-xs text-charcoal-light mt-1">{confirmedFr} on fr.wikipedia · {confirmedEn} on en.wikipedia</p>
+      </div>
+
+      <div class="bg-white rounded-xl shadow-sm p-6">
+        <p class="text-[11px] text-charcoal-light uppercase tracking-wide mb-2">Focus brand</p>
+        {focusBrand ? (
+          <>
+            <div class="flex items-baseline gap-2">
+              <span class={`text-3xl font-bold ${focusConfirmedAny ? 'text-emerald-600' : 'text-red-500'}`}>
+                {focusConfirmedAny ? '✓' : '✗'}
+              </span>
+              <span class="text-sm font-medium text-charcoal-dark truncate">{focusBrand.name}</span>
+            </div>
+            <p class="text-xs text-charcoal-light mt-1">
+              {focusConfirmedFr ? 'fr ✓' : (focusFr?.exists ? 'fr ?' : 'fr ✗')}
+              {' · '}
+              {focusConfirmedEn ? 'en ✓' : (focusEn?.exists ? 'en ?' : 'en ✗')}
+            </p>
+          </>
+        ) : (
+          <p class="text-sm text-charcoal-light mt-2">No focus brand set on this scan.</p>
+        )}
+      </div>
+
+      <div class="bg-white rounded-xl shadow-sm p-6 flex flex-col justify-between">
+        <div>
+          <p class="text-[11px] text-charcoal-light uppercase tracking-wide mb-2">Last refresh</p>
+          <p class="text-sm text-charcoal-dark">{timeAgo(lastRefresh)}</p>
+          <p class="text-[10px] text-charcoal-light mt-1">Cache TTL : {ttlDays} days</p>
+        </div>
+        <button
+          @click={`if (refreshing) return; refreshing = true; fetch('/api/scans/${scanId}/wikipedia/refresh', { method: 'POST' }).then(r => r.json()).then(_ => { setTimeout(() => location.reload(), 4000); }).catch(() => { refreshing = false; });`}
+          :disabled="refreshing"
+          class="mt-3 px-3 py-1.5 text-xs font-medium rounded-lg bg-coral text-white hover:bg-coral-dark disabled:bg-gray-300 transition-colors"
+        >
+          <span x-show="!refreshing">Refresh now</span>
+          <span x-show="refreshing">Refreshing…</span>
+        </button>
+      </div>
+    </div>
+
+    {totalBrands === 0 && (
+      <div class="bg-white rounded-xl shadow-sm p-12 text-center text-charcoal-light">
+        No brands attached to this scan yet - finish Gate 2 (brand classification) first,
+        then come back to see Wikipedia coverage.
+      </div>
+    )}
+
+    {totalBrands > 0 && confirmedAny === 0 && possibleOnly === 0 && !lastRefresh && (
+      <div class="bg-amber-50 border border-amber-200 rounded-xl p-6 mb-6 text-sm text-amber-800">
+        Cache is empty for this scan. Click <strong>Refresh now</strong> above to look up each brand
+        on fr + en.wikipedia. The check is free (no LLM, no API key) and takes about a second per brand.
+      </div>
+    )}
+
+    {/* Per-brand cards, grouped by classification (Miller's 7±2) */}
+    {visibleBlocks.map(block => (
+      <div class="mb-6">
+        <h3 class="text-[10px] uppercase tracking-wide text-charcoal-light font-semibold mb-2">
+          {block.title} <span class="text-charcoal-light/70 font-normal normal-case">({block.items.length})</span>
+        </h3>
+        <div class="space-y-2">
+          {block.items.map((b: any, bi: number) => {
+            const fr = b.wikipedia?.by_lang?.fr;
+            const en = b.wikipedia?.by_lang?.en;
+            // Sprint 4.6 - only score "confirmed" matches in the header chip.
+            // A low-confidence Wikipedia page might be 85/100 on quality, but
+            // saying "strong" next to a wrong-entity match misleads the user.
+            const frConfirmed = langConfidence(fr) === 'match';
+            const enConfirmed = langConfidence(en) === 'match';
+            const frPossible = langConfidence(fr) === 'low';
+            const enPossible = langConfidence(en) === 'low';
+            const scoreCandidates = [
+              frConfirmed ? fr?.quality_score : null,
+              enConfirmed ? en?.quality_score : null,
+            ].filter(s => typeof s === 'number') as number[];
+            const bestScore = scoreCandidates.length ? Math.max(...scoreCandidates) : -1;
+            const sc = scoreClasses(bestScore >= 0 ? bestScore : undefined);
+            const cardKey = `${block.title}-${bi}`;
+            const ring = b.is_focus ? 'ring-1 ring-emerald-200' : '';
+            let cardStatus = 'missing';
+            if (frConfirmed || enConfirmed) cardStatus = 'confirmed';
+            else if (frPossible || enPossible) cardStatus = 'possible';
+            return (
+              <div class={`bg-white rounded-xl shadow-sm overflow-hidden ${ring}`}>
+                <div class="px-6 py-3 cursor-pointer hover:bg-gray-50 transition-colors flex items-center gap-3"
+                     @click={`expanded = expanded === '${cardKey}' ? null : '${cardKey}'`}>
+                  {b.is_focus && <span class="text-[9px] bg-emerald-100 text-emerald-600 px-2 py-0.5 rounded font-bold shrink-0">FOCUS</span>}
+                  <span class="text-sm font-medium text-charcoal-dark flex-1 truncate" title={b.name}>{b.name}</span>
+
+                  {/* Per-language status chips. ? = possible match (low confidence). */}
+                  <div class="flex items-center gap-1.5 shrink-0">
+                    <span class={`text-[10px] px-2 py-0.5 rounded font-medium ${frConfirmed ? 'bg-emerald-50 text-emerald-700' : frPossible ? 'bg-amber-50 text-amber-700' : 'bg-red-50 text-red-600'}`}>
+                      fr {frConfirmed ? '✓' : frPossible ? '?' : '✗'}
+                    </span>
+                    <span class={`text-[10px] px-2 py-0.5 rounded font-medium ${enConfirmed ? 'bg-emerald-50 text-emerald-700' : enPossible ? 'bg-amber-50 text-amber-700' : 'bg-red-50 text-red-600'}`}>
+                      en {enConfirmed ? '✓' : enPossible ? '?' : '✗'}
+                    </span>
+                  </div>
+
+                  {/* Composite quality chip - only when there is a confirmed match. */}
+                  {cardStatus === 'confirmed' && bestScore >= 0 && (
+                    <span class={`text-[10px] px-2 py-0.5 rounded font-semibold ${sc.bg} ${sc.text} shrink-0`}>
+                      {bestScore} / 100 · {sc.label}
+                    </span>
+                  )}
+                  {cardStatus === 'possible' && (
+                    <span class="text-[10px] px-2 py-0.5 rounded font-semibold bg-amber-100 text-amber-700 shrink-0">possible match · verify</span>
+                  )}
+
+                  {b.stale && (
+                    <span class="text-[9px] px-1.5 py-0.5 rounded bg-gray-100 text-charcoal-light shrink-0" title="Older than TTL, will be refreshed on next worker run">stale</span>
+                  )}
+
+                  <svg class="w-4 h-4 text-gray-400 shrink-0 transition-transform" :class={`expanded === '${cardKey}' ? 'rotate-180' : ''`}
+                       fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                  </svg>
+                </div>
+
+                {/* Expanded body : per-language summary panels */}
+                <div x-show={`expanded === '${cardKey}'`} x-transition class="border-t border-gray-100 px-6 py-4 bg-gray-50/40">
+                  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {['fr', 'en'].map(lang => {
+                      const w = b.wikipedia?.by_lang?.[lang];
+                      if (!w) return (
+                        <div class="bg-white rounded-lg p-4 border border-gray-100">
+                          <p class="text-[11px] text-charcoal-light uppercase tracking-wide mb-1">{lang}.wikipedia</p>
+                          <p class="text-sm text-charcoal-light">Not checked yet.</p>
+                        </div>
+                      );
+                      if (!w.exists) {
+                        // Sprint 4.6 - distinct rejection reasons map to
+                        // distinct UI. Disambiguation / wrong entity type /
+                        // fuzzy mismatch / Wikidata non-brand all need to be
+                        // explained differently so the user knows whether
+                        // it's worth searching Wikipedia themselves.
+                        const reasonLabels: any = {
+                          disambiguation_page: {
+                            color: 'amber',
+                            line: 'Hit a Wikipedia disambiguation page.',
+                            detail: w.rejected_title ? `Wikipedia returned "${w.rejected_title}" - a disambiguation page listing namesakes rather than the brand itself.` : undefined,
+                          },
+                          wrong_entity_type: {
+                            color: 'amber',
+                            line: 'Closest Wikipedia page is the wrong kind of entity.',
+                            detail: w.rejected_title && w.description ? `Returned "${w.rejected_title}" (${w.description}). Treated as unrelated to the brand.` : undefined,
+                          },
+                          wikidata_non_brand: {
+                            color: 'amber',
+                            line: 'Wikidata classifies the closest page as not a brand.',
+                            detail: w.rejected_title ? `Returned "${w.rejected_title}". Its Wikidata instance-of indicates a person, place or other non-brand entity.` : undefined,
+                          },
+                          fuzzy_mismatch: {
+                            color: 'amber',
+                            line: 'No clear page (fuzzy reject).',
+                            detail: w.rejected_title ? `Closest Wikipedia hit was "${w.rejected_title}" (title similarity ${w.title_similarity}).` : undefined,
+                          },
+                          no_match: { color: 'red', line: 'No page found.' },
+                          summary_404: { color: 'red', line: 'No page found (404).' },
+                        };
+                        const meta = reasonLabels[w.reason as string] || { color: 'red', line: 'No page found.' };
+                        const isAmber = meta.color === 'amber';
+                        return (
+                          <div class={`bg-white rounded-lg p-4 border ${isAmber ? 'border-amber-100' : 'border-red-100'}`}>
+                            <p class={`text-[11px] uppercase tracking-wide mb-1 ${isAmber ? 'text-amber-700' : 'text-red-600'}`}>{lang}.wikipedia</p>
+                            <p class={`text-sm ${isAmber ? 'text-amber-700' : 'text-red-600'}`}>{meta.line}</p>
+                            {meta.detail && <p class="text-[10px] text-charcoal-light mt-1" set:html={meta.detail} />}
+                            {w.error && <p class="text-[10px] text-charcoal-light mt-1">Error : {w.error}</p>}
+                            <a href={`https://${lang}.wikipedia.org/wiki/Special:Search?search=${encodeURIComponent(b.name)}`} target="_blank" rel="noopener noreferrer" class="text-[11px] text-coral hover:underline mt-2 inline-block">
+                              Search {lang}.wikipedia →
+                            </a>
+                          </div>
+                        );
+                      }
+                      const isLowConfidence = w.confidence === 'low';
+                      const borderCls = isLowConfidence ? 'border-amber-200' : 'border-emerald-100';
+                      const labelCls = isLowConfidence ? 'text-amber-700' : 'text-emerald-700';
+                      const linkCls = isLowConfidence ? 'text-amber-700' : 'text-emerald-700';
+                      return (
+                        <div class={`bg-white rounded-lg p-4 border ${borderCls}`}>
+                          <div class="flex items-center justify-between mb-1">
+                            <p class={`text-[11px] uppercase tracking-wide ${labelCls}`}>{lang}.wikipedia</p>
+                            <div class="flex items-center gap-1.5">
+                              {isLowConfidence && (
+                                <span class="text-[10px] px-1.5 py-0.5 rounded font-semibold bg-amber-100 text-amber-700" title={`Title similarity ${w.title_similarity ?? '?'} - verify this page matches your brand`}>
+                                  low confidence
+                                </span>
+                              )}
+                              {w.quality_score != null && (
+                                <span class={`text-[10px] px-1.5 py-0.5 rounded font-semibold ${scoreClasses(w.quality_score).bg} ${scoreClasses(w.quality_score).text}`}>
+                                  {w.quality_score} / 100
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          <a href={w.url} target="_blank" rel="noopener noreferrer" class={`text-sm font-medium hover:underline block mb-2 break-words ${linkCls}`}>
+                            {w.title || b.name}
+                          </a>
+                          {w.description && <p class="text-[11px] text-charcoal-light italic mb-2">{w.description}</p>}
+                          {w.extract && <p class="text-xs text-charcoal-dark line-clamp-4">{w.extract}</p>}
+                          <div class="flex flex-wrap items-center gap-3 mt-3 text-[10px] text-charcoal-light">
+                            {w.domain_match === true && (
+                              <span class="px-1.5 py-0.5 rounded font-semibold bg-emerald-50 text-emerald-700" title="The brand's official website is linked from this Wikipedia page - strong evidence the page is the right entity.">
+                                official site linked ✓
+                              </span>
+                            )}
+                            {w.domain_match === false && (
+                              <span class="px-1.5 py-0.5 rounded font-semibold bg-amber-50 text-amber-700" title="The brand's known domain isn't in this page's external links - could be a name collision. Verify before trusting.">
+                                domain not linked
+                              </span>
+                            )}
+                            {w.references_count != null && <span>{w.references_count} external refs</span>}
+                            {w.categories_count != null && <span>{w.categories_count} categories</span>}
+                            {w.last_modified && <span>edited {String(w.last_modified).slice(0, 10)}</span>}
+                            {w.page_size_bytes != null && <span>{Math.round(w.page_size_bytes / 1024)} KB</span>}
+                            {w.title_similarity != null && <span>match {Math.round(w.title_similarity * 100)}%</span>}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {b.wikipedia?.checked_at && (
+                    <p class="text-[10px] text-charcoal-light mt-3">Cached check : {timeAgo(b.wikipedia.checked_at)}</p>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    ))}
+
+  </div>
+</ScanResultsLayout>

@@ -18,7 +18,7 @@ from services.gemini_key_pool import get_gemini_pool
 
 logger = logging.getLogger(__name__)
 
-# Max concurrent LLM calls — Tier 4 OpenAI = 10K RPM, plenty of headroom at 20.
+# Max concurrent LLM calls - Tier 4 OpenAI = 10K RPM, plenty of headroom at 20.
 # Single executor over ALL tasks (no batching) eliminates head-of-line blocking
 # where one slow OpenAI call held up an entire batch.
 MAX_WORKERS = 20
@@ -36,7 +36,7 @@ class PoolRotatingGeminiClient:
     single capped/limited key killed the whole scan (provider tests AND the brand
     analyzer). Thread-safe: per-call key draw + per-key client cache, no shared
     mutable rotation state. Non-generate calls (extract_json, .provider) proxy
-    through — they're pure-parsing/metadata, key-agnostic.
+    through - they're pure-parsing/metadata, key-agnostic.
     """
 
     def __init__(self, pool, model: str | None = None):
@@ -61,7 +61,7 @@ class PoolRotatingGeminiClient:
             key = self._pool.next_key()
             try:
                 return self._client_for(key).generate(*args, **kwargs)
-            except Exception as e:  # noqa: BLE001 — inspect message to classify
+            except Exception as e:  # noqa: BLE001 - inspect message to classify
                 msg = str(e).lower()
                 if any(m in msg for m in _RATE_LIMIT_MARKERS):
                     self._pool.mark_rate_limited(
@@ -90,12 +90,20 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
     if not scan:
         raise RuntimeError("Scan not found")
 
+    # Sprint N-runs - multi-sampling. `runs_depth` (scan.config) defines how many
+    # times each (question, provider) pair gets called. Default 1 = legacy behavior
+    # (no schema regression, no consumer breaks). Sprint 3 flips default to 10.
+    # See migration 045 + plan lovely-skipping-sunset.md.
+    runs_depth = int((scan.config or {}).get("runs_depth", 1)) or 1
+    if runs_depth < 1:
+        runs_depth = 1
+
     # Cap-then-call : a full LLM-test pass runs ~$0.10-0.30 across providers
-    # × questions × brand_analyzer. Project $0.30 (conservative upper bound).
-    # If this trips, the scan retries — operator response is to bump the
-    # LLM_DAILY_COST_CAP_USD or wait for UTC midnight reset.
+    # × questions × brand_analyzer at N=1. Scales linearly with runs_depth.
+    # If this trips, the scan retries - operator response is to bump the
+    # LLM_DAILY_COST_CAP_USD (or per-client cap) or wait for UTC midnight reset.
     from services.llm_budget import assert_within_budget
-    assert_within_budget(scan.client_id, db, projected_cost_usd=0.30)
+    assert_within_budget(scan.client_id, db, projected_cost_usd=0.30 * runs_depth)
 
     # Only run questions whose persona is ALSO active (toggling a persona off
     # excludes all its questions, even if individual questions are still is_active=True)
@@ -145,7 +153,7 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
 
     # --- Build EntityAnalyzer (Sprint E) from Scan focus brand + SBC competitors ---
     # EntityAnalyzer extends the legacy BrandAnalyzer to 5 entity types
-    # (brand/product/range/domain/expert_source) — wire-compatible with the
+    # (brand/product/range/domain/expert_source) - wire-compatible with the
     # existing ScanLLMResult.brand_mentions JSONB column. See
     # worker/adapters/entity_analyzer.py + project_phase_judge_and_entities.md.
     brand_analyzer = None
@@ -159,14 +167,14 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
 
         target_entities, known_entities = build_target_entities_from_scan(scan, db)
         # Keep target_brands populated for the scan summary payload (consumed
-        # downstream by /scans/{id}/results) — same data, just unpacked from
+        # downstream by /scans/{id}/results) - same data, just unpacked from
         # the structured target_entities dict for legacy callers.
         target_brands = list(target_entities["brands"])
         all_brands = list(target_brands) + [k for k in known_entities if k.lower() not in {b.lower() for b in target_brands}]
         all_brands = all_brands[:15]
 
         if not scan.focus_brand_id and not target_entities["domains"]:
-            logger.warning("no focus brand AND no target domains — skipping EntityAnalyzer")
+            logger.warning("no focus brand AND no target domains - skipping EntityAnalyzer")
         elif not gemini_pool.has_keys():
             logger.info("EntityAnalyzer skipped: no Gemini key in pool")
         else:
@@ -207,17 +215,24 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
     brand_mentioned_count = 0
     errors = 0
 
-    # Build all test tasks: [(question, persona, provider, llm_client), ...]
+    # Build all test tasks: [(question, persona, provider, llm_client, run_idx), ...]
+    # Sprint N-runs : outer loop on run_idx so the executor sees ALL N×Q×P tasks
+    # at once (head-of-line blocking eliminated across runs too - a slow run 1
+    # task doesn't block run 2 tasks from another q/provider).
     tasks = []
-    for question in questions:
-        persona = personas.get(str(question.persona_id))
-        if not persona:
-            continue
-        for provider, llm_client in llm_clients.items():
-            tasks.append((question, persona, provider, llm_client))
+    for run_idx in range(1, runs_depth + 1):
+        for question in questions:
+            persona = personas.get(str(question.persona_id))
+            if not persona:
+                continue
+            for provider, llm_client in llm_clients.items():
+                tasks.append((question, persona, provider, llm_client, run_idx))
 
     total_tests = len(tasks)
-    logger.info(f"Running {total_tests} tests in a single pool of {MAX_WORKERS} workers")
+    logger.info(
+        f"Running {total_tests} tests in a single pool of {MAX_WORKERS} workers "
+        f"(runs_depth={runs_depth}, questions={len(questions)}, providers={len(llm_clients)})"
+    )
 
     from sqlalchemy import func as sql_func
 
@@ -232,13 +247,13 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
     # so we don't waste API quota / wait time on a provider known to be down.
     breaker = ProviderCircuitBreaker(list(llm_clients.keys()))
 
-    # Single ThreadPoolExecutor over ALL tasks — no batching = no head-of-line blocking
+    # Single ThreadPoolExecutor over ALL tasks - no batching = no head-of-line blocking
     # (a slow OpenAI call no longer holds back Gemini results in the same batch).
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
         futures = {}
-        for question, persona, provider, llm_client in tasks:
+        for question, persona, provider, llm_client, run_idx in tasks:
             if provider == "openai":
-                # Direct OpenAI path — bypasses LLMClient for tighter retry + faster
+                # Direct OpenAI path - bypasses LLMClient for tighter retry + faster
                 # web_search_preview tool config (see adapters/llm_scanner.py module docstring)
                 future = executor.submit(
                     test_question_openai_direct,
@@ -260,13 +275,13 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
                     target_domain=target_domain,
                     brand_analyzer=brand_analyzer,
                 )
-            futures[future] = (question, persona, provider)
+            futures[future] = (question, persona, provider, run_idx)
 
-        # Collect results as they complete (DB writes in main thread — safe).
+        # Collect results as they complete (DB writes in main thread - safe).
         # Single stream, no batches: as soon as ANY task finishes (Gemini in 15s
         # or OpenAI in 30s), we persist + update progress immediately.
         for future in as_completed(futures):
-            question, persona, provider = futures[future]
+            question, persona, provider, run_idx = futures[future]
 
             # Circuit breaker may have cancelled pending futures for a tripped
             # provider. Count them as skipped (no DB write, no usage logging,
@@ -294,12 +309,19 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
                     duration_ms=result.get("duration_ms"),
                     input_tokens=result.get("input_tokens"),
                     output_tokens=result.get("output_tokens"),
-                    # Phase C.1.5 — fan-out ground truth from the LLM's actual
+                    # Phase C.1.5 - fan-out ground truth from the LLM's actual
                     # web search behavior (Gemini grounding_metadata,
                     # OpenAI web_search_call.action.queries). Consumed
                     # downstream by services.fan_out_extractor to build the
                     # cross-provider fan-out set for article gen.
                     web_search_queries=result.get("web_search_queries", []),
+                    # Sprint N-runs (migration 045) - which sample is this ?
+                    # 1..N for actual LLM calls. run_index=0 is reserved for a
+                    # future consensus row carrying the brand_analysis JSONB
+                    # derived from EntityAnalyzer over the concatenated N
+                    # responses (Sprint 1.6, not implemented yet - current
+                    # behavior keeps per-run EntityAnalyzer, paid by runs_depth).
+                    run_index=run_idx,
                 ))
 
                 if result["target_cited"]:
@@ -379,7 +401,7 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
                     scan_id=scan_id, client_id=str(scan.client_id),
                 )
 
-                # BrandAnalyzer is a separate Gemini call per test — log it
+                # BrandAnalyzer is a separate Gemini call per test - log it
                 # under its own operation/model so cost dashboards split scan_test
                 # (search-grounded gpt-4.1-mini / gemini-2.5-flash) from
                 # brand_analyzer (gemini-2.5-flash-lite parsing the response).
@@ -425,9 +447,11 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
     brand_rate = round(brand_mentioned_count / success * 100, 1)
 
     # Prorata refund (C.3): a question is "delivered" if at least ONE provider
-    # produced a result for it. Questions where every provider failed/skipped
-    # count as undelivered → refund 1 scan_credit each. Credits are debited
-    # per-question at launch (not per-test), so the refund unit is per-question.
+    # produced a result for it on ANY run. Questions where every (provider,run)
+    # failed/skipped count as undelivered → refund credits.
+    # Sprint N-runs : credits are debited as `questions × runs_depth` at launch,
+    # so a fully-failed question refunds `runs_depth` credits (1 per run that
+    # never happened).
     questions_with_results = {
         str(qid) for (qid,) in db.query(ScanLLMResult.question_id)
             .filter(ScanLLMResult.scan_id == scan_id).distinct()
@@ -437,27 +461,33 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
     )
     refund_info = None
     if failed_question_count > 0:
+        refund_credits = failed_question_count * runs_depth
         try:
             partial_refund_scan_credits(
                 db=db,
                 client_id=scan.client_id,
                 scan_id=scan_id,
-                amount=failed_question_count,
-                description=f"Partial refund: {failed_question_count} questions undelivered",
+                amount=refund_credits,
+                description=(
+                    f"Partial refund: {failed_question_count} questions undelivered "
+                    f"× {runs_depth} run(s)"
+                ),
             )
             refund_info = {
-                "amount": failed_question_count,
+                "amount": refund_credits,
+                "failed_questions": failed_question_count,
+                "runs_depth": runs_depth,
                 "reason": "questions_undelivered",
             }
         except Exception:
             logger.exception(
                 f"Partial refund failed for scan {scan_id} "
-                f"({failed_question_count} questions)"
+                f"({failed_question_count} questions × {runs_depth} runs)"
             )
 
     scan.status = "completed"
     scan.progress_pct = 100
-    scan.progress_message = f"Scan terminé — cité {citation_rate}%, marque mentionnée {brand_rate}%"
+    scan.progress_message = f"Scan terminé - cité {citation_rate}%, marque mentionnée {brand_rate}%"
     scan.completed_at = datetime.utcnow()
     scan.updated_at = datetime.utcnow()
     scan.summary = {
@@ -473,6 +503,9 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
         "focus_brand_id": str(scan.focus_brand_id) if scan.focus_brand_id else None,
         "provider_status": breaker.to_dict(),
         "refund_info": refund_info,
+        # Sprint N-runs : surface in the summary so the UI can show "1 scan = N runs"
+        # and consumers can branch on it (e.g., aggregate intra-scan vs cross-lineage).
+        "runs_depth": runs_depth,
     }
 
     # Chain: classify intent (Phase B Tier A) → judge per-question signals

@@ -62,8 +62,8 @@ def _top_competitors(db: Session, scan_id: str, limit: int) -> list[dict]:
                      WHERE (tbm->>'est_marque_cible')::bool = true
                    )
                  ) AS solo_wins
-            FROM scan_llm_results slr,
-                 LATERAL jsonb_array_elements(slr.brand_mentions) AS bm
+            FROM scan_llm_results slr
+            JOIN LATERAL jsonb_array_elements(slr.brand_mentions) AS bm ON true
             JOIN scan_brand_classifications sbc ON sbc.scan_id = slr.scan_id
             JOIN client_brands cb ON cb.id = sbc.brand_id
            WHERE slr.scan_id = :scan_id
@@ -113,7 +113,7 @@ def _competitor_urls(
         """
         WITH cites AS (
           SELECT slr.id AS slr_id,
-                 slr.scan_question_id,
+                 slr.question_id,
                  slr.provider,
                  citation->>'url' AS url,
                  lower(citation->>'domaine') AS domaine
@@ -130,12 +130,12 @@ def _competitor_urls(
         SELECT c.url,
                COUNT(*) AS cites,
                jsonb_agg(DISTINCT jsonb_build_object(
-                 'question_id', c.scan_question_id::text,
+                 'question_id', c.question_id::text,
                  'question',    sq.question,
                  'provider',    c.provider
                )) FILTER (WHERE sq.question IS NOT NULL) AS questions
           FROM cites c
-          LEFT JOIN scan_questions sq ON sq.id = c.scan_question_id
+          LEFT JOIN scan_questions sq ON sq.id = c.question_id
          GROUP BY c.url
          ORDER BY cites DESC
          LIMIT :lim

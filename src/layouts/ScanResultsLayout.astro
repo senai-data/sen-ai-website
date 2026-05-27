@@ -220,6 +220,28 @@ const rangeContext = rangeParam === 'all' && runs.length > 1 ? ` (${runs.length}
       }
       return html;
     };
+
+    /* Sprint 7 — highlight a single cited URL (and its bare domain) inside
+       the raw LLM response_text. Same yellow style as Tip/contexte preview.
+       Used by competitors.astro to render the response inline with the
+       citation visually anchored. */
+    window.highlightUrlInResponse = function(text, url) {
+      if (!text) return '';
+      var html = window._escHtml(text);
+      if (!url) return html;
+      var host = '';
+      try { host = new URL(url).hostname.replace(/^www\./, ''); } catch (_) {}
+      var style = 'background:#fde68a;color:#1f2937;padding:1px 3px;border-radius:3px;font-weight:500';
+      if (url) {
+        var rxUrl = new RegExp('(' + window._escRx(url) + ')', 'gi');
+        html = html.replace(rxUrl, '<mark style="' + style + '">$1</mark>');
+      }
+      if (host) {
+        var rxHost = new RegExp('\\b(' + window._escRx(host) + ')\\b', 'gi');
+        html = html.replace(rxHost, '<mark style="' + style + '">$1</mark>');
+      }
+      return html;
+    };
   </script>
 
   {/* Rescan script */}

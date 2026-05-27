@@ -139,51 +139,7 @@ function flattenCitationRows(pages: any[]): any[] {
 ---
 
 <ScanResultsLayout scanId={scanId} activeTab="competitors">
-  <div
-    x-data={`{
-      expanded: null,
-      refreshing: false,
-      modal: false,
-      modalLoading: false,
-      modalError: '',
-      modalQuestion: '',
-      modalProvider: '',
-      modalUrl: '',
-      modalHtml: '',
-      escRe(s) { return String(s).replace(/[.*+?^\${}()|[\\]\\\\]/g, '\\\\$&'); },
-      highlight(text, url) {
-        if (!text) return '';
-        const safe = String(text).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-        const mark = (m) => '<mark class="bg-yellow-200/70 text-charcoal-dark rounded px-0.5">' + m + '</mark>';
-        let result = safe;
-        let host = '';
-        try { host = new URL(url).hostname.replace(/^www\\./, ''); } catch(_) {}
-        if (url) result = result.replace(new RegExp(this.escRe(url), 'gi'), mark);
-        if (host) result = result.replace(new RegExp('\\\\b' + this.escRe(host) + '\\\\b', 'gi'), mark);
-        return result;
-      },
-      async openResponse(detail) {
-        this.modal = true;
-        this.modalLoading = true;
-        this.modalError = '';
-        this.modalQuestion = detail.question || '';
-        this.modalProvider = detail.provider || '';
-        this.modalUrl = detail.url || '';
-        this.modalHtml = '';
-        try {
-          const r = await fetch('/api/scans/${scanId}/llm-result/' + encodeURIComponent(detail.slr_id), { credentials: 'same-origin' });
-          if (!r.ok) throw new Error('HTTP ' + r.status);
-          const d = await r.json();
-          this.modalHtml = this.highlight(d.response_text || '', this.modalUrl);
-        } catch (e) {
-          this.modalError = String(e.message || e);
-        } finally {
-          this.modalLoading = false;
-        }
-      }
-    }`}
-    @open-response.window="openResponse($event.detail)"
-    @keydown.escape.window="modal = false">
+  <div x-data="{ expanded: null, refreshing: false }">
 
     <p class="text-sm text-charcoal-light mb-6">
       Top competitors of this scan, reverse-engineered from the pages
@@ -419,29 +375,51 @@ function flattenCitationRows(pages: any[]): any[] {
                             </tr>
                             <tr x-show={`open === '${rowKey}'`} x-transition>
                               <td colspan="5" class="px-3 py-3 bg-amber-50/40 border-t border-amber-100">
-                                <div class="flex items-center justify-between mb-2">
-                                  <p class="text-[10px] uppercase tracking-wide text-charcoal-light font-semibold">
-                                    Citation snippet — what {providerLabel} wrote around this URL
+                                <div
+                                  x-data={`{
+                                    loading: false,
+                                    loaded: false,
+                                    error: '',
+                                    html: '',
+                                    async load() {
+                                      if (this.loaded || this.loading) return;
+                                      this.loading = true;
+                                      try {
+                                        const res = await fetch('/api/scans/${scanId}/llm-result/${r.slr_id}', { credentials: 'same-origin' });
+                                        if (!res.ok) throw new Error('HTTP ' + res.status);
+                                        const d = await res.json();
+                                        this.html = window.highlightUrlInResponse(d.response_text || '', ${JSON.stringify(r.url)});
+                                        this.loaded = true;
+                                      } catch (e) {
+                                        this.error = String(e && e.message || e);
+                                      } finally {
+                                        this.loading = false;
+                                      }
+                                    }
+                                  }`}
+                                  x-init={r.slr_id ? "load()" : ""}
+                                >
+                                  <p class="text-[10px] uppercase tracking-wide text-charcoal-light font-semibold mb-2">
+                                    {providerLabel} full response — cited URL highlighted
                                   </p>
-                                  {r.slr_id && (
-                                    <button
-                                      type="button"
-                                      class="text-[10px] px-2 py-1 rounded bg-charcoal-dark text-white hover:bg-charcoal transition-colors"
-                                      @click={`$dispatch('open-response', { slr_id: '${r.slr_id}', url: ${JSON.stringify(r.url)}, question: ${JSON.stringify(r.question)}, provider: '${r.provider}' })`}
-                                    >
-                                      View full response
-                                    </button>
+                                  <p x-show="loading" class="text-[11px] text-charcoal-light italic">Loading response...</p>
+                                  <p x-show="error" class="text-[11px] text-red-600" x-text="error"></p>
+                                  {r.slr_id ? (
+                                    <div
+                                      x-show="loaded && !error"
+                                      x-html="html"
+                                      class="text-[12px] text-charcoal-dark leading-relaxed whitespace-pre-wrap max-h-72 overflow-y-auto bg-white rounded-lg border border-amber-200 p-3 font-serif"
+                                    ></div>
+                                  ) : r.contexte ? (
+                                    <p class="text-[12px] text-charcoal-dark leading-relaxed font-serif italic whitespace-pre-wrap bg-white rounded-lg border border-amber-200 p-3"
+                                       set:html={highlightCitation(r.contexte, r.url)}>
+                                    </p>
+                                  ) : (
+                                    <p class="text-[11px] text-charcoal-light italic">
+                                      No response captured for this citation.
+                                    </p>
                                   )}
                                 </div>
-                                {r.contexte ? (
-                                  <p class="text-[12px] text-charcoal-dark leading-relaxed font-serif italic whitespace-pre-wrap"
-                                     set:html={highlightCitation(r.contexte, r.url)}>
-                                  </p>
-                                ) : (
-                                  <p class="text-[11px] text-charcoal-light italic">
-                                    No snippet captured for this citation.
-                                  </p>
-                                )}
                               </td>
                             </tr>
                           </>
@@ -475,52 +453,6 @@ function flattenCitationRows(pages: any[]): any[] {
         })}
       </div>
     )}
-
-    {/* Full-response modal — opens when a row's "View full response"
-        button dispatches the `open-response` window event. Fetches
-        /api/scans/{id}/llm-result/{slr_id} on demand and highlights the
-        cited URL + domain in the body. Closable via X, click-outside or
-        Escape. */}
-    <div
-      x-show="modal"
-      x-cloak
-      x-transition.opacity
-      class="fixed inset-0 bg-black/60 z-[80] flex items-center justify-center p-4"
-      @click.self="modal = false"
-    >
-      <div class="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[85vh] flex flex-col" @click.stop>
-        <div class="px-6 py-4 border-b border-gray-100 flex items-start justify-between gap-4">
-          <div class="min-w-0">
-            <p class="text-[10px] uppercase tracking-wide text-charcoal-light font-semibold mb-1">
-              <span class="text-[9px] px-1.5 py-0.5 rounded bg-gray-100 text-charcoal-light uppercase font-semibold mr-1.5"
-                    x-text="modalProvider">
-              </span>
-              Full response
-            </p>
-            <p class="text-sm font-medium text-charcoal-dark" x-text="modalQuestion"></p>
-            <p class="text-[10px] text-charcoal-light mt-1 truncate" x-text="modalUrl"></p>
-          </div>
-          <button
-            type="button"
-            class="text-charcoal-light hover:text-charcoal-dark text-2xl leading-none shrink-0"
-            @click="modal = false"
-            aria-label="Close"
-          >×</button>
-        </div>
-        <div class="px-6 py-5 overflow-y-auto flex-1">
-          <p x-show="modalLoading" class="text-sm text-charcoal-light italic">Loading the response...</p>
-          <p x-show="modalError" class="text-sm text-red-600" x-text="modalError"></p>
-          <div
-            x-show="!modalLoading && !modalError"
-            x-html="modalHtml"
-            class="text-[13px] text-charcoal-dark leading-relaxed whitespace-pre-wrap font-serif">
-          </div>
-        </div>
-        <div class="px-6 py-3 border-t border-gray-100 bg-gray-50/50 text-[10px] text-charcoal-light">
-          <span>Cited URL highlighted in yellow. Source : the LLM's raw response captured during this scan.</span>
-        </div>
-      </div>
-    </div>
 
   </div>
 </ScanResultsLayout>

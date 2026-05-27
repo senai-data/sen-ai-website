@@ -116,7 +116,8 @@ def _competitor_urls(
                  slr.question_id,
                  slr.provider,
                  citation->>'url' AS url,
-                 lower(citation->>'domaine') AS domaine
+                 lower(citation->>'domaine') AS domaine,
+                 citation->>'contexte' AS contexte
             FROM scan_llm_results slr,
                  LATERAL jsonb_array_elements(slr.citations) AS citation
            WHERE slr.scan_id = :scan_id
@@ -133,7 +134,8 @@ def _competitor_urls(
                  'question_id', c.question_id::text,
                  'question',    sq.question,
                  'provider',    c.provider
-               )) FILTER (WHERE sq.question IS NOT NULL) AS questions
+               )) FILTER (WHERE sq.question IS NOT NULL) AS questions,
+               array_agg(DISTINCT c.contexte) FILTER (WHERE c.contexte IS NOT NULL AND c.contexte != '') AS contextes
           FROM cites c
           LEFT JOIN scan_questions sq ON sq.id = c.question_id
          GROUP BY c.url
@@ -151,6 +153,7 @@ def _competitor_urls(
             "url": r[0],
             "citation_count": int(r[1] or 0),
             "winning_questions": list(r[2] or []),
+            "contextes": list(r[3] or []),
         }
         for r in rows
     ]
@@ -184,6 +187,40 @@ def _babbar_for_domain(db: Session, brand_domain: str) -> dict:
         "rd": int(row[3]) if row[3] is not None else None,
         "checked_at": row[4].isoformat() + "Z" if row[4] else None,
     }
+
+
+def _audit_from_contextes(contextes: list[str], url: str, page_domain: str) -> dict:
+    """Fallback Princeton audit derived from the LLM citation snippets when
+    the live page is blocked to crawlers (401/403/429/503).
+
+    The snippets are the actual text the LLM saw around the citation, so
+    they're a legitimate partial signal - thinner than a full page audit
+    but the same dimensions (statistics, citations, quotations, etc.).
+    We wrap them as synthetic HTML and reuse the same `analyze_page`
+    pipeline so the JSONB shape matches a normal audit and the UI can
+    render it identically.
+
+    The result is marked ``source="contexte"`` so the API + UI know to
+    label it differently (smaller-than-real word_count, "based on LLM
+    snippets" tooltip).
+    """
+    cleaned = [c for c in (contextes or []) if c and c.strip()]
+    if not cleaned:
+        return {}
+    # Wrap each snippet as a paragraph so analyze_page treats them as
+    # distinct sentences for fluency / readability metrics.
+    body = "\n".join(f"<p>{c}</p>" for c in cleaned)
+    fake_html = (
+        "<html><head><title>LLM citation snippets</title></head>"
+        f"<body><article>{body}</article></body></html>"
+    )
+    try:
+        result = analyze_page(fake_html, url, page_domain=page_domain)
+    except Exception:  # noqa: BLE001
+        logger.exception(f"contexte fallback analyze failed for {url}")
+        return {}
+    result["source"] = "contexte"
+    return result
 
 
 def _schema_score(page_type: str, schemas: list[dict], expected: list[str]) -> int:
@@ -284,6 +321,7 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
                     result = analyze_page(html, url, page_domain=brand_domain)
                     geo_score = result.get("geo_score")
                     geo_payload = {
+                        "source":  "page",
                         "signals": result.get("signals", {}),
                         "scores":  result.get("scores", {}),
                         "issues":  result.get("issues", []),
@@ -298,6 +336,21 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
                     logger.exception(f"competitor audit analyze failed for {url}")
                     err = err or "analyze_error"
                     errors += 1
+            elif err and err.startswith("blocked_http_"):
+                # Fallback : the page is blocked to crawlers but we already
+                # have the snippets the LLM used when citing it. Reuse the
+                # Princeton analyzer on those snippets so the user still
+                # gets a (qualified) signal instead of an empty card.
+                fallback = _audit_from_contextes(u.get("contextes", []), url, brand_domain)
+                if fallback:
+                    geo_score = fallback.get("geo_score")
+                    geo_payload = {
+                        "source":  "contexte",
+                        "signals": fallback.get("signals", {}),
+                        "scores":  fallback.get("scores", {}),
+                        "issues":  fallback.get("issues", []),
+                    }
+                errors += 1
             else:
                 errors += 1
 

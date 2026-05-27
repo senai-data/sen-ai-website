@@ -260,7 +260,12 @@ function fmtDelta(d?: number | null) {
                             </a>
                             <p class="text-[10px] text-charcoal-light truncate">{pathOnly}</p>
                           </div>
-                          {p.fetch_error && (
+                          {p.fetch_error && p.audit_source === 'contexte' && (
+                            <span class="text-[9px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 shrink-0" title="Page blocked by site (bot defense). Patterns below are derived from the LLM citation snippets - lighter signal than a full audit.">
+                              snippet-only
+                            </span>
+                          )}
+                          {p.fetch_error && p.audit_source !== 'contexte' && (
                             <span class="text-[9px] px-1.5 py-0.5 rounded bg-red-50 text-red-600 shrink-0" title={p.fetch_error}>fetch fail</span>
                           )}
                           {p.citation_count > 0 && (

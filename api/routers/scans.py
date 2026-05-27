@@ -3551,6 +3551,7 @@ async def get_competitor_reverse(scan_id: str, user=Depends(get_current_user), d
             "signals": (row.geo_audit or {}).get("signals", {}),
             "scores": (row.geo_audit or {}).get("scores", {}),
             "issues": (row.geo_audit or {}).get("issues", []),
+            "audit_source": (row.geo_audit or {}).get("source"),  # "page" | "contexte" | null
             "schemas": row.schemas or [],
             "fetched_at": row.fetched_at.isoformat() + "Z" if row.fetched_at else None,
         })

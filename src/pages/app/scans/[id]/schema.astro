@@ -200,9 +200,9 @@ function fmtJson(obj: any): string {
           const cardKey = `p${pi}`;
           let pathOnly = p.url;
           try { pathOnly = new URL(p.url).pathname || '/'; } catch (_) {}
-          const existingTypes: string[] = (p.existing_schemas || []).map((b: any) => b.type).filter(Boolean);
-          const missingTypes: string[] = p.missing_schemas || [];
-          const generated: Record<string, any> = p.generated_blocks || {};
+          const existingTypes = ((p.existing_schemas || []) as any[]).map((b: any) => b.type).filter(Boolean);
+          const missingTypes = (p.missing_schemas || []) as string[];
+          const generated = (p.generated_blocks || {}) as any;
           return (
             <div class="bg-white rounded-xl shadow-sm overflow-hidden">
               <div class="px-6 py-3 cursor-pointer hover:bg-gray-50 transition-colors flex items-center gap-3"

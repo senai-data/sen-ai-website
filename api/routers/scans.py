@@ -12,7 +12,7 @@ from models import (
     Scan, ScanKeyword, ScanTopic, ScanPersona, ScanQuestion, ScanLLMResult,
     ScanQuestionJudgment,
     ScanBrandClassification, ScanBrandTopic, ScanOpportunity, ClientBrand,
-    ScanPageAudit, ScanSchemaAudit,
+    ScanPageAudit, ScanSchemaAudit, ScanCompetitorPage,
     Client,
     Job, UserClient, get_db,
 )
@@ -3467,3 +3467,186 @@ async def refresh_scan_schema_audit(
     })
     db.commit()
     return {"status": "enqueued", "scan_id": scan_id, "reset": bool(reset), "limit": limit}
+
+
+# --- Sprint 7 : competitor reverse-engineering ----------------------------
+# For each scan we surface the top 5 competitors by win-count then audit
+# the pages LLMs already cite for them (Princeton GEO + JSON-LD schemas +
+# Babbar backlinks). The API aggregates per-competitor and computes a
+# "pattern delta" vs the user's own pages (scan_page_audits) so the UI
+# can render "what they have that you don't." Cf.
+# project_10_action_features.md #6 + worker/handlers/audit_competitor_pages.py.
+
+@router.get("/{scan_id}/competitor-reverse")
+async def get_competitor_reverse(scan_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
+    """Return per-competitor cards : the brand, its winning URLs with GEO
+    score / schemas / backlinks, and a pattern delta vs the user's own
+    pages on the same scan (from scan_page_audits + scan_schema_audits)."""
+    scan = _check_scan_access(scan_id, user, db)
+
+    rows = (
+        db.query(ScanCompetitorPage, ClientBrand)
+        .join(ClientBrand, ClientBrand.id == ScanCompetitorPage.brand_id)
+        .filter(ScanCompetitorPage.scan_id == scan_id)
+        .order_by(
+            ScanCompetitorPage.fetch_error.is_(None).desc(),
+            ScanCompetitorPage.geo_score.desc().nullslast(),
+            ScanCompetitorPage.citation_count.desc(),
+        )
+        .all()
+    )
+
+    # ---- Baseline : the user's own scan_page_audits + scan_schema_audits.
+    own_pages = (
+        db.query(ScanPageAudit).filter(ScanPageAudit.scan_id == scan_id).all()
+    )
+    own_schemas = (
+        db.query(ScanSchemaAudit).filter(ScanSchemaAudit.scan_id == scan_id).all()
+    )
+    own_geo_avg = None
+    if own_pages:
+        scored = [p.geo_score for p in own_pages if p.geo_score is not None]
+        own_geo_avg = round(sum(scored) / len(scored), 1) if scored else None
+    own_schema_avg = None
+    if own_schemas:
+        scored = [s.schema_score for s in own_schemas if s.schema_score is not None]
+        own_schema_avg = round(sum(scored) / len(scored), 1) if scored else None
+    own_schema_types: dict[str, int] = {}
+    for s in own_schemas:
+        for b in (s.existing_schemas or []):
+            if b.get("valid") and b.get("type"):
+                own_schema_types[b["type"]] = own_schema_types.get(b["type"], 0) + 1
+
+    # ---- Group competitor pages by brand and compute aggregates.
+    by_brand: dict[str, dict] = {}
+    last_fetched = None
+    for row, brand in rows:
+        if row.fetched_at and (last_fetched is None or row.fetched_at > last_fetched):
+            last_fetched = row.fetched_at
+        bid = str(brand.id)
+        bucket = by_brand.get(bid)
+        if bucket is None:
+            bucket = {
+                "brand_id": bid,
+                "brand_name": brand.name,
+                "domain": brand.domain,
+                "wikipedia": (brand.wikipedia or {}).get("found") or (brand.wikipedia or {}).get("title"),
+                "pages": [],
+                "backlinks": row.backlinks or {},
+                "_geo_scores": [],
+                "_schema_scores": [],
+                "_schema_types": {},
+            }
+            by_brand[bid] = bucket
+
+        bucket["pages"].append({
+            "url": row.url,
+            "title": row.title,
+            "fetch_status": row.fetch_status,
+            "fetch_error": row.fetch_error,
+            "geo_score": row.geo_score,
+            "schema_score": row.schema_score,
+            "citation_count": row.citation_count,
+            "winning_questions": row.winning_questions or [],
+            "signals": (row.geo_audit or {}).get("signals", {}),
+            "scores": (row.geo_audit or {}).get("scores", {}),
+            "issues": (row.geo_audit or {}).get("issues", []),
+            "schemas": row.schemas or [],
+            "fetched_at": row.fetched_at.isoformat() + "Z" if row.fetched_at else None,
+        })
+        if row.geo_score is not None:
+            bucket["_geo_scores"].append(row.geo_score)
+        if row.schema_score is not None:
+            bucket["_schema_scores"].append(row.schema_score)
+        for b in (row.schemas or []):
+            if b.get("valid") and b.get("type"):
+                bucket["_schema_types"][b["type"]] = bucket["_schema_types"].get(b["type"], 0) + 1
+
+    competitors = []
+    for bucket in by_brand.values():
+        geo_avg = (round(sum(bucket["_geo_scores"]) / len(bucket["_geo_scores"]), 1)
+                   if bucket["_geo_scores"] else None)
+        schema_avg = (round(sum(bucket["_schema_scores"]) / len(bucket["_schema_scores"]), 1)
+                      if bucket["_schema_scores"] else None)
+        # Pattern delta : schema types the competitor has at least once AND
+        # the user doesn't have on any of their own pages.
+        their_types = set(bucket["_schema_types"].keys())
+        my_types = set(own_schema_types.keys())
+        schemas_they_have_you_dont = sorted(list(their_types - my_types))
+
+        # Aggregate winning_questions across this competitor's pages, dedupe by question_id.
+        seen_qids: set[str] = set()
+        winning_questions: list[dict] = []
+        for p in bucket["pages"]:
+            for q in p["winning_questions"]:
+                qid = q.get("question_id")
+                if not qid or qid in seen_qids:
+                    continue
+                seen_qids.add(qid)
+                winning_questions.append(q)
+
+        competitors.append({
+            "brand_id": bucket["brand_id"],
+            "brand_name": bucket["brand_name"],
+            "domain": bucket["domain"],
+            "wikipedia_present": bool(bucket["wikipedia"]),
+            "pages": bucket["pages"],
+            "page_count": len(bucket["pages"]),
+            "winning_questions": winning_questions,
+            "winning_questions_count": len(winning_questions),
+            "geo_avg": geo_avg,
+            "schema_avg": schema_avg,
+            "schema_types": bucket["_schema_types"],
+            "backlinks": bucket["backlinks"],
+            "delta": {
+                "geo_vs_yours": (round(geo_avg - own_geo_avg, 1) if (geo_avg is not None and own_geo_avg is not None) else None),
+                "schema_vs_yours": (round(schema_avg - own_schema_avg, 1) if (schema_avg is not None and own_schema_avg is not None) else None),
+                "schemas_they_have_you_dont": schemas_they_have_you_dont,
+            },
+        })
+
+    # Sort competitors : most winning_questions first, then geo_avg desc.
+    competitors.sort(key=lambda c: (-c["winning_questions_count"], -(c["geo_avg"] or 0)))
+
+    return {
+        "scan_id": scan_id,
+        "competitors": competitors,
+        "baseline": {
+            "own_geo_avg": own_geo_avg,
+            "own_schema_avg": own_schema_avg,
+            "own_schema_types": own_schema_types,
+            "own_page_count": len(own_pages),
+        },
+        "summary": {
+            "competitors_audited": len(competitors),
+            "pages_audited": sum(c["page_count"] for c in competitors),
+        },
+        "last_fetched": last_fetched.isoformat() + "Z" if last_fetched else None,
+    }
+
+
+@router.post("/{scan_id}/competitor-reverse/refresh")
+async def refresh_competitor_reverse(
+    scan_id: str,
+    reset: bool = False,
+    competitors: int = 5,
+    urls_per_competitor: int = 10,
+    user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Enqueue an `audit_competitor_pages` worker job. Free (no LLM).
+    Defaults to 5 competitors × 10 URLs = 50 fetches, ~25 s on the wire."""
+    scan = _check_scan_access(scan_id, user, db)
+    _create_job(db, scan_id, "audit_competitor_pages", {
+        "reset": bool(reset),
+        "competitors": int(competitors),
+        "urls_per_competitor": int(urls_per_competitor),
+    })
+    db.commit()
+    return {
+        "status": "enqueued",
+        "scan_id": scan_id,
+        "reset": bool(reset),
+        "competitors": competitors,
+        "urls_per_competitor": urls_per_competitor,
+    }

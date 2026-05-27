@@ -199,6 +199,36 @@ class ScanSchemaAudit(Base):
     __table_args__ = (UniqueConstraint("scan_id", "url", name="uq_scan_schema_audits_scan_url"),)
 
 
+class ScanCompetitorPage(Base):
+    """Sprint 7 (migration 049) - competitor reverse-engineering. One row
+    per (scan, competitor brand, url) where url is a page LLMs cite for
+    that competitor during the scan. Bundles Princeton GEO audit (S5),
+    JSON-LD schemas (S6) and Babbar backlinks (MR.1). See
+    worker/handlers/audit_competitor_pages.py. PARITÉ obligatoire avec
+    api/models.py.
+    """
+    __tablename__ = "scan_competitor_pages"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    scan_id = Column(UUID(as_uuid=True), ForeignKey("scans.id", ondelete="CASCADE"), nullable=False)
+    brand_id = Column(UUID(as_uuid=True), ForeignKey("client_brands.id", ondelete="CASCADE"), nullable=False)
+    url = Column(Text, nullable=False)
+    title = Column(Text)
+    fetched_at = Column(DateTime, default=datetime.utcnow)
+    fetch_status = Column(Integer)
+    fetch_error = Column(Text)
+    citation_count = Column(Integer, nullable=False, default=0)
+    winning_questions = Column(JSONB, nullable=False, default=list)
+    geo_audit = Column(JSONB, nullable=False, default=dict)
+    geo_score = Column(Integer)
+    schemas = Column(JSONB, nullable=False, default=list)
+    schema_score = Column(Integer)
+    backlinks = Column(JSONB, nullable=False, default=dict)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (UniqueConstraint("scan_id", "brand_id", "url", name="uq_scan_competitor_pages_scan_brand_url"),)
+
+
 class ClientBrandPage(Base):
     """Sitemap-discovered page for a client_brand domain.
 

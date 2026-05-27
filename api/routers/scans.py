@@ -3626,6 +3626,46 @@ async def get_competitor_reverse(scan_id: str, user=Depends(get_current_user), d
     }
 
 
+@router.get("/{scan_id}/llm-result/{slr_id}")
+async def get_llm_result(
+    scan_id: str,
+    slr_id: str,
+    user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return the full LLM response text + the question that prompted it.
+    Used by the Competitors tab's "View full response" modal so the user
+    can read the surrounding context, not just the 200-char citation
+    snippet. Light-weight read - no LLM call."""
+    _check_scan_access(scan_id, user, db)
+
+    row = (
+        db.query(ScanLLMResult)
+        .filter(ScanLLMResult.id == slr_id, ScanLLMResult.scan_id == scan_id)
+        .first()
+    )
+    if not row:
+        from fastapi import HTTPException
+        raise HTTPException(404, "LLM result not found for this scan")
+
+    question_text = None
+    if row.question_id:
+        q = db.query(ScanQuestion).filter(ScanQuestion.id == row.question_id).first()
+        if q:
+            question_text = q.question
+
+    return {
+        "slr_id": str(row.id),
+        "scan_id": str(row.scan_id),
+        "provider": row.provider,
+        "model": row.model,
+        "question_id": str(row.question_id) if row.question_id else None,
+        "question": question_text,
+        "response_text": row.response_text or "",
+        "citations": row.citations or [],
+    }
+
+
 @router.post("/{scan_id}/competitor-reverse/refresh")
 async def refresh_competitor_reverse(
     scan_id: str,

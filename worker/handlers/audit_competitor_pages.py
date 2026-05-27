@@ -115,7 +115,10 @@ def _competitor_urls(
           SELECT slr.id AS slr_id,
                  slr.question_id,
                  slr.provider,
-                 citation->>'url' AS url,
+                 -- Normalize URL : strip query string AND fragment so
+                 -- variants like `?utm_source=openai` or `#section` don't
+                 -- split the same page across multiple rows.
+                 split_part(split_part(citation->>'url', '?', 1), '#', 1) AS url,
                  lower(citation->>'domaine') AS domaine,
                  citation->>'contexte' AS contexte
             FROM scan_llm_results slr,

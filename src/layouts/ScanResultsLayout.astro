@@ -256,8 +256,19 @@ const rangeContext = rangeParam === 'all' && runs.length > 1 ? ` (${runs.length}
         html = html.replace(new RegExp('\\b(' + window._escRx(host) + ')\\b', 'gi'), markFor(styleUrl));
       }
       // 2. Target brand (emerald). Skip very short stems to avoid over-matching.
+      //    Also highlight individual word stems (e.g. "Avène" alone when the
+      //    full name is "Eau Thermale Avène") since LLM responses often use
+      //    the short form. Skip stop-words and length < 4 to avoid noise.
       if (targetBrand && targetBrand.length >= 3) {
         html = html.replace(new RegExp('\\b(' + window._escRx(targetBrand) + ')\\b', 'gi'), markFor(styleTarget));
+        var STOPWORDS = { 'eau': 1, 'thermale': 1, 'thermal': 1, 'spring': 1, 'water': 1, 'the': 1, 'la': 1, 'le': 1, 'les': 1, 'de': 1, 'du': 1, 'des': 1, 'avec': 1, 'pour': 1 };
+        var words = String(targetBrand).split(/[\s\-_]+/);
+        for (var w = 0; w < words.length; w++) {
+          var stem = words[w].toLowerCase();
+          if (stem.length >= 4 && !STOPWORDS[stem]) {
+            html = html.replace(new RegExp('\\b(' + window._escRx(words[w]) + ')\\b', 'gi'), markFor(styleTarget));
+          }
+        }
       }
       // 3. Competitor brands (orange). Sorted by length desc so longer
       //    names match first (avoid stem-stealing). Skip <3 chars.

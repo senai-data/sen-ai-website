@@ -271,87 +271,117 @@ def _leverage_score(citation_count: int, classification: str, sentiment: str | N
     return max(0, min(100, engagement + cls_pts + sent_pts))
 
 
+# Marker the worker prepends to body_excerpt when the canonical Reddit
+# URL wasn't found textually in any of the response_texts (Gemini
+# typically wraps citations in Vertex AI redirect URLs that we can't
+# match), so the UI can show a clearer label and warning.
+_PROVENANCE_URL_ANCHORED = "[NEAR_URL]"
+_PROVENANCE_BRAND_ANCHORED = "[BRAND_ONLY]"
+_PROVENANCE_CONTEXTES_ONLY = "[CONTEXTE_ONLY]"
+
+
 def _build_response_excerpt(
     response_texts: list[str],
     url: str,
     brand_names: set[str],
     contextes: list[str],
 ) -> str:
-    """Extract the LLM response excerpt that actually surrounds the
-    Reddit URL citation - so the UI's "What the LLMs wrote about this
-    thread" label is honest.
+    """Extract the LLM response excerpt(s). The output is prefixed with a
+    provenance marker so the UI can show a precise label :
 
-    Strategy (in order of preference) :
+      [NEAR_URL]     : excerpt windows around the textual Reddit URL
+                        citation. Honest "what the LLM wrote near where
+                        it cited this thread".
+      [BRAND_ONLY]   : URL wasn't textually present (Gemini citation via
+                        Vertex redirect). We anchored on brand mentions
+                        elsewhere in the same response - thematically
+                        relevant but possibly NOT near the citation.
+      [CONTEXTE_ONLY]: neither URL nor brand matched in response_texts.
+                        Fall back to the original LLM citation contextes.
 
-      1. For each response_text, find the Reddit URL position and
-         extract a wide window (±400 chars) around it. This is the part
-         of the LLM answer that talks about the cited thread.
-      2. If the URL isn't textually present (Gemini sometimes references
-         the citation via a footnote marker), fall back to the window
-         around the FIRST brand mention - still informative because the
-         brand match is what triggered classification.
-      3. Last fall back : the original citation contextes (the maigre
-         "[Source: reddit.com]" that Gemini stores).
+    Strategy :
+      1. If the URL is textually present in any response_text, extract
+         ±300 char windows around each occurrence. Brand mentions
+         elsewhere are skipped (we want to be honest about the
+         "around the citation" claim).
+      2. If the URL isn't found, fall back to brand-mention anchors
+         and tag the excerpt as BRAND_ONLY.
+      3. If neither URL nor brand matched, fall back to contextes.
 
-    Excerpts deduped (positions within 100 chars treated as same window),
-    joined with " … " separators, capped at 2000 chars.
+    Cap at 2400 chars total.
     """
-    WINDOW = 400
-    MAX_TOTAL = 2000
+    WINDOW = 300
+    MAX_TOTAL = 2400
+    MAX_URL_WINDOWS = 4
+    MAX_BRAND_WINDOWS = 4
 
     if not response_texts:
-        return "\n\n".join(contextes)[:MAX_TOTAL]
+        return _PROVENANCE_CONTEXTES_ONLY + " " + "\n\n".join(contextes)[:MAX_TOTAL]
 
-    found: list[str] = []
-    seen_positions: list[tuple[int, int, str]] = []  # (start, end, text_id)
+    windows: list[tuple[str, int, int, int]] = []  # (text_id, start, end, original_pos)
 
-    def _add(text: str, pos: int, text_id: str):
+    def _add(text_id: str, text: str, pos: int) -> bool:
         start = max(0, pos - WINDOW)
         end = min(len(text), pos + WINDOW)
-        for s, e, tid in seen_positions:
-            if tid == text_id and abs(s - start) < 100:
-                return
-        seen_positions.append((start, end, text_id))
-        prefix = "…" if start > 0 else ""
-        suffix = "…" if end < len(text) else ""
-        found.append(prefix + text[start:end] + suffix)
+        for tid, s, _, _ in windows:
+            if tid == text_id and abs(s - start) < 150:
+                return False
+        windows.append((text_id, start, end, pos))
+        return True
 
-    # Pass 1 : anchor windows on the Reddit URL position. This is the
-    # one that honestly justifies the "wrote about this thread" label.
+    # Pass 1 : URL anchors. If we find any, we use ONLY url-anchored
+    # windows so the "around the citation" label stays honest.
+    url_found = False
     if url:
         url_lower = url.lower()
         for i, rt in enumerate(response_texts):
             text_id = f"rt{i}"
             low = rt.lower()
-            start = 0
-            while True:
-                idx = low.find(url_lower, start)
+            search_pos = 0
+            url_hits = 0
+            while url_hits < MAX_URL_WINDOWS:
+                idx = low.find(url_lower, search_pos)
                 if idx < 0:
                     break
-                _add(rt, idx, text_id)
-                start = idx + len(url_lower)
-                if len(found) >= 3:
-                    break
+                if _add(text_id, rt, idx):
+                    url_hits += 1
+                    url_found = True
+                search_pos = idx + len(url_lower)
 
-    # Pass 2 : if no URL match found (Gemini footnote style), anchor on
-    # the first brand mention so the user still sees the brand context.
-    if not found:
+    provenance = _PROVENANCE_URL_ANCHORED
+
+    # Pass 2 : brand-name anchors ONLY when URL wasn't textually present.
+    # This avoids mixing "near citation" content with "brand mentioned
+    # elsewhere" content under the same honest label.
+    if not url_found:
+        provenance = _PROVENANCE_BRAND_ANCHORED
+        brand_windows_added = 0
         for i, rt in enumerate(response_texts):
             text_id = f"rt{i}"
             low = rt.lower()
             for name in brand_names:
-                if not name:
+                if not name or brand_windows_added >= MAX_BRAND_WINDOWS:
                     continue
                 idx = low.find(name.lower())
                 if idx >= 0:
-                    _add(rt, idx, text_id)
-                    break
+                    if _add(text_id, rt, idx):
+                        brand_windows_added += 1
 
-    if not found:
-        return "\n\n".join(contextes)[:MAX_TOTAL]
+    if not windows:
+        return _PROVENANCE_CONTEXTES_ONLY + " " + "\n\n".join(contextes)[:MAX_TOTAL]
 
-    out = " … ".join(found)
-    return out[:MAX_TOTAL]
+    windows.sort(key=lambda w: (w[0], w[1]))
+
+    fragments: list[str] = []
+    for text_id, start, end, _ in windows:
+        i = int(text_id[2:])
+        text = response_texts[i]
+        prefix = "…" if start > 0 else ""
+        suffix = "…" if end < len(text) else ""
+        fragments.append(prefix + text[start:end] + suffix)
+
+    out = " … ".join(fragments)
+    return (provenance + " " + out)[:MAX_TOTAL + len(provenance) + 1]
 
 
 def _recommended_action(classification: str, sentiment: str | None) -> dict:

@@ -411,30 +411,65 @@ function actionChip(a?: { label?: string; tone?: string }) {
                           </div>
                         )}
 
-                        {t.body_excerpt && (
-                          <div class="mb-3 px-3 py-2 bg-white rounded border border-gray-100">
-                            <p class="text-[10px] uppercase tracking-wide text-charcoal-light font-semibold mb-1">
-                              LLM response excerpt around the Reddit citation
-                              <span class="text-[9px] text-charcoal-light normal-case italic font-normal">(±400 chars of the LLM response near where it cited this thread)</span>
-                            </p>
-                            <div class="text-[12px] text-charcoal-dark leading-relaxed whitespace-pre-wrap font-serif"
-                                 x-data={`{
-                                   html: '',
-                                   render() {
-                                     const r = window.highlightUrlInResponse(
-                                       ${JSON.stringify(t.body_excerpt)},
-                                       ${JSON.stringify(t.url)},
-                                       ${JSON.stringify(focusBrandName)},
-                                       ${JSON.stringify(t.competitors_mentioned || [])}
-                                     );
-                                     this.html = r.html;
-                                   }
-                                 }`}
-                                 x-init="render()"
-                                 x-html="html">
+                        {t.body_excerpt && (() => {
+                          let provenance = 'url';
+                          let excerpt = t.body_excerpt;
+                          if (excerpt.startsWith('[NEAR_URL] ')) {
+                            provenance = 'url';
+                            excerpt = excerpt.slice('[NEAR_URL] '.length);
+                          } else if (excerpt.startsWith('[BRAND_ONLY] ')) {
+                            provenance = 'brand';
+                            excerpt = excerpt.slice('[BRAND_ONLY] '.length);
+                          } else if (excerpt.startsWith('[CONTEXTE_ONLY] ')) {
+                            provenance = 'contexte';
+                            excerpt = excerpt.slice('[CONTEXTE_ONLY] '.length);
+                          }
+                          const labelMap: any = {
+                            url: {
+                              title: 'LLM response excerpt around the Reddit citation',
+                              caveat: '(±300 chars of the LLM response on each side of where it cited this URL textually)',
+                              warnCls: '',
+                              warn: '',
+                            },
+                            brand: {
+                              title: 'Brand-mention excerpt (citation matched via redirect URL)',
+                              caveat: '(the LLM cited this thread via a redirect marker we couldn\'t textually match — these windows are anchored on brand mentions elsewhere in the same response, so they\'re thematically relevant but NOT guaranteed to be near where the LLM cited Reddit)',
+                              warnCls: 'border-amber-200 bg-amber-50/30',
+                              warn: '',
+                            },
+                            contexte: {
+                              title: 'LLM citation snippet (thin)',
+                              caveat: '(neither the URL nor any in-scope brand was found in the LLM\'s answer text — falling back to the original citation snippet)',
+                              warnCls: 'border-gray-200 bg-gray-50',
+                              warn: '',
+                            },
+                          };
+                          const meta = labelMap[provenance];
+                          return (
+                            <div class={`mb-3 px-3 py-2 bg-white rounded border ${meta.warnCls || 'border-gray-100'}`}>
+                              <p class="text-[10px] uppercase tracking-wide text-charcoal-light font-semibold mb-1">
+                                {meta.title}
+                                <span class="text-[9px] text-charcoal-light normal-case italic font-normal"> {meta.caveat}</span>
+                              </p>
+                              <div class="text-[12px] text-charcoal-dark leading-relaxed whitespace-pre-wrap font-serif"
+                                   x-data={`{
+                                     html: '',
+                                     render() {
+                                       const r = window.highlightUrlInResponse(
+                                         ${JSON.stringify(excerpt)},
+                                         ${JSON.stringify(t.url)},
+                                         ${JSON.stringify(focusBrandName)},
+                                         ${JSON.stringify(t.competitors_mentioned || [])}
+                                       );
+                                       this.html = r.html;
+                                     }
+                                   }`}
+                                   x-init="render()"
+                                   x-html="html">
+                              </div>
                             </div>
-                          </div>
-                        )}
+                          );
+                        })()}
 
                         {t.winning_questions && t.winning_questions.length > 0 && (
                           <div class="px-3 py-2 bg-white rounded border border-gray-100">

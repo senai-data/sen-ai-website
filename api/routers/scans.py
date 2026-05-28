@@ -12,7 +12,7 @@ from models import (
     Scan, ScanKeyword, ScanTopic, ScanPersona, ScanQuestion, ScanLLMResult,
     ScanQuestionJudgment,
     ScanBrandClassification, ScanBrandTopic, ScanOpportunity, ClientBrand,
-    ScanPageAudit, ScanSchemaAudit, ScanCompetitorPage,
+    ScanPageAudit, ScanSchemaAudit, ScanCompetitorPage, ScanRedditThread,
     Client,
     Job, UserClient, get_db,
 )
@@ -3663,6 +3663,102 @@ async def get_llm_result(
         "question": question_text,
         "response_text": row.response_text or "",
         "citations": row.citations or [],
+    }
+
+
+# --- Sprint 8 : Reddit opportunity finder ---------------------------------
+# For each scan we surface the Reddit threads LLMs already cite, classify
+# them (competitor_wins / you_win / neutral), score sentiment via Haiku
+# per thread, and rank by a leverage_score that points the user at the
+# highest-opportunity conversations. Cf.
+# project_10_action_features.md #3 + worker/handlers/audit_reddit_threads.py.
+
+@router.get("/{scan_id}/reddit-opportunities")
+async def get_reddit_opportunities(scan_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
+    """Return audited Reddit threads for this scan, sorted by leverage_score
+    DESC (highest opportunity first). Honest fetch errors surfaced so the
+    UI can chip them as 'fetch failed'."""
+    _check_scan_access(scan_id, user, db)
+
+    rows = (
+        db.query(ScanRedditThread)
+        .filter(ScanRedditThread.scan_id == scan_id)
+        .order_by(
+            ScanRedditThread.leverage_score.desc().nullslast(),
+            ScanRedditThread.citation_count.desc(),
+        )
+        .all()
+    )
+
+    by_class: dict[str, int] = {}
+    by_sentiment: dict[str, int] = {}
+    last_fetched = None
+    items = []
+    for r in rows:
+        if r.fetched_at and (last_fetched is None or r.fetched_at > last_fetched):
+            last_fetched = r.fetched_at
+        if r.classification:
+            by_class[r.classification] = by_class.get(r.classification, 0) + 1
+        if r.sentiment:
+            by_sentiment[r.sentiment] = by_sentiment.get(r.sentiment, 0) + 1
+        items.append({
+            "url": r.url,
+            "subreddit": r.subreddit,
+            "title": r.title,
+            "author": r.author,
+            "score": r.score,
+            "num_comments": r.num_comments,
+            "posted_at": r.posted_at.isoformat() + "Z" if r.posted_at else None,
+            "fetch_status": r.fetch_status,
+            "fetch_error": r.fetch_error,
+            "citation_count": r.citation_count,
+            "target_mentioned": r.target_mentioned,
+            "competitors_mentioned": list(r.competitors_mentioned or []),
+            "classification": r.classification,
+            "sentiment": r.sentiment,
+            "sentiment_summary": r.sentiment_summary,
+            "body_excerpt": r.body_excerpt,
+            "top_comments": r.top_comments or [],
+            "winning_questions": r.winning_questions or [],
+            "leverage_score": r.leverage_score,
+        })
+
+    return {
+        "scan_id": scan_id,
+        "threads": items,
+        "summary": {
+            "total": len(rows),
+            "by_classification": by_class,
+            "by_sentiment": by_sentiment,
+            "competitor_wins": by_class.get("competitor_wins", 0),
+            "you_win": by_class.get("you_win", 0),
+        },
+        "last_fetched": last_fetched.isoformat() + "Z" if last_fetched else None,
+    }
+
+
+@router.post("/{scan_id}/reddit-opportunities/refresh")
+async def refresh_reddit_opportunities(
+    scan_id: str,
+    reset: bool = False,
+    limit: int = 100,
+    sentiment: bool = True,
+    user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Enqueue an `audit_reddit_threads` worker job. Default 100 threads,
+    sentiment ON. LLM cost capped via the per-thread Haiku call (~$0.001
+    each) and the thread count cap."""
+    _check_scan_access(scan_id, user, db)
+    _create_job(db, scan_id, "audit_reddit_threads", {
+        "reset": bool(reset),
+        "limit": int(limit),
+        "sentiment": bool(sentiment),
+    })
+    db.commit()
+    return {
+        "status": "enqueued", "scan_id": scan_id,
+        "reset": bool(reset), "limit": limit, "sentiment": bool(sentiment),
     }
 
 

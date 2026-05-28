@@ -199,6 +199,41 @@ class ScanSchemaAudit(Base):
     __table_args__ = (UniqueConstraint("scan_id", "url", name="uq_scan_schema_audits_scan_url"),)
 
 
+class ScanRedditThread(Base):
+    """Sprint 8 (migration 050) - Reddit / Forum opportunity finder. One row
+    per (scan, Reddit URL) cited by an LLM during the scan. See
+    worker/handlers/audit_reddit_threads.py. PARITÉ obligatoire avec
+    api/models.py.
+    """
+    __tablename__ = "scan_reddit_threads"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    scan_id = Column(UUID(as_uuid=True), ForeignKey("scans.id", ondelete="CASCADE"), nullable=False)
+    url = Column(Text, nullable=False)
+    subreddit = Column(Text)
+    title = Column(Text)
+    posted_at = Column(DateTime)
+    author = Column(Text)
+    score = Column(Integer)
+    num_comments = Column(Integer)
+    fetched_at = Column(DateTime, default=datetime.utcnow)
+    fetch_status = Column(Integer)
+    fetch_error = Column(Text)
+    citation_count = Column(Integer, nullable=False, default=0)
+    target_mentioned = Column(Boolean, nullable=False, default=False)
+    competitors_mentioned = Column(ARRAY(Text), nullable=False, default=list)
+    classification = Column(Text)
+    sentiment = Column(Text)
+    sentiment_summary = Column(Text)
+    body_excerpt = Column(Text)
+    top_comments = Column(JSONB, nullable=False, default=list)
+    winning_questions = Column(JSONB, nullable=False, default=list)
+    leverage_score = Column(Integer)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (UniqueConstraint("scan_id", "url", name="uq_scan_reddit_threads_scan_url"),)
+
+
 class ScanCompetitorPage(Base):
     """Sprint 7 (migration 049) - competitor reverse-engineering. One row
     per (scan, competitor brand, url) where url is a page LLMs cite for

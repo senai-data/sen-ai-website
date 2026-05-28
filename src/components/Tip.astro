@@ -157,6 +157,24 @@ const TIPS: Record<string, string> = {
     + '<em>Pulled from your Page Audit tab (avg GEO) and Schema tab (avg score) over URLs LLMs cited for your own site.</em>',
   comp_top_label: 'The competitor with the highest <strong>wins</strong> count.<br/>'
     + '<em>A win = an LLM cited them while your brand was absent from the response.</em>',
+
+  // ── Sprint 8 — Reddit opportunity finder ─────────────────────────────
+  reddit_leverage: 'Composite score (0–100) blending engagement (upvotes × comments), classification (competitor_wins gets the boost) and sentiment (negative-about-competitor = highest opportunity).<br/>'
+    + '<em>Higher = better thread to engage with first.</em>',
+  reddit_competitor_wins: 'Threads where at least one competitor brand was named in the title, body or top comments AND your target brand was absent.<br/>'
+    + '<em>Highest-opportunity conversations — you can step in with a better answer.</em>',
+  reddit_you_win: 'Threads where your target brand was named.<br/>'
+    + '<em>Positive footprint — monitor for sentiment shifts.</em>',
+  reddit_neutral: 'Threads cited by an LLM but no in-scope brand was named in the visible text.<br/>'
+    + '<em>Context only — low-priority for engagement.</em>',
+  reddit_sentiment_pos: 'Haiku read the title, body and top comments and judged the overall tone toward the brand(s) as positive (recommendations, praise).',
+  reddit_sentiment_neg: 'Haiku read the title, body and top comments and judged the overall tone toward the brand(s) as negative (complaints, warnings).<br/>'
+    + '<em>If a competitor is in scope here, this is the strongest engagement signal.</em>',
+  reddit_sentiment_neu: 'Haiku found the discussion factual / informational with no clear lean toward or against the brand(s).',
+  reddit_sentiment_mix: 'Substantial pros AND cons in the same discussion. Read before engaging.',
+  reddit_classification: 'Brand-mention status of the thread, derived from a whole-word regex match on the title + body + top 5 comments against your scan\'s brand list.',
+  reddit_engagement: '<strong>↑ {0}</strong> upvotes · <strong>💬 {1}</strong> comments.<br/>'
+    + '<em>Higher numbers = more visibility for whoever posts in this thread.</em>',
 };
 
 const tipText = text || TIPS[id || ''] || '';

@@ -1,15 +1,23 @@
-"""Reddit JSON-endpoint client - public read-only, no OAuth, no scraping.
+"""Reddit OAuth-authenticated client - legitimate Reddit API consumer.
 
-Why this is legitimate and not Sprint-7-style impersonation :
-  - Reddit officially exposes any thread as JSON by appending `.json` to the
-    URL. This is the standard endpoint their own apps and third-party
-    integrations use ; it is not a private API or a circumvention.
-  - We send a descriptive User-Agent identifying sen-ai (best practice per
-    Reddit's API rules) so they can block us if our traffic ever becomes
-    problematic. We do not pretend to be a browser, an OAuth app or
-    another service.
-  - We respect a polite 1 req/sec ceiling per process so we don't burn
-    Reddit's unauthenticated rate limit (~60 req/min IP-wide).
+Why OAuth and not the bare *.json endpoint :
+  - Reddit blocks ALL cloud-provider IPs from the unauthenticated *.json
+    endpoint (confirmed 2026-05-28 : Hetzner IP returns HTTP 403 even with
+    a Mozilla User-Agent). The block is IP-based, not UA-based.
+  - OAuth-authenticated apps get explicit allowance + 100 QPM rate ; this
+    is the path Reddit publishes in their API rules.
+  - We use the app-only auth flow (grant_type=client_credentials) so no
+    Reddit user account is involved - the worker authenticates as the
+    registered sen-ai app.
+
+Setup (one-time, manual) :
+  1. Register a "script" type app at https://www.reddit.com/prefs/apps
+  2. Copy client_id (14 chars) and secret (~27 chars)
+  3. Set REDDIT_CLIENT_ID + REDDIT_CLIENT_SECRET env vars on the worker
+
+The adapter caches the OAuth token in memory until it expires (typically
+24h). Token fetch failures fall back to the unauthenticated endpoint with
+a warning (will likely 403 on cloud IPs but works on dev laptops).
 
 The adapter returns a normalized dict so the handler doesn't have to know
 about Reddit's nested JSON shape. Failures are non-fatal : the caller
@@ -18,8 +26,11 @@ fetch this thread" without re-attempting on every refresh.
 """
 from __future__ import annotations
 
+import base64
 import logging
 import re
+import threading
+import time
 from datetime import datetime, timezone
 
 import httpx
@@ -31,6 +42,71 @@ USER_AGENT = (
     "Reddit thread snapshot for AI-visibility audit"
 )
 TIMEOUT = 15.0
+
+
+# ── OAuth token cache ────────────────────────────────────────────────────
+#
+# Reddit app-only tokens last ~24h. We cache a single token per worker
+# process under a lock so concurrent fetches (if we ever go multi-threaded)
+# don't trigger a thundering herd on the token endpoint. The expires_at
+# margin (60 s before real expiry) protects against in-flight requests
+# straddling the boundary.
+
+_token_lock = threading.Lock()
+_token_cache: dict = {"access_token": None, "expires_at": 0.0}
+
+
+def _get_oauth_token() -> str | None:
+    """Return a valid Reddit OAuth bearer token, refreshing if needed.
+
+    Returns None if REDDIT_CLIENT_ID / REDDIT_CLIENT_SECRET are missing or
+    the token endpoint fails. Caller falls back to www.reddit.com.
+    """
+    from config import settings
+
+    client_id = (settings.reddit_client_id or "").strip()
+    client_secret = (settings.reddit_client_secret or "").strip()
+    if not client_id or not client_secret:
+        return None
+
+    now = time.time()
+    with _token_lock:
+        cached = _token_cache.get("access_token")
+        expires_at = float(_token_cache.get("expires_at") or 0.0)
+        if cached and now < (expires_at - 60):
+            return cached
+
+        # Refresh.
+        try:
+            basic = base64.b64encode(f"{client_id}:{client_secret}".encode()).decode()
+            with httpx.Client(timeout=TIMEOUT) as c:
+                r = c.post(
+                    "https://www.reddit.com/api/v1/access_token",
+                    headers={
+                        "Authorization": f"Basic {basic}",
+                        "User-Agent": USER_AGENT,
+                    },
+                    data={"grant_type": "client_credentials"},
+                )
+            if r.status_code != 200:
+                logger.warning(
+                    f"reddit_oauth token fetch failed : HTTP {r.status_code} {r.text[:200]}"
+                )
+                return None
+            data = r.json()
+        except Exception:  # noqa: BLE001
+            logger.exception("reddit_oauth token fetch raised")
+            return None
+
+        token = data.get("access_token")
+        if not token:
+            logger.warning(f"reddit_oauth response missing access_token : {data}")
+            return None
+        expires_in = int(data.get("expires_in") or 3600)
+        _token_cache["access_token"] = token
+        _token_cache["expires_at"] = now + expires_in
+        logger.info(f"reddit_oauth token refreshed, expires in {expires_in}s")
+        return token
 # Reddit JSON endpoint paginates comments after ~200. Use the `limit` and
 # `sort=top` params so we get the highest-signal comments first.
 COMMENT_LIMIT = 100
@@ -73,9 +149,13 @@ def _canonical_url(url: str) -> str:
     return url
 
 
-def _json_endpoint(url: str) -> str:
-    """Append `.json` to the canonical URL, with the params we want."""
+def _json_endpoint(url: str, authed: bool = False) -> str:
+    """Append `.json` to the canonical URL, with the params we want. When
+    OAuth-authenticated, swap the host to oauth.reddit.com (the bearer
+    token only works against that host)."""
     base = _canonical_url(url)
+    if authed:
+        base = base.replace("https://www.reddit.com", "https://oauth.reddit.com", 1)
     # `limit` = how many comments to fetch ; `sort=top` = highest score first
     # ; `raw_json=1` disables HTML-entity escaping in the response.
     return f"{base}.json?limit={COMMENT_LIMIT}&sort=top&raw_json=1"
@@ -163,18 +243,29 @@ def fetch_thread(url: str) -> dict:
         "score": None, "num_comments": None,
         "posted_at": None, "body_excerpt": None, "top_comments": [],
     }
+
+    # Try OAuth first (bypasses Reddit's cloud-IP block on www.reddit.com).
+    # Fall back to www.reddit.com only if no credentials are configured ;
+    # we don't fall back on a 401 because that means our credentials are
+    # wrong, not that we should hammer the unauthenticated endpoint.
+    token = _get_oauth_token()
+    headers = {
+        "User-Agent": USER_AGENT,
+        "Accept": "application/json",
+        "Accept-Language": "en;q=0.9, fr;q=0.8",
+    }
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    endpoint = _json_endpoint(url, authed=bool(token))
+
     try:
         with httpx.Client(
             timeout=TIMEOUT,
             follow_redirects=True,
             max_redirects=3,
-            headers={
-                "User-Agent": USER_AGENT,
-                "Accept": "application/json",
-                "Accept-Language": "en;q=0.9, fr;q=0.8",
-            },
+            headers=headers,
         ) as c:
-            r = c.get(_json_endpoint(url))
+            r = c.get(endpoint)
             out["status"] = r.status_code
             if r.status_code in (401, 403, 429):
                 out["error"] = f"blocked_http_{r.status_code}"

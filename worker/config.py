@@ -20,6 +20,13 @@ class Settings(BaseSettings):
     google_client_id: str = ""
     google_client_secret: str = ""
 
+    # Reddit OAuth (Sprint 8) - script-type app at reddit.com/prefs/apps.
+    # Used to bypass Reddit's IP-based block on the public *.json endpoint
+    # from cloud providers. We use app-only auth (client_credentials grant)
+    # so no Reddit user account is involved.
+    reddit_client_id: str = ""
+    reddit_client_secret: str = ""
+
     # Worker
     worker_id: str = "worker-1"
     poll_interval: int = 2

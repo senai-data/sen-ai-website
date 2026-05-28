@@ -413,8 +413,26 @@ function actionChip(a?: { label?: string; tone?: string }) {
 
                         {t.body_excerpt && (
                           <div class="mb-3 px-3 py-2 bg-white rounded border border-gray-100">
-                            <p class="text-[10px] uppercase tracking-wide text-charcoal-light font-semibold mb-1">What the LLMs wrote about this thread</p>
-                            <p class="text-[12px] text-charcoal-dark leading-relaxed whitespace-pre-wrap font-serif">{t.body_excerpt}</p>
+                            <p class="text-[10px] uppercase tracking-wide text-charcoal-light font-semibold mb-1">
+                              What the LLMs wrote about this thread
+                              <span class="text-[9px] text-charcoal-light normal-case italic font-normal">(excerpt around brand mentions)</span>
+                            </p>
+                            <div class="text-[12px] text-charcoal-dark leading-relaxed whitespace-pre-wrap font-serif"
+                                 x-data={`{
+                                   html: '',
+                                   render() {
+                                     const r = window.highlightUrlInResponse(
+                                       ${JSON.stringify(t.body_excerpt)},
+                                       ${JSON.stringify(t.url)},
+                                       ${JSON.stringify(focusBrandName)},
+                                       ${JSON.stringify(t.competitors_mentioned || [])}
+                                     );
+                                     this.html = r.html;
+                                   }
+                                 }`}
+                                 x-init="render()"
+                                 x-html="html">
+                            </div>
                           </div>
                         )}
 
@@ -424,8 +442,7 @@ function actionChip(a?: { label?: string; tone?: string }) {
                               LLM responses citing this thread <span class="text-[9px] text-charcoal-light normal-case italic font-normal">(click each to load the full answer with brand mentions highlighted)</span>
                             </p>
                             <ul class="space-y-2">
-                              {t.winning_questions.slice(0, 10).map((q: any, qi: number) => {
-                                const qrowKey = `${rowKey}-q${qi}`;
+                              {t.winning_questions.slice(0, 10).map((q: any) => {
                                 return (
                                   <li>
                                     <div
@@ -443,7 +460,7 @@ function actionChip(a?: { label?: string; tone?: string }) {
                                               const res = await fetch('/api/scans/${scanId}/llm-result/${q.slr_id}', { credentials: 'same-origin' });
                                               if (!res.ok) throw new Error('HTTP ' + res.status);
                                               const d = await res.json();
-                                              const out = window.highlightUrlInResponse(d.response_text || '', ${JSON.stringify(t.url)}, ${JSON.stringify(focusBrandName)});
+                                              const out = window.highlightUrlInResponse(d.response_text || '', ${JSON.stringify(t.url)}, ${JSON.stringify(focusBrandName)}, ${JSON.stringify(t.competitors_mentioned || [])});
                                               this.html = out.html;
                                               this.loaded = true;
                                             } catch (e) {

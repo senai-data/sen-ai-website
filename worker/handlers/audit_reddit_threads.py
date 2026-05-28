@@ -271,6 +271,71 @@ def _leverage_score(citation_count: int, classification: str, sentiment: str | N
     return max(0, min(100, engagement + cls_pts + sent_pts))
 
 
+def _build_response_excerpt(
+    response_texts: list[str],
+    url: str,
+    brand_names: set[str],
+    contextes: list[str],
+) -> str:
+    """Extract the most informative excerpt from the LLM response_texts
+    for inline UI display. Strategy :
+
+      1. For each brand name (target + competitors), find its first
+         occurrence in response_text and extract ±200 chars around it.
+      2. If no brand was matched, fall back to the window around the
+         Reddit URL citation.
+      3. If neither brand nor URL is found (rare), fall back to the
+         original LLM citation contextes (often `[Source: reddit.com]`).
+
+    Excerpts are deduped, joined with " ... " separators, capped at
+    1800 chars total so the UI doesn't get a wall of text.
+    """
+    WINDOW = 200
+    MAX_TOTAL = 1800
+
+    if not response_texts:
+        return "\n\n".join(contextes)[:MAX_TOTAL]
+
+    found: list[str] = []
+    seen_positions: set[tuple[int, int]] = set()
+
+    def _add(text: str, pos: int):
+        start = max(0, pos - WINDOW)
+        end = min(len(text), pos + WINDOW)
+        # Dedupe overlapping windows.
+        for s, e in seen_positions:
+            if abs(s - start) < 50 and abs(e - end) < 50:
+                return
+        seen_positions.add((start, end))
+        prefix = "…" if start > 0 else ""
+        suffix = "…" if end < len(text) else ""
+        found.append(prefix + text[start:end] + suffix)
+
+    for rt in response_texts:
+        low = rt.lower()
+        for name in brand_names:
+            if not name:
+                continue
+            idx = low.find(name.lower())
+            if idx >= 0:
+                _add(rt, idx)
+                break  # one match per response is enough
+        # Also try the Reddit URL itself.
+        if url:
+            url_idx = low.find(url.lower())
+            if url_idx >= 0:
+                _add(rt, url_idx)
+
+    if not found:
+        # Fall back to citation contextes when nothing matched in the
+        # response_text (rare ; means the brand mention is in a part
+        # we didn't capture).
+        return "\n\n".join(contextes)[:MAX_TOTAL]
+
+    out = " … ".join(found)
+    return out[:MAX_TOTAL]
+
+
 def _recommended_action(classification: str, sentiment: str | None) -> dict:
     """Action label + tone derived from the classification × sentiment
     matrix. Drives the UI "Action" column."""
@@ -413,9 +478,15 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
         leverage = _leverage_score(t["citation_count"], classification, sentiment)
         # Synthetic "title" : the URL slug humanized, capitalized.
         title_from_slug = slug.title() if slug else None
-        # body_excerpt = the concatenated LLM snippets so the UI can render
-        # "what the LLMs said about this thread" inline.
-        body_excerpt = "\n\n".join(contextes)[:4000]
+
+        # Sprint 8.4 polish : body_excerpt is now the *response_text*
+        # excerpt around each brand mention (or around the Reddit URL
+        # citation if no brand was found). This is far more informative
+        # than the maigre `[Source: reddit.com]` contexte that Gemini
+        # often returns. UI renders this with brand mentions highlighted.
+        body_excerpt = _build_response_excerpt(
+            response_texts, url, target_hits | competitor_hits, contextes,
+        )
 
         existing = (
             db.query(ScanRedditThread)

@@ -389,7 +389,7 @@ function flattenCitationRows(pages: any[]): any[] {
                                         const res = await fetch('/api/scans/${scanId}/llm-result/${r.slr_id}', { credentials: 'same-origin' });
                                         if (!res.ok) throw new Error('HTTP ' + res.status);
                                         const d = await res.json();
-                                        const out = window.highlightUrlInResponse(d.response_text || '', ${JSON.stringify(r.url)}, ${JSON.stringify(c.brand_name || '')});
+                                        const out = window.highlightUrlInResponse(d.response_text || '', ${JSON.stringify(r.url)}, '', [${JSON.stringify(c.brand_name || '')}]);
                                         this.html = out.html;
                                         this.matched = out.matched;
                                         this.loaded = true;

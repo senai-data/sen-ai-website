@@ -367,23 +367,32 @@ function actionChip(a?: { label?: string; tone?: string }) {
 
                         {(t.target_sentiment || t.competitor_sentiment) && (
                           <div class="mb-3 px-3 py-2 bg-white rounded border border-gray-100">
-                            <p class="text-[10px] uppercase tracking-wide text-charcoal-light font-semibold mb-2">Per-brand sentiment <span class="text-[9px] text-charcoal-light normal-case italic font-normal">(Haiku read of the LLM snippets)</span></p>
+                            <p class="text-[10px] uppercase tracking-wide text-charcoal-light font-semibold mb-2">
+                              <Tip id="reddit_per_brand_sentiment">Per-brand sentiment</Tip>
+                              <span class="text-[9px] text-charcoal-light normal-case italic font-normal"> (Haiku read of the LLM snippets)</span>
+                            </p>
                             <div class="flex flex-wrap gap-3 text-[11px]">
                               {t.target_sentiment && (() => {
                                 const sc = sentimentChip(t.target_sentiment);
+                                if (!sc) return null;
                                 return (
                                   <div class="flex items-center gap-2">
                                     <span class="text-charcoal-light">Your brand :</span>
-                                    {sc && <span class={`px-1.5 py-0.5 rounded ${sc.cls}`}>{sc.label}</span>}
+                                    <Tip id={sc.tip}>
+                                      <span class={`px-1.5 py-0.5 rounded ${sc.cls}`}>{sc.label}</span>
+                                    </Tip>
                                   </div>
                                 );
                               })()}
                               {t.competitor_sentiment && (() => {
                                 const sc = sentimentChip(t.competitor_sentiment);
+                                if (!sc) return null;
                                 return (
                                   <div class="flex items-center gap-2">
                                     <span class="text-charcoal-light">Competitor(s) :</span>
-                                    {sc && <span class={`px-1.5 py-0.5 rounded ${sc.cls}`}>{sc.label}</span>}
+                                    <Tip id={sc.tip}>
+                                      <span class={`px-1.5 py-0.5 rounded ${sc.cls}`}>{sc.label}</span>
+                                    </Tip>
                                     {t.competitors_mentioned && t.competitors_mentioned.length > 0 && (
                                       <span class="text-[10px] text-charcoal-light italic">({t.competitors_mentioned.join(', ')})</span>
                                     )}

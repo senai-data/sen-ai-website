@@ -188,6 +188,8 @@ const TIPS: Record<string, string> = {
     + '<em>Co-consideration : you and the competitor are both recommended. Monitor for shift.</em>',
   reddit_you_win_strong: 'Both your brand AND a competitor are named, but per-brand sentiment shows YOU winning.<br/>'
     + '<em>Amplify this signal.</em>',
+  reddit_per_brand_sentiment: 'Haiku reads each brand\'s reception SEPARATELY in the LLM citation snippets - so we can detect head-to-head wins (you crushed) and losses (you lost) that a single overall sentiment would hide.<br/>'
+    + '<em>"thin signal" = snippets too maigre to tell, not a real verdict. Open the Reddit thread to check.</em>',
   reddit_classification: 'Brand-mention status of the thread, derived from a whole-word regex match on the title + body + top 5 comments against your scan\'s brand list.',
   reddit_engagement: '<strong>↑ {0}</strong> upvotes · <strong>💬 {1}</strong> comments.<br/>'
     + '<em>Higher numbers = more visibility for whoever posts in this thread.</em>',

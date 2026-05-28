@@ -366,11 +366,33 @@ function actionChip(a?: { label?: string; tone?: string }) {
                                  this.loadingReddit = true;
                                  this.redditError = '';
                                  try {
-                                   const r = await fetch(${JSON.stringify(t.url)} + '.json?limit=20&sort=top&raw_json=1', {
-                                     headers: { 'Accept': 'application/json' },
+                                   // Reddit's *.json endpoint rejects CORS preflight, so fetch()
+                                   // fails with "Failed to fetch". Fall back to JSONP script
+                                   // injection - they historically support ?jsonp=callbackName.
+                                   const jsonpFetch = (url) => new Promise((resolve, reject) => {
+                                     const cbName = 'snAiRedCb_' + Math.random().toString(36).slice(2, 11);
+                                     const tmo = setTimeout(() => { cleanup(); reject(new Error('Reddit didn\\'t respond within 20s')); }, 20000);
+                                     const cleanup = () => {
+                                       try { delete window[cbName]; } catch (_) { window[cbName] = undefined; }
+                                       if (script.parentNode) script.parentNode.removeChild(script);
+                                       clearTimeout(tmo);
+                                     };
+                                     window[cbName] = (data) => { cleanup(); resolve(data); };
+                                     const script = document.createElement('script');
+                                     script.src = url + (url.includes('?') ? '&' : '?') + 'jsonp=' + cbName;
+                                     script.onerror = () => { cleanup(); reject(new Error('JSONP failed (Reddit may have disabled the jsonp parameter or blocked your IP)')); };
+                                     document.head.appendChild(script);
                                    });
-                                   if (!r.ok) throw new Error('Reddit returned HTTP ' + r.status);
-                                   const data = await r.json();
+                                   const baseUrl = ${JSON.stringify(t.url)} + '.json?limit=20&sort=top&raw_json=1';
+                                   let data;
+                                   try {
+                                     const r = await fetch(baseUrl, { headers: { 'Accept': 'application/json' } });
+                                     if (!r.ok) throw new Error('HTTP ' + r.status);
+                                     data = await r.json();
+                                   } catch (e) {
+                                     // CORS-blocked browser fetch ; try JSONP.
+                                     data = await jsonpFetch(baseUrl);
+                                   }
                                    const post = data[0]?.data?.children?.[0]?.data;
                                    if (!post) throw new Error('Unexpected Reddit JSON shape');
                                    const comments = (data[1]?.data?.children || [])

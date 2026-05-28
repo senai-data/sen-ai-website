@@ -155,80 +155,121 @@ def _detect_brands(corpus_lower: str, candidates: set[str]) -> set[str]:
     return hits
 
 
-def _classify(target_hits: set[str], competitor_hits: set[str]) -> str:
-    if competitor_hits and not target_hits:
+def _classify(
+    target_hits: set[str],
+    competitor_hits: set[str],
+    target_sentiment: str | None,
+    competitor_sentiment: str | None,
+) -> str:
+    """Classification matrix v2 - distinguishes head-to-head outcomes
+    using per-brand sentiment (migration 052, Sprint 8 polish round 2).
+
+    Values :
+      competitor_wins  : competitor named, target absent (clear opportunity)
+      you_lost         : BOTH named, competitor positive AND target negative
+                         or neutral (you're losing the comparison)
+      shared_crisis    : BOTH named, both sentiment negative (industry-wide issue)
+      shared_win       : BOTH named, both sentiment positive (co-consideration)
+      you_win_strong   : BOTH named, target positive AND competitor negative
+      head_to_head     : BOTH named, mixed / unclear signals (investigate)
+      you_win          : target named, no competitor (positive footprint)
+      neutral          : neither named
+    """
+    has_target = bool(target_hits)
+    has_competitor = bool(competitor_hits)
+
+    if has_competitor and not has_target:
         return "competitor_wins"
-    if target_hits:
+    if not has_target and not has_competitor:
+        return "neutral"
+    if has_target and not has_competitor:
         return "you_win"
-    return "neutral"
+
+    # Both named — read per-brand sentiment.
+    t = (target_sentiment or "").lower()
+    c = (competitor_sentiment or "").lower()
+
+    if t == "negative" and c == "negative":
+        return "shared_crisis"
+    if t == "positive" and c == "positive":
+        return "shared_win"
+    if t == "positive" and c == "negative":
+        return "you_win_strong"
+    if c == "positive" and t in ("negative", "neutral", "unclear", ""):
+        return "you_lost"
+    if t == "negative" and c in ("neutral", "unclear", ""):
+        return "you_lost"
+    return "head_to_head"
 
 
 def _leverage_score(citation_count: int, classification: str, sentiment: str | None) -> int:
-    """Composite 0-100 priority score for the contexte-only mode.
+    """Composite 0-100 priority score (per-brand-aware).
 
-    Audit feedback 2026-05-28 : the original formula tassed all rows
-    around 37-38 because citation_count is 1-2 on most threads and the
-    log-engagement dominated. New formula widens the classification
-    spread so competitor_wins clearly outranks you_win which clearly
-    outranks neutral. Engagement is a small boost on top.
+    Classification base points (50 max) reflect the bucket's urgency :
+      you_lost / shared_crisis  : 50  (you are losing or industry-wide issue)
+      competitor_wins           : 45
+      head_to_head              : 35
+      shared_win                : 20
+      you_win_strong            : 18  (already winning, low urgency)
+      you_win                   : 12
+      neutral                   : 0
 
-    Breakdown (0-100) :
-      classification (max 50) : competitor_wins=50, you_win=15, neutral=0
-      sentiment lever (max 30) : depends on classification AND sentiment
-        - competitor_wins : negative=30, mixed=20, neutral=15, positive=5, unclear/none=10
-        - you_win        : negative=25 (crisis), mixed=10, neutral=5, positive=5, unclear/none=5
-        - neutral        : any=5 (low priority either way)
-      engagement (max 20) : log10(citation_count+1)*20, caps at ~6 cites
+    Sentiment lever (max 30) uses the OVERALL sentiment of the discussion.
+    Engagement (max 20) = log10(citation_count + 1) * 20.
     """
     import math
 
     cc = max(0, int(citation_count or 0))
     engagement = min(20, int(round(math.log10(cc + 1) * 20)))
 
-    cls_pts = {"competitor_wins": 50, "you_win": 15, "neutral": 0}.get(classification, 0)
+    cls_pts = {
+        "you_lost":         50,
+        "shared_crisis":    50,
+        "competitor_wins":  45,
+        "head_to_head":     35,
+        "shared_win":       20,
+        "you_win_strong":   18,
+        "you_win":          12,
+        "neutral":          0,
+    }.get(classification or "neutral", 0)
 
-    sent_pts = 0
-    if classification == "competitor_wins":
-        sent_pts = {
-            "negative": 30, "mixed": 20, "neutral": 15,
-            "unclear": 10, "positive": 5,
-        }.get(sentiment or "", 10)
-    elif classification == "you_win":
-        # Negative on you_win = crisis (your brand getting trashed).
-        sent_pts = {
-            "negative": 25, "mixed": 10, "neutral": 5,
-            "unclear": 5, "positive": 5,
-        }.get(sentiment or "", 5)
-    else:
-        sent_pts = 5
+    sent = sentiment or ""
+    sent_pts = {
+        "negative": 25, "mixed": 18, "neutral": 12,
+        "unclear":  10, "positive": 5,
+    }.get(sent, 8)
 
     return max(0, min(100, engagement + cls_pts + sent_pts))
 
 
 def _recommended_action(classification: str, sentiment: str | None) -> dict:
-    """Return a short action label + tone for the UI based on the row's
-    classification × sentiment matrix. Drives the right-most "Action"
-    column."""
+    """Action label + tone derived from the classification × sentiment
+    matrix. Drives the UI "Action" column."""
     cls = classification or "neutral"
     sent = sentiment or "unclear"
 
+    if cls == "you_lost":
+        return {"label": "Defend your position", "tone": "urgent"}
+    if cls == "shared_crisis":
+        return {"label": "Crisis response", "tone": "urgent"}
     if cls == "competitor_wins":
         if sent == "negative":
-            return {"label": "Engage now", "tone": "urgent"}      # red
+            return {"label": "Engage now", "tone": "urgent"}
         if sent == "mixed":
-            return {"label": "Engage thoughtfully", "tone": "high"}  # orange
+            return {"label": "Engage thoughtfully", "tone": "high"}
         if sent in ("neutral", "unclear"):
-            return {"label": "Add your perspective", "tone": "medium"}  # amber
-        # positive about competitor = harder to flip
+            return {"label": "Add your perspective", "tone": "medium"}
         return {"label": "Skip - they win", "tone": "low"}
-
+    if cls == "head_to_head":
+        return {"label": "Investigate", "tone": "high"}
+    if cls == "shared_win":
+        return {"label": "Co-consideration", "tone": "positive"}
+    if cls == "you_win_strong":
+        return {"label": "Amplify", "tone": "positive"}
     if cls == "you_win":
         if sent == "negative":
             return {"label": "Monitor crisis", "tone": "urgent"}
-        if sent == "mixed":
-            return {"label": "Monitor closely", "tone": "high"}
         return {"label": "Keep monitoring", "tone": "positive"}
-
     return {"label": "Context only", "tone": "low"}
 
 
@@ -262,7 +303,15 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
         return {"threads": 0, "errors": 0, "sentiment_runs": 0}
 
     target_names, competitor_names = _scan_brands(db, scan_id)
-    all_brand_names = sorted(list(target_names | competitor_names))[:30]
+    # Focus brand name for the Haiku prompt. Read from the FK
+    # relationship (scan.focus_brand.name) ; fall back to the first
+    # target_name when the focus brand isn't set (legacy scans).
+    focus_brand_name = ""
+    if getattr(scan, "focus_brand", None) and getattr(scan.focus_brand, "name", None):
+        focus_brand_name = scan.focus_brand.name.strip()
+    if not focus_brand_name:
+        focus_brand_name = next(iter(target_names), "") or ""
+    competitor_brand_names = sorted(list(competitor_names))[:20]
     api_key = (settings.anthropic_api_key or "").strip() if run_sentiment else ""
 
     audited = 0
@@ -283,10 +332,11 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
         competitor_hits = _detect_brands(corpus, competitor_names)
         target_mentioned = bool(target_hits)
         competitors_hit = sorted(list(competitor_hits))
-        classification = _classify(target_hits, competitor_hits)
 
         sentiment = None
         sentiment_summary = None
+        target_sentiment = None
+        competitor_sentiment = None
         if api_key and (target_mentioned or competitors_hit):
             # Prepend the slug-derived title to the Haiku input so the
             # model can read what the thread is about, not just what the
@@ -296,14 +346,22 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
                 url=url,
                 subreddit=t["subreddit"],
                 snippets=snippets_for_haiku,
-                brand_names=all_brand_names,
+                target_brand=focus_brand_name,
+                competitor_brands=competitor_brand_names,
                 api_key=api_key,
             )
             if res:
                 sentiment = res.get("sentiment")
                 sentiment_summary = res.get("summary")
+                target_sentiment = res.get("target_sentiment")
+                competitor_sentiment = res.get("competitor_sentiment")
                 sentiment_runs += 1
 
+        # Classification is computed AFTER sentiment so head-to-head rows
+        # can use the per-brand sentiment to decide you_lost / shared_*.
+        classification = _classify(
+            target_hits, competitor_hits, target_sentiment, competitor_sentiment
+        )
         leverage = _leverage_score(t["citation_count"], classification, sentiment)
         # Synthetic "title" : the URL slug humanized, capitalized.
         title_from_slug = slug.title() if slug else None
@@ -328,8 +386,10 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
             existing.classification = classification
             existing.sentiment = sentiment
             existing.sentiment_summary = sentiment_summary
+            existing.target_sentiment = target_sentiment
+            existing.competitor_sentiment = competitor_sentiment
             existing.body_excerpt = body_excerpt
-            existing.top_comments = []  # contexte-only ; full thread fetch deferred
+            existing.top_comments = []
             existing.winning_questions = t["winning_questions"]
             existing.leverage_score = leverage
         else:
@@ -349,6 +409,8 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
                 classification=classification,
                 sentiment=sentiment,
                 sentiment_summary=sentiment_summary,
+                target_sentiment=target_sentiment,
+                competitor_sentiment=competitor_sentiment,
                 body_excerpt=body_excerpt,
                 top_comments=[],
                 winning_questions=t["winning_questions"],

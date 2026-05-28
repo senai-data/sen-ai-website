@@ -60,15 +60,25 @@ function leverageClasses(score?: number | null) {
 }
 
 function classRingClass(c?: string) {
+  if (c === 'you_lost' || c === 'shared_crisis') return 'ring-1 ring-red-300';
   if (c === 'competitor_wins') return 'ring-1 ring-orange-200';
+  if (c === 'head_to_head') return 'ring-1 ring-amber-200';
+  if (c === 'you_win_strong' || c === 'shared_win') return 'ring-1 ring-emerald-300';
   if (c === 'you_win') return 'ring-1 ring-emerald-200';
   return '';
 }
 
 function classChip(c?: string) {
-  if (c === 'competitor_wins') return { label: 'competitor wins', cls: 'bg-orange-50 text-orange-700', tip: 'reddit_competitor_wins' };
-  if (c === 'you_win') return { label: 'you win', cls: 'bg-emerald-50 text-emerald-700', tip: 'reddit_you_win' };
-  return { label: 'neutral', cls: 'bg-gray-100 text-charcoal-light', tip: 'reddit_neutral' };
+  switch (c) {
+    case 'you_lost':         return { label: 'you lost',        cls: 'bg-red-100 text-red-700 font-semibold',           tip: 'reddit_you_lost' };
+    case 'shared_crisis':    return { label: 'shared crisis',   cls: 'bg-red-100 text-red-700',                          tip: 'reddit_shared_crisis' };
+    case 'competitor_wins':  return { label: 'competitor wins', cls: 'bg-orange-50 text-orange-700',                     tip: 'reddit_competitor_wins' };
+    case 'head_to_head':     return { label: 'head-to-head',    cls: 'bg-amber-50 text-amber-700',                       tip: 'reddit_head_to_head' };
+    case 'shared_win':       return { label: 'shared win',      cls: 'bg-emerald-50 text-emerald-700',                   tip: 'reddit_shared_win' };
+    case 'you_win_strong':   return { label: 'you crushed',     cls: 'bg-emerald-100 text-emerald-700 font-semibold',    tip: 'reddit_you_win_strong' };
+    case 'you_win':          return { label: 'you win',         cls: 'bg-emerald-50 text-emerald-700',                   tip: 'reddit_you_win' };
+    default:                 return { label: 'neutral',         cls: 'bg-gray-100 text-charcoal-light',                  tip: 'reddit_neutral' };
+  }
 }
 
 function sentimentChip(s?: string) {
@@ -96,7 +106,7 @@ function actionChip(a?: { label?: string; tone?: string }) {
 ---
 
 <ScanResultsLayout scanId={scanId} activeTab="reddit">
-  <div x-data={`{ filter: '${(summary.competitor_wins || 0) > 0 ? 'competitor_wins' : (summary.you_win || 0) > 0 ? 'you_win' : 'all'}', expanded: null, refreshing: false }`}>
+  <div x-data={`{ filter: '${(summary.opportunities || 0) > 0 ? 'opportunities' : (summary.you_win || 0) > 0 ? 'you_win_all' : 'all'}', expanded: null, refreshing: false }`}>
 
     <p class="text-sm text-charcoal-light mb-6">
       Reddit threads the LLMs already cite for this scan. Classification
@@ -110,17 +120,20 @@ function actionChip(a?: { label?: string; tone?: string }) {
     <div class="grid grid-cols-1 lg:grid-cols-4 gap-4 mb-6">
       <div class="bg-white rounded-xl shadow-sm p-6 lg:col-span-2">
         <p class="text-[11px] text-charcoal-light uppercase tracking-wide mb-2">
-          <Tip id="reddit_competitor_wins">Competitor-winning threads</Tip>
+          <Tip id="reddit_opportunities">Actionable opportunities</Tip>
         </p>
         <div class="flex items-baseline gap-3">
-          <span class="text-3xl font-bold text-orange-600">{summary.competitor_wins || 0}</span>
+          <span class="text-3xl font-bold text-orange-600">{summary.opportunities || 0}</span>
           <span class="text-base text-charcoal-light">/ {summary.total || 0} audited</span>
         </div>
-        {summary.you_win > 0 && (
-          <p class="text-xs text-charcoal-light mt-1">
-            + <strong class="text-emerald-700">{summary.you_win}</strong> thread(s) already mentioning your brand.
-          </p>
-        )}
+        <p class="text-[10px] text-charcoal-light mt-2 leading-snug">
+          Breakdown :
+          {summary.you_lost > 0 && <span class="text-red-700 font-semibold mr-2">{summary.you_lost} you lost</span>}
+          {summary.shared_crisis > 0 && <span class="text-red-700 mr-2">{summary.shared_crisis} crisis</span>}
+          {summary.competitor_wins > 0 && <span class="text-orange-700 mr-2">{summary.competitor_wins} competitor solo</span>}
+          {summary.head_to_head > 0 && <span class="text-amber-700 mr-2">{summary.head_to_head} head-to-head</span>}
+          {summary.you_win > 0 && <span class="text-emerald-700">+ {summary.you_win} you-win footprint</span>}
+        </p>
       </div>
 
       <div class="bg-white rounded-xl shadow-sm p-6">
@@ -189,20 +202,42 @@ function actionChip(a?: { label?: string; tone?: string }) {
     {threads.length > 0 && (
       <div>
         {/* Filter chips */}
-        <div class="flex items-center gap-2 mb-3 text-[11px]">
+        <div class="flex items-center gap-2 mb-3 text-[11px] flex-wrap">
           <span class="text-charcoal-light">Show :</span>
           <button @click="filter = 'all'"
                   :class="filter === 'all' ? 'bg-charcoal-dark text-white' : 'bg-gray-100 text-charcoal-light hover:bg-gray-200'"
                   class="px-2 py-1 rounded transition-colors">
             All ({summary.total})
           </button>
-          <button @click="filter = 'competitor_wins'"
-                  :class="filter === 'competitor_wins' ? 'bg-orange-600 text-white' : 'bg-orange-50 text-orange-700 hover:bg-orange-100'"
-                  class="px-2 py-1 rounded transition-colors">
-            Opportunities ({summary.competitor_wins || 0})
+          <button @click="filter = 'opportunities'"
+                  :class="filter === 'opportunities' ? 'bg-orange-600 text-white' : 'bg-orange-50 text-orange-700 hover:bg-orange-100'"
+                  class="px-2 py-1 rounded transition-colors"
+                  title="Threads where you can step in : you lost the comparison, competitor solo win, head-to-head, or shared crisis.">
+            Opportunities ({summary.opportunities || 0})
           </button>
-          <button @click="filter = 'you_win'"
-                  :class="filter === 'you_win' ? 'bg-emerald-600 text-white' : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'"
+          {summary.you_lost > 0 && (
+            <button @click="filter = 'you_lost'"
+                    :class="filter === 'you_lost' ? 'bg-red-600 text-white' : 'bg-red-50 text-red-700 hover:bg-red-100'"
+                    class="px-2 py-1 rounded transition-colors font-semibold">
+              You lost ({summary.you_lost})
+            </button>
+          )}
+          {summary.shared_crisis > 0 && (
+            <button @click="filter = 'shared_crisis'"
+                    :class="filter === 'shared_crisis' ? 'bg-red-600 text-white' : 'bg-red-50 text-red-700 hover:bg-red-100'"
+                    class="px-2 py-1 rounded transition-colors">
+              Crisis ({summary.shared_crisis})
+            </button>
+          )}
+          {summary.head_to_head > 0 && (
+            <button @click="filter = 'head_to_head'"
+                    :class="filter === 'head_to_head' ? 'bg-amber-600 text-white' : 'bg-amber-50 text-amber-700 hover:bg-amber-100'"
+                    class="px-2 py-1 rounded transition-colors">
+              Head-to-head ({summary.head_to_head})
+            </button>
+          )}
+          <button @click="filter = 'you_win_all'"
+                  :class="filter === 'you_win_all' ? 'bg-emerald-600 text-white' : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'"
                   class="px-2 py-1 rounded transition-colors">
             You win ({summary.you_win || 0})
           </button>
@@ -232,7 +267,12 @@ function actionChip(a?: { label?: string; tone?: string }) {
                 return (
                   <>
                     <tr
-                      x-show={`filter === 'all' || filter === '${t.classification || 'neutral'}'`}
+                      x-show={`
+                        filter === 'all'
+                        || filter === '${t.classification || 'neutral'}'
+                        || (filter === 'opportunities' && ['competitor_wins','you_lost','shared_crisis','head_to_head'].includes('${t.classification || 'neutral'}'))
+                        || (filter === 'you_win_all' && ['you_win','you_win_strong','shared_win'].includes('${t.classification || 'neutral'}'))
+                      `}
                       class={`border-t border-gray-100 hover:bg-gray-50/60 cursor-pointer ${ringCls}`}
                       @click={`expanded = expanded === '${rowKey}' ? null : '${rowKey}'`}
                     >
@@ -325,9 +365,38 @@ function actionChip(a?: { label?: string; tone?: string }) {
                           </span>
                         </div>
 
+                        {(t.target_sentiment || t.competitor_sentiment) && (
+                          <div class="mb-3 px-3 py-2 bg-white rounded border border-gray-100">
+                            <p class="text-[10px] uppercase tracking-wide text-charcoal-light font-semibold mb-2">Per-brand sentiment <span class="text-[9px] text-charcoal-light normal-case italic font-normal">(Haiku read of the LLM snippets)</span></p>
+                            <div class="flex flex-wrap gap-3 text-[11px]">
+                              {t.target_sentiment && (() => {
+                                const sc = sentimentChip(t.target_sentiment);
+                                return (
+                                  <div class="flex items-center gap-2">
+                                    <span class="text-charcoal-light">Your brand :</span>
+                                    {sc && <span class={`px-1.5 py-0.5 rounded ${sc.cls}`}>{sc.label}</span>}
+                                  </div>
+                                );
+                              })()}
+                              {t.competitor_sentiment && (() => {
+                                const sc = sentimentChip(t.competitor_sentiment);
+                                return (
+                                  <div class="flex items-center gap-2">
+                                    <span class="text-charcoal-light">Competitor(s) :</span>
+                                    {sc && <span class={`px-1.5 py-0.5 rounded ${sc.cls}`}>{sc.label}</span>}
+                                    {t.competitors_mentioned && t.competitors_mentioned.length > 0 && (
+                                      <span class="text-[10px] text-charcoal-light italic">({t.competitors_mentioned.join(', ')})</span>
+                                    )}
+                                  </div>
+                                );
+                              })()}
+                            </div>
+                          </div>
+                        )}
+
                         {t.sentiment_summary && (
                           <div class="mb-3 px-3 py-2 bg-white rounded border border-gray-100">
-                            <p class="text-[10px] uppercase tracking-wide text-charcoal-light font-semibold mb-1">Sentiment summary <span class="text-[9px] text-charcoal-light normal-case italic font-normal">(Haiku read of the LLM snippets)</span></p>
+                            <p class="text-[10px] uppercase tracking-wide text-charcoal-light font-semibold mb-1">Summary</p>
                             <p class="text-[12px] text-charcoal-dark leading-relaxed italic">{t.sentiment_summary}</p>
                           </div>
                         )}

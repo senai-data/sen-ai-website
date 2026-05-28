@@ -343,6 +343,11 @@ class ScanRedditThread(Base):
     classification = Column(Text)
     sentiment = Column(Text)
     sentiment_summary = Column(Text)
+    # Sprint 8 audit polish (migration 052) - per-brand sentiment so we can
+    # detect head-to-head you_lost. Both nullable when the brand is not in
+    # scope on this thread.
+    target_sentiment = Column(Text)
+    competitor_sentiment = Column(Text)
     body_excerpt = Column(Text)
     top_comments = Column(JSONB, nullable=False, default=list)
     winning_questions = Column(JSONB, nullable=False, default=list)

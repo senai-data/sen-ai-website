@@ -3677,9 +3677,13 @@ def _reddit_action(classification: str | None, sentiment: str | None) -> dict:
     """Recommended action per row, derived deterministically from
     (classification, sentiment). Kept in the API layer (not stored) so
     the formula can evolve without a DB migration. Mirror of the
-    handler's _recommended_action function."""
+    handler's _recommended_action function (migration 052)."""
     cls = classification or "neutral"
     sent = sentiment or "unclear"
+    if cls == "you_lost":
+        return {"label": "Defend your position", "tone": "urgent"}
+    if cls == "shared_crisis":
+        return {"label": "Crisis response", "tone": "urgent"}
     if cls == "competitor_wins":
         if sent == "negative":
             return {"label": "Engage now", "tone": "urgent"}
@@ -3688,11 +3692,15 @@ def _reddit_action(classification: str | None, sentiment: str | None) -> dict:
         if sent in ("neutral", "unclear"):
             return {"label": "Add your perspective", "tone": "medium"}
         return {"label": "Skip - they win", "tone": "low"}
+    if cls == "head_to_head":
+        return {"label": "Investigate", "tone": "high"}
+    if cls == "shared_win":
+        return {"label": "Co-consideration", "tone": "positive"}
+    if cls == "you_win_strong":
+        return {"label": "Amplify", "tone": "positive"}
     if cls == "you_win":
         if sent == "negative":
             return {"label": "Monitor crisis", "tone": "urgent"}
-        if sent == "mixed":
-            return {"label": "Monitor closely", "tone": "high"}
         return {"label": "Keep monitoring", "tone": "positive"}
     return {"label": "Context only", "tone": "low"}
 
@@ -3740,12 +3748,20 @@ async def get_reddit_opportunities(scan_id: str, user=Depends(get_current_user),
             "classification": r.classification,
             "sentiment": r.sentiment,
             "sentiment_summary": r.sentiment_summary,
+            "target_sentiment": r.target_sentiment,
+            "competitor_sentiment": r.competitor_sentiment,
             "body_excerpt": r.body_excerpt,
             "top_comments": r.top_comments or [],
             "winning_questions": r.winning_questions or [],
             "leverage_score": r.leverage_score,
             "recommended_action": _reddit_action(r.classification, r.sentiment),
         })
+
+    # Per-classification counts for the filter chips + Peak-End hero card.
+    # "Opportunities" aggregates the action-worthy buckets so the user has
+    # one number to look at first.
+    opp_buckets = ("competitor_wins", "you_lost", "shared_crisis", "head_to_head")
+    opportunities_total = sum(by_class.get(b, 0) for b in opp_buckets)
 
     return {
         "scan_id": scan_id,
@@ -3755,7 +3771,12 @@ async def get_reddit_opportunities(scan_id: str, user=Depends(get_current_user),
             "by_classification": by_class,
             "by_sentiment": by_sentiment,
             "competitor_wins": by_class.get("competitor_wins", 0),
-            "you_win": by_class.get("you_win", 0),
+            "you_lost": by_class.get("you_lost", 0),
+            "shared_crisis": by_class.get("shared_crisis", 0),
+            "head_to_head": by_class.get("head_to_head", 0),
+            "you_win": by_class.get("you_win", 0) + by_class.get("you_win_strong", 0),
+            "shared_win": by_class.get("shared_win", 0),
+            "opportunities": opportunities_total,
         },
         "last_fetched": last_fetched.isoformat() + "Z" if last_fetched else None,
     }

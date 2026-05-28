@@ -40,28 +40,42 @@ logger = logging.getLogger(__name__)
 HAIKU_MODEL = "claude-haiku-4-5-20251001"
 TIMEOUT = 60.0
 
-_PROMPT = """You read these snippets that an LLM (ChatGPT or Gemini) captured around a Reddit thread URL when answering a user question. The snippets are short (~200 chars each) and may include the link inline. Tell me the overall sentiment toward the brands of interest. Stay neutral - you are an analyst, not an advocate.
+_PROMPT = """You read these snippets that an LLM (ChatGPT or Gemini) captured around a Reddit thread URL when answering a user question. The snippets are short (~200 chars each) and may include the link inline.
+
+You will return sentiment SEPARATELY for the target brand vs the competitor brands so we can detect head-to-head wins and losses. Stay neutral - you are an analyst, not an advocate.
 
 Subreddit: r/{subreddit}
 Reddit URL: {url}
-Brands of interest: {brands}
+Target brand (the user's own brand): {target_brand}
+Competitor brands (their rivals): {competitor_brands}
 
-LLM citation snippets (what the LLMs wrote when citing this thread):
+LLM citation snippets:
 {snippets}
 
 Return ONLY this JSON (no markdown):
 
 {{
-  "sentiment": "positive" | "negative" | "neutral" | "mixed" | "unclear",
-  "summary": "one neutral sentence (<= 200 chars) describing what the snippets suggest about the brand(s) of interest in this Reddit discussion. If no brand is clearly mentioned, describe the topic of the citation."
+  "target_sentiment":     "positive" | "negative" | "neutral" | "mixed" | "unclear" | "not_mentioned",
+  "competitor_sentiment": "positive" | "negative" | "neutral" | "mixed" | "unclear" | "not_mentioned",
+  "overall_sentiment":    "positive" | "negative" | "neutral" | "mixed" | "unclear",
+  "summary": "one neutral sentence (<= 200 chars) describing what the snippets suggest about the brands in this Reddit discussion. Mention which brand wins or loses if applicable."
 }}
 
-Rules:
-- "positive" : the snippets suggest redditors recommend / praise the brand(s)
-- "negative" : the snippets suggest redditors complain / warn against the brand(s)
-- "mixed"    : signals of both pros AND cons
-- "neutral"  : the brand is referenced as fact / source, no clear sentiment expressed in the discussion
-- "unclear"  : you cannot determine sentiment from the snippets because they are too thin (e.g. just "[Source: reddit.com]") and contain no actual discussion content. DO NOT default to "neutral" in this case - the user reads them very differently.
+Rules for each sentiment value :
+- "positive"      : redditors recommend / praise that specific brand
+- "negative"      : redditors complain / warn against that specific brand
+- "mixed"         : substantial pros AND cons for that specific brand
+- "neutral"       : the brand is referenced as fact, no opinion either way
+- "unclear"       : the brand is mentioned but the snippet has no body content to read sentiment from (often just "[Source: reddit.com]"). DO NOT default to "neutral" - the user reads these very differently.
+- "not_mentioned" : that brand is not present in the snippets at all (use this when the brand list contains brands not actually discussed)
+
+Examples :
+- "Bioderma is great for sensitive skin, way better than Ducray" with target=Ducray, competitor=Bioderma :
+  → target_sentiment=negative, competitor_sentiment=positive, overall=mixed, summary="Bioderma is preferred over Ducray for sensitive skin."
+- "[Source: reddit.com]" with target=Ducray :
+  → target_sentiment=unclear, competitor_sentiment=not_mentioned, overall=unclear, summary="Thin snippet cited as source ; no actual discussion content available."
+- "Pellicules : voici les meilleurs shampoings selon les utilisateurs" :
+  → target_sentiment=not_mentioned, competitor_sentiment=not_mentioned, overall=neutral, summary="Informational thread about dandruff shampoo recommendations ; no specific brand judgment in the snippet."
 """
 
 
@@ -74,12 +88,19 @@ def _format_snippets(snippets: list[str]) -> str:
     return "\n".join(f"- {s}" for s in cleaned[:10])
 
 
-def _build_prompt_from_snippets(url: str, subreddit: str | None, snippets: list[str], brand_names: list[str]) -> str:
+def _build_prompt_from_snippets(
+    url: str,
+    subreddit: str | None,
+    snippets: list[str],
+    target_brand: str,
+    competitor_brands: list[str],
+) -> str:
     return _PROMPT.format(
         url=url or "(unknown)",
         subreddit=subreddit or "?",
         snippets=_format_snippets(snippets),
-        brands=", ".join(brand_names) or "(none specified)",
+        target_brand=target_brand or "(none specified)",
+        competitor_brands=", ".join(competitor_brands) or "(none specified)",
     )
 
 
@@ -121,29 +142,63 @@ async def _call_haiku(prompt: str, api_key: str) -> dict:
             raise
 
 
+_VALID_PER_BRAND = ("positive", "negative", "neutral", "mixed", "unclear", "not_mentioned")
+_VALID_OVERALL = ("positive", "negative", "neutral", "mixed", "unclear")
+
+
+def _norm_per_brand(v) -> str | None:
+    """Normalize a per-brand sentiment string. Maps `not_mentioned` to
+    None so the DB column stays NULL when the brand isn't in the
+    discussion - cleaner SQL and avoids polluting filters."""
+    s = (v or "").lower().strip()
+    if s == "not_mentioned" or s == "":
+        return None
+    if s not in _VALID_PER_BRAND:
+        return "unclear"
+    return s
+
+
+def _norm_overall(v) -> str:
+    s = (v or "").lower().strip()
+    if s not in _VALID_OVERALL:
+        return "unclear"
+    return s
+
+
 def classify_snippets(
     url: str,
     subreddit: str | None,
     snippets: list[str],
-    brand_names: list[str],
+    target_brand: str,
+    competitor_brands: list[str],
     api_key: str,
 ) -> Optional[dict]:
-    """Run Haiku on one URL's LLM citation snippets. Returns {sentiment,
-    summary} or None on failure. Always non-fatal - the caller persists
-    the row regardless."""
+    """Run Haiku on one URL's LLM citation snippets, returning per-brand +
+    overall sentiment :
+        {
+          target_sentiment:     str | None,
+          competitor_sentiment: str | None,
+          sentiment:            str (overall, never None),
+          summary:              str,
+        }
+    None on failure (no API key, exception). The caller persists the
+    row regardless ; per-brand fields default to None when the brand
+    isn't in scope on this thread.
+    """
     if not api_key:
         return None
     cleaned = [s for s in (snippets or []) if s and s.strip()]
     if not cleaned:
         return None
-    prompt = _build_prompt_from_snippets(url, subreddit, cleaned, brand_names)
+    prompt = _build_prompt_from_snippets(url, subreddit, cleaned, target_brand, competitor_brands)
     try:
         result = asyncio.run(_call_haiku(prompt, api_key))
     except Exception:  # noqa: BLE001
         logger.exception(f"reddit_sentiment failed for {url}")
         return None
-    sentiment = (result.get("sentiment") or "").lower().strip()
-    if sentiment not in ("positive", "negative", "neutral", "mixed", "unclear"):
-        sentiment = "unclear"
-    summary = (result.get("summary") or "").strip()[:300]
-    return {"sentiment": sentiment, "summary": summary}
+    return {
+        "target_sentiment":     _norm_per_brand(result.get("target_sentiment")),
+        "competitor_sentiment": _norm_per_brand(result.get("competitor_sentiment")),
+        "sentiment":            _norm_overall(result.get("overall_sentiment") or result.get("sentiment")),
+        "summary":              (result.get("summary") or "").strip()[:300],
+    }

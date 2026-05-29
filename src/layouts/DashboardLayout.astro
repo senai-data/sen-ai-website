@@ -254,6 +254,50 @@ const icons = {
               </div>
             </div>
           )}
+
+          {/* Sprint 15.3 - "+ Add new client workspace" for org managers.
+              Gated on owner/admin role so members (who only have read or
+              per-workspace editor access) don't see a button that would
+              403. Posts to /api/organizations/{org_id}/clients then
+              reloads so the cookie-driven active_client_id resolves the
+              new one. */}
+          {(activeOrg.role === 'owner' || activeOrg.role === 'admin') && (
+            <div
+              x-data="{ open: false, name: '', loading: false, error: '' }"
+              data-org-id={activeOrg.id}
+              class="mt-2 add-client-form"
+            >
+              <button
+                @click="open = !open; if (open) { $nextTick(() => $refs.cn?.focus()) }"
+                class="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-[12px] text-gray-400 hover:text-white hover:bg-white/5 transition-colors"
+              >
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                <span x-show="!open">Add client workspace</span>
+                <span x-show="open">Cancel</span>
+              </button>
+              <div x-show="open" x-transition class="mt-2 space-y-2">
+                <input
+                  type="text"
+                  x-ref="cn"
+                  x-model="name"
+                  placeholder="Client name (e.g. Avene)"
+                  maxlength="120"
+                  @keydown.enter.prevent="window.__createClientInOrg($el.closest('.add-client-form'), name, $data)"
+                  class="w-full px-2 py-1.5 bg-white/5 border border-white/10 rounded text-[12px] text-white placeholder:text-gray-500 focus:outline-none focus:border-coral"
+                />
+                <button
+                  @click="window.__createClientInOrg($el.closest('.add-client-form'), name, $data)"
+                  :disabled="loading || !name.trim()"
+                  class="w-full px-2 py-1.5 bg-coral text-white text-[12px] rounded hover:bg-coral-dark disabled:bg-gray-700 disabled:text-gray-500 transition-colors"
+                >
+                  <span x-show="!loading">Create</span>
+                  <span x-show="loading">Creating...</span>
+                </button>
+                <p x-show="error" x-text="error" class="text-[10px] text-red-400"></p>
+                <p class="text-[10px] text-gray-500">You become this client's manager.</p>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -403,6 +447,40 @@ const icons = {
         }
       });
     });
+  </script>
+
+  <script is:inline>
+    // Sprint 15.3 - helper called from the "+ Add client workspace"
+    // form in the org switcher panel. Reads org id from the wrapping
+    // form's data-org-id, POSTs to the org-scoped client create endpoint,
+    // then drops the user on /welcome to seed the new workspace's first
+    // scan.
+    window.__createClientInOrg = async function (formEl, name, state) {
+      const trimmed = (name || '').trim();
+      if (!trimmed || state.loading) return;
+      const orgId = formEl?.dataset?.orgId;
+      if (!orgId) { state.error = 'Missing org id'; return; }
+      state.loading = true; state.error = '';
+      try {
+        const res = await fetch('/api/organizations/' + orgId + '/clients', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: trimmed }),
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          state.error = (body && body.detail) || ('HTTP ' + res.status);
+          state.loading = false;
+          return;
+        }
+        const created = await res.json();
+        document.cookie = 'active_client_id=' + created.id + '; path=/; max-age=86400; SameSite=Lax';
+        window.location.href = '/welcome';
+      } catch (e) {
+        state.error = String(e && e.message || e);
+        state.loading = false;
+      }
+    };
   </script>
 </body>
 </html>

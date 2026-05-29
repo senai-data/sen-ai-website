@@ -652,3 +652,69 @@ async def revoke_client_access(
     )
     db.commit()
     return {"ok": True, "revoked": bool(deleted)}
+
+
+# ── Sprint 15.3 : create a NEW client workspace within an org ────────────
+# Distinct from POST /api/clients/ which is idempotent (1 user = 1 personal
+# client). This is the agency / multi-tenant flow : owners + admins can spin
+# up additional client workspaces inside their org from the header dropdown.
+#
+# Backend invariants :
+#  - caller must be org owner or admin (other org members can be granted
+#    access to specific clients individually, but they can't create new ones)
+#  - new client is linked to the org via Client.organization_id
+#  - caller is auto-granted manager role on the new client via UserClient
+#    (legacy) AND OrgUserClient (modern)
+#  - apps default to ai_scan enabled, same as POST /clients/ baseline
+#
+# Frontend wires this from DashboardLayout's org switcher "+ Add new client
+# workspace" item.
+
+class NewOrgClientRequest(BaseModel):
+    name: str
+    brand: str | None = None
+
+
+@router.post("/{org_id}/clients")
+async def create_client_in_org(
+    org_id: str,
+    req: NewOrgClientRequest,
+    user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Create a fresh Client inside the org. Caller becomes manager."""
+    from services.sanitize import strip_tags
+    org, _caller = _require_org_manager(org_id, user, db)
+
+    raw_name = (req.name or "").strip()
+    if not raw_name:
+        raise HTTPException(400, "Client name is required")
+
+    client = Client(
+        name=strip_tags(raw_name)[:120],
+        brand=strip_tags((req.brand or "").strip())[:120] if req.brand else None,
+        organization_id=org.id,
+    )
+    db.add(client)
+    db.flush()
+
+    # Legacy user_clients link kept for read paths that haven't migrated to
+    # OrgUserClient yet (cleanup tracked in [[project-phase-e-c1-organizations-foundation]]).
+    from models import UserClient
+    db.add(UserClient(user_id=user.id, client_id=client.id, role="manager"))
+    # Modern per-org-per-client role row.
+    db.add(OrgUserClient(
+        organization_id=org.id,
+        user_id=user.id,
+        client_id=client.id,
+        role="manager",
+    ))
+    db.commit()
+    db.refresh(client)
+
+    return {
+        "id": str(client.id),
+        "name": client.name,
+        "brand": client.brand,
+        "organization_id": str(client.organization_id) if client.organization_id else None,
+    }

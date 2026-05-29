@@ -4530,6 +4530,7 @@ async def get_compliance_data(scan_id: str, user=Depends(get_current_user), db: 
     """Aggregated payload for the per-scan AI Act compliance report.
     Pulls scan + provider mix + counts + citation domains + brand snapshot
     in one round trip. Read-only."""
+    from sqlalchemy import text as _text
     scan = _check_scan_access(scan_id, user, db)
 
     # User who triggered the scan.

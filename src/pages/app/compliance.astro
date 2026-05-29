@@ -1,0 +1,321 @@
+---
+/**
+ * Sprint 14 - Org-level AI Act compliance hub.
+ *
+ * Workspace-wide audit log + DPIA template + sub-processors + data
+ * governance summary. Print-friendly so the user can save the DPIA
+ * (or any section) as PDF.
+ */
+export const prerender = false;
+import DashboardLayout from '../../layouts/DashboardLayout.astro';
+
+const token = Astro.cookies.get('token')?.value;
+if (!token) return Astro.redirect('/login');
+
+const activeOrgCookie = Astro.cookies.get('active_organization_id')?.value;
+const activeClientCookie = Astro.cookies.get('active_client_id')?.value;
+const upstreamCookie = [
+  `token=${token}`,
+  activeOrgCookie ? `active_organization_id=${activeOrgCookie}` : null,
+  activeClientCookie ? `active_client_id=${activeClientCookie}` : null,
+].filter(Boolean).join('; ');
+
+let scans: any[] = [];
+let activeClient: any = null;
+try {
+  const clientsRes = await fetch('http://api:8000/api/clients/', {
+    headers: { Cookie: upstreamCookie },
+    signal: AbortSignal.timeout(3000),
+  });
+  const clients = clientsRes.ok ? await clientsRes.json() : [];
+  activeClient = clients[0] || null;
+  if (activeClient?.id) {
+    const scansRes = await fetch(`http://api:8000/api/scans?client_id=${activeClient.id}`, {
+      headers: { Cookie: `token=${token}` },
+      signal: AbortSignal.timeout(5000),
+    });
+    scans = scansRes.ok ? await scansRes.json() : [];
+  }
+} catch (_) {}
+
+function fmtDate(iso?: string): string {
+  if (!iso) return '-';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '-';
+  return d.toLocaleDateString('en-GB', { year: 'numeric', month: 'short', day: '2-digit' });
+}
+
+const reportDate = new Date().toLocaleDateString('en-GB', { year: 'numeric', month: 'long', day: '2-digit' });
+const completedScans = scans.filter((s: any) => s.status === 'completed');
+const totalScans = scans.length;
+---
+
+<DashboardLayout title="Compliance" activeSection="dashboard">
+  <div class="compliance-hub max-w-5xl px-8 py-6">
+
+    <header class="screen-only mb-6">
+      <p class="text-[11px] text-charcoal-light uppercase tracking-wide mb-1">EU AI Act &amp; data governance</p>
+      <h1 class="text-2xl font-bold text-charcoal-dark mb-2">Compliance pack</h1>
+      <p class="text-sm text-charcoal-light max-w-3xl">
+        Workspace-wide audit log, sub-processors disclosure, data governance summary,
+        and a DPIA template you can adapt for your own EU AI Act assessment. Use the
+        per-scan Compliance tab for transparency reports on individual scans.
+        Use this page to satisfy the org-wide procurement asks.
+      </p>
+    </header>
+
+    {/* Workspace identity */}
+    <section class="bg-white rounded-xl shadow-sm p-6 mb-4 compliance-section">
+      <div class="flex items-baseline justify-between mb-3 flex-wrap gap-2">
+        <h2 class="section-title">Workspace identity</h2>
+        <button onclick="window.print()" class="screen-only text-xs px-3 py-1.5 rounded-lg bg-coral hover:bg-coral-dark text-white font-medium">
+          ⬇ Save this page as PDF
+        </button>
+      </div>
+      <table class="kv-table">
+        <tbody>
+          <tr><th>Workspace name</th><td>{activeClient?.name || '-'}</td></tr>
+          <tr><th>Workspace ID</th><td><code class="text-[10px] bg-gray-100 px-1 rounded">{activeClient?.id || '-'}</code></td></tr>
+          <tr><th>Brand under monitoring</th><td>{activeClient?.brand || '-'}</td></tr>
+          <tr><th>Report date</th><td>{reportDate}</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    {/* Sub-processors */}
+    <section class="bg-white rounded-xl shadow-sm p-6 mb-4 compliance-section">
+      <h2 class="section-title">Sub-processors</h2>
+      <p class="section-prose">
+        sen-ai.fr relies on the following sub-processors to deliver the service.
+        Each sub-processor operates under a Data Processing Addendum (DPA) and is
+        certified under at least one of : EU-US Data Privacy Framework, EU Standard
+        Contractual Clauses (SCC), or EU-based hosting.
+      </p>
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Sub-processor</th>
+            <th>Purpose</th>
+            <th>Hosting region</th>
+            <th>Lawful transfer mechanism</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Hetzner Online GmbH</strong></td>
+            <td>Application hosting, PostgreSQL database, file storage</td>
+            <td>Falkenstein, Germany (EU)</td>
+            <td>EU controller, no transfer</td>
+          </tr>
+          <tr>
+            <td><strong>OpenAI, L.L.C.</strong></td>
+            <td>AI provider (ChatGPT) - read-only inference</td>
+            <td>United States</td>
+            <td>EU-US Data Privacy Framework + SCC</td>
+          </tr>
+          <tr>
+            <td><strong>Google Ireland Ltd</strong></td>
+            <td>AI provider (Gemini) - read-only inference</td>
+            <td>European Union (Belgium / Netherlands)</td>
+            <td>EU controller, no transfer</td>
+          </tr>
+          <tr>
+            <td><strong>Anthropic PBC</strong></td>
+            <td>AI provider (Claude) - read-only inference</td>
+            <td>United States</td>
+            <td>EU-US Data Privacy Framework + SCC</td>
+          </tr>
+          <tr>
+            <td><strong>Stripe Payments Europe</strong></td>
+            <td>Billing &amp; payment processing</td>
+            <td>European Union (Ireland)</td>
+            <td>EU controller, no transfer</td>
+          </tr>
+          <tr>
+            <td><strong>Babbar Technologies</strong></td>
+            <td>Backlink &amp; domain authority enrichment</td>
+            <td>European Union (France)</td>
+            <td>EU controller, no transfer</td>
+          </tr>
+        </tbody>
+      </table>
+      <p class="section-note">
+        AI providers process prompt text containing brand / domain / topic data only.
+        No personal data of your end users is transmitted to any AI provider. Full
+        disclosure in our <a href="/privacy" target="_blank">Privacy Policy</a>.
+      </p>
+    </section>
+
+    {/* Data governance */}
+    <section class="bg-white rounded-xl shadow-sm p-6 mb-4 compliance-section">
+      <h2 class="section-title">Data governance summary</h2>
+      <table class="kv-table">
+        <tbody>
+          <tr><th>Data controller</th><td>The customer (you) is the controller for any brand / domain / persona data uploaded to the workspace.</td></tr>
+          <tr><th>Data processor</th><td>sen-ai.fr is the processor, acting on the customer&apos;s documented instructions.</td></tr>
+          <tr><th>Personal data exposure</th><td>Minimal. Only the email + name of users granted workspace access are stored. AI provider prompts contain no personal data.</td></tr>
+          <tr><th>Retention period</th><td>Scan results retained for the duration of the workspace subscription, then 30 days post-cancellation before deletion.</td></tr>
+          <tr><th>International transfers</th><td>OpenAI and Anthropic (US) under EU-US Data Privacy Framework + Standard Contractual Clauses. All other sub-processors are EU-hosted.</td></tr>
+          <tr><th>Right to access / erase</th><td>Email <a href="mailto:contact@sen-ai.fr">contact@sen-ai.fr</a>. Workspace owner can also delete any scan from the UI at any time.</td></tr>
+          <tr><th>Breach notification</th><td>72-hour notification to the customer in case of a confirmed personal data breach, per GDPR Article 33.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    {/* Audit log */}
+    <section class="bg-white rounded-xl shadow-sm p-6 mb-4 compliance-section">
+      <h2 class="section-title">Audit log - scans in this workspace</h2>
+      <p class="section-prose">
+        Complete list of scans recorded against this workspace. Each row links to the
+        per-scan transparency report. <strong>{totalScans}</strong> scan(s) total,
+        <strong>{completedScans.length}</strong> completed.
+      </p>
+      {scans.length === 0 && (
+        <p class="text-[12px] text-charcoal-light italic">No scans in this workspace yet.</p>
+      )}
+      {scans.length > 0 && (
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Scan name</th>
+              <th>Domain</th>
+              <th>Type</th>
+              <th>Status</th>
+              <th>Created</th>
+              <th>Completed</th>
+              <th class="screen-only">Report</th>
+            </tr>
+          </thead>
+          <tbody>
+            {scans.map((s: any) => (
+              <tr>
+                <td>{s.name || s.focus_brand_name || '-'}</td>
+                <td>{s.domain || '-'}</td>
+                <td>{s.scan_type || '-'}</td>
+                <td>
+                  <span class={`text-[9px] uppercase px-1.5 py-0.5 rounded ${
+                    s.status === 'completed' ? 'bg-emerald-50 text-emerald-700' :
+                    s.status === 'failed' ? 'bg-red-50 text-red-700' :
+                    'bg-amber-50 text-amber-700'
+                  }`}>{s.status}</span>
+                </td>
+                <td>{fmtDate(s.created_at)}</td>
+                <td>{fmtDate(s.completed_at)}</td>
+                <td class="screen-only">
+                  <a href={`/app/scans/${s.id}/compliance`} class="text-coral hover:text-coral-dark text-[11px]">Open →</a>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </section>
+
+    {/* DPIA template */}
+    <section class="bg-white rounded-xl shadow-sm p-6 mb-4 compliance-section">
+      <h2 class="section-title">Data Protection Impact Assessment (DPIA) - template</h2>
+      <p class="section-prose">
+        The EU AI Act does not by itself require a DPIA, but Article 35 GDPR does
+        when processing is likely to result in a high risk to the rights and
+        freedoms of natural persons. For limited-risk AI applications like sen-ai,
+        a DPIA is typically NOT mandatory but procurement teams often ask for one.
+        Use this template as a starting point - adapt to your context, then save as
+        PDF and attach to your DPA.
+      </p>
+
+      <div class="dpia-template border border-gray-200 rounded-lg p-5 bg-gray-50 mt-4">
+        <h3 class="dpia-h3">1. Processing description</h3>
+        <p class="dpia-p"><strong>Service used :</strong> sen-ai.fr - brand visibility analytics across generative AI systems.</p>
+        <p class="dpia-p"><strong>Purpose :</strong> Measure how third-party AI systems (ChatGPT, Gemini, Claude, Mistral) reference the customer&apos;s brand and competitors when responding to typical buyer questions. Surface optimisation opportunities.</p>
+        <p class="dpia-p"><strong>Categories of data processed :</strong> Brand names, domain names, persona descriptions (fictional), topic taxonomies. No personal data of end users.</p>
+        <p class="dpia-p"><strong>Data subjects :</strong> Only the customer&apos;s account holders (workspace users) - identified by email + name.</p>
+
+        <h3 class="dpia-h3">2. Necessity &amp; proportionality</h3>
+        <p class="dpia-p"><strong>Lawful basis :</strong> Article 6(1)(b) GDPR - performance of a contract (the SaaS subscription).</p>
+        <p class="dpia-p"><strong>Data minimisation :</strong> sen-ai.fr does not collect personal data of the customer&apos;s end users. AI provider prompts contain only brand / domain / topic data.</p>
+        <p class="dpia-p"><strong>Retention :</strong> Scan results retained for the active subscription + 30 days. Account data retained per Privacy Policy.</p>
+
+        <h3 class="dpia-h3">3. Risk assessment</h3>
+        <p class="dpia-p"><strong>Risk to data subjects :</strong> LOW. The only data subjects are workspace users (employees of the customer). No biometric, health, financial, or special-category data is processed.</p>
+        <p class="dpia-p"><strong>Risk of unauthorised access :</strong> Mitigated by encrypted storage at rest, TLS in transit, HttpOnly auth cookies, scoped per-workspace access controls.</p>
+        <p class="dpia-p"><strong>Risk of AI bias / discrimination :</strong> The AI systems used are GENERAL-PURPOSE and outside sen-ai.fr&apos;s control. sen-ai.fr does not train or fine-tune any model. Bias risks rest with the upstream AI providers.</p>
+        <p class="dpia-p"><strong>Risk of international transfer :</strong> Two sub-processors are US-based (OpenAI, Anthropic). Mitigated by EU-US Data Privacy Framework + Standard Contractual Clauses.</p>
+
+        <h3 class="dpia-h3">4. Safeguards in place</h3>
+        <ul class="dpia-ul">
+          <li>EU-hosted application + database (Hetzner, Germany)</li>
+          <li>Encrypted-at-rest PostgreSQL with daily backups, 7-day retention</li>
+          <li>TLS 1.3 for all in-transit traffic (sen-ai.fr ↔ user, sen-ai.fr ↔ sub-processors)</li>
+          <li>HttpOnly + Secure + SameSite=Lax authentication cookies</li>
+          <li>Per-workspace role-based access (owner / editor / viewer)</li>
+          <li>Sentry observability for error tracking (EU instance, scrubbed PII)</li>
+          <li>72-hour breach notification procedure per GDPR Article 33</li>
+        </ul>
+
+        <h3 class="dpia-h3">5. Customer&apos;s residual decisions</h3>
+        <p class="dpia-p">As the data controller you decide :</p>
+        <ul class="dpia-ul">
+          <li>Whether to make scan results visible to employees (workspace roles)</li>
+          <li>How long to keep historical scan data (delete from UI at any time)</li>
+          <li>Whether to add brand / persona / topic data that may be considered confidential</li>
+          <li>Whether your specific use case classes sen-ai.fr as a high-risk AI deployment (it normally does not, but your sector may impose additional duties)</li>
+        </ul>
+
+        <h3 class="dpia-h3">6. Conclusion</h3>
+        <p class="dpia-p">
+          For the standard use case (brand visibility analytics), processing is assessed as
+          <strong> LOW RISK</strong>. No prior consultation with the supervisory authority is
+          required under Article 36 GDPR.
+        </p>
+        <p class="dpia-p">
+          This template is informational and not legal advice. Customers should validate
+          with their own Data Protection Officer or legal counsel before signing off.
+        </p>
+      </div>
+    </section>
+
+    {/* Footer links */}
+    <section class="bg-white rounded-xl shadow-sm p-6 mb-4 compliance-section">
+      <h2 class="section-title">More resources</h2>
+      <ul class="bullets">
+        <li><a href="/methodology" target="_blank" class="text-coral hover:text-coral-dark">Public methodology whitepaper</a> - N-runs paradigm, provider mix, citation extraction</li>
+        <li><a href="/privacy" target="_blank" class="text-coral hover:text-coral-dark">Privacy Policy</a> - full data handling disclosure</li>
+        <li><a href="/terms" target="_blank" class="text-coral hover:text-coral-dark">Terms of Service</a> - contractual basis</li>
+        <li><a href="/mentions-legales" target="_blank" class="text-coral hover:text-coral-dark">Legal Notice</a> - operating entity</li>
+        <li>Compliance contact : <a href="mailto:contact@sen-ai.fr">contact@sen-ai.fr</a></li>
+      </ul>
+    </section>
+
+  </div>
+
+  <style>
+    .compliance-hub .section-title { font-size: 1.1rem; font-weight: 700; color: #1f2937; margin-bottom: 0.5rem; }
+    .compliance-hub .section-prose { font-size: 12.5px; line-height: 1.6; color: #374151; margin: 0.4rem 0; }
+    .compliance-hub .section-note { font-size: 11px; color: #6b7280; font-style: italic; margin-top: 0.5rem; }
+    .compliance-hub .bullets { list-style: disc; padding-left: 1.25rem; font-size: 12.5px; color: #374151; line-height: 1.7; }
+    .compliance-hub .kv-table { width: 100%; font-size: 12.5px; }
+    .compliance-hub .kv-table th { width: 30%; padding: 0.35rem 0.6rem; text-align: left; color: #6b7280; font-weight: 600; vertical-align: top; }
+    .compliance-hub .kv-table td { padding: 0.35rem 0.6rem; color: #1f2937; vertical-align: top; }
+    .compliance-hub .kv-table tr { border-bottom: 1px solid #f3f4f6; }
+    .compliance-hub .data-table { width: 100%; font-size: 12px; border-collapse: collapse; margin-top: 0.5rem; }
+    .compliance-hub .data-table th { background: #f9fafb; padding: 0.4rem 0.6rem; text-align: left; font-weight: 600; color: #374151; border-bottom: 1px solid #e5e7eb; }
+    .compliance-hub .data-table td { padding: 0.3rem 0.6rem; border-bottom: 1px solid #f3f4f6; color: #1f2937; }
+    .compliance-hub .data-table .text-right { text-align: right; }
+    .compliance-hub .dpia-h3 { font-size: 13px; font-weight: 700; color: #1f2937; margin-top: 0.85rem; margin-bottom: 0.3rem; }
+    .compliance-hub .dpia-p { font-size: 12px; color: #374151; line-height: 1.6; margin: 0.2rem 0; }
+    .compliance-hub .dpia-ul { list-style: disc; padding-left: 1.25rem; font-size: 12px; color: #374151; line-height: 1.6; margin-top: 0.3rem; }
+    .compliance-hub code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+    .screen-only { display: revert; }
+
+    @media print {
+      body * { visibility: hidden !important; }
+      .compliance-hub, .compliance-hub * { visibility: visible !important; }
+      .compliance-hub { position: absolute !important; left: 0; top: 0; width: 100%; padding: 0 !important; }
+      .compliance-hub .screen-only { display: none !important; }
+      .compliance-hub .compliance-section { box-shadow: none !important; border-bottom: 1px solid #e5e7eb; border-radius: 0; padding: 1rem 0 !important; page-break-inside: avoid; }
+      body { background: white !important; }
+      @page { margin: 1.5cm 1.8cm; }
+    }
+  </style>
+</DashboardLayout>

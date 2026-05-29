@@ -1,0 +1,208 @@
+---
+/**
+ * Sprint 14 - Public methodology whitepaper.
+ *
+ * Marketing-tier page that explains how sen-ai.fr measures AI visibility :
+ * the N-runs paradigm, the provider mix, brand classification approach,
+ * citation extraction, variance handling, and privacy posture. Linked from
+ * the per-scan Compliance report + org-level compliance hub + footer.
+ */
+import BaseLayout from '../layouts/BaseLayout.astro';
+import Nav from '../components/Nav.astro';
+import Footer from '../components/Footer.astro';
+
+const lastUpdated = "2026-05-29";
+---
+
+<BaseLayout title="Methodology | sen-ai.fr" description="How sen-ai.fr measures AI visibility: the N-runs paradigm, provider mix, brand classification, citation extraction, variance band, and EU AI Act posture.">
+  <Nav />
+  <main class="pt-24 pb-20 px-4">
+    <div class="max-w-3xl mx-auto prose prose-charcoal">
+      <h1 class="text-3xl sm:text-4xl font-bold text-charcoal-dark mb-2">Methodology</h1>
+      <p class="text-sm text-charcoal-light mb-10">Last updated : {lastUpdated}</p>
+
+      <p class="text-charcoal-light leading-relaxed mb-10">
+        sen-ai.fr measures how generative AI systems (ChatGPT, Gemini, Claude, Mistral) reference
+        brands when answering real buyer questions. This page documents how we do it - the data
+        sources, the AI providers, the statistical paradigm, and the safeguards we wire in so the
+        numbers are honest. If you&apos;re a procurement / DPO / compliance reviewer, this is the
+        page to attach to your DPA. If you&apos;re a marketer, this is the page that explains why
+        a single scan isn&apos;t enough.
+      </p>
+
+      <section class="mb-10">
+        <h2 class="text-xl font-bold text-charcoal-dark mb-3">1. The problem we measure</h2>
+        <p class="text-charcoal-light leading-relaxed">
+          When a user asks ChatGPT &quot;what&apos;s a good moisturiser for sensitive skin&quot;, the
+          answer surfaces certain brands and not others. That ranking is the new SEO. Unlike
+          Google&apos;s search results, AI answers vary across runs - the same question on the same
+          model can produce different brand mixes 30 seconds apart. Anyone measuring AI visibility
+          from one scan is reading noise.
+        </p>
+        <p class="text-charcoal-light leading-relaxed mt-3">
+          sen-ai.fr&apos;s job is to stabilise that signal at scale, then surface the actionable
+          deltas : which questions cite you, which cite competitors, which sources do the AI
+          systems consult, and where on your site do the AI systems land.
+        </p>
+      </section>
+
+      <section class="mb-10">
+        <h2 class="text-xl font-bold text-charcoal-dark mb-3">2. The N-runs paradigm</h2>
+        <p class="text-charcoal-light leading-relaxed">
+          Every scan repeats each question <strong>N times per provider</strong> instead of asking
+          once. Default for paid plans is N=10 ; teams can configure lower for cost or higher for
+          confidence. The output is then averaged with a published variance band so the user
+          knows whether a 22% citation rate is &quot;solid at ±3pts&quot; or &quot;noisy at ±18pts&quot;.
+        </p>
+        <p class="text-charcoal-light leading-relaxed mt-3">
+          Why N=10 specifically : empirical variance for the providers we use is
+          <strong>~3-5%</strong> for OpenAI grounded mode, <strong>~10-15%</strong> for Gemini
+          ungrounded, <strong>~3-5%</strong> for Claude grounded. At N=10 the standard error
+          drops to ±1-2pts across the mix - tight enough to detect quarterly trend changes.
+        </p>
+        <p class="text-charcoal-light leading-relaxed mt-3">
+          Source for the variance characterisation : Fishkin / O&apos;Donnell 2026 measurement study
+          plus our own internal benchmarks across 50+ scans on French cosmetics, pharma,
+          automotive, and consumer-services verticals.
+        </p>
+      </section>
+
+      <section class="mb-10">
+        <h2 class="text-xl font-bold text-charcoal-dark mb-3">3. AI providers &amp; models</h2>
+        <p class="text-charcoal-light leading-relaxed">
+          sen-ai.fr queries third-party general-purpose AI systems in <strong>read-only mode</strong>.
+          We don&apos;t train, fine-tune, or feed responses back into any model. Current mix :
+        </p>
+        <ul class="text-charcoal-light leading-relaxed list-disc pl-6 mt-3">
+          <li><strong>OpenAI ChatGPT</strong> - GPT-5.4-mini for cost-balanced runs, GPT-5.4 for premium runs. Grounded mode (web search) when available.</li>
+          <li><strong>Google Gemini</strong> - Gemini 2.5 Flash for cost, Gemini 2.5 Pro for premium. EU-hosted via Google Ireland Ltd.</li>
+          <li><strong>Anthropic Claude</strong> - Haiku 4.5 for structured-JSON extraction (brand mention parser, sentiment judge) ; Sonnet 4.6 for premium runs.</li>
+          <li><strong>Mistral Le Chat</strong> - Mistral Large. EU-hosted. Critical for the French market (41% of Mistral traffic = France).</li>
+        </ul>
+        <p class="text-charcoal-light leading-relaxed mt-3">
+          The mix evolves : providers get added when their adoption crosses the 5% search-share
+          threshold per country. We publish the current mix on the per-scan report so historical
+          comparisons stay reproducible.
+        </p>
+      </section>
+
+      <section class="mb-10">
+        <h2 class="text-xl font-bold text-charcoal-dark mb-3">4. Personas &amp; questions</h2>
+        <p class="text-charcoal-light leading-relaxed">
+          For each tracked brand we generate a topic taxonomy (from the site&apos;s ranking keywords
+          on Google), then a set of personas (synthetic user archetypes) anchored on each topic,
+          then 5 question types per persona (informational, commercial, transactional, etc.).
+        </p>
+        <p class="text-charcoal-light leading-relaxed mt-3">
+          The questions are <strong>brand-agnostic</strong> on purpose - they describe a buyer
+          situation, not the brand. This avoids leading the AI and matches how real users phrase
+          things in ChatGPT / Perplexity.
+        </p>
+        <p class="text-charcoal-light leading-relaxed mt-3">
+          The persona + question generators are themselves Claude Haiku calls bound by a strict
+          JSON schema. No human-in-the-loop required for v1 ; the workspace owner can edit any
+          persona or question before launching the scan.
+        </p>
+      </section>
+
+      <section class="mb-10">
+        <h2 class="text-xl font-bold text-charcoal-dark mb-3">5. Brand classification &amp; mention extraction</h2>
+        <p class="text-charcoal-light leading-relaxed">
+          Every LLM response is parsed by an &quot;analyser&quot; pass (Claude Haiku, strict JSON output)
+          that extracts every brand-like entity, classifies its sentiment (positive / negative /
+          neutral), and tags whether it&apos;s the focus brand or a competitor.
+        </p>
+        <p class="text-charcoal-light leading-relaxed mt-3">
+          Brand classification is workspace-controlled. The system surfaces every entity it
+          finds ; the workspace owner promotes them to <em>my_brand</em> / <em>competitor</em> /
+          <em>ignored</em> via the Brands tab. Auto-classification is conservative - unknown
+          entities default to <em>discovered</em> and stay invisible from the metrics until the
+          owner curates them. No hardcoded vertical / region / brand lists.
+        </p>
+        <p class="text-charcoal-light leading-relaxed mt-3">
+          A Haiku-as-judge layer (Sprint candidate) will start overturning obvious sentiment
+          false positives (e.g. &quot;not suitable for X&quot; misclassified as negative when the
+          underlying statement is factual). Until then, the radar tools downplay isolated
+          negative signals via conservative severity buckets.
+        </p>
+      </section>
+
+      <section class="mb-10">
+        <h2 class="text-xl font-bold text-charcoal-dark mb-3">6. Citation extraction</h2>
+        <p class="text-charcoal-light leading-relaxed">
+          When an AI provider exposes citation metadata (OpenAI grounded mode, Gemini Vertex AI
+          search grounding, etc.), we persist the URLs verbatim. When it doesn&apos;t, we parse the
+          response text for explicit URL patterns. Each citation is annotated with the
+          publishing domain, the URL, and a 200-character context snippet.
+        </p>
+        <p class="text-charcoal-light leading-relaxed mt-3">
+          Citations feed several downstream features : Page Audit (which of YOUR pages get cited),
+          Competitors (which pages of RIVALS get cited), PR / Media (which press domains cite the
+          brand vs competitors), YouTube (which video creators surface), Reddit (which threads
+          the AI mines).
+        </p>
+      </section>
+
+      <section class="mb-10">
+        <h2 class="text-xl font-bold text-charcoal-dark mb-3">7. Variance handling &amp; statistical honesty</h2>
+        <p class="text-charcoal-light leading-relaxed">
+          Single-run metrics are flagged as &quot;low confidence&quot; in the UI. Multi-run metrics
+          surface with their variance band visible (planned in the Variance UI sprint - shipping
+          alongside the N=10 ramp).
+        </p>
+        <p class="text-charcoal-light leading-relaxed mt-3">
+          Cross-scan comparisons require a minimum of 7 days between scans to avoid measuring
+          intra-week LLM update noise. Trend metrics use rolling averages with a 30-day window.
+        </p>
+      </section>
+
+      <section class="mb-10">
+        <h2 class="text-xl font-bold text-charcoal-dark mb-3">8. Privacy &amp; AI Act posture</h2>
+        <p class="text-charcoal-light leading-relaxed">
+          sen-ai.fr is classified as <strong>limited-risk AI</strong> under the EU AI Act
+          (Regulation (EU) 2024/1689), applicable 2 August 2026. We are a <em>downstream
+          deployer</em> of third-party AI systems, not a provider of general-purpose AI.
+          Transparency obligations apply (Article 50) ; no conformity assessment or CE marking.
+        </p>
+        <p class="text-charcoal-light leading-relaxed mt-3">
+          Personal data exposure is minimal :
+        </p>
+        <ul class="text-charcoal-light leading-relaxed list-disc pl-6 mt-2">
+          <li>We store only the email + name of users who access a workspace.</li>
+          <li>AI provider prompts contain brand / domain / topic data only - no end-user PII.</li>
+          <li>All data is hosted in the EU (Hetzner, Falkenstein, Germany).</li>
+          <li>US-based AI providers (OpenAI, Anthropic) operate under EU-US Data Privacy Framework + SCC.</li>
+        </ul>
+        <p class="text-charcoal-light leading-relaxed mt-3">
+          Full disclosure in our <a href="/privacy" class="text-coral hover:text-coral-dark">Privacy Policy</a>.
+          Logged-in customers can download a per-scan transparency report and an org-level DPIA
+          template from the in-app Compliance section.
+        </p>
+      </section>
+
+      <section class="mb-10">
+        <h2 class="text-xl font-bold text-charcoal-dark mb-3">9. What sen-ai.fr does NOT do</h2>
+        <ul class="text-charcoal-light leading-relaxed list-disc pl-6">
+          <li>We don&apos;t train, fine-tune, or contribute to any AI model.</li>
+          <li>We don&apos;t scrape competitor websites at scale beyond what an LLM already cited.</li>
+          <li>We don&apos;t impersonate user agents (no Googlebot spoofing, no fake browser strings).</li>
+          <li>We don&apos;t use prompt injection or any technique that exploits provider terms of service.</li>
+          <li>We don&apos;t engage in any practice prohibited by Article 5 of the EU AI Act (social scoring, real-time biometric ID, exploitative manipulation, etc.).</li>
+        </ul>
+      </section>
+
+      <section class="mb-10">
+        <h2 class="text-xl font-bold text-charcoal-dark mb-3">10. Contact</h2>
+        <p class="text-charcoal-light leading-relaxed">
+          Compliance / methodology questions :
+          <a href="mailto:contact@sen-ai.fr" class="text-coral hover:text-coral-dark">contact@sen-ai.fr</a>.
+        </p>
+        <p class="text-charcoal-light leading-relaxed mt-3">
+          DPO not yet mandated (sen-ai.fr is below the threshold). The above contact handles
+          all data-subject-rights requests and replies within 30 days as required by GDPR.
+        </p>
+      </section>
+    </div>
+  </main>
+  <Footer />
+</BaseLayout>

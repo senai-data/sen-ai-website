@@ -4513,3 +4513,144 @@ async def refresh_crisis(
     _create_job(db, scan_id, "build_crisis_radar", {"reset": bool(reset)})
     db.commit()
     return {"status": "enqueued", "scan_id": scan_id, "reset": bool(reset)}
+
+
+# --- Sprint 14 : AI Act compliance pack ---------------------------------
+# Single aggregator endpoint that returns everything the per-scan
+# Compliance report needs : providers used, models, runs_depth, dates,
+# triggered-by user, counts, distinct cited domains, brand classification
+# snapshot. The page renders this plus a static methodology + sub-processors
+# block, then a print stylesheet lets the user save as PDF.
+# EU AI Act applies 2 August 2026 (general purpose AI). Doc Methodology +
+# audit trail + transparency satisfy the procurement asks that block EU
+# enterprise deals.
+
+@router.get("/{scan_id}/compliance-data")
+async def get_compliance_data(scan_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
+    """Aggregated payload for the per-scan AI Act compliance report.
+    Pulls scan + provider mix + counts + citation domains + brand snapshot
+    in one round trip. Read-only."""
+    scan = _check_scan_access(scan_id, user, db)
+
+    # User who triggered the scan.
+    from models import User
+    triggered_by_email = None
+    triggered_by_name = None
+    if scan.created_by:
+        u = db.query(User).filter(User.id == scan.created_by).first()
+        if u:
+            triggered_by_email = u.email
+            triggered_by_name = u.name
+
+    # Client + organization name resolution (org via clients_orgs if wired).
+    client_row = db.query(Client).filter(Client.id == scan.client_id).first()
+    client_name = client_row.name if client_row else None
+
+    # Provider mix + per-provider run count.
+    provider_rows = db.execute(_text(
+        """
+        SELECT provider, COUNT(*) AS n_responses,
+               COUNT(DISTINCT run_index) AS distinct_runs
+          FROM scan_llm_results
+         WHERE scan_id = :sid
+         GROUP BY provider
+         ORDER BY n_responses DESC
+        """
+    ), {"sid": scan_id}).fetchall()
+    providers = [
+        {"provider": r.provider, "responses": int(r.n_responses), "distinct_runs": int(r.distinct_runs)}
+        for r in provider_rows
+    ]
+
+    # runs_depth : max run_index across all rows. The summary field may
+    # carry the configured value too, prefer it when set.
+    max_run = db.execute(_text(
+        "SELECT MAX(run_index) FROM scan_llm_results WHERE scan_id = :sid"
+    ), {"sid": scan_id}).scalar() or 1
+    configured_runs = None
+    if scan.summary and isinstance(scan.summary, dict):
+        configured_runs = scan.summary.get("runs_depth")
+
+    # Aggregate counts.
+    counts = {
+        "topics": db.query(ScanTopic).filter(ScanTopic.scan_id == scan_id).count(),
+        "personas": db.query(ScanPersona).filter(ScanPersona.scan_id == scan_id).count(),
+        "questions": db.query(ScanQuestion).filter(ScanQuestion.scan_id == scan_id).count(),
+        "llm_responses": db.query(ScanLLMResult).filter(ScanLLMResult.scan_id == scan_id).count(),
+    }
+
+    # Distinct citation domains - the user's "data sources" for AI Act
+    # transparency. Group by domain, with counts.
+    citation_rows = db.execute(_text(
+        """
+        SELECT lower(citation->>'domaine') AS domain, COUNT(*) AS n
+          FROM scan_llm_results,
+               LATERAL jsonb_array_elements(citations) AS citation
+         WHERE scan_id = :sid
+           AND citation->>'domaine' IS NOT NULL
+         GROUP BY lower(citation->>'domaine')
+         ORDER BY n DESC
+         LIMIT 50
+        """
+    ), {"sid": scan_id}).fetchall()
+    cited_domains = [{"domain": r.domain, "citations": int(r.n)} for r in citation_rows]
+    cited_domains_total = db.execute(_text(
+        """
+        SELECT COUNT(DISTINCT lower(citation->>'domaine')) AS n
+          FROM scan_llm_results, LATERAL jsonb_array_elements(citations) AS citation
+         WHERE scan_id = :sid AND citation->>'domaine' IS NOT NULL
+        """
+    ), {"sid": scan_id}).scalar() or 0
+
+    # Brand classification snapshot at the time of the report.
+    brand_rows = db.execute(_text(
+        """
+        SELECT cb.name, cb.canonical_name, sbc.classification
+          FROM scan_brand_classifications sbc
+          JOIN client_brands cb ON cb.id = sbc.brand_id
+         WHERE sbc.scan_id = :sid
+           AND sbc.classification IN ('my_brand','competitor','ignored')
+         ORDER BY sbc.classification, cb.name
+        """
+    ), {"sid": scan_id}).fetchall()
+    by_class: dict[str, list[dict]] = {"my_brand": [], "competitor": [], "ignored": []}
+    for r in brand_rows:
+        by_class[r.classification].append({"name": r.canonical_name or r.name})
+
+    duration_seconds = None
+    if scan.completed_at and scan.started_at:
+        try:
+            duration_seconds = int((scan.completed_at - scan.started_at).total_seconds())
+        except Exception:
+            duration_seconds = None
+
+    return {
+        "scan_id": scan_id,
+        "scan": {
+            "id": str(scan.id),
+            "name": scan.name,
+            "domain": scan.domain,
+            "status": scan.status,
+            "scan_type": scan.scan_type,
+            "run_index": scan.run_index,
+            "schedule": scan.schedule,
+            "created_at": scan.created_at.isoformat() + "Z" if scan.created_at else None,
+            "started_at": scan.started_at.isoformat() + "Z" if scan.started_at else None,
+            "completed_at": scan.completed_at.isoformat() + "Z" if scan.completed_at else None,
+            "duration_seconds": duration_seconds,
+            "focus_brand_name": (scan.focus_brand.canonical_name or scan.focus_brand.name) if scan.focus_brand else None,
+        },
+        "client": {"id": str(scan.client_id), "name": client_name},
+        "triggered_by": {"email": triggered_by_email, "name": triggered_by_name},
+        "providers": providers,
+        "runs_depth": {
+            "configured": configured_runs,
+            "observed_max": int(max_run),
+        },
+        "counts": counts,
+        "data_sources": {
+            "distinct_domains_total": int(cited_domains_total),
+            "top_50": cited_domains,
+        },
+        "brand_classifications": by_class,
+    }

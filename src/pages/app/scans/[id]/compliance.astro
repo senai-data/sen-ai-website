@@ -1,0 +1,372 @@
+---
+/**
+ * Sprint 14 - Per-scan AI Act compliance report.
+ *
+ * Renders the transparency + audit + methodology block that EU enterprise
+ * procurement teams ask for under the EU AI Act (applicable 2 Aug 2026).
+ * Print-optimized so the user can Ctrl+P to save as PDF.
+ *
+ * Data source : GET /api/scans/{id}/compliance-data
+ */
+export const prerender = false;
+import ScanResultsLayout from '../../../../layouts/ScanResultsLayout.astro';
+
+const token = Astro.cookies.get('token')?.value;
+if (!token) return Astro.redirect('/login');
+const scanId = Astro.params.id as string;
+
+const headers = { Cookie: `token=${token}` };
+let data: any = null;
+try {
+  const res = await fetch(`http://api:8000/api/scans/${scanId}/compliance-data`, { headers });
+  if (res.ok) data = await res.json();
+} catch (_) {}
+
+const scan = data?.scan || {};
+const client = data?.client || {};
+const triggeredBy = data?.triggered_by || {};
+const providers: any[] = data?.providers || [];
+const runsDepth = data?.runs_depth || {};
+const counts = data?.counts || {};
+const dataSources = data?.data_sources || {};
+const brandClass = data?.brand_classifications || {};
+
+function fmtDate(iso?: string): string {
+  if (!iso) return '-';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '-';
+  return d.toLocaleDateString('en-GB', { year: 'numeric', month: 'short', day: '2-digit' })
+    + ' ' + d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) + ' UTC';
+}
+
+function fmtDuration(s?: number): string {
+  if (s == null) return '-';
+  if (s < 60) return `${s}s`;
+  if (s < 3600) return `${Math.round(s / 60)} min`;
+  const h = Math.floor(s / 3600);
+  const m = Math.round((s % 3600) / 60);
+  return `${h}h ${m}min`;
+}
+
+const PROVIDER_INFO: Record<string, { name: string; sub_processor: string; model_family: string; region: string }> = {
+  openai: { name: 'OpenAI ChatGPT', sub_processor: 'OpenAI, L.L.C.', model_family: 'GPT-5.4-mini / GPT-5.4', region: 'United States (DPF certified)' },
+  gemini: { name: 'Google Gemini', sub_processor: 'Google Ireland Ltd (EU controller)', model_family: 'Gemini 2.5 Flash', region: 'European Union (Belgium / Netherlands)' },
+  claude: { name: 'Anthropic Claude', sub_processor: 'Anthropic PBC', model_family: 'Claude Haiku 4.5 / Sonnet 4.6', region: 'United States (DPF certified)' },
+  mistral: { name: 'Mistral Le Chat', sub_processor: 'Mistral AI S.A.S.', model_family: 'Mistral Large', region: 'European Union (France)' },
+};
+
+const reportDate = new Date().toLocaleDateString('en-GB', { year: 'numeric', month: 'long', day: '2-digit' });
+const runsDisplay = runsDepth.configured || runsDepth.observed_max || 1;
+---
+
+<ScanResultsLayout scanId={scanId} activeTab="compliance">
+  <div class="compliance-doc">
+
+    {/* Header bar (in-app only, hidden on print) */}
+    <div class="screen-only mb-6 flex items-center justify-between bg-white rounded-xl shadow-sm p-4">
+      <div>
+        <p class="text-[11px] text-charcoal-light uppercase tracking-wide mb-1">EU AI Act compliance report</p>
+        <p class="text-sm text-charcoal-dark">
+          Single-scan transparency + audit trail. Designed to satisfy EU procurement
+          requirements under the EU AI Act (applicable 2 August 2026).
+        </p>
+      </div>
+      <button onclick="window.print()" class="ml-4 px-4 py-2 rounded-lg bg-coral hover:bg-coral-dark text-white text-sm font-medium shrink-0">
+        ⬇  Save as PDF (browser print)
+      </button>
+    </div>
+
+    {!data && (
+      <div class="bg-amber-50 border border-amber-200 rounded-xl p-6 text-sm text-amber-800">
+        Compliance data not available yet. Make sure the scan has run to completion.
+      </div>
+    )}
+
+    {data && (
+      <article class="report bg-white rounded-xl shadow-sm p-10 print:p-0 print:shadow-none print:rounded-none">
+
+        {/* Document header */}
+        <header class="border-b border-gray-200 pb-6 mb-8">
+          <p class="text-[10px] uppercase tracking-widest text-charcoal-light mb-1">EU AI Act &mdash; Transparency &amp; audit report</p>
+          <h1 class="text-2xl font-bold text-charcoal-dark mb-1">{scan.name || scan.domain || 'Scan compliance report'}</h1>
+          <p class="text-[12px] text-charcoal-light">
+            Workspace : <strong>{client.name || '-'}</strong> &middot;
+            Scan ID : <code class="text-[10px] bg-gray-100 px-1 rounded">{scan.id}</code> &middot;
+            Generated : {reportDate}
+          </p>
+        </header>
+
+        {/* §1 Scan identification */}
+        <section class="report-section">
+          <h2 class="section-title">1. Scan identification</h2>
+          <table class="kv-table">
+            <tbody>
+              <tr><th>Tracker name</th><td>{scan.name || '-'}</td></tr>
+              <tr><th>Domain in scope</th><td>{scan.domain || '-'}</td></tr>
+              <tr><th>Focus brand</th><td>{scan.focus_brand_name || '-'}</td></tr>
+              <tr><th>Scan type</th><td>{scan.scan_type || 'unspecified'}</td></tr>
+              <tr><th>Run index</th><td>{scan.run_index || 1} (1 = initial, 2+ = rescan)</td></tr>
+              <tr><th>Schedule</th><td>{scan.schedule || 'manual'}</td></tr>
+              <tr><th>Status</th><td>{scan.status}</td></tr>
+            </tbody>
+          </table>
+        </section>
+
+        {/* §2 Audit trail */}
+        <section class="report-section">
+          <h2 class="section-title">2. Audit trail</h2>
+          <table class="kv-table">
+            <tbody>
+              <tr><th>Triggered by</th><td>{triggeredBy.name || triggeredBy.email || 'system'} {triggeredBy.email && triggeredBy.name && (<span class="text-[10px] text-charcoal-light">({triggeredBy.email})</span>)}</td></tr>
+              <tr><th>Created at</th><td>{fmtDate(scan.created_at)}</td></tr>
+              <tr><th>Started at</th><td>{fmtDate(scan.started_at)}</td></tr>
+              <tr><th>Completed at</th><td>{fmtDate(scan.completed_at)}</td></tr>
+              <tr><th>Total processing time</th><td>{fmtDuration(scan.duration_seconds)}</td></tr>
+            </tbody>
+          </table>
+        </section>
+
+        {/* §3 AI systems used */}
+        <section class="report-section">
+          <h2 class="section-title">3. AI systems used (general-purpose AI providers)</h2>
+          <p class="section-prose">
+            The following third-party general-purpose AI models were queried during this scan.
+            sen-ai.fr does not train any of these models &mdash; we send prompts and receive responses,
+            then process the responses to extract brand mentions and citation URLs.
+          </p>
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Provider</th>
+                <th>Sub-processor</th>
+                <th>Model family</th>
+                <th>Hosting region</th>
+                <th class="text-right">LLM calls</th>
+                <th class="text-right">Distinct runs</th>
+              </tr>
+            </thead>
+            <tbody>
+              {providers.length === 0 && (
+                <tr><td colspan="6" class="text-charcoal-light italic">No provider responses recorded.</td></tr>
+              )}
+              {providers.map((p: any) => {
+                const info = PROVIDER_INFO[String(p.provider).toLowerCase()] || { name: p.provider, sub_processor: '-', model_family: '-', region: '-' };
+                return (
+                  <tr>
+                    <td>{info.name}</td>
+                    <td>{info.sub_processor}</td>
+                    <td>{info.model_family}</td>
+                    <td>{info.region}</td>
+                    <td class="text-right">{p.responses}</td>
+                    <td class="text-right">{p.distinct_runs}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          <p class="section-note">
+            Sub-processor data-protection certifications : OpenAI &amp; Anthropic operate under the
+            EU-US Data Privacy Framework. Google Gemini is contracted through Google Ireland Ltd
+            (EU controller). Mistral is EU-based (France). Full sub-processor list available
+            in our public <a href="/privacy" target="_blank">Privacy Policy</a>.
+          </p>
+        </section>
+
+        {/* §4 Methodology */}
+        <section class="report-section">
+          <h2 class="section-title">4. Methodology disclosure</h2>
+          <table class="kv-table">
+            <tbody>
+              <tr><th>N-runs paradigm</th><td>{runsDisplay} run(s) per question per provider</td></tr>
+              <tr><th>Topics analysed</th><td>{counts.topics || 0}</td></tr>
+              <tr><th>Personas modelled</th><td>{counts.personas || 0}</td></tr>
+              <tr><th>Questions evaluated</th><td>{counts.questions || 0}</td></tr>
+              <tr><th>LLM responses captured</th><td>{counts.llm_responses || 0}</td></tr>
+            </tbody>
+          </table>
+          <p class="section-prose mt-3">
+            Each question is sent to each enabled provider <strong>{runsDisplay} times</strong> to
+            account for the inherent variance in LLM outputs. The brand-mention extractor
+            (an LLM-as-extractor pass) parses each response and writes the result in JSONB,
+            classifying each mention&apos;s sentiment as positive / negative / neutral and tagging
+            citation URLs.
+          </p>
+          <p class="section-prose">
+            sen-ai.fr <strong>does not influence model training</strong>. Provider APIs are
+            queried in read-only mode ; responses are not fed back into any model. The system
+            is therefore a <em>limited-risk</em> AI application under Article 50 of the EU AI Act
+            (transparency obligation only, no high-risk classification).
+          </p>
+          <p class="section-prose">
+            Full methodology whitepaper :&nbsp;
+            <a href="/methodology" target="_blank" class="text-coral hover:text-coral-dark">sen-ai.fr/methodology</a>.
+          </p>
+        </section>
+
+        {/* §5 Data sources */}
+        <section class="report-section">
+          <h2 class="section-title">5. Data sources cited by AI providers</h2>
+          <p class="section-prose">
+            During this scan, the AI providers cited <strong>{dataSources.distinct_domains_total || 0}</strong> distinct
+            web domains as sources for their responses. Top 50 by citation count :
+          </p>
+          {(dataSources.top_50 || []).length === 0 && (
+            <p class="text-[12px] text-charcoal-light italic">No citations captured.</p>
+          )}
+          {(dataSources.top_50 || []).length > 0 && (
+            <table class="data-table dense">
+              <thead><tr><th>Domain</th><th class="text-right">Citations</th></tr></thead>
+              <tbody>
+                {(dataSources.top_50 as any[]).map(d => (
+                  <tr><td>{d.domain || '-'}</td><td class="text-right">{d.citations}</td></tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+          <p class="section-note">
+            Citation URLs are extracted from each AI provider&apos;s grounding metadata
+            (where exposed by the API) or parsed from response text. They reflect the
+            sources <strong>the AI cited</strong>, not data sen-ai.fr accessed independently.
+          </p>
+        </section>
+
+        {/* §6 Brand classification snapshot */}
+        <section class="report-section">
+          <h2 class="section-title">6. Brand classification snapshot</h2>
+          <p class="section-prose">
+            Brands recognised by the analyser and their classification at scan time.
+            Classification is user-controlled (Brands tab) ; this snapshot reflects the
+            state when the report was generated.
+          </p>
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4 print:gap-2">
+            <div>
+              <p class="kv-label">Focus brand &amp; product lines</p>
+              <ul class="brand-list">
+                {(brandClass.my_brand || []).map((b: any) => <li>{b.name}</li>)}
+                {(brandClass.my_brand || []).length === 0 && <li class="italic text-charcoal-light">none</li>}
+              </ul>
+            </div>
+            <div>
+              <p class="kv-label">Competitors tracked</p>
+              <ul class="brand-list">
+                {(brandClass.competitor || []).map((b: any) => <li>{b.name}</li>)}
+                {(brandClass.competitor || []).length === 0 && <li class="italic text-charcoal-light">none</li>}
+              </ul>
+            </div>
+            <div>
+              <p class="kv-label">Ignored / out of scope</p>
+              <ul class="brand-list">
+                {(brandClass.ignored || []).slice(0, 30).map((b: any) => <li>{b.name}</li>)}
+                {(brandClass.ignored || []).length > 30 && <li class="italic text-charcoal-light">+{(brandClass.ignored || []).length - 30} more</li>}
+                {(brandClass.ignored || []).length === 0 && <li class="italic text-charcoal-light">none</li>}
+              </ul>
+            </div>
+          </div>
+        </section>
+
+        {/* §7 Data subject rights */}
+        <section class="report-section">
+          <h2 class="section-title">7. Data subject rights &amp; data governance</h2>
+          <p class="section-prose">
+            This scan&apos;s personal data exposure is minimal :
+          </p>
+          <ul class="bullets">
+            <li>The only identified individual associated with the scan is the user who triggered it (see §2). Their identity is not transmitted to AI providers.</li>
+            <li>AI-provider prompts contain brand / domain / topic data only &mdash; no personal data of end users.</li>
+            <li>Responses are stored at rest in sen-ai.fr&apos;s database (Hetzner cloud, Falkenstein, Germany / EU) for the duration of the workspace subscription.</li>
+            <li>Data subjects may exercise GDPR rights (access, rectification, erasure, portability) by emailing <a href="mailto:contact@sen-ai.fr">contact@sen-ai.fr</a>. See <a href="/privacy" target="_blank">Privacy Policy</a>.</li>
+          </ul>
+        </section>
+
+        {/* §8 Transparency statement */}
+        <section class="report-section">
+          <h2 class="section-title">8. AI Act applicability &amp; transparency statement</h2>
+          <p class="section-prose">
+            sen-ai.fr is a <strong>monitoring tool</strong> that observes the outputs of third-party
+            general-purpose AI systems. It does not autonomously make decisions producing legal
+            or similarly significant effects on natural persons. Under the EU AI Act
+            (Regulation (EU) 2024/1689) :
+          </p>
+          <ul class="bullets">
+            <li>sen-ai.fr is not a <em>provider</em> of a general-purpose AI model. It is a downstream <em>deployer</em> of third-party AI systems for the purpose of brand visibility analytics.</li>
+            <li>The risk classification is <strong>limited risk</strong> (Title IV) &mdash; transparency obligations apply ; no conformity assessment or CE marking is required.</li>
+            <li>This report satisfies the transparency disclosure obligation by documenting the AI systems used, the data sources cited, and the methodology behind the metrics surfaced in the platform.</li>
+            <li>sen-ai.fr does not engage in <em>prohibited practices</em> under Article 5 (social scoring, real-time biometric ID, exploitative manipulation, etc.).</li>
+          </ul>
+          <p class="section-note">
+            This statement is informational and not legal advice. Customers should consult
+            their own legal counsel for EU AI Act applicability to their specific use case.
+          </p>
+        </section>
+
+        {/* Footer */}
+        <footer class="border-t border-gray-200 pt-4 mt-8 text-[10px] text-charcoal-light leading-relaxed">
+          <p>
+            Generated by <strong>sen-ai.fr</strong> on {reportDate} for workspace
+            <strong> {client.name || '-'}</strong>. This document is automatically generated from
+            the scan&apos;s raw data and reflects the state of the scan at generation time.
+            Subsequent rescans will produce a new report.
+          </p>
+          <p class="mt-2">
+            Contact : <a href="mailto:contact@sen-ai.fr">contact@sen-ai.fr</a> &middot;
+            Privacy Policy : <a href="/privacy" target="_blank">sen-ai.fr/privacy</a> &middot;
+            Public methodology : <a href="/methodology" target="_blank">sen-ai.fr/methodology</a>
+          </p>
+        </footer>
+      </article>
+    )}
+
+  </div>
+
+  <style>
+    .compliance-doc .section-title {
+      font-size: 1.15rem;
+      font-weight: 700;
+      color: #1f2937;
+      margin-top: 2rem;
+      margin-bottom: 0.75rem;
+      border-bottom: 1px solid #e5e7eb;
+      padding-bottom: 0.4rem;
+    }
+    .compliance-doc .report-section { margin-bottom: 1.5rem; page-break-inside: avoid; }
+    .compliance-doc .section-prose { font-size: 12.5px; line-height: 1.6; color: #374151; margin: 0.5rem 0; }
+    .compliance-doc .section-note { font-size: 11px; line-height: 1.6; color: #6b7280; font-style: italic; margin-top: 0.6rem; }
+    .compliance-doc .bullets { list-style: disc; padding-left: 1.25rem; font-size: 12.5px; line-height: 1.7; color: #374151; }
+    .compliance-doc .bullets li { margin-bottom: 0.25rem; }
+    .compliance-doc .kv-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: #6b7280; font-weight: 600; margin-bottom: 0.4rem; }
+    .compliance-doc .brand-list { font-size: 12px; line-height: 1.5; color: #1f2937; list-style: none; padding: 0; }
+    .compliance-doc .brand-list li { padding: 0.15rem 0; border-bottom: 1px dashed #f3f4f6; }
+    .compliance-doc .kv-table { width: 100%; font-size: 12.5px; }
+    .compliance-doc .kv-table th { width: 30%; padding: 0.4rem 0.6rem; text-align: left; color: #6b7280; font-weight: 600; vertical-align: top; }
+    .compliance-doc .kv-table td { padding: 0.4rem 0.6rem; color: #1f2937; vertical-align: top; }
+    .compliance-doc .kv-table tr { border-bottom: 1px solid #f3f4f6; }
+    .compliance-doc .data-table { width: 100%; font-size: 12px; border-collapse: collapse; margin-top: 0.5rem; }
+    .compliance-doc .data-table th { background: #f9fafb; padding: 0.4rem 0.6rem; text-align: left; font-weight: 600; color: #374151; border-bottom: 1px solid #e5e7eb; }
+    .compliance-doc .data-table td { padding: 0.3rem 0.6rem; border-bottom: 1px solid #f3f4f6; color: #1f2937; }
+    .compliance-doc .data-table.dense td { padding: 0.2rem 0.6rem; font-size: 11.5px; }
+    .compliance-doc .data-table .text-right { text-align: right; }
+    .compliance-doc code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+    .screen-only { display: block; }
+
+    @media print {
+      /* Print-only-section pattern : hide everything, then unhide just
+         the report, then absolute-position it to fill the page. This
+         lets us reuse the in-app layout chrome without it showing on
+         the printed PDF. */
+      body * { visibility: hidden !important; }
+      .compliance-doc, .compliance-doc * { visibility: visible !important; }
+      .compliance-doc {
+        position: absolute !important;
+        left: 0; top: 0; width: 100%;
+      }
+      .compliance-doc .screen-only { display: none !important; }
+      body { background: white !important; }
+      .compliance-doc .report { box-shadow: none; padding: 0; }
+      .compliance-doc h2.section-title { page-break-after: avoid; }
+      .compliance-doc .data-table tr { page-break-inside: avoid; }
+      .compliance-doc .report-section { page-break-inside: avoid; }
+      @page { margin: 1.5cm 1.8cm; }
+    }
+  </style>
+</ScanResultsLayout>

@@ -2391,7 +2391,7 @@ def _build_sentiment_overlay(db: Session, scan_ids: list[str]) -> dict[tuple[str
                judge_verdict,
                judged_sentiment
           FROM scan_sentiment_judgements
-         WHERE scan_id = ANY(:sids)
+         WHERE scan_id::text = ANY(:sids)
          ORDER BY slr_id, mention_index, judge_run_at DESC
         """
     ), {"sids": scan_ids}).fetchall()

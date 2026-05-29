@@ -103,7 +103,7 @@ if (clientId) {
         <span class="text-sm font-medium text-blue-900">How does this work ?</span>
       </summary>
       <div class="px-4 py-3 border-t border-blue-100 text-xs text-blue-900/90 leading-relaxed space-y-2">
-        <p><strong>Discovered domains</strong> are auto-populated by analysing your workspace brief (industry + positioning) and asking an LLM which authoritative sources matter most in your sector. Refreshed every 90 days, or on demand.</p>
+        <p><strong>Discovered domains</strong> are auto-populated by analysing your Company profile (industry + positioning) and asking an LLM which authoritative sources matter most in your sector. Refreshed every 90 days, or on demand.</p>
         <p><strong>Extra domains</strong> let you widen the list — useful if the discovery missed a portal you trust (an internal scientific publisher, a regional regulator, a niche industry body). These are preserved across refreshes.</p>
         <p>This list is a <strong>soft preference</strong>, not a hard filter — URLs outside the list still pass through if they're relevant. Competitor blocking happens separately at scan level and is unaffected.</p>
         <p class="text-blue-800/70 italic">Wikipedia + government TLDs (.gov, .gouv.fr, .europa.eu, …) are always trusted and aren't listed individually here.</p>
@@ -138,13 +138,13 @@ if (clientId) {
                       :disabled="refreshing || !hasBrief"
                       :class="(refreshing || !hasBrief) ? 'opacity-50 cursor-not-allowed' : 'hover:bg-coral-dark'"
                       class="text-xs bg-coral text-white px-3 py-1 rounded-md font-medium transition-all"
-                      :title="!hasBrief ? 'Generate your workspace brief first — discovery uses its industry field' : 'Refresh discovery (~30s)'">
+                      :title="!hasBrief ? 'Generate your Company profile first — discovery uses its industry field' : 'Refresh discovery (~30s)'">
                 <span x-show="!refreshing && lastRefreshed">Refresh</span>
                 <span x-show="!refreshing && !lastRefreshed">Discover</span>
                 <span x-show="refreshing">Working…</span>
               </button>
               <span class="text-[11px] text-charcoal-light cursor-help select-none"
-                    title="Discovery uses an LLM web search to find authoritative sources for your industry. Auto-runs after generating the workspace brief, plus every 90 days. Manual refresh forces a fresh run.">ⓘ</span>
+                    title="Discovery uses an LLM web search to find authoritative sources for your industry. Auto-runs after generating the Company profile, plus every 90 days. Manual refresh forces a fresh run.">ⓘ</span>
             </div>
           </div>
           <div class="p-3">
@@ -258,7 +258,7 @@ if (clientId) {
         async refresh() {
           if (this.refreshing) return;
           if (!this.hasBrief) {
-            alert('Generate your workspace brief first — discovery uses its industry field.');
+            alert('Generate your Company profile first — discovery uses its industry field.');
             return;
           }
           this.refreshing = true;

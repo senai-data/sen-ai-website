@@ -216,17 +216,24 @@ const isReviewing = effectiveView !== null && (
 
     </div>
 
-    {/* Domain Brief — collapsible panel, always accessible */}
+    {/* Domain Brief — collapsible panel, always accessible.
+        Naming convention (Sprint 15.3) :
+          - "Company profile" lives in clients.apps.client_brief, workspace-wide,
+            shared across every scan of this workspace, edited from /app/settings/brands.
+          - "Domain brief" (below) lives in scan.config.domain_brief, per-scan,
+            auto-populated from keywords + Babbar + LLM web search at scan creation.
+            Feeds Gate-2 brand classification + tunes brand_analyzer on this scan only.
+        See Tip components company_profile + domain_brief for the user-facing copy. */}
     <details class="mb-6 bg-white rounded-xl shadow-sm overflow-hidden group" open={!domainBrief && briefStatus === 'completed'}>
       <summary class="px-5 py-3 cursor-pointer hover:bg-gray-50 transition-colors flex items-center justify-between">
         <div class="flex items-center gap-2">
           <svg class="w-4 h-4 text-charcoal-light transition-transform group-open:rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
-          <span class="text-sm font-medium text-charcoal-dark">Domain Brief</span>
+          <Tip id="domain_brief"><span class="text-sm font-medium text-charcoal-dark">Domain brief</span></Tip>
           {domainBrief && <span class="text-[9px] px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-600 font-medium">Ready</span>}
           {briefStatus === 'pending' || briefStatus === 'running' ? <span class="text-[9px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-600 font-medium animate-pulse">Generating...</span> : null}
           {!domainBrief && !briefStatus && <span class="text-[9px] px-1.5 py-0.5 rounded bg-gray-100 text-charcoal-light">Not generated</span>}
         </div>
-        <span class="text-[10px] text-charcoal-light">Business context for AI analysis</span>
+        <span class="text-[10px] text-charcoal-light italic">Per-scan · feeds brand classification + persona context</span>
       </summary>
       <div class="px-5 py-4 border-t border-gray-100" x-data={`{
         brief: ${JSON.stringify(domainBrief || {})},

@@ -13,6 +13,7 @@
  */
 export const prerender = false;
 import DashboardLayout from '../../../layouts/DashboardLayout.astro';
+import Tip from '../../../components/Tip.astro';
 
 const token = Astro.cookies.get('token')?.value;
 if (!token) return Astro.redirect('/login');
@@ -106,9 +107,9 @@ if (clientId) {
     ) : (
       <div x-data={`primaryBrands(${JSON.stringify(initialData)}, '${clientId}')`}>
 
-        {/* Workspace brief panel — feeds Phase B/C content gen with brand voice context.
-             Body collapsed by default (Progressive Disclosure) — mirrors the per-brand
-             brief panel pattern (Recognition over Recall). Expand via chevron. */}
+        {/* Company profile panel (was "Workspace brief" until Sprint 15.3 rename
+             — content + endpoint paths unchanged, only labels). Feeds Phase B/C
+             content gen with brand voice context. Body collapsed by default. */}
         <div class="bg-white rounded-xl border border-gray-200 mb-6 overflow-hidden"
              x-data={`workspaceBrief(${JSON.stringify(initialBrief)}, '${clientId}', ${JSON.stringify(briefBudget)})`}>
           <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between gap-3 cursor-pointer hover:bg-gray-50 transition-colors"
@@ -120,9 +121,9 @@ if (clientId) {
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7"/>
               </svg>
               <div class="min-w-0">
-                <h2 class="text-sm font-semibold text-charcoal-dark">Workspace brief</h2>
+                <Tip id="company_profile"><h2 class="text-sm font-semibold text-charcoal-dark">Company profile</h2></Tip>
                 <p class="text-[11px] text-charcoal-light italic mt-0.5 truncate">
-                  Brand voice + positioning · injected into FAQ + article generation
+                  Workspace-level · brand voice + positioning · injected into FAQ + article generation
                 </p>
               </div>
             </div>
@@ -143,19 +144,19 @@ if (clientId) {
                       :disabled="generating || (brief && brief.edited_by_user) || !budget.can_regenerate"
                       :class="(generating || (brief && brief.edited_by_user) || !budget.can_regenerate) ? 'opacity-50 cursor-not-allowed' : 'hover:bg-coral-dark'"
                       class="text-xs bg-coral text-white px-3 py-1 rounded-md font-medium transition-all"
-                      :title="!budget.can_regenerate ? 'Regen cap reached — edit the brief manually below' : (brief && brief.edited_by_user ? 'You edited this — regeneration is blocked' : 'Regenerate the workspace brief from your primary brands (~10s, capped at ' + budget.generations_cap + ' per workspace)')">
+                      :title="!budget.can_regenerate ? 'Regen cap reached — edit the profile manually below' : (brief && brief.edited_by_user ? 'You edited this — regeneration is blocked' : 'Regenerate the company profile from your primary brands (~10s, capped at ' + budget.generations_cap + ' per workspace)')">
                 <span x-show="!generating && !brief">Generate</span>
                 <span x-show="!generating && brief && budget.can_regenerate">Regenerate</span>
                 <span x-show="!generating && brief && !budget.can_regenerate">Cap reached</span>
                 <span x-show="generating">Generating…</span>
               </button>
               <span class="text-[11px] text-charcoal-light cursor-help select-none"
-                    :title="'Workspace brief defines your company voice + positioning. It\\'s auto-injected when generating FAQs or articles so the output sounds like your brand. Regeneration capped at ' + budget.generations_cap + ' per workspace to bound LLM cost (~$0.05/call). Once exhausted, edit the brief inline.'">ⓘ</span>
+                    :title="'The Company profile defines your workspace-level voice + positioning. It\\'s shared across every scan of this workspace and auto-injected when generating FAQs or articles so the output sounds like your brand. Distinct from a Domain brief (per-scan, auto-detected from keywords). Regeneration capped at ' + budget.generations_cap + ' per workspace to bound LLM cost (~$0.05/call). Once exhausted, edit it inline.'">ⓘ</span>
             </div>
           </div>
           <div x-show="expanded" x-transition class="p-5 text-sm">
             <p x-show="!brief" class="text-charcoal-light italic">
-              No workspace brief yet. Click Generate — uses your selected primary brands as input
+              No Company profile yet. Click Generate — uses your selected primary brands as input
               (web-searched via OpenAI, falls back to Gemini / Claude). Takes ~10s.
             </p>
             <div x-show="brief" class="space-y-3">
@@ -342,7 +343,7 @@ if (clientId) {
                         <template x-if="!brandBriefs[b.id]?.brief && !briefLoading[b.id] && !briefGenerating[b.id]">
                           <p class="text-charcoal-light italic">
                             No brand brief yet. Click Generate — uses this brand's name + workspace industry as input
-                            (OpenAI web_search primary, Gemini / Claude fallback). Surcharges the workspace brief for
+                            (OpenAI web_search primary, Gemini / Claude fallback). Surcharges the Company profile for
                             article + FAQ generation when this brand is in focus.
                           </p>
                         </template>

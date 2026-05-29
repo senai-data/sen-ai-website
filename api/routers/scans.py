@@ -4403,6 +4403,7 @@ async def get_crisis(scan_id: str, user=Depends(get_current_user), db: Session =
 
     target_row = None
     target_candidate_by_mentions = None
+    target_product_lines: list[dict] = []  # non-focus my_brand rows with crisis signal
     competitor_rows = []
     last_seen = None
     by_severity: dict[str, int] = {"none": 0, "low": 0, "medium": 0, "high": 0, "critical": 0}
@@ -4433,6 +4434,13 @@ async def get_crisis(scan_id: str, user=Depends(get_current_user), db: Session =
         if r.brand_classification == "my_brand":
             if focus_brand_id and str(r.brand_id) == focus_brand_id:
                 target_row = item
+            else:
+                # Non-focus my_brand row : a product / range variant. Surface
+                # it ONLY when it carries a real signal (any negative mention
+                # OR severity above 'none'). Otherwise it's just one more row
+                # of tied-zero noise the user doesn't need to see.
+                if (item["negative_count"] or 0) > 0 or (item["severity"] or 0) > 15:
+                    target_product_lines.append(item)
             # Fallback : the my_brand row with the most total mentions = the
             # master brand most of the time (a master brand collects citations
             # across all its product mentions via the brand resolver).
@@ -4442,6 +4450,15 @@ async def get_crisis(scan_id: str, user=Depends(get_current_user), db: Session =
             competitor_rows.append(item)
     if target_row is None:
         target_row = target_candidate_by_mentions
+        # If focus_brand wasn't wired we may have moved the fallback into
+        # target_product_lines too ; remove duplicate if it's there.
+        if target_row is not None:
+            target_product_lines = [
+                p for p in target_product_lines
+                if p.get("brand_id") != target_row.get("brand_id")
+            ]
+    # Order product lines : highest severity first.
+    target_product_lines.sort(key=lambda p: -((p["severity"] or 0)))
 
     # Overall severity = the target's severity, or the worst severity
     # across all rows if no target row exists.
@@ -4454,9 +4471,17 @@ async def get_crisis(scan_id: str, user=Depends(get_current_user), db: Session =
         overall_severity = rows[0].severity or 0
         overall_label = rows[0].severity_label or "none"
 
+    # Aggregate signal across all my_brand rows (focus + product variants).
+    # The hero focus brand may show "All clear" while a product variant
+    # carries the actual negative - surface that count in the summary so
+    # the user knows to look at the breakdown section.
+    pl_negative_total = sum((p["negative_count"] or 0) for p in target_product_lines)
+    pl_in_crisis = sum(1 for p in target_product_lines if (p["severity"] or 0) >= 36)
+
     return {
         "scan_id": scan_id,
         "target": target_row,
+        "target_product_lines": target_product_lines,
         "competitors": competitor_rows,
         "summary": {
             "overall_severity": overall_severity,
@@ -4464,6 +4489,8 @@ async def get_crisis(scan_id: str, user=Depends(get_current_user), db: Session =
             "by_severity": by_severity,
             "brand_count": len(rows),
             "target_negative_count": target_row["negative_count"] if target_row else 0,
+            "target_product_line_negative_count": pl_negative_total,
+            "target_product_lines_in_crisis": pl_in_crisis,
             "competitor_in_crisis": sum(1 for c in competitor_rows if (c["severity"] or 0) >= 36),
             "shared_crisis_topics": sum(len(s.get("shared_topics", [])) for s in (target_row["shared_with"] if target_row else [])),
         },

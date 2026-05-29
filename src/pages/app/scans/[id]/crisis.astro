@@ -31,6 +31,7 @@ try {
 } catch (_) {}
 
 const target = data?.target as any;
+const productLines: any[] = data?.target_product_lines || [];
 const competitors: any[] = data?.competitors || [];
 const summary = data?.summary || {};
 const lastFetched = data?.last_fetched;
@@ -145,6 +146,14 @@ function actionChip(a?: { label?: string; tone?: string }) {
       <div class="bg-white rounded-xl shadow-sm p-6">
         <p class="text-[11px] text-charcoal-light uppercase tracking-wide mb-2">Other signals</p>
         <ul class="space-y-1 text-[11px]">
+          {(summary.target_product_line_negative_count || 0) > 0 && (
+            <li class="flex items-center justify-between">
+              <span class="text-charcoal-dark">Your other product lines</span>
+              <span class={`${(summary.target_product_lines_in_crisis || 0) > 0 ? 'text-orange-700 font-semibold' : 'text-charcoal-light'}`}>
+                {summary.target_product_line_negative_count} neg{(summary.target_product_lines_in_crisis || 0) > 0 ? ` · ${summary.target_product_lines_in_crisis} in crisis` : ''}
+              </span>
+            </li>
+          )}
           <li class="flex items-center justify-between">
             <span class="text-charcoal-dark">Competitors in crisis</span>
             <span class="text-charcoal-light">{summary.competitor_in_crisis || 0}</span>
@@ -305,6 +314,121 @@ function actionChip(a?: { label?: string; tone?: string }) {
           {target.total_mentions} total mentions for <strong>{target.brand_name}</strong>,
           all positive or neutral. The "All clear" label sticks until the next scan refresh.
         </p>
+      </div>
+    )}
+
+    {/* Product lines / variants of YOUR brand with signal */}
+    {productLines.length > 0 && (
+      <div class="mb-6">
+        <h3 class="text-sm font-semibold text-charcoal-dark mb-2">Your other product lines with signal
+          <span class="text-[11px] text-charcoal-light font-normal italic">(variants of your brand, not the master row above)</span>
+        </h3>
+        <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+          <table class="w-full text-[11px]">
+            <thead class="bg-gray-50 text-charcoal-light text-[10px] uppercase tracking-wide">
+              <tr>
+                <th class="text-left px-3 py-2 font-semibold">Product line</th>
+                <th class="text-left px-3 py-2 font-semibold w-24">Severity</th>
+                <th class="text-left px-3 py-2 font-semibold w-28">Dominant theme</th>
+                <th class="text-right px-3 py-2 font-semibold w-16">Negative</th>
+                <th class="text-right px-3 py-2 font-semibold w-16">Ratio</th>
+                <th class="text-left px-3 py-2 font-semibold w-36">Action</th>
+                <th class="text-right px-3 py-2 font-semibold w-8"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {productLines.map((p: any, pi: number) => {
+                const sev = severityClasses(p.severity_label);
+                const cat = categoryChip(p.dominant_category);
+                const action = actionChip(p.recommended_action);
+                const rowKey = `pl${pi}`;
+                const hasContexts = (p.top_contexts || []).length > 0;
+                return (
+                  <>
+                    <tr
+                      class={`border-t border-gray-100 hover:bg-gray-50/60 ${hasContexts ? 'cursor-pointer' : ''} ${sev.ring}`}
+                      @click={hasContexts ? `expanded = expanded === '${rowKey}' ? null : '${rowKey}'` : ''}
+                    >
+                      <td class="px-3 py-2 align-top text-charcoal-dark font-medium">{p.brand_name}</td>
+                      <td class="px-3 py-2 align-top">
+                        <Tip id="crisis_severity">
+                          <span class={`inline-block text-[9px] px-1.5 py-0.5 rounded uppercase ${sev.chip}`}>
+                            {p.severity_label || 'none'} {p.severity != null ? `· ${p.severity}` : ''}
+                          </span>
+                        </Tip>
+                      </td>
+                      <td class="px-3 py-2 align-top">
+                        {cat ? (
+                          <Tip id={cat.tip}>
+                            <span class={`inline-block text-[9px] px-1.5 py-0.5 rounded uppercase ${cat.cls}`}>{cat.label}</span>
+                          </Tip>
+                        ) : (
+                          <span class="text-charcoal-light">-</span>
+                        )}
+                      </td>
+                      <td class="px-3 py-2 align-top text-right text-charcoal-dark">{p.negative_count}</td>
+                      <td class="px-3 py-2 align-top text-right text-charcoal-light">
+                        {p.total_mentions > 0 ? `${Math.round((p.negative_ratio || 0) * 100)}%` : '-'}
+                      </td>
+                      <td class="px-3 py-2 align-top">
+                        <Tip id="crisis_action">
+                          <span class={`inline-block text-[9px] px-2 py-0.5 rounded ${action.cls}`}>{action.label}</span>
+                        </Tip>
+                      </td>
+                      <td class="px-3 py-2 align-top text-right text-charcoal-light">
+                        {hasContexts && (
+                          <svg class="w-3.5 h-3.5 inline-block transition-transform"
+                               :class={`expanded === '${rowKey}' ? 'rotate-180' : ''`}
+                               fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                          </svg>
+                        )}
+                      </td>
+                    </tr>
+                    {hasContexts && (
+                      <tr x-show={`expanded === '${rowKey}'`} x-transition>
+                        <td colspan="7" class="px-3 py-3 bg-gray-50/40 border-t border-gray-100">
+                          <div class="grid grid-cols-1 lg:grid-cols-3 gap-3">
+                            <div class="bg-white rounded border border-gray-100 p-3 lg:col-span-2">
+                              <p class="text-[10px] uppercase tracking-wide text-charcoal-light font-semibold mb-2">
+                                Worst contexts for {p.brand_name}
+                              </p>
+                              <ul class="space-y-2">
+                                {p.top_contexts.map((ctx: any) => {
+                                  const cc = categoryChip(ctx.category);
+                                  return (
+                                    <li class="border-l-2 border-orange-200 pl-2">
+                                      <div class="flex items-center gap-2 mb-0.5 flex-wrap">
+                                        {cc && <span class={`text-[9px] px-1 py-0.5 rounded uppercase ${cc.cls}`}>{cc.label}</span>}
+                                        {ctx.provider && <span class="text-[9px] text-charcoal-light uppercase">{ctx.provider}</span>}
+                                        {ctx.topic_name && <span class="text-[10px] text-charcoal-light italic">{ctx.topic_name}</span>}
+                                      </div>
+                                      {ctx.question && <p class="text-[10px] text-charcoal-light"><span>Q :</span> {ctx.question}</p>}
+                                      {ctx.contexte && <p class="text-[11px] text-charcoal-dark italic">"{ctx.contexte}"</p>}
+                                    </li>
+                                  );
+                                })}
+                              </ul>
+                            </div>
+                            {p.playbook && (
+                              <div class="bg-white rounded border border-coral/20 p-3">
+                                <p class="text-[10px] uppercase tracking-wide text-charcoal-light font-semibold mb-1">Playbook</p>
+                                <p class="text-[12px] font-semibold text-charcoal-dark mb-1">{p.playbook.title}</p>
+                                <p class="text-[10px] text-charcoal-light leading-snug">
+                                  Same playbook as the master brand category. Investigate the contexts and route to the relevant team.
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       </div>
     )}
 

@@ -272,18 +272,35 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
         for b in brands
     }
 
+    # Resolve the focus brand explicitly so est_marque_cible=true mentions
+    # land on it, not on whichever my_brand row sorted first. Without this
+    # an arbitrary product-line variant (e.g. "physiolift nuit") swallowed
+    # all 5000+ target mentions on the Avène scan while the master row
+    # "eau thermale avene" only carried the 5 literal-name matches.
+    focus_brand_id = (
+        str(scan.focus_brand_id) if getattr(scan, "focus_brand_id", None) else None
+    )
+    focus_bucket_brand = None
+    if focus_brand_id and focus_brand_id in buckets:
+        focus_bucket_brand = next(b for b in brands if b["brand_id"] == focus_brand_id)
+
     # Pass 1 : tally + categorize negatives.
     for r in rows:
         bm = r.mention or {}
         brand_raw = (bm.get("brand_name") or "").strip().lower()
         if not brand_raw:
             continue
-        # est_marque_cible=true rows always belong to the target brand,
+        # est_marque_cible=true rows always belong to the focus brand,
         # even when the brand_name string is a product alias. Fall back
-        # to name match for competitor mentions.
+        # to name match for competitor mentions OR when focus_brand_id
+        # is missing (older scans without focus_brand wired).
         is_target_flag = bool(bm.get("est_marque_cible"))
         matched = None
-        if is_target_flag:
+        if is_target_flag and focus_bucket_brand is not None:
+            matched = focus_bucket_brand
+        elif is_target_flag:
+            # Legacy fallback : first my_brand wins. Acceptable when the
+            # scan has only one my_brand row.
             for b in brands:
                 if b["classification"] == "my_brand":
                     matched = b

@@ -4379,12 +4379,18 @@ async def get_crisis(scan_id: str, user=Depends(get_current_user), db: Session =
     label + dominant category + top contexts + matching playbook."""
     _check_scan_access(scan_id, user, db)
 
+    # Sort : severity DESC, then negative_count DESC, then total_mentions
+    # DESC as the tiebreaker. Without the third key the 110 zero-severity
+    # competitor rows on a healthy scan render in DB insert order, so
+    # product-line variants (which are rarely cited by exact name) drown
+    # the top-cited master brands (Bioderma, LRP, Vichy etc.).
     rows = (
         db.query(ScanCrisisSignal)
         .filter(ScanCrisisSignal.scan_id == scan_id)
         .order_by(
             ScanCrisisSignal.severity.desc().nullslast(),
             ScanCrisisSignal.negative_count.desc(),
+            ScanCrisisSignal.total_mentions.desc(),
         )
         .all()
     )

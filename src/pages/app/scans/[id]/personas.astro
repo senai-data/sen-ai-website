@@ -210,24 +210,40 @@ const radarDataPerPersona = sorted.map((p: any) => {
                 </div>
               )}
 
-              {/* Brand perception */}
-              {p.brand_perception?.times_mentioned > 0 && (
-                <div class="px-6 py-4 border-t border-gray-100">
-                  <h4 class="text-[10px] uppercase tracking-wide text-charcoal-light font-semibold mb-3">Brand Perception</h4>
-                  <div class="flex items-center gap-4">
-                    {p.brand_perception.dominant_sentiment && (
-                      <div class="flex items-center gap-1.5">
-                        <span class={`w-2.5 h-2.5 rounded-full ${p.brand_perception.dominant_sentiment === 'positif' ? 'bg-emerald-400' : p.brand_perception.dominant_sentiment === 'negatif' ? 'bg-red-400' : 'bg-gray-400'}`}></span>
-                        <span class="text-xs text-charcoal-dark capitalize">{p.brand_perception.dominant_sentiment} sentiment</span>
-                      </div>
-                    )}
-                    {p.brand_perception.dominant_recommendation && (
-                      <span class="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full capitalize">{p.brand_perception.dominant_recommendation.replace('_', ' ')}</span>
-                    )}
-                    <span class="text-xs text-charcoal-light">{p.brand_perception.times_mentioned} mentions</span>
+              {/* Brand perception - sentiment breakdown reads overlaid
+                  values from /persona-insights, so Judge overturns flow
+                  through. Buckets accept FR + EN sentiment labels. */}
+              {p.brand_perception?.times_mentioned > 0 && (() => {
+                const bd = p.brand_perception.sentiment_breakdown || {};
+                const norm = (s: string) => (s || '').toLowerCase();
+                let bdPos = 0, bdNeu = 0, bdNeg = 0;
+                Object.entries(bd).forEach(([k, v]: [string, any]) => {
+                  const s = norm(k);
+                  const n = Number(v) || 0;
+                  if (s === 'positif' || s === 'positive') bdPos += n;
+                  else if (s === 'négatif' || s === 'negatif' || s === 'negative') bdNeg += n;
+                  else bdNeu += n;
+                });
+                const hasBreakdown = (bdPos + bdNeu + bdNeg) > 0;
+                return (
+                  <div class="px-6 py-4 border-t border-gray-100">
+                    <h4 class="text-[10px] uppercase tracking-wide text-charcoal-light font-semibold mb-3">Brand Perception</h4>
+                    <div class="flex items-center gap-4 flex-wrap">
+                      {hasBreakdown && (
+                        <div class="flex items-center gap-3">
+                          {bdPos > 0 && <div class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-emerald-400"></span><span class="text-xs font-semibold text-emerald-600">{bdPos}</span><span class="text-[10px] text-charcoal-light">positive</span></div>}
+                          {bdNeu > 0 && <div class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-gray-400"></span><span class="text-xs font-semibold text-charcoal-dark">{bdNeu}</span><span class="text-[10px] text-charcoal-light">neutral</span></div>}
+                          {bdNeg > 0 && <div class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-red-400"></span><span class="text-xs font-semibold text-red-500">{bdNeg}</span><span class="text-[10px] text-charcoal-light">negative</span></div>}
+                        </div>
+                      )}
+                      {p.brand_perception.dominant_recommendation && (
+                        <span class="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full capitalize">{p.brand_perception.dominant_recommendation.replace('_', ' ')}</span>
+                      )}
+                      <span class="text-xs text-charcoal-light">{p.brand_perception.times_mentioned} mentions</span>
+                    </div>
                   </div>
-                </div>
-              )}
+                );
+              })()}
               {p.brand_perception?.times_mentioned === 0 && (
                 <div class="px-6 py-3 border-t border-gray-100 bg-red-50/50">
                   <p class="text-xs text-red-600 font-medium">Your brand is never mentioned by AI for this persona.</p>

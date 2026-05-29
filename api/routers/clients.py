@@ -124,9 +124,39 @@ async def create_client(req: ClientCreate, user=Depends(get_current_user), db: S
         client = db.query(Client).filter(Client.id == existing.client_id).first()
         return ClientResponse(id=str(client.id), name=client.name, brand=client.brand, apps=client.apps)
 
+    # Sprint 15.2 : agency-intent users get an auto-created Organization
+    # at their first workspace creation so the header org-switcher pops up
+    # and the "use the header dropdown to add more clients" promise from
+    # /welcome holds. Non-agency users stay on the legacy UserClient-only
+    # path (1 user = 1 personal client) which is fine for solo brand
+    # owners. The org auto-creation only fires when the user has NO
+    # existing org and signup_intent='agency'.
+    from models import Organization, OrganizationUser
+    org_id = None
+    if (user.signup_intent or "").lower() == "agency":
+        already_owns_org = db.query(OrganizationUser).filter(
+            OrganizationUser.user_id == user.id
+        ).first()
+        if not already_owns_org:
+            base_name = (user.name or "").strip() or (user.email.split("@")[0] if user.email else "")
+            org_name = f"{base_name}'s agency" if base_name else "My agency"
+            org = Organization(
+                name=org_name[:120],
+                is_personal=False,
+                pool_billing=True,  # agency model = shared credit pool across clients
+            )
+            db.add(org)
+            db.flush()
+            db.add(OrganizationUser(user_id=user.id, organization_id=org.id, role="owner"))
+            org_id = org.id
+
     # Create new client + link user as owner
     # Welcome bonus is now granted on email verification (H3), not here
-    client = Client(name=strip_tags(req.name), brand=strip_tags(req.brand))
+    client = Client(
+        name=strip_tags(req.name),
+        brand=strip_tags(req.brand),
+        organization_id=org_id,
+    )
     db.add(client)
     db.flush()
 

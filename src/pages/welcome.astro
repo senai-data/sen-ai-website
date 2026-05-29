@@ -128,7 +128,8 @@ try {
           <>
             <h1 class="text-2xl font-bold text-charcoal-dark mb-2">Add your first client workspace</h1>
             <p class="text-charcoal-light text-sm mb-4">
-              One client now. Use the header dropdown to add more once this one's running.
+              We'll create your agency workspace and add this client below.
+              Multi-client add coming next.
               <a href="/agency" target="_blank" class="text-coral hover:text-coral-dark whitespace-nowrap ml-1">Learn more →</a>
             </p>
           </>
@@ -278,7 +279,9 @@ try {
 
         <h2 class="text-xl font-bold text-charcoal-dark mb-2">Your workspace is ready!</h2>
         <p class="text-charcoal-light mb-6">
-          We found <strong x-text="topicsCount"></strong> topics and <strong x-text="brandsCount"></strong> brands on <span x-text="domain" class="text-coral"></span>.
+          We found <strong x-text="topicsCount"></strong> <span x-text="topicsCount === 1 ? 'topic' : 'topics'"></span>
+          and <strong x-text="brandsCount"></strong> <span x-text="brandsCount === 1 ? 'brand' : 'brands'"></span>
+          on <span x-text="domain" class="text-coral"></span>.
         </p>
 
         <div class="space-y-3 text-left bg-gray-50 rounded-lg p-4 mb-6">
@@ -416,10 +419,14 @@ try {
                 this.progress = 3;
                 clearInterval(poll);
 
-                // Get counts
+                // Get counts. Pre-existing bug : `await topicsRes.ok ? topicsRes.json() : {}`
+                // awaits a boolean (no-op) and the ternary returns an UNAWAITED Promise -
+                // so topicsData was a Promise and `.length` always came out 0. Fixed by
+                // moving await inside the truthy branch.
                 const topicsRes = await fetch(`/api/scans/${this.scanId}/topics`);
-                const topicsData = await topicsRes.ok ? topicsRes.json() : {};
-                this.topicsCount = (topicsData.topics || topicsData || []).length;
+                const topicsData = topicsRes.ok ? await topicsRes.json() : {};
+                const topicsArr = Array.isArray(topicsData) ? topicsData : (topicsData.topics || []);
+                this.topicsCount = topicsArr.length;
 
                 const kwRes = await fetch(`/api/scans/${this.scanId}/keywords?limit=1`);
                 const kwData = kwRes.ok ? await kwRes.json() : {};

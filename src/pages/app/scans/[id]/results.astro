@@ -129,25 +129,28 @@ const criticalCount = oppsSummary.critique || 0;
 const highCount = oppsSummary.haute || 0;
 const topActions = oppsItems.slice(0, 3);
 
-// ─── Brand insight KPIs (from brand_mentions + brand_analysis) ───
+// ─── Brand insight KPIs (from brand_mentions, target brand only) ───
+// All three sentiment buckets are derived from brand_mentions[est_marque_cible]
+// so the Sentiment Judge overlay (migration 057, applied server-side in
+// _apply_sentiment_overlay) flows through directly. We accept FR + EN labels
+// since the BrandAnalyzer emits 'négatif' but some downstream paths use
+// 'negative' / 'negatif'.
 let sentimentPos = 0, sentimentNeu = 0, sentimentNeg = 0;
 let positionDebut = 0, positionMilieu = 0, positionFin = 0;
 let recommendationCount = 0, totalBrandMentions = 0;
-// For aggregated data, use latest run per question; for single, use direct fields
 details.forEach((d: any) => {
   const detail = isAggregated ? (d.latest || {}) : d;
-  const ba = detail.brand_analysis || {};
-  sentimentPos += ba.nb_positifs || 0;
-  sentimentNeg += ba.nb_negatifs || 0;
   (detail.brand_mentions || []).forEach((bm: any) => {
-    if (bm.est_marque_cible) {
-      totalBrandMentions++;
-      if (bm.position_type === 'debut') positionDebut++;
-      else if (bm.position_type === 'milieu') positionMilieu++;
-      else if (bm.position_type === 'fin') positionFin++;
-      if (bm.est_recommandation) recommendationCount++;
-      if (!['positif', 'negatif'].includes(bm.sentiment)) sentimentNeu++;
-    }
+    if (!bm.est_marque_cible) return;
+    totalBrandMentions++;
+    if (bm.position_type === 'debut') positionDebut++;
+    else if (bm.position_type === 'milieu') positionMilieu++;
+    else if (bm.position_type === 'fin') positionFin++;
+    if (bm.est_recommandation) recommendationCount++;
+    const s = (bm.sentiment || '').toLowerCase();
+    if (s === 'positif' || s === 'positive') sentimentPos++;
+    else if (s === 'négatif' || s === 'negatif' || s === 'negative') sentimentNeg++;
+    else sentimentNeu++;
   });
 });
 const recommendationRate = totalBrandMentions > 0 ? Math.round(recommendationCount / totalBrandMentions * 100) : 0;

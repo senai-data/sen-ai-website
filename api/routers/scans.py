@@ -2369,6 +2369,60 @@ async def retry_scan(request: Request, scan_id: str,
 
 # --- Results ---
 
+
+def _build_sentiment_overlay(db: Session, scan_ids: list[str]) -> dict[tuple[str, int], str]:
+    """Map (slr_id, mention_index) -> effective sentiment for mentions the
+    Sentiment Judge re-classified. Empty dict when no judgements exist (the
+    raw `brand_mentions[].sentiment` is then used unchanged).
+
+    Verdict mapping :
+      - overturn -> judged_sentiment (the corrected label)
+      - hedge    -> "neutre" (per migration 057 consumer contract)
+      - confirm  -> no entry (raw négatif stays)
+    """
+    if not scan_ids:
+        return {}
+    from sqlalchemy import text as _text
+    rows = db.execute(_text(
+        """
+        SELECT DISTINCT ON (slr_id, mention_index)
+               slr_id::text AS slr_id,
+               mention_index AS mi,
+               judge_verdict,
+               judged_sentiment
+          FROM scan_sentiment_judgements
+         WHERE scan_id = ANY(:sids)
+         ORDER BY slr_id, mention_index, judge_run_at DESC
+        """
+    ), {"sids": scan_ids}).fetchall()
+    out: dict[tuple[str, int], str] = {}
+    for r in rows:
+        if r.judge_verdict == "overturn" and r.judged_sentiment:
+            out[(r.slr_id, r.mi)] = r.judged_sentiment
+        elif r.judge_verdict == "hedge":
+            out[(r.slr_id, r.mi)] = "neutre"
+    return out
+
+
+def _apply_sentiment_overlay(brand_mentions, slr_id: str, overlay: dict) -> list:
+    """Return a new list of brand_mentions with sentiment overlaid where the
+    Judge produced an overturn/hedge. Adds `_judged: True` and keeps the
+    original under `_raw_sentiment` so the UI can show the audit trail.
+    """
+    if not brand_mentions:
+        return []
+    if not overlay:
+        return list(brand_mentions)
+    out = []
+    for i, bm in enumerate(brand_mentions):
+        eff = overlay.get((slr_id, i))
+        if eff is not None and eff != bm.get("sentiment"):
+            out.append({**bm, "sentiment": eff, "_judged": True, "_raw_sentiment": bm.get("sentiment")})
+        else:
+            out.append(bm)
+    return out
+
+
 @router.get("/{scan_id}/results")
 async def get_results(scan_id: str, provider: str | None = Query(None), user=Depends(get_current_user), db: Session = Depends(get_db)):
     """Get scan results: overview, per-persona, competitors. Optional provider filter."""
@@ -2404,6 +2458,11 @@ async def get_results(scan_id: str, provider: str | None = Query(None), user=Dep
             ScanQuestionJudgment.scan_id == scan_id
         ).all()
     }
+
+    # Sentiment Judge overlay (migration 057): re-classify brand_mentions[i].sentiment
+    # for negatives where Haiku-as-judge overturned/hedged. Empty dict = no overlay
+    # (legacy scans without judgements behave identically).
+    sentiment_overlay = _build_sentiment_overlay(db, [str(scan_id)])
 
     # Sprint M aggregations: SOV by entity_type + 4-issues funnel from judgments.
     from services.composite_scores import aggregate_entity_sov, aggregate_judgment_funnel
@@ -2569,7 +2628,7 @@ async def get_results(scan_id: str, provider: str | None = Query(None), user=Dep
                     bm.get("brand_name_groupby") or bm.get("brand_name", ""),
                     classification_map, focus_names_lower
                 )}
-                for bm in (r.brand_mentions or [])
+                for bm in _apply_sentiment_overlay(r.brand_mentions or [], str(r.id), sentiment_overlay)
             ],
             "brand_analysis": r.brand_analysis or {},
             "response_text": r.response_text or "",
@@ -2688,6 +2747,9 @@ async def get_results_aggregated(
         q_results = q_results.filter(ScanLLMResult.provider == provider)
     all_results = q_results.all()
 
+    # Sentiment Judge overlay across the whole lineage (migration 057).
+    sentiment_overlay = _build_sentiment_overlay(db, [str(sid) for sid in scan_ids])
+
     # Build scan_id → run_index map
     scan_run_map = {s.id: (s.run_index or i) for i, s in enumerate(lineage)}
     scan_date_map = {s.id: s.completed_at for s in lineage}
@@ -2762,7 +2824,7 @@ async def get_results_aggregated(
             "target_position": r.target_position,
             "provider": r.provider,
             "model": r.model,
-            "brand_mentions": r.brand_mentions or [],
+            "brand_mentions": _apply_sentiment_overlay(r.brand_mentions or [], str(r.id), sentiment_overlay),
             "brand_analysis": r.brand_analysis or {},
             "citations": r.citations or [],
             "response_text": r.response_text or "",
@@ -2967,6 +3029,11 @@ async def get_persona_insights(scan_id: str, provider: str | None = Query(None),
     if provider and provider != 'all':
         q_res = q_res.filter(ScanLLMResult.provider == provider)
     results = q_res.all()
+
+    # Sentiment Judge overlay (migration 057) so per-persona sentiment_breakdown
+    # reflects Haiku's overturns/hedges rather than the raw BrandAnalyzer label.
+    sentiment_overlay = _build_sentiment_overlay(db, [str(scan_id)])
+
     personas = db.query(ScanPersona).filter(ScanPersona.scan_id == scan_id, ScanPersona.is_active == True).all()
     questions = db.query(ScanQuestion).filter(ScanQuestion.scan_id == scan_id).all()
     topics = {str(t.id): t for t in db.query(ScanTopic).filter(ScanTopic.scan_id == scan_id).all()}
@@ -3038,8 +3105,9 @@ async def get_persona_insights(scan_id: str, provider: str | None = Query(None),
                     pos = (r.brand_analysis or {}).get("position_marque_cible")
                     if pos:
                         positions.append(pos)
-                # Collect brand mentions
-                for bm in (r.brand_mentions or []):
+                # Collect brand mentions (with Sentiment Judge overlay applied)
+                overlaid = _apply_sentiment_overlay(r.brand_mentions or [], str(r.id), sentiment_overlay)
+                for bm in overlaid:
                     if bm.get("est_marque_cible"):
                         all_brand_mentions.append(bm)
                 # Collect competitor domains

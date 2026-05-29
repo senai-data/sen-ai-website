@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import (
-    Column, String, Integer, BigInteger, Float, Text, DateTime, ForeignKey, Enum, Boolean, UniqueConstraint, create_engine
+    Column, String, Integer, BigInteger, Float, Numeric, Text, DateTime, ForeignKey, Enum, Boolean, UniqueConstraint, create_engine
 )
 from sqlalchemy.dialects.postgresql import JSONB, ARRAY
 from sqlalchemy.dialects.postgresql import UUID
@@ -384,6 +384,95 @@ class ScanCompetitorPage(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     __table_args__ = (UniqueConstraint("scan_id", "brand_id", "url", name="uq_scan_competitor_pages_scan_brand_url"),)
+
+
+class ScanPROutreach(Base):
+    """Sprint 9 (migration 053) - PR / journalist outreach list. One row per
+    (scan, media domain) where the domain was cited by at least one LLM
+    during this scan for a competitor or the focus brand. PARITÉ obligatoire
+    avec worker/models.py.
+    """
+    __tablename__ = "scan_pr_outreach"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    scan_id = Column(UUID(as_uuid=True), ForeignKey("scans.id", ondelete="CASCADE"), nullable=False)
+    domain = Column(Text, nullable=False)
+    site_type = Column(Text)
+    citation_count = Column(Integer, nullable=False, default=0)
+    competitor_brands = Column(ARRAY(Text), nullable=False, default=list)
+    target_cited = Column(Boolean, nullable=False, default=False)
+    classification = Column(Text)
+    top_pages = Column(JSONB, nullable=False, default=list)
+    winning_questions = Column(JSONB, nullable=False, default=list)
+    da = Column(Integer)
+    tf = Column(Integer)
+    cf = Column(Integer)
+    rd = Column(BigInteger)
+    price_eur = Column(Numeric(10, 2))
+    vertical = Column(ARRAY(Text), nullable=False, default=list)
+    audience_tags = Column(ARRAY(Text), nullable=False, default=list)
+    editorial_voice = Column(Text)
+    in_catalog = Column(Boolean, nullable=False, default=False)
+    leverage_score = Column(Integer)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (UniqueConstraint("scan_id", "domain", name="uq_scan_pr_outreach_scan_domain"),)
+
+
+class ScanInternalLink(Base):
+    """Sprint 11 (migration 054) - internal linking audit. One row per
+    (scan, url) where url is a page of the user's own site cited by an
+    LLM during the scan. PARITÉ obligatoire avec worker/models.py.
+    """
+    __tablename__ = "scan_internal_links"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    scan_id = Column(UUID(as_uuid=True), ForeignKey("scans.id", ondelete="CASCADE"), nullable=False)
+    url = Column(Text, nullable=False)
+    title = Column(Text)
+    fetched_at = Column(DateTime, default=datetime.utcnow)
+    fetch_status = Column(Integer)
+    fetch_error = Column(Text)
+    outbound_internal_count = Column(Integer, nullable=False, default=0)
+    outbound_external_count = Column(Integer, nullable=False, default=0)
+    generic_anchor_count = Column(Integer, nullable=False, default=0)
+    empty_anchor_count = Column(Integer, nullable=False, default=0)
+    duplicate_anchor_count = Column(Integer, nullable=False, default=0)
+    avg_anchor_length = Column(Float)
+    outbound_internal_links = Column(JSONB, nullable=False, default=list)
+    issues = Column(JSONB, nullable=False, default=list)
+    linking_score = Column(Integer)
+    citation_count = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (UniqueConstraint("scan_id", "url", name="uq_scan_internal_links_scan_url"),)
+
+
+class ScanYouTubeCreator(Base):
+    """Sprint 10 (migration 055) - YouTube creator mapping. One row per
+    (scan, channel) where channel_url is the oEmbed author_url for a
+    YouTube URL the LLMs cited in this scan. PARITÉ obligatoire avec
+    worker/models.py.
+    """
+    __tablename__ = "scan_youtube_creators"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    scan_id = Column(UUID(as_uuid=True), ForeignKey("scans.id", ondelete="CASCADE"), nullable=False)
+    channel_url = Column(Text, nullable=False)
+    channel_name = Column(Text)
+    channel_handle = Column(Text)
+    citation_count = Column(Integer, nullable=False, default=0)
+    video_count = Column(Integer, nullable=False, default=0)
+    competitor_brands = Column(ARRAY(Text), nullable=False, default=list)
+    target_cited = Column(Boolean, nullable=False, default=False)
+    classification = Column(Text)
+    top_videos = Column(JSONB, nullable=False, default=list)
+    winning_questions = Column(JSONB, nullable=False, default=list)
+    leverage_score = Column(Integer)
+    fetched_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (UniqueConstraint("scan_id", "channel_url", name="uq_scan_youtube_creators_scan_channel"),)
 
 
 class ClientBrandPage(Base):

@@ -14,7 +14,7 @@
  */
 interface Props {
   scanId: string;
-  activeTab: 'overview' | 'topics' | 'personas' | 'questions' | 'citations' | 'wikipedia' | 'audit' | 'schema' | 'competitors' | 'reddit' | 'actions';
+  activeTab: 'overview' | 'topics' | 'personas' | 'questions' | 'citations' | 'wikipedia' | 'audit' | 'schema' | 'competitors' | 'reddit' | 'pr-outreach' | 'internal-linking' | 'youtube' | 'actions';
   counts?: {
     topics?: number;
     personas?: number;
@@ -26,6 +26,9 @@ interface Props {
     schema?: number;
     competitors?: number;
     reddit?: number;
+    prOutreach?: number;
+    internalLinking?: number;
+    youtube?: number;
   };
   criticalCount?: number;
   queryString?: string;
@@ -44,6 +47,9 @@ const tabs = [
   { id: 'schema', label: 'Schema', href: 'schema', badge: counts.schema || null },
   { id: 'competitors', label: 'Competitors', href: 'competitors', badge: counts.competitors || null },
   { id: 'reddit', label: 'Reddit', href: 'reddit', badge: counts.reddit || null },
+  { id: 'pr-outreach', label: 'PR / Media', href: 'pr-outreach', badge: counts.prOutreach || null },
+  { id: 'internal-linking', label: 'Internal links', href: 'internal-linking', badge: counts.internalLinking || null },
+  { id: 'youtube', label: 'YouTube', href: 'youtube', badge: counts.youtube || null },
   { id: 'actions', label: 'Actions', href: 'actions', badge: criticalCount > 0 ? criticalCount : (counts.actions || null) },
 ];
 ---

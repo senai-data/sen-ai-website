@@ -202,6 +202,76 @@ const TIPS: Record<string, string> = {
   reddit_classification: 'Brand-mention status of the thread, derived from a whole-word regex match on the title + body + top 5 comments against your scan\'s brand list.',
   reddit_engagement: '<strong>↑ {0}</strong> upvotes · <strong>💬 {1}</strong> comments.<br/>'
     + '<em>Higher numbers = more visibility for whoever posts in this thread.</em>',
+
+  // ── Sprint 9 — PR / journalist outreach list ────────────────────────
+  pr_opportunities: 'Media domains where you can pitch :<br/>'
+    + '• <strong>competitor-only</strong> – LLMs cite the domain for rivals, never for you<br/>'
+    + '• <strong>shared</strong> – LLMs cite both you and a rival here (defend your share)<br/>'
+    + '<em>Sorted by leverage_score so the highest-impact targets surface first.</em>',
+  pr_competitor_only: '<strong>LLMs cite this domain for one or more competitors but not for your brand.</strong><br/>'
+    + 'The journalist behind these articles is already covering your space - they just don\'t know about you yet.<br/>'
+    + '<em>Action : pitch them with a story angle that puts your brand in the same conversation.</em>',
+  pr_shared: '<strong>You\'re cited here, but competitors are too.</strong><br/>'
+    + 'Lost ground or co-consideration depending on the article slant.<br/>'
+    + '<em>Action : check the cited pages, propose an update or contribute a fresh expert quote.</em>',
+  pr_target_only: '<strong>Only your brand is cited at this domain in this scan.</strong><br/>'
+    + 'They\'re already advocating for you - keep the relationship warm.',
+  pr_action: 'Recommended next step derived from the row\'s classification.<br/>'
+    + '<em>Pitch them / Defend visibility / Maintain relationship.</em>',
+  pr_da: 'Babbar Domain Authority (0-100) for this domain.<br/>'
+    + '<em>≥60 strong tier-1 press · 30-59 niche / blog · &lt;30 long-tail. NULL when the domain isn\'t in the media catalog yet.</em>',
+  pr_leverage: 'Composite score (0-100) blending citation volume, number of competitors cited here, novelty (not yet citing you), and Babbar authority.<br/>'
+    + '<em>Higher = better target to pitch first.</em>',
+  pr_in_catalog: 'This domain has a row in media_catalog so the authority + price + vertical signals come from a real Babbar / LinkFinder lookup.<br/>'
+    + '<em>Unmarked domains were discovered through citations in this scan but aren\'t enriched yet.</em>',
+
+  // ── Sprint 11 — Internal linking audit ──────────────────────────────
+  link_score: 'Internal linking score (0-100).<br/>'
+    + '40 pts anchor quality (low generic-text ratio) · 30 pts diversity (descriptive anchors, distinct targets) · 15 pts depth (number of internal links) · 15 pts dead-end penalty.<br/>'
+    + '<em>≥70 strong · 40-69 partial · &lt;40 weak.</em>',
+  link_avg_score: 'Average internal linking score across your LLM-cited pages.<br/>'
+    + '<em>Higher = better PageRank flow + clearer topical anchors for LLMs.</em>',
+  link_inbound: 'How many other LLM-cited pages on your site link to this one.<br/>'
+    + '<em>0 inbound = orphan within your cited set. High inbound = topical hub.</em>',
+  link_topo_orphan: '<strong>No inbound links from any other LLM-cited page on your site.</strong><br/>'
+    + 'Link equity can\'t flow to this page from inside your scan set - LLMs may struggle to find it through internal navigation.<br/>'
+    + '<em>Action : add 2-3 contextual links from related hub pages.</em>',
+  link_topo_dead_end: '<strong>This page has no internal links going out.</strong><br/>'
+    + 'Traps PageRank + leaves the LLM with no next step to learn more from your site.<br/>'
+    + '<em>Action : add 3-8 internal links to related products / topics / FAQ.</em>',
+  link_topo_hub: '<strong>This page is a topical hub - many other LLM-cited pages link to it.</strong><br/>'
+    + 'Strong PageRank concentrator. Make sure its outbound anchors are descriptive so authority flows back to product / category pages.',
+  link_topo_healthy: '<strong>This page has both inbound and outbound internal links.</strong><br/>'
+    + 'No structural red flag in the LLM-cited subset.',
+  link_generic_anchor: 'Anchor text like "click here", "read more", "ici" carries no topical signal.<br/>'
+    + '<em>LLMs and search engines learn what a page is about from how others link to it. Replace with 2-5 descriptive words.</em>',
+  link_empty_anchor: 'Image links with empty alt text are invisible to LLMs and screen readers.<br/>'
+    + '<em>Add alt=\"descriptive label\" to the inner img tag.</em>',
+  link_duplicate_anchor: 'Same anchor text points to multiple distinct internal pages.<br/>'
+    + '<em>LLMs can\'t tell which page wins the topical authority - rephrase each link uniquely.</em>',
+  link_action: 'Recommended next step on this page\'s internal linking.<br/>'
+    + '<em>Add internal links / Rewrite anchors / Polish anchors / Looking healthy.</em>',
+
+  // ── Sprint 10 — YouTube creator mapping ─────────────────────────────
+  yt_opportunities: 'YouTube channels where you can step in :<br/>'
+    + '• <strong>competitor-only</strong> – LLMs cite videos here for rivals, not for you<br/>'
+    + '• <strong>shared</strong> – LLMs cite both you and a rival on this channel<br/>'
+    + '<em>Sorted by leverage_score so the highest-impact creators surface first.</em>',
+  yt_competitor_only: '<strong>LLMs cite this channel for competitors but not for your brand.</strong><br/>'
+    + 'The creator is already covering your space - they just don\'t feature your products yet.<br/>'
+    + '<em>Action : pitch a sponsored video, gifted PR, or expert collab.</em>',
+  yt_shared: '<strong>You\'re already featured on this channel, but so are competitors.</strong><br/>'
+    + 'Hold or expand the existing relationship - check what they said about each brand.<br/>'
+    + '<em>Action : propose a follow-up video or exclusive angle.</em>',
+  yt_target_only: '<strong>Only your brand is featured on this channel in this scan.</strong><br/>'
+    + 'They\'re an existing advocate - keep the relationship warm.',
+  yt_action: 'Recommended next step on this creator.<br/>'
+    + '<em>Pitch creator / Defend visibility / Nurture relationship.</em>',
+  yt_leverage: 'Composite score (0-100) blending citation volume, number of competitors cited on this channel, novelty (not yet featuring you), and channel catalogue depth (multiple cited videos).<br/>'
+    + '<em>Higher = better creator to engage first.</em>',
+  yt_unknown_channel: 'Videos that returned no oEmbed metadata (private, age-gated, deleted, region-blocked, or removed by uploader) bucket here. Each video URL is still listed - click through to see why.',
+  yt_video_count: 'Number of distinct video URLs the LLMs cited on this channel during the scan.<br/>'
+    + '<em>Multiple videos = strong topical fit, not a one-off mention.</em>',
 };
 
 const tipText = text || TIPS[id || ''] || '';

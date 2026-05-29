@@ -12,7 +12,7 @@ from models import (
     Scan, ScanKeyword, ScanTopic, ScanPersona, ScanQuestion, ScanLLMResult,
     ScanQuestionJudgment,
     ScanBrandClassification, ScanBrandTopic, ScanOpportunity, ClientBrand,
-    ScanPageAudit, ScanSchemaAudit, ScanCompetitorPage, ScanRedditThread,
+    ScanPageAudit, ScanSchemaAudit, ScanCompetitorPage, ScanRedditThread, ScanPROutreach, ScanInternalLink, ScanYouTubeCreator,
     Client,
     Job, UserClient, get_db,
 )
@@ -3844,3 +3844,395 @@ async def refresh_competitor_reverse(
         "competitors": competitors,
         "urls_per_competitor": urls_per_competitor,
     }
+
+
+# --- Sprint 9 : PR / journalist outreach list ----------------------------
+# For each scan we surface the media domains LLMs cite for competitors but
+# not the focus brand (or both, = lost ground). Authority signals copied
+# from media_catalog when the domain is enriched. Cf.
+# project_10_action_features.md #7 + worker/handlers/build_pr_outreach.py.
+
+def _pr_action(classification: str | None, in_catalog: bool, target_cited: bool) -> dict:
+    """Recommended action chip per row, derived from the classification +
+    whether we have an enriched media_catalog row yet. Kept in the API
+    layer so the formula can evolve without a DB migration."""
+    cls = classification or "target_only"
+    if cls == "competitor_only":
+        return {"label": "Pitch them", "tone": "high"}
+    if cls == "shared":
+        return {"label": "Defend visibility", "tone": "medium"}
+    if cls == "target_only" and target_cited:
+        return {"label": "Maintain relationship", "tone": "positive"}
+    return {"label": "Context only", "tone": "low"}
+
+
+@router.get("/{scan_id}/pr-outreach")
+async def get_pr_outreach(scan_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
+    """Return media domains the LLMs already cite for this scan's
+    competitors or focus brand, sorted by leverage_score DESC. Excludes
+    forums, encyclopedias, e-commerce and brand-own sites - those are
+    covered by other tabs (Reddit / Wikipedia / Competitors)."""
+    _check_scan_access(scan_id, user, db)
+
+    rows = (
+        db.query(ScanPROutreach)
+        .filter(ScanPROutreach.scan_id == scan_id)
+        .order_by(
+            ScanPROutreach.leverage_score.desc().nullslast(),
+            ScanPROutreach.citation_count.desc(),
+        )
+        .all()
+    )
+
+    by_class: dict[str, int] = {}
+    by_site_type: dict[str, int] = {}
+    last_seen = None
+    items = []
+    for r in rows:
+        if r.created_at and (last_seen is None or r.created_at > last_seen):
+            last_seen = r.created_at
+        if r.classification:
+            by_class[r.classification] = by_class.get(r.classification, 0) + 1
+        if r.site_type:
+            by_site_type[r.site_type] = by_site_type.get(r.site_type, 0) + 1
+        items.append({
+            "domain": r.domain,
+            "site_type": r.site_type,
+            "citation_count": r.citation_count,
+            "competitor_brands": list(r.competitor_brands or []),
+            "target_cited": r.target_cited,
+            "classification": r.classification,
+            "top_pages": r.top_pages or [],
+            "winning_questions": r.winning_questions or [],
+            "da": r.da, "tf": r.tf, "cf": r.cf, "rd": r.rd,
+            "price_eur": float(r.price_eur) if r.price_eur is not None else None,
+            "vertical": list(r.vertical or []),
+            "audience_tags": list(r.audience_tags or []),
+            "editorial_voice": r.editorial_voice,
+            "in_catalog": r.in_catalog,
+            "leverage_score": r.leverage_score,
+            "recommended_action": _pr_action(r.classification, r.in_catalog, r.target_cited),
+        })
+
+    opportunities = by_class.get("competitor_only", 0) + by_class.get("shared", 0)
+    return {
+        "scan_id": scan_id,
+        "domains": items,
+        "summary": {
+            "total": len(rows),
+            "by_classification": by_class,
+            "by_site_type": by_site_type,
+            "competitor_only": by_class.get("competitor_only", 0),
+            "shared": by_class.get("shared", 0),
+            "target_only": by_class.get("target_only", 0),
+            "opportunities": opportunities,
+            "enriched": sum(1 for r in rows if r.in_catalog),
+        },
+        "last_fetched": last_seen.isoformat() + "Z" if last_seen else None,
+    }
+
+
+@router.post("/{scan_id}/pr-outreach/refresh")
+async def refresh_pr_outreach(
+    scan_id: str,
+    reset: bool = False,
+    limit: int = 200,
+    user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Enqueue a `build_pr_outreach` worker job. Free (no LLM) - the
+    handler is a pure aggregation over scan_llm_results + media_catalog.
+    Typically completes in <2s on a 100-question scan."""
+    _check_scan_access(scan_id, user, db)
+    _create_job(db, scan_id, "build_pr_outreach", {
+        "reset": bool(reset),
+        "limit": int(limit),
+    })
+    db.commit()
+    return {"status": "enqueued", "scan_id": scan_id, "reset": bool(reset), "limit": limit}
+
+
+# --- Sprint 11 : internal linking audit ---------------------------------
+# Per-page audit of the internal link graph of the user's own pages cited
+# by LLMs in this scan. Topology stats (orphans / hubs / dead-ends) are
+# computed at read time from the persisted outbound_internal_links arrays.
+# Cf. project_10_action_features.md #9 + worker/handlers/audit_internal_links.py.
+
+def _internal_link_action(
+    linking_score: int | None,
+    internal_count: int,
+    generic_ratio: float,
+    topology: str = "healthy",
+) -> dict:
+    """Recommended action per row. Free formula - tweak without migration.
+
+    Topology-aware (Sprint 11.1 fix) : orphan + dead-end override the
+    linking_score read, otherwise an orphan page with many healthy
+    outbound links shows up as "Looking healthy" - which contradicts the
+    ORPHAN status chip rendered right next to it on the row.
+    """
+    if linking_score is None:
+        return {"label": "-", "tone": "low"}
+    if topology == "dead_end" or internal_count == 0:
+        return {"label": "Add internal links", "tone": "urgent"}
+    if topology == "orphan":
+        return {"label": "Add inbound links", "tone": "high"}
+    if generic_ratio > 0.5:
+        return {"label": "Rewrite anchors", "tone": "high"}
+    if linking_score < 50:
+        return {"label": "Polish anchors", "tone": "medium"}
+    return {"label": "Looking healthy", "tone": "positive"}
+
+
+@router.get("/{scan_id}/internal-linking")
+async def get_internal_linking(scan_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
+    """Return per-page internal linking audit + topology stats. Topology
+    (orphan / hub / dead-end) is computed on the fly from the inbound link
+    counts across the scan's audited URL set."""
+    _check_scan_access(scan_id, user, db)
+
+    rows = (
+        db.query(ScanInternalLink)
+        .filter(ScanInternalLink.scan_id == scan_id)
+        .order_by(
+            ScanInternalLink.linking_score.asc().nullslast(),
+            ScanInternalLink.citation_count.desc(),
+        )
+        .all()
+    )
+
+    def _canon(u: str | None) -> str:
+        """Sprint 11.1 fix : strip query strings + fragments before
+        comparing. Without this, LLM-cited URLs that carry tracking
+        params (e.g. `?utm_source=openai` added by ChatGPT to the URLs
+        it surfaces) are treated as distinct from the same page linked
+        without params elsewhere on the site → false orphans (9/30 on
+        the initial Avène smoke ; 4 of those resolved after this fix).
+        """
+        if not u:
+            return ""
+        # Cut anything starting at '?' or '#'.
+        base = u
+        for sep in ("#", "?"):
+            i = base.find(sep)
+            if i >= 0:
+                base = base[:i]
+        return base.rstrip("/").lower()
+
+    audited_urls = {_canon(r.url) for r in rows}
+    inbound: dict[str, int] = {u: 0 for u in audited_urls}
+    inbound_sources: dict[str, set[str]] = {u: set() for u in audited_urls}
+    for r in rows:
+        src_canon = _canon(r.url)
+        for link in (r.outbound_internal_links or []):
+            tc = _canon(link.get("target"))
+            if tc and tc != src_canon and tc in inbound:
+                inbound[tc] = inbound.get(tc, 0) + 1
+                inbound_sources.setdefault(tc, set()).add(src_canon)
+
+    last_seen = None
+    by_status: dict[str, int] = {"dead_end": 0, "orphan": 0, "hub": 0, "healthy": 0}
+    items = []
+    for r in rows:
+        if r.fetched_at and (last_seen is None or r.fetched_at > last_seen):
+            last_seen = r.fetched_at
+        url_canon = _canon(r.url)
+        inbound_count = inbound.get(url_canon, 0)
+        is_dead_end = (r.outbound_internal_count or 0) == 0 and not r.fetch_error
+        is_orphan = (inbound_count == 0) and len(audited_urls) > 1
+        topo_status = "healthy"
+        if is_dead_end:
+            topo_status = "dead_end"
+        elif is_orphan:
+            topo_status = "orphan"
+
+        generic_ratio = (
+            (r.generic_anchor_count or 0) / r.outbound_internal_count
+            if r.outbound_internal_count and r.outbound_internal_count > 0 else 0.0
+        )
+
+        items.append({
+            "url": r.url,
+            "title": r.title,
+            "fetch_status": r.fetch_status,
+            "fetch_error": r.fetch_error,
+            "outbound_internal_count": r.outbound_internal_count,
+            "outbound_external_count": r.outbound_external_count,
+            "generic_anchor_count": r.generic_anchor_count,
+            "empty_anchor_count": r.empty_anchor_count,
+            "duplicate_anchor_count": r.duplicate_anchor_count,
+            "avg_anchor_length": r.avg_anchor_length,
+            "inbound_count": inbound_count,
+            "inbound_sources": sorted(list(inbound_sources.get(url_canon, set())))[:10],
+            "outbound_internal_links": r.outbound_internal_links or [],
+            "issues": r.issues or [],
+            "linking_score": r.linking_score,
+            "citation_count": r.citation_count,
+            "topology": topo_status,
+            "generic_ratio": generic_ratio,
+            # recommended_action filled in after the hub pass so it can
+            # be topology-aware (hub / orphan / dead-end override the
+            # linking_score read).
+        })
+
+    inbound_values = sorted([i["inbound_count"] for i in items if i["inbound_count"] >= 2], reverse=True)
+    hub_threshold = None
+    if inbound_values:
+        cutoff_index = max(0, int(len(inbound_values) * 0.2) - 1)
+        hub_threshold = max(5, inbound_values[cutoff_index] if cutoff_index < len(inbound_values) else 5)
+    for it in items:
+        if it["topology"] == "healthy" and hub_threshold is not None and it["inbound_count"] >= hub_threshold and it["inbound_count"] >= 2:
+            it["topology"] = "hub"
+        it["recommended_action"] = _internal_link_action(
+            it["linking_score"], it["outbound_internal_count"] or 0,
+            it["generic_ratio"], it["topology"],
+        )
+        # Drop the helper field before serializing.
+        it.pop("generic_ratio", None)
+        by_status[it["topology"]] = by_status.get(it["topology"], 0) + 1
+
+    total = len(items)
+    avg_score = None
+    if items:
+        scored = [i["linking_score"] for i in items if i["linking_score"] is not None]
+        avg_score = round(sum(scored) / len(scored), 1) if scored else None
+
+    issues_by_type: dict[str, int] = {}
+    for it in items:
+        for issue in it["issues"]:
+            t = issue.get("type") or "unknown"
+            issues_by_type[t] = issues_by_type.get(t, 0) + 1
+
+    return {
+        "scan_id": scan_id,
+        "pages": items,
+        "summary": {
+            "total": total,
+            "avg_linking_score": avg_score,
+            "dead_end": by_status["dead_end"],
+            "orphan": by_status["orphan"],
+            "hub": by_status["hub"],
+            "healthy": by_status["healthy"],
+            "issues_by_type": issues_by_type,
+            "hub_threshold": hub_threshold,
+        },
+        "last_fetched": last_seen.isoformat() + "Z" if last_seen else None,
+    }
+
+
+@router.post("/{scan_id}/internal-linking/refresh")
+async def refresh_internal_linking(
+    scan_id: str,
+    reset: bool = False,
+    limit: int = 200,
+    user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Enqueue an `audit_internal_links` worker job. Free (no LLM) -
+    plain HTTP + BeautifulSoup. ~1-2s per page over the wire, capped at
+    200 URLs per run."""
+    _check_scan_access(scan_id, user, db)
+    _create_job(db, scan_id, "audit_internal_links", {
+        "reset": bool(reset),
+        "limit": int(limit),
+    })
+    db.commit()
+    return {"status": "enqueued", "scan_id": scan_id, "reset": bool(reset), "limit": limit}
+
+
+# --- Sprint 10 : YouTube creator mapping ---------------------------------
+# Channels LLMs already cite for the scan's brands. Same mine-LLM-citations
+# pattern as Sprints 7/8/9 ; enrichment via YouTube oEmbed (free, no key)
+# to recover channel name + author_url. Cf. project_10_action_features.md
+# #10 + worker/handlers/audit_youtube_creators.py.
+
+def _youtube_action(classification: str | None, target_cited: bool) -> dict:
+    """Recommended action per channel row."""
+    cls = classification or "target_only"
+    if cls == "competitor_only":
+        return {"label": "Pitch creator", "tone": "high"}
+    if cls == "shared":
+        return {"label": "Defend visibility", "tone": "medium"}
+    if cls == "target_only" and target_cited:
+        return {"label": "Nurture relationship", "tone": "positive"}
+    return {"label": "Context only", "tone": "low"}
+
+
+@router.get("/{scan_id}/youtube-creators")
+async def get_youtube_creators(scan_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
+    """Return YouTube channels LLMs cite for this scan, sorted by
+    leverage_score DESC. Channels enriched via oEmbed at audit time -
+    `channel_url = '(unknown channel)'` collects videos that failed
+    oEmbed (private / deleted / age-gated)."""
+    _check_scan_access(scan_id, user, db)
+
+    rows = (
+        db.query(ScanYouTubeCreator)
+        .filter(ScanYouTubeCreator.scan_id == scan_id)
+        .order_by(
+            ScanYouTubeCreator.leverage_score.desc().nullslast(),
+            ScanYouTubeCreator.citation_count.desc(),
+        )
+        .all()
+    )
+
+    by_class: dict[str, int] = {}
+    last_seen = None
+    items = []
+    total_videos = 0
+    for r in rows:
+        if r.fetched_at and (last_seen is None or r.fetched_at > last_seen):
+            last_seen = r.fetched_at
+        if r.classification:
+            by_class[r.classification] = by_class.get(r.classification, 0) + 1
+        total_videos += r.video_count or 0
+        items.append({
+            "channel_url": r.channel_url,
+            "channel_name": r.channel_name,
+            "channel_handle": r.channel_handle,
+            "citation_count": r.citation_count,
+            "video_count": r.video_count,
+            "competitor_brands": list(r.competitor_brands or []),
+            "target_cited": r.target_cited,
+            "classification": r.classification,
+            "top_videos": r.top_videos or [],
+            "winning_questions": r.winning_questions or [],
+            "leverage_score": r.leverage_score,
+            "recommended_action": _youtube_action(r.classification, r.target_cited),
+        })
+
+    opportunities = by_class.get("competitor_only", 0) + by_class.get("shared", 0)
+    return {
+        "scan_id": scan_id,
+        "channels": items,
+        "summary": {
+            "total": len(rows),
+            "total_videos": total_videos,
+            "by_classification": by_class,
+            "competitor_only": by_class.get("competitor_only", 0),
+            "shared": by_class.get("shared", 0),
+            "target_only": by_class.get("target_only", 0),
+            "opportunities": opportunities,
+        },
+        "last_fetched": last_seen.isoformat() + "Z" if last_seen else None,
+    }
+
+
+@router.post("/{scan_id}/youtube-creators/refresh")
+async def refresh_youtube_creators(
+    scan_id: str,
+    reset: bool = False,
+    limit: int = 200,
+    user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Enqueue an `audit_youtube_creators` worker job. Free (no LLM, no
+    YouTube API key). oEmbed call per unique cited video URL, ~0.4s each
+    polite throttle. 55 videos = ~25s ; 200-video cap = ~90s worst case."""
+    _check_scan_access(scan_id, user, db)
+    _create_job(db, scan_id, "audit_youtube_creators", {
+        "reset": bool(reset),
+        "limit": int(limit),
+    })
+    db.commit()
+    return {"status": "enqueued", "scan_id": scan_id, "reset": bool(reset), "limit": limit}

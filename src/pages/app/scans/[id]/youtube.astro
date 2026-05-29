@@ -1,0 +1,387 @@
+---
+/**
+ * Sprint 10 - YouTube creator mapping.
+ *
+ * Surfaces the YouTube channels LLMs already cite for this scan's brands,
+ * enriched via YouTube's free oEmbed endpoint (no API key, no quota
+ * at our volumes). Same mine-LLM-citations pattern as Sprints 7/8/9.
+ *
+ * Data source : GET  /api/scans/{id}/youtube-creators
+ * Refresh     : POST /api/scans/{id}/youtube-creators/refresh
+ *
+ * Laws of UX :
+ *  - Peak-End : hero count of "Outreach opportunities" channels.
+ *  - Hick : 4 filter chips (All / Opportunities / Pitch / Defend).
+ *  - Jakob : table + row-click-to-expand mirrors Reddit / PR / Internal.
+ *  - Von Restorff : competitor_only rows wear an orange ring.
+ */
+export const prerender = false;
+import ScanResultsLayout from '../../../../layouts/ScanResultsLayout.astro';
+import Tip from '../../../../components/Tip.astro';
+
+const token = Astro.cookies.get('token')?.value;
+if (!token) return Astro.redirect('/login');
+const scanId = Astro.params.id as string;
+
+const headers = { Cookie: `token=${token}` };
+let data: any = null;
+try {
+  const res = await fetch(`http://api:8000/api/scans/${scanId}/youtube-creators`, { headers });
+  if (res.ok) data = await res.json();
+} catch (_) {}
+
+const channels: any[] = data?.channels || [];
+const summary = data?.summary || {};
+const lastFetched = data?.last_fetched;
+
+function timeAgo(iso?: string): string {
+  if (!iso) return 'never';
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return 'never';
+  const mins = Math.round((Date.now() - t) / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins} min ago`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.round(hrs / 24);
+  if (days < 14) return `${days}d ago`;
+  return new Date(iso).toISOString().slice(0, 10);
+}
+
+function leverageClasses(score?: number | null) {
+  if (score == null) return { bg: 'bg-gray-100', text: 'text-charcoal-light' };
+  if (score >= 70) return { bg: 'bg-red-100', text: 'text-red-700' };
+  if (score >= 40) return { bg: 'bg-amber-100', text: 'text-amber-700' };
+  return { bg: 'bg-gray-100', text: 'text-charcoal-light' };
+}
+
+function classRingClass(c?: string) {
+  if (c === 'competitor_only') return 'ring-1 ring-orange-200';
+  if (c === 'shared') return 'ring-1 ring-amber-200';
+  return '';
+}
+
+function classChip(c?: string) {
+  switch (c) {
+    case 'competitor_only': return { label: 'pitch creator',     cls: 'bg-orange-50 text-orange-700 font-semibold', tip: 'yt_competitor_only' };
+    case 'shared':          return { label: 'defend visibility', cls: 'bg-amber-50 text-amber-700',                 tip: 'yt_shared' };
+    case 'target_only':     return { label: 'already advocates', cls: 'bg-emerald-50 text-emerald-700',             tip: 'yt_target_only' };
+    default:                return { label: '-',                 cls: 'bg-gray-100 text-charcoal-light',            tip: '' };
+  }
+}
+
+function actionChip(a?: { label?: string; tone?: string }) {
+  if (!a || !a.label) return { label: '-', cls: 'text-charcoal-light' };
+  const tone = a.tone || 'low';
+  const map = {
+    urgent:   'bg-red-100 text-red-700 font-semibold',
+    high:     'bg-orange-100 text-orange-700',
+    medium:   'bg-amber-100 text-amber-800',
+    positive: 'bg-emerald-50 text-emerald-700',
+    low:      'bg-gray-100 text-charcoal-light',
+  } as any;
+  return { label: a.label, cls: map[tone] || 'bg-gray-100 text-charcoal-light' };
+}
+
+const defaultFilter = (summary.opportunities || 0) > 0 ? 'opportunities' : 'all';
+---
+
+<ScanResultsLayout scanId={scanId} activeTab="youtube">
+  <div x-data={`{ filter: '${defaultFilter}', expanded: null, refreshing: false }`}>
+
+    <p class="text-sm text-charcoal-light mb-6">
+      YouTube channels the LLMs already cite for this scan's brands.
+      We enrich each cited video via YouTube's free oEmbed endpoint to
+      recover the channel name + author URL, then aggregate per channel.
+      No YouTube API key required. Channels where competitors are featured
+      but you aren't = the obvious creator outreach targets.
+    </p>
+
+    {/* Hero KPI banner */}
+    <div class="grid grid-cols-1 lg:grid-cols-4 gap-4 mb-6">
+      <div class="bg-white rounded-xl shadow-sm p-6 lg:col-span-2">
+        <p class="text-[11px] text-charcoal-light uppercase tracking-wide mb-2">
+          <Tip id="yt_opportunities">Outreach opportunities</Tip>
+        </p>
+        <div class="flex items-baseline gap-3">
+          <span class="text-3xl font-bold text-orange-600">{summary.opportunities || 0}</span>
+          <span class="text-base text-charcoal-light">/ {summary.total || 0} channels - {summary.total_videos || 0} videos</span>
+        </div>
+        <p class="text-[10px] text-charcoal-light mt-2 leading-snug">
+          Breakdown :
+          {summary.competitor_only > 0 && <span class="text-orange-700 font-semibold mr-2">{summary.competitor_only} pitch them</span>}
+          {summary.shared > 0 && <span class="text-amber-700 mr-2">{summary.shared} shared</span>}
+          {summary.target_only > 0 && <span class="text-emerald-700">+ {summary.target_only} already advocates</span>}
+        </p>
+      </div>
+
+      <div class="bg-white rounded-xl shadow-sm p-6">
+        <p class="text-[11px] text-charcoal-light uppercase tracking-wide mb-2">Channel mix</p>
+        {(() => {
+          const top = (channels as any[]).slice(0, 5);
+          if (top.length === 0) {
+            return <p class="text-xs text-charcoal-light italic mt-2">No channels yet.</p>;
+          }
+          return (
+            <div class="space-y-1">
+              {top.map((c: any) => (
+                <div class="flex items-center justify-between text-xs gap-2">
+                  <span class="text-charcoal-dark truncate" title={c.channel_name || c.channel_url}>
+                    {c.channel_name || '(unknown)'}
+                  </span>
+                  <span class="text-charcoal-light shrink-0">{c.citation_count}</span>
+                </div>
+              ))}
+            </div>
+          );
+        })()}
+      </div>
+
+      <div class="bg-white rounded-xl shadow-sm p-6 flex flex-col justify-between">
+        <div>
+          <p class="text-[11px] text-charcoal-light uppercase tracking-wide mb-2">Last refresh</p>
+          <p class="text-sm text-charcoal-dark">{timeAgo(lastFetched)}</p>
+          <p class="text-[10px] text-charcoal-light mt-1">
+            ~0.4s per video via oEmbed. 200-video cap = ~90s.
+          </p>
+        </div>
+        <button
+          @click={`if (refreshing) return; refreshing = true; fetch('/api/scans/${scanId}/youtube-creators/refresh?reset=true', { method: 'POST' }).then(r => r.json()).then(_ => { setTimeout(() => location.reload(), 30000); }).catch(() => { refreshing = false; });`}
+          :disabled="refreshing"
+          class="mt-3 px-3 py-1.5 text-xs font-medium rounded-lg bg-coral text-white hover:bg-coral-dark disabled:bg-gray-300 transition-colors"
+        >
+          <span x-show="!refreshing">Refresh audit</span>
+          <span x-show="refreshing">Enriching videos...</span>
+        </button>
+      </div>
+    </div>
+
+    {channels.length === 0 && (
+      <div class="bg-amber-50 border border-amber-200 rounded-xl p-6 text-sm text-amber-800">
+        No YouTube creator audit yet. Click <strong>Refresh audit</strong>
+        above. We extract every YouTube URL the LLMs cited during this scan,
+        enrich each via YouTube's free public oEmbed endpoint (no key
+        required), then group by channel. Free, no LLM. Scans with zero
+        YouTube citations stay empty.
+      </div>
+    )}
+
+    {channels.length > 0 && (
+      <div>
+        {/* Filter chips */}
+        <div class="flex items-center gap-2 mb-3 text-[11px] flex-wrap">
+          <span class="text-charcoal-light">Show :</span>
+          <button @click="filter = 'all'"
+                  :class="filter === 'all' ? 'bg-charcoal-dark text-white' : 'bg-gray-100 text-charcoal-light hover:bg-gray-200'"
+                  class="px-2 py-1 rounded transition-colors">
+            All ({summary.total})
+          </button>
+          <button @click="filter = 'opportunities'"
+                  :class="filter === 'opportunities' ? 'bg-orange-600 text-white' : 'bg-orange-50 text-orange-700 hover:bg-orange-100'"
+                  class="px-2 py-1 rounded transition-colors">
+            Opportunities ({summary.opportunities || 0})
+          </button>
+          {summary.competitor_only > 0 && (
+            <button @click="filter = 'competitor_only'"
+                    :class="filter === 'competitor_only' ? 'bg-orange-600 text-white' : 'bg-orange-50 text-orange-700 hover:bg-orange-100'"
+                    class="px-2 py-1 rounded transition-colors font-semibold">
+              Pitch them ({summary.competitor_only})
+            </button>
+          )}
+          {summary.shared > 0 && (
+            <button @click="filter = 'shared'"
+                    :class="filter === 'shared' ? 'bg-amber-600 text-white' : 'bg-amber-50 text-amber-700 hover:bg-amber-100'"
+                    class="px-2 py-1 rounded transition-colors">
+              Defend ({summary.shared})
+            </button>
+          )}
+          {summary.target_only > 0 && (
+            <button @click="filter = 'target_only'"
+                    :class="filter === 'target_only' ? 'bg-emerald-600 text-white' : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'"
+                    class="px-2 py-1 rounded transition-colors">
+              Already advocates ({summary.target_only})
+            </button>
+          )}
+        </div>
+
+        <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+          <table class="w-full text-[11px]">
+            <thead class="bg-gray-50 text-charcoal-light text-[10px] uppercase tracking-wide">
+              <tr>
+                <th class="text-left px-3 py-2 font-semibold">Channel</th>
+                <th class="text-left px-3 py-2 font-semibold w-32">Competitors cited</th>
+                <th class="text-left px-3 py-2 font-semibold w-28">Status</th>
+                <th class="text-left px-3 py-2 font-semibold w-36">Action</th>
+                <th class="text-right px-3 py-2 font-semibold w-12">Videos</th>
+                <th class="text-right px-3 py-2 font-semibold w-12">Cites</th>
+                <th class="text-right px-3 py-2 font-semibold w-16">Score</th>
+                <th class="text-right px-3 py-2 font-semibold w-8"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {channels.map((c: any, ci: number) => {
+                const lev = leverageClasses(c.leverage_score);
+                const cls = classChip(c.classification);
+                const action = actionChip(c.recommended_action);
+                const ringCls = classRingClass(c.classification);
+                const rowKey = `c${ci}`;
+                const competitors = (c.competitor_brands || []) as string[];
+                const isUnknown = c.channel_url === '(unknown channel)';
+                return (
+                  <>
+                    <tr
+                      x-show={`
+                        filter === 'all'
+                        || filter === '${c.classification || 'target_only'}'
+                        || (filter === 'opportunities' && ['competitor_only','shared'].includes('${c.classification || ''}'))
+                      `}
+                      class={`border-t border-gray-100 hover:bg-gray-50/60 cursor-pointer ${ringCls}`}
+                      @click={`expanded = expanded === '${rowKey}' ? null : '${rowKey}'`}
+                    >
+                      <td class="px-3 py-2 align-top">
+                        {isUnknown ? (
+                          <Tip id="yt_unknown_channel">
+                            <span class="text-charcoal-light italic">(channel unavailable)</span>
+                          </Tip>
+                        ) : (
+                          <a href={c.channel_url} target="_blank" rel="noopener noreferrer"
+                             class="text-charcoal-dark hover:underline font-medium leading-tight inline-block"
+                             title={c.channel_url}
+                             @click.stop>
+                            {c.channel_name || c.channel_handle || c.channel_url}
+                            <svg class="inline-block w-3 h-3 ml-1 align-text-top text-charcoal-light" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
+                            </svg>
+                          </a>
+                        )}
+                        {c.channel_handle && (
+                          <div class="text-[10px] text-charcoal-light mt-0.5">{c.channel_handle}</div>
+                        )}
+                      </td>
+                      <td class="px-3 py-2 align-top">
+                        {competitors.length > 0 ? (
+                          <div class="text-[10px] text-charcoal-dark leading-tight" title={competitors.join(', ')}>
+                            {competitors.slice(0, 2).join(', ')}{competitors.length > 2 ? ` +${competitors.length - 2}` : ''}
+                          </div>
+                        ) : (
+                          <span class="text-charcoal-light">-</span>
+                        )}
+                        {c.target_cited && (
+                          <div class="text-[9px] mt-0.5">
+                            <span class="text-emerald-700 italic">+ you featured here</span>
+                          </div>
+                        )}
+                      </td>
+                      <td class="px-3 py-2 align-top">
+                        <Tip id={cls.tip}>
+                          <span class={`inline-block text-[9px] px-1.5 py-0.5 rounded uppercase ${cls.cls}`}>
+                            {cls.label}
+                          </span>
+                        </Tip>
+                      </td>
+                      <td class="px-3 py-2 align-top">
+                        <Tip id="yt_action">
+                          <span class={`inline-block text-[9px] px-2 py-0.5 rounded ${action.cls}`}>{action.label}</span>
+                        </Tip>
+                      </td>
+                      <td class="px-3 py-2 align-top text-right text-charcoal-dark">
+                        <Tip id="yt_video_count">
+                          <span>{c.video_count}</span>
+                        </Tip>
+                      </td>
+                      <td class="px-3 py-2 align-top text-right text-charcoal-dark font-medium">
+                        {c.citation_count}
+                      </td>
+                      <td class="px-3 py-2 align-top text-right">
+                        {c.leverage_score != null ? (
+                          <Tip id="yt_leverage">
+                            <span class={`inline-block text-[10px] px-2 py-0.5 rounded font-semibold ${lev.bg} ${lev.text}`}>
+                              {c.leverage_score}
+                            </span>
+                          </Tip>
+                        ) : (
+                          <span class="text-charcoal-light">-</span>
+                        )}
+                      </td>
+                      <td class="px-3 py-2 align-top text-right text-charcoal-light">
+                        <svg class="w-3.5 h-3.5 inline-block transition-transform"
+                             :class={`expanded === '${rowKey}' ? 'rotate-180' : ''`}
+                             fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                        </svg>
+                      </td>
+                    </tr>
+                    <tr x-show={`expanded === '${rowKey}'`} x-transition>
+                      <td colspan="8" class="px-3 py-3 bg-gray-50/40 border-t border-gray-100">
+
+                        {/* Videos cited */}
+                        {c.top_videos && c.top_videos.length > 0 && (
+                          <div class="mb-3 px-3 py-2 bg-white rounded border border-gray-100">
+                            <p class="text-[10px] uppercase tracking-wide text-charcoal-light font-semibold mb-2">
+                              Videos cited on this channel
+                              <span class="text-[9px] text-charcoal-light normal-case italic font-normal"> (up to 8, competitor-cited first)</span>
+                            </p>
+                            <ul class="space-y-3">
+                              {c.top_videos.map((v: any) => (
+                                <li class="flex gap-3 border-l-2 border-gray-200 pl-3">
+                                  {v.thumbnail_url && (
+                                    <img src={v.thumbnail_url} alt="" class="w-24 h-auto rounded shrink-0 border border-gray-100" />
+                                  )}
+                                  <div class="flex-1 min-w-0">
+                                    <a href={v.url} target="_blank" rel="noopener noreferrer"
+                                       class="text-[12px] text-charcoal-dark hover:underline font-medium leading-tight inline-block"
+                                       @click.stop>
+                                      {v.title || v.url}
+                                    </a>
+                                    <div class="text-[10px] text-charcoal-light mt-0.5 flex flex-wrap gap-2 items-center">
+                                      <span>{v.citation_count} LLM cite{v.citation_count > 1 ? 's' : ''}</span>
+                                      {v.competitor_brands && v.competitor_brands.length > 0 && (
+                                        <span class="text-orange-700">- competitor: {v.competitor_brands.slice(0, 3).join(', ')}{v.competitor_brands.length > 3 ? '...' : ''}</span>
+                                      )}
+                                      {v.target_cited && (
+                                        <span class="text-emerald-700">- you cited too</span>
+                                      )}
+                                      {v.oembed_status && v.oembed_status !== 200 && (
+                                        <span class="text-amber-700 italic">oembed {v.oembed_status} {v.oembed_error || ''}</span>
+                                      )}
+                                    </div>
+                                    {v.contexte && (
+                                      <p class="text-[11px] text-charcoal-dark mt-1 italic leading-snug">
+                                        "{v.contexte}"
+                                      </p>
+                                    )}
+                                  </div>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+
+                        {/* Action guidance */}
+                        <div class="px-3 py-2 bg-white rounded border border-coral/20">
+                          <p class="text-[10px] uppercase tracking-wide text-charcoal-light font-semibold mb-1">Outreach playbook</p>
+                          <p class="text-[12px] text-charcoal-dark leading-relaxed">
+                            {c.classification === 'competitor_only' && (
+                              <>The LLMs cite videos from <strong>{c.channel_name || c.channel_url}</strong> for {competitors.length > 0 ? competitors.slice(0,3).join(', ') : 'your competitors'} but not for you. Reach out to the creator for a sponsored video, gifted PR drop, or expert collab on a topic your brand uniquely owns.</>
+                            )}
+                            {c.classification === 'shared' && (
+                              <>You're already featured on <strong>{c.channel_name || c.channel_url}</strong>, but so are competitors. Strengthen the relationship - propose a follow-up video, an exclusive angle, or a longer-form deep-dive that puts your brand in the lead.</>
+                            )}
+                            {c.classification === 'target_only' && (
+                              <>Only your brand is featured on <strong>{c.channel_name || c.channel_url}</strong> in this scan. They're an existing advocate - keep the relationship warm, maybe offer them early access to product launches.</>
+                            )}
+                          </p>
+                        </div>
+                      </td>
+                    </tr>
+                  </>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    )}
+
+  </div>
+</ScanResultsLayout>

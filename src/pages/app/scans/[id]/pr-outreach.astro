@@ -1,0 +1,445 @@
+---
+/**
+ * Sprint 9 - PR / Journalist Outreach.
+ *
+ * Surfaces the media domains LLMs already cite for this scan's
+ * competitors (or the focus brand), so the user gets a shortlist of
+ * journalists / publications to engage with. Excludes forum, encyclopedia,
+ * e-commerce and brand-own sites — those are covered by Reddit / Wikipedia
+ * / Competitors tabs.
+ *
+ * Data source : GET  /api/scans/{id}/pr-outreach
+ * Refresh     : POST /api/scans/{id}/pr-outreach/refresh
+ *
+ * Laws of UX :
+ *  - Peak-End  : hero count of "Outreach opportunities" as the leverage headline.
+ *  - Hick      : 3 filter chips (All / Pitch them / Defend visibility).
+ *  - Jakob     : table + row-click-to-expand mirrors the Reddit/Competitors tab.
+ *  - Von Restorff : competitor_only rows wear an orange ring ; shared rows
+ *                  wear an amber ring (lost ground).
+ */
+export const prerender = false;
+import ScanResultsLayout from '../../../../layouts/ScanResultsLayout.astro';
+import Tip from '../../../../components/Tip.astro';
+
+const token = Astro.cookies.get('token')?.value;
+if (!token) return Astro.redirect('/login');
+const scanId = Astro.params.id as string;
+
+const headers = { Cookie: `token=${token}` };
+let data: any = null;
+try {
+  const res = await fetch(`http://api:8000/api/scans/${scanId}/pr-outreach`, { headers });
+  if (res.ok) data = await res.json();
+} catch (_) {}
+
+const domains: any[] = data?.domains || [];
+const summary = data?.summary || {};
+const lastFetched = data?.last_fetched;
+
+function timeAgo(iso?: string): string {
+  if (!iso) return 'never';
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return 'never';
+  const mins = Math.round((Date.now() - t) / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins} min ago`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.round(hrs / 24);
+  if (days < 14) return `${days}d ago`;
+  return new Date(iso).toISOString().slice(0, 10);
+}
+
+function leverageClasses(score?: number | null) {
+  if (score == null) return { bg: 'bg-gray-100', text: 'text-charcoal-light' };
+  if (score >= 70) return { bg: 'bg-red-100', text: 'text-red-700' };
+  if (score >= 40) return { bg: 'bg-amber-100', text: 'text-amber-700' };
+  return { bg: 'bg-gray-100', text: 'text-charcoal-light' };
+}
+
+function classRingClass(c?: string) {
+  if (c === 'competitor_only') return 'ring-1 ring-orange-200';
+  if (c === 'shared') return 'ring-1 ring-amber-200';
+  return '';
+}
+
+function classChip(c?: string) {
+  switch (c) {
+    case 'competitor_only': return { label: 'pitch them',        cls: 'bg-orange-50 text-orange-700 font-semibold', tip: 'pr_competitor_only' };
+    case 'shared':          return { label: 'defend visibility', cls: 'bg-amber-50 text-amber-700',                 tip: 'pr_shared' };
+    case 'target_only':     return { label: 'already covered',   cls: 'bg-emerald-50 text-emerald-700',             tip: 'pr_target_only' };
+    default:                return { label: '-',                 cls: 'bg-gray-100 text-charcoal-light',            tip: '' };
+  }
+}
+
+function actionChip(a?: { label?: string; tone?: string }) {
+  if (!a || !a.label) return { label: '-', cls: 'text-charcoal-light' };
+  const tone = a.tone || 'low';
+  const cls = ({
+    urgent:   'bg-red-100 text-red-700 font-semibold',
+    high:     'bg-orange-100 text-orange-700',
+    medium:   'bg-amber-100 text-amber-800',
+    positive: 'bg-emerald-50 text-emerald-700',
+    low:      'bg-gray-100 text-charcoal-light',
+  } as Record<string, string>)[tone] || 'bg-gray-100 text-charcoal-light';
+  return { label: a.label, cls };
+}
+
+function siteTypeLabel(t?: string | null): string {
+  if (!t) return 'unclassified';
+  return t;
+}
+
+function authorityChip(da?: number | null) {
+  if (da == null) return null;
+  if (da >= 60) return { label: `DA ${da}`, cls: 'bg-emerald-50 text-emerald-700' };
+  if (da >= 30) return { label: `DA ${da}`, cls: 'bg-amber-50 text-amber-700' };
+  return { label: `DA ${da}`, cls: 'bg-gray-100 text-charcoal-light' };
+}
+
+const defaultFilter = (summary.opportunities || 0) > 0 ? 'opportunities' : 'all';
+---
+
+<ScanResultsLayout scanId={scanId} activeTab="pr-outreach">
+  <div x-data={`{ filter: '${defaultFilter}', expanded: null, refreshing: false }`}>
+
+    <p class="text-sm text-charcoal-light mb-6">
+      Media domains the LLMs already cite for this scan's brands. The list is
+      built from the citation URLs your scan captured, then filtered to keep
+      only press, news, and blog domains - forums (covered in Reddit),
+      Wikipedia, and brand-owned sites are excluded. Domains where competitors
+      are cited but you aren't = the obvious outreach targets.
+    </p>
+
+    {/* Hero KPI banner */}
+    <div class="grid grid-cols-1 lg:grid-cols-4 gap-4 mb-6">
+      <div class="bg-white rounded-xl shadow-sm p-6 lg:col-span-2">
+        <p class="text-[11px] text-charcoal-light uppercase tracking-wide mb-2">
+          <Tip id="pr_opportunities">Outreach opportunities</Tip>
+        </p>
+        <div class="flex items-baseline gap-3">
+          <span class="text-3xl font-bold text-orange-600">{summary.opportunities || 0}</span>
+          <span class="text-base text-charcoal-light">/ {summary.total || 0} media domains</span>
+        </div>
+        <p class="text-[10px] text-charcoal-light mt-2 leading-snug">
+          Breakdown :
+          {summary.competitor_only > 0 && <span class="text-orange-700 font-semibold mr-2">{summary.competitor_only} competitor-only</span>}
+          {summary.shared > 0 && <span class="text-amber-700 mr-2">{summary.shared} shared</span>}
+          {summary.target_only > 0 && <span class="text-emerald-700">+ {summary.target_only} already covering you</span>}
+        </p>
+      </div>
+
+      <div class="bg-white rounded-xl shadow-sm p-6">
+        <p class="text-[11px] text-charcoal-light uppercase tracking-wide mb-2">Site types</p>
+        {(() => {
+          const bySt = summary.by_site_type || {};
+          const entries = Object.entries(bySt).sort((a: any, b: any) => (b[1] as number) - (a[1] as number));
+          if (entries.length === 0) {
+            return <p class="text-xs text-charcoal-light italic mt-2">No domains classified yet.</p>;
+          }
+          return (
+            <div class="space-y-1">
+              {entries.slice(0, 5).map(([st, n]: any) => (
+                <div class="flex items-center justify-between text-xs">
+                  <span class="text-charcoal-dark truncate">{siteTypeLabel(st)}</span>
+                  <span class="text-charcoal-light">{n}</span>
+                </div>
+              ))}
+            </div>
+          );
+        })()}
+      </div>
+
+      <div class="bg-white rounded-xl shadow-sm p-6 flex flex-col justify-between">
+        <div>
+          <p class="text-[11px] text-charcoal-light uppercase tracking-wide mb-2">Last refresh</p>
+          <p class="text-sm text-charcoal-dark">{timeAgo(lastFetched)}</p>
+          <p class="text-[10px] text-charcoal-light mt-1">
+            {summary.enriched || 0} of {summary.total || 0} have Babbar authority enriched.
+          </p>
+        </div>
+        <button
+          @click={`if (refreshing) return; refreshing = true; fetch('/api/scans/${scanId}/pr-outreach/refresh?reset=true', { method: 'POST' }).then(r => r.json()).then(_ => { setTimeout(() => location.reload(), 4000); }).catch(() => { refreshing = false; });`}
+          :disabled="refreshing"
+          class="mt-3 px-3 py-1.5 text-xs font-medium rounded-lg bg-coral text-white hover:bg-coral-dark disabled:bg-gray-300 transition-colors"
+        >
+          <span x-show="!refreshing">Refresh list</span>
+          <span x-show="refreshing">Aggregating...</span>
+        </button>
+      </div>
+    </div>
+
+    {domains.length === 0 && (
+      <div class="bg-amber-50 border border-amber-200 rounded-xl p-6 text-sm text-amber-800">
+        No outreach list built yet. Click <strong>Refresh list</strong> above. We
+        scan every URL the LLMs cited during this scan, drop platforms (Reddit,
+        Wikipedia, YouTube), brand-own sites, e-commerce and forums, then
+        aggregate the remaining press / blog domains per competitor. Free, no
+        LLM call - typically takes &lt; 2 seconds.
+      </div>
+    )}
+
+    {domains.length > 0 && (
+      <div>
+        {/* Filter chips */}
+        <div class="flex items-center gap-2 mb-3 text-[11px] flex-wrap">
+          <span class="text-charcoal-light">Show :</span>
+          <button @click="filter = 'all'"
+                  :class="filter === 'all' ? 'bg-charcoal-dark text-white' : 'bg-gray-100 text-charcoal-light hover:bg-gray-200'"
+                  class="px-2 py-1 rounded transition-colors">
+            All ({summary.total})
+          </button>
+          <button @click="filter = 'opportunities'"
+                  :class="filter === 'opportunities' ? 'bg-orange-600 text-white' : 'bg-orange-50 text-orange-700 hover:bg-orange-100'"
+                  class="px-2 py-1 rounded transition-colors"
+                  title="Domains where you can pitch : competitor cited but you aren't, OR you're both cited and need to defend.">
+            Opportunities ({summary.opportunities || 0})
+          </button>
+          {summary.competitor_only > 0 && (
+            <button @click="filter = 'competitor_only'"
+                    :class="filter === 'competitor_only' ? 'bg-orange-600 text-white' : 'bg-orange-50 text-orange-700 hover:bg-orange-100'"
+                    class="px-2 py-1 rounded transition-colors font-semibold">
+              Pitch them ({summary.competitor_only})
+            </button>
+          )}
+          {summary.shared > 0 && (
+            <button @click="filter = 'shared'"
+                    :class="filter === 'shared' ? 'bg-amber-600 text-white' : 'bg-amber-50 text-amber-700 hover:bg-amber-100'"
+                    class="px-2 py-1 rounded transition-colors">
+              Defend ({summary.shared})
+            </button>
+          )}
+          {summary.target_only > 0 && (
+            <button @click="filter = 'target_only'"
+                    :class="filter === 'target_only' ? 'bg-emerald-600 text-white' : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'"
+                    class="px-2 py-1 rounded transition-colors">
+              Already covering you ({summary.target_only})
+            </button>
+          )}
+        </div>
+
+        <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+          <table class="w-full text-[11px]">
+            <thead class="bg-gray-50 text-charcoal-light text-[10px] uppercase tracking-wide">
+              <tr>
+                <th class="text-left px-3 py-2 font-semibold">Domain</th>
+                <th class="text-left px-3 py-2 font-semibold w-32">Competitors cited</th>
+                <th class="text-left px-3 py-2 font-semibold w-28">Status</th>
+                <th class="text-left px-3 py-2 font-semibold w-20">Authority</th>
+                <th class="text-left px-3 py-2 font-semibold w-36">Action</th>
+                <th class="text-right px-3 py-2 font-semibold w-12">Cites</th>
+                <th class="text-right px-3 py-2 font-semibold w-16">Score</th>
+                <th class="text-right px-3 py-2 font-semibold w-8"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {domains.map((d: any, di: number) => {
+                const lev = leverageClasses(d.leverage_score);
+                const cls = classChip(d.classification);
+                const action = actionChip(d.recommended_action);
+                const ringCls = classRingClass(d.classification);
+                const rowKey = `d${di}`;
+                const competitors = (d.competitor_brands || []) as string[];
+                const auth = authorityChip(d.da);
+                const siteType = d.site_type;
+                return (
+                  <>
+                    <tr
+                      x-show={`
+                        filter === 'all'
+                        || filter === '${d.classification || 'target_only'}'
+                        || (filter === 'opportunities' && ['competitor_only','shared'].includes('${d.classification || ''}'))
+                      `}
+                      class={`border-t border-gray-100 hover:bg-gray-50/60 cursor-pointer ${ringCls}`}
+                      @click={`expanded = expanded === '${rowKey}' ? null : '${rowKey}'`}
+                    >
+                      <td class="px-3 py-2 align-top">
+                        <a href={`https://${d.domain}`} target="_blank" rel="noopener noreferrer"
+                           class="text-charcoal-dark hover:underline font-medium leading-tight inline-block"
+                           @click.stop>
+                          {d.domain}
+                          <svg class="inline-block w-3 h-3 ml-1 align-text-top text-charcoal-light" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
+                          </svg>
+                        </a>
+                        <div class="text-[10px] text-charcoal-light mt-0.5 flex items-center gap-2">
+                          <span class="italic">{siteTypeLabel(siteType)}</span>
+                          {d.in_catalog && (
+                            <Tip id="pr_in_catalog">
+                              <span class="text-[9px] px-1 py-0.5 rounded bg-sky-50 text-sky-700">enriched</span>
+                            </Tip>
+                          )}
+                          {d.price_eur != null && (
+                            <span class="text-[9px] text-charcoal-light">~{Math.round(d.price_eur)}€/post</span>
+                          )}
+                        </div>
+                      </td>
+                      <td class="px-3 py-2 align-top">
+                        {competitors.length > 0 ? (
+                          <div class="text-[10px] text-charcoal-dark leading-tight" title={competitors.join(', ')}>
+                            {competitors.slice(0, 2).join(', ')}{competitors.length > 2 ? ` +${competitors.length - 2}` : ''}
+                          </div>
+                        ) : (
+                          <span class="text-charcoal-light">-</span>
+                        )}
+                        {d.target_cited && (
+                          <div class="text-[9px] mt-0.5">
+                            <span class="text-emerald-700 italic">+ you cited here</span>
+                          </div>
+                        )}
+                      </td>
+                      <td class="px-3 py-2 align-top">
+                        <Tip id={cls.tip}>
+                          <span class={`inline-block text-[9px] px-1.5 py-0.5 rounded uppercase ${cls.cls}`}>
+                            {cls.label}
+                          </span>
+                        </Tip>
+                      </td>
+                      <td class="px-3 py-2 align-top">
+                        {auth ? (
+                          <Tip id="pr_da">
+                            <span class={`inline-block text-[9px] px-1.5 py-0.5 rounded ${auth.cls}`}>{auth.label}</span>
+                          </Tip>
+                        ) : (
+                          <span class="text-[10px] text-charcoal-light italic">unknown</span>
+                        )}
+                      </td>
+                      <td class="px-3 py-2 align-top">
+                        <Tip id="pr_action">
+                          <span class={`inline-block text-[9px] px-2 py-0.5 rounded ${action.cls}`}>
+                            {action.label}
+                          </span>
+                        </Tip>
+                      </td>
+                      <td class="px-3 py-2 align-top text-right text-charcoal-dark font-medium">
+                        {d.citation_count}
+                      </td>
+                      <td class="px-3 py-2 align-top text-right">
+                        {d.leverage_score != null ? (
+                          <Tip id="pr_leverage">
+                            <span class={`inline-block text-[10px] px-2 py-0.5 rounded font-semibold ${lev.bg} ${lev.text}`}>
+                              {d.leverage_score}
+                            </span>
+                          </Tip>
+                        ) : (
+                          <span class="text-charcoal-light">-</span>
+                        )}
+                      </td>
+                      <td class="px-3 py-2 align-top text-right text-charcoal-light">
+                        <svg class="w-3.5 h-3.5 inline-block transition-transform"
+                             :class={`expanded === '${rowKey}' ? 'rotate-180' : ''`}
+                             fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                        </svg>
+                      </td>
+                    </tr>
+                    <tr x-show={`expanded === '${rowKey}'`} x-transition>
+                      <td colspan="8" class="px-3 py-3 bg-gray-50/40 border-t border-gray-100">
+                        {/* Pages cited */}
+                        {d.top_pages && d.top_pages.length > 0 && (
+                          <div class="mb-3 px-3 py-2 bg-white rounded border border-gray-100">
+                            <p class="text-[10px] uppercase tracking-wide text-charcoal-light font-semibold mb-2">
+                              Pages cited on this domain
+                              <span class="text-[9px] text-charcoal-light normal-case italic font-normal"> (up to 5, sorted by competitor cites first)</span>
+                            </p>
+                            <ul class="space-y-2">
+                              {d.top_pages.map((p: any) => (
+                                <li class="border-l-2 border-gray-200 pl-3">
+                                  <a href={p.url} target="_blank" rel="noopener noreferrer"
+                                     class="text-[12px] text-charcoal-dark hover:underline font-medium break-all"
+                                     @click.stop>
+                                    {p.title || p.url}
+                                  </a>
+                                  <div class="text-[10px] text-charcoal-light mt-0.5 flex flex-wrap gap-2 items-center">
+                                    <span>{p.citation_count} LLM cite{p.citation_count > 1 ? 's' : ''}</span>
+                                    {p.competitor_brands && p.competitor_brands.length > 0 && (
+                                      <span class="text-orange-700">- competitor: {p.competitor_brands.slice(0, 3).join(', ')}{p.competitor_brands.length > 3 ? '...' : ''}</span>
+                                    )}
+                                    {p.target_cited && (
+                                      <span class="text-emerald-700">- you cited too</span>
+                                    )}
+                                  </div>
+                                  {p.contexte && (
+                                    <p class="text-[11px] text-charcoal-dark mt-1 italic leading-snug">
+                                      "{p.contexte}"
+                                    </p>
+                                  )}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+
+                        {/* Vertical + audience metadata from media_catalog */}
+                        {d.in_catalog && (d.vertical?.length || d.audience_tags?.length || d.editorial_voice) && (
+                          <div class="mb-3 px-3 py-2 bg-white rounded border border-gray-100">
+                            <p class="text-[10px] uppercase tracking-wide text-charcoal-light font-semibold mb-2">
+                              Media catalog metadata
+                            </p>
+                            <div class="flex flex-wrap gap-3 text-[11px]">
+                              {d.vertical && d.vertical.length > 0 && (
+                                <div>
+                                  <span class="text-charcoal-light">Vertical: </span>
+                                  <span class="text-charcoal-dark">{d.vertical.join(', ')}</span>
+                                </div>
+                              )}
+                              {d.audience_tags && d.audience_tags.length > 0 && (
+                                <div>
+                                  <span class="text-charcoal-light">Audience: </span>
+                                  <span class="text-charcoal-dark">{d.audience_tags.slice(0, 5).join(', ')}</span>
+                                </div>
+                              )}
+                              {d.editorial_voice && (
+                                <div>
+                                  <span class="text-charcoal-light">Voice: </span>
+                                  <span class="text-charcoal-dark italic">{d.editorial_voice}</span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Authority breakdown */}
+                        {(d.da != null || d.tf != null || d.rd != null) && (
+                          <div class="mb-3 px-3 py-2 bg-white rounded border border-gray-100">
+                            <p class="text-[10px] uppercase tracking-wide text-charcoal-light font-semibold mb-2">
+                              Babbar authority
+                            </p>
+                            <div class="flex flex-wrap gap-3 text-[11px]">
+                              {d.da != null && <span><span class="text-charcoal-light">DA</span> <strong>{d.da}</strong></span>}
+                              {d.tf != null && <span><span class="text-charcoal-light">TF</span> <strong>{d.tf}</strong></span>}
+                              {d.cf != null && <span><span class="text-charcoal-light">CF</span> <strong>{d.cf}</strong></span>}
+                              {d.rd != null && <span><span class="text-charcoal-light">Backlinks</span> <strong>{d.rd.toLocaleString()}</strong></span>}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Action guidance */}
+                        <div class="px-3 py-2 bg-white rounded border border-coral/20">
+                          <p class="text-[10px] uppercase tracking-wide text-charcoal-light font-semibold mb-1">Outreach playbook</p>
+                          <p class="text-[12px] text-charcoal-dark leading-relaxed">
+                            {d.classification === 'competitor_only' && (
+                              <>The LLMs cite <strong>{d.domain}</strong> for {competitors.length > 0 ? competitors.slice(0,3).join(', ') : 'your competitors'} but not for you. Identify the journalist behind the top pages above and pitch them a story / data angle that puts your brand in the same conversation.</>
+                            )}
+                            {d.classification === 'shared' && (
+                              <>You're already cited at <strong>{d.domain}</strong>, but so are competitors. Defend your share : check if any cited page is outdated, propose an update, or contribute an expert quote on a new angle.</>
+                            )}
+                            {d.classification === 'target_only' && (
+                              <>Only your brand is cited at <strong>{d.domain}</strong> in this scan. Keep the relationship warm - they're already advocating for you.</>
+                            )}
+                          </p>
+                        </div>
+                      </td>
+                    </tr>
+                  </>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    )}
+
+  </div>
+</ScanResultsLayout>

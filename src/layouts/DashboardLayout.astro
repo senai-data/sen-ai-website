@@ -64,10 +64,17 @@ try {
 } catch {}
 
 // Fetch client data (apps + credits) server-side
+type ClientItem = { id: string; name: string; brand?: string | null; apps?: Record<string, any> };
 let scanCredits = 0;
 let contentCredits = 0;
 let clientApps: Record<string, any> = {};
 let isSuperadmin = false;
+// Sprint 15.3 - expose the full client list + active one to the sidebar so
+// the user sees the name of their currently-active workspace AND can
+// switch when N>=2. The active client is resolved server-side from the
+// `active_client_id` cookie (falls back to clients[0] when absent).
+let clients: ClientItem[] = [];
+let activeClient: ClientItem | null = null;
 
 try {
   const clientsRes = await fetch('http://api:8000/api/clients/', {
@@ -75,10 +82,13 @@ try {
     signal: AbortSignal.timeout(3000),
   });
   if (clientsRes.ok) {
-    const clients = await clientsRes.json();
-    if (clients[0]?.id) {
-      clientApps = clients[0].apps || {};
-      const creditsRes = await fetch(`http://api:8000/api/stripe/credits/${clients[0].id}`, {
+    clients = await clientsRes.json();
+    if (clients.length > 0) {
+      activeClient =
+        (activeClientCookie && clients.find(c => c.id === activeClientCookie)) ||
+        clients[0];
+      clientApps = activeClient?.apps || {};
+      const creditsRes = await fetch(`http://api:8000/api/stripe/credits/${activeClient.id}`, {
         headers: { Cookie: `token=${token}` },
         signal: AbortSignal.timeout(3000),
       });
@@ -252,6 +262,59 @@ const icons = {
                   </button>
                 ))}
               </div>
+            </div>
+          )}
+
+          {/* Sprint 15.3 - active workspace pill. Always visible when the
+              user has at least one client. Single client = static label.
+              Multiple clients = dropdown to switch. Sets `active_client_id`
+              cookie via POST /api/clients/active then reloads. */}
+          {activeClient && (
+            <div class="mt-2">
+              {clients.length < 2 ? (
+                <div class="flex items-center gap-2 px-2 py-1.5 rounded-md bg-white/[0.03]">
+                  <svg class="w-4 h-4 text-gray-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
+                  <div class="min-w-0 flex-1">
+                    <div class="text-[12px] text-white truncate">{activeClient.name}</div>
+                    <div class="text-[10px] text-gray-500">Active workspace</div>
+                  </div>
+                </div>
+              ) : (
+                <div x-data="{ open: false }" class="relative">
+                  <button
+                    @click="open = !open"
+                    @click.outside="open = false"
+                    @keydown.escape.window="open = false"
+                    class="w-full flex items-center gap-2 px-2 py-1.5 rounded-md bg-white/[0.03] hover:bg-white/[0.06] transition-colors group"
+                  >
+                    <svg class="w-4 h-4 text-gray-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
+                    <div class="min-w-0 flex-1 text-left">
+                      <div class="text-[12px] text-white truncate">{activeClient.name}</div>
+                      <div class="text-[10px] text-gray-500">{clients.length} workspaces</div>
+                    </div>
+                    <svg class="w-3.5 h-3.5 text-gray-500 shrink-0 transition-transform" :class="open && 'rotate-180'" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                  </button>
+                  <div x-show="open" x-transition.opacity.duration.100ms x-cloak
+                       class="absolute left-0 right-0 top-full mt-1 bg-charcoal border border-white/10 rounded-md shadow-xl py-1 z-50 max-h-72 overflow-y-auto">
+                    {clients.map(c => (
+                      <button
+                        type="button"
+                        data-client-id={c.id}
+                        class:list={[
+                          'workspace-switch-btn w-full flex items-center gap-2 px-2.5 py-2 hover:bg-white/5 transition-colors text-left',
+                          c.id === activeClient.id && 'bg-white/[0.03]',
+                        ]}
+                      >
+                        <svg class="w-3.5 h-3.5 text-gray-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
+                        <span class="text-[12px] text-white truncate flex-1">{c.name}</span>
+                        {c.id === activeClient.id && (
+                          <svg class="w-3.5 h-3.5 text-coral shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -439,6 +502,33 @@ const icons = {
           if (res.ok) {
             try { await fetch('/api/clients/active', { method: 'DELETE' }); } catch (e) {}
             window.location.href = clientCount >= 2 ? '/app/org' : '/app/dashboard';
+          } else {
+            btn.removeAttribute('disabled');
+          }
+        } catch (e) {
+          btn.removeAttribute('disabled');
+        }
+      });
+    });
+  </script>
+
+  <script is:inline>
+    // Sprint 15.3 - workspace switch from the sidebar dropdown.
+    // POSTs the new active_client_id then reloads so every server-side
+    // fetch in DashboardLayout picks up the new scope on the next render.
+    document.querySelectorAll('.workspace-switch-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const clientId = btn.getAttribute('data-client-id');
+        if (!clientId) return;
+        btn.setAttribute('disabled', 'true');
+        try {
+          const res = await fetch('/api/clients/active', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ client_id: clientId }),
+          });
+          if (res.ok) {
+            window.location.href = '/app/dashboard';
           } else {
             btn.removeAttribute('disabled');
           }

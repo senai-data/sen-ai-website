@@ -22,6 +22,8 @@ class User(Base):
     password_hash = Column(String(255))  # null if Google OAuth only
     google_id = Column(String(255), unique=True)
     is_superadmin = Column(Boolean, nullable=False, default=False)
+    # Sprint 15.1 (migration 058) - PARITÉ avec api/models.py.
+    signup_intent = Column(Text)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     client_links = relationship("UserClient", back_populates="user")

@@ -28,6 +28,10 @@ class RegisterRequest(BaseModel):
     email: EmailStr
     password: str
     name: str
+    # Sprint 15.1 : optional signup intent (currently 'agency' only) so
+    # the user record is flagged at creation time and the framing sticks
+    # across re-logins. Invalid values are silently dropped.
+    intent: str | None = None
 
 
 class LoginRequest(BaseModel):
@@ -111,11 +115,16 @@ async def register(request: Request, req: RegisterRequest, response: Response, d
     if db.query(User).filter(User.email == req.email).first():
         raise HTTPException(400, "Registration failed. If you already have an account, try logging in.")
 
+    # Sprint 15.1 : persist signup intent so the agency framing stays
+    # sticky across re-logins. Currently the only recognised value is
+    # 'agency' ; future intents go through the same gate.
+    persisted_intent = req.intent if (req.intent and req.intent in _ALLOWED_INTENTS) else None
     user = User(
         email=req.email,
         name=strip_tags(req.name),
         password_hash=pwd_context.hash(req.password),
         is_email_verified=False,
+        signup_intent=persisted_intent,
     )
     db.add(user)
     audit_log(db, action="auth.register", user_id=str(user.id) if user.id else None,
@@ -250,6 +259,10 @@ async def get_me(user: User = Depends(get_current_user)):
         "name": user.name,
         "is_email_verified": user.is_email_verified,
         "is_superadmin": user.is_superadmin,
+        # Sprint 15.1 : surfaced so dashboard.astro can forward
+        # `?intent=agency` to /welcome on every re-login, not only on
+        # the URL-carried path.
+        "signup_intent": user.signup_intent,
     }
 
 
@@ -699,11 +712,16 @@ async def google_callback(code: str, state: str = "", response: Response = None,
             if not settings.registration_open:
                 return RedirectResponse(f"{settings.frontend_url}/register?error=closed")
             is_new_user = True
+            # Sprint 15.1 : persist the intent carried via the OAuth
+            # state so the agency framing stays sticky across re-logins.
+            state_intent = (state_payload or {}).get("intent")
+            persisted_intent = state_intent if state_intent in _ALLOWED_INTENTS else None
             user = User(
                 email=userinfo["email"],
                 name=userinfo.get("name", ""),
                 google_id=userinfo["id"],
                 is_email_verified=True,  # Google already verified the email
+                signup_intent=persisted_intent,
             )
             db.add(user)
         db.commit()

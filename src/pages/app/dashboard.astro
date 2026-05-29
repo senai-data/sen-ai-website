@@ -59,8 +59,10 @@ try {
   error = e.message;
 }
 
-// Check email verification for banner
+// Check email verification + signup intent (S15.1 - persists agency
+// framing across re-logins, not just URL-carried).
 let isEmailVerified = true;
+let userSignupIntent = '';
 try {
   const meRes = await fetch('http://api:8000/api/auth/me', {
     headers: { Cookie: `token=${token}` },
@@ -69,6 +71,7 @@ try {
   if (meRes.ok) {
     const me = await meRes.json();
     isEmailVerified = me.is_email_verified;
+    userSignupIntent = (me.signup_intent || '').toLowerCase();
   }
 } catch {}
 
@@ -96,10 +99,13 @@ try {
 if (scans.length === 0 && orgCount === 0) {
   // Forward the agency signup intent through to /welcome so the wizard
   // can surface the agency-aware banner instead of the generic single-
-  // brand framing. The intent param rides in from the OAuth callback
-  // for Google signups OR the /register?intent=agency flow.
-  const intentForWizard = (Astro.url.searchParams.get('intent') || '').toLowerCase();
-  if (intentForWizard === 'agency') {
+  // brand framing. v1 read the intent only from the URL param ; v1.1
+  // (S15.1) also reads users.signup_intent persisted on the user
+  // record, so the agency framing survives a logout / re-login from
+  // /login or Google OAuth without the URL flag.
+  const urlIntent = (Astro.url.searchParams.get('intent') || '').toLowerCase();
+  const effectiveIntent = urlIntent || userSignupIntent;
+  if (effectiveIntent === 'agency') {
     return Astro.redirect('/welcome?intent=agency');
   }
   return Astro.redirect('/welcome');

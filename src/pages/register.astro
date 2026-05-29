@@ -165,7 +165,10 @@ const safeNext = (rawNext.startsWith('/') && !rawNext.startsWith('//')) ? rawNex
         const res = await fetch('/api/auth/register', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name, email, password }),
+          // Forward the intent (currently 'agency' only) so it's
+          // persisted on the user record - keeps the agency framing
+          // sticky across re-logins.
+          body: JSON.stringify({ name, email, password, intent: intentRaw || null }),
         });
 
         if (res.status === 503) {

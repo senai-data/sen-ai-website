@@ -23,6 +23,11 @@ class User(Base):
     google_id = Column(String(255), unique=True)
     is_superadmin = Column(Boolean, nullable=False, default=False)
     is_email_verified = Column(Boolean, nullable=False, default=False)
+    # Sprint 15.1 (migration 058) - persisted signup intent so an agency
+    # account stays framed as agency across re-logins, not only on the
+    # initial URL-carried `?intent=agency` flow. NULL means no declared
+    # intent. Today the only recognised value is 'agency'.
+    signup_intent = Column(Text)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     client_links = relationship("UserClient", back_populates="user")

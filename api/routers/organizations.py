@@ -675,6 +675,31 @@ class NewOrgClientRequest(BaseModel):
     brand: str | None = None
 
 
+class RenameOrgRequest(BaseModel):
+    name: str
+
+
+@router.patch("/{org_id}")
+async def rename_organization(
+    org_id: str,
+    req: RenameOrgRequest,
+    user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Sprint 15.3 - let an org owner/admin rename their agency. The
+    auto-generated name from /clients/ (e.g. "Dung Anh LE's agency") is
+    fine as a default but agencies want to rebrand to their actual name."""
+    from services.sanitize import strip_tags
+    org, _caller = _require_org_manager(org_id, user, db)
+    new_name = strip_tags((req.name or "").strip())[:120]
+    if not new_name:
+        raise HTTPException(400, "Organization name is required")
+    org.name = new_name
+    db.commit()
+    db.refresh(org)
+    return {"id": str(org.id), "name": org.name}
+
+
 @router.post("/{org_id}/clients")
 async def create_client_in_org(
     org_id: str,

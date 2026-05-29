@@ -91,6 +91,36 @@ class SetActiveClientRequest(BaseModel):
     client_id: str
 
 
+class RenameClientRequest(BaseModel):
+    name: str
+
+
+@router.patch("/{client_id}")
+async def rename_client(
+    client_id: str,
+    req: RenameClientRequest,
+    user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Sprint 15.3 - let a manager rename their client workspace. The
+    auto-generated name from the welcome wizard (extracted from the
+    domain, e.g. "laroche-posay") is a placeholder ; agencies typically
+    want to label by their internal client name ("La Roche-Posay - Pharma
+    Q3 2026"). Manager role is required (set by /clients/ POST + the
+    org-scoped client create endpoint)."""
+    _check_client_access(client_id, user, db)
+    client = db.query(Client).filter(Client.id == client_id).first()
+    if not client:
+        raise HTTPException(404, "Client not found")
+    new_name = strip_tags((req.name or "").strip())[:120]
+    if not new_name:
+        raise HTTPException(400, "Workspace name is required")
+    client.name = new_name
+    db.commit()
+    db.refresh(client)
+    return {"id": str(client.id), "name": client.name}
+
+
 @router.post("/active")
 async def set_active_client(
     req: SetActiveClientRequest,

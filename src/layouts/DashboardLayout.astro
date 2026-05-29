@@ -192,11 +192,16 @@ const icons = {
       {activeOrg && (
         <div class="px-3 py-3 border-b border-white/10">
           {organizations.length < 2 ? (
-            <div class="flex items-center gap-2.5 px-2 py-1.5 rounded-md">
+            <div
+              x-data="{ editing: false, name: '', loading: false, error: '' }"
+              data-org-id={activeOrg.id}
+              data-org-name={activeOrg.name}
+              class="org-edit-row group flex items-center gap-2.5 px-2 py-1.5 rounded-md"
+            >
               <div class="w-6 h-6 rounded bg-white/10 flex items-center justify-center text-white text-[11px] font-bold uppercase shrink-0">
                 {activeOrg.name?.[0] || '?'}
               </div>
-              <div class="min-w-0 flex-1">
+              <div class="min-w-0 flex-1" x-show="!editing">
                 <div class="text-[13px] text-white font-medium truncate">{activeOrg.name}</div>
                 {activeOrg.is_personal ? (
                   <div class="text-[10px] text-gray-500 uppercase tracking-wide">Personal</div>
@@ -204,6 +209,29 @@ const icons = {
                   <div class="text-[10px] text-gray-500">{activeOrg.client_count} workspace{activeOrg.client_count !== 1 ? 's' : ''}</div>
                 )}
               </div>
+              <div class="min-w-0 flex-1" x-show="editing" x-cloak>
+                <input
+                  x-ref="orgInput"
+                  x-model="name"
+                  type="text" maxlength="120"
+                  @keydown.enter.prevent="window.__renameOrg($el.closest('.org-edit-row'), name, $data)"
+                  @keydown.escape="editing = false; error = ''"
+                  class="w-full bg-white/5 border border-white/20 rounded text-[12px] text-white px-2 py-1 focus:outline-none focus:border-coral"
+                />
+                <p x-show="error" x-text="error" class="text-[9px] text-red-400 mt-0.5"></p>
+              </div>
+              {(activeOrg.role === 'owner' || activeOrg.role === 'admin') && !activeOrg.is_personal && (
+                <button
+                  type="button"
+                  @click="editing = !editing; if (editing) { name = $el.closest('.org-edit-row').dataset.orgName; $nextTick(() => $refs.orgInput?.focus()); }"
+                  class="opacity-0 group-hover:opacity-100 transition-opacity text-gray-500 hover:text-white p-1 -mr-1"
+                  :class="editing && 'opacity-100 text-coral'"
+                  title="Rename organization"
+                >
+                  <svg x-show="!editing" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+                  <svg x-show="editing" x-cloak class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                </button>
+              )}
             </div>
           ) : (
             <div x-data="{ open: false }" class="relative">
@@ -272,12 +300,38 @@ const icons = {
           {activeClient && (
             <div class="mt-2">
               {clients.length < 2 ? (
-                <div class="flex items-center gap-2 px-2 py-1.5 rounded-md bg-white/[0.03]">
+                <div
+                  x-data="{ editing: false, name: '', loading: false, error: '' }"
+                  data-client-id={activeClient.id}
+                  data-client-name={activeClient.name}
+                  class="client-edit-row group flex items-center gap-2 px-2 py-1.5 rounded-md bg-white/[0.03]"
+                >
                   <svg class="w-4 h-4 text-gray-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
-                  <div class="min-w-0 flex-1">
+                  <div class="min-w-0 flex-1" x-show="!editing">
                     <div class="text-[12px] text-white truncate">{activeClient.name}</div>
                     <div class="text-[10px] text-gray-500">Active workspace</div>
                   </div>
+                  <div class="min-w-0 flex-1" x-show="editing" x-cloak>
+                    <input
+                      x-ref="wsInput"
+                      x-model="name"
+                      type="text" maxlength="120"
+                      @keydown.enter.prevent="window.__renameClient($el.closest('.client-edit-row'), name, $data)"
+                      @keydown.escape="editing = false; error = ''"
+                      class="w-full bg-white/5 border border-white/20 rounded text-[11px] text-white px-2 py-1 focus:outline-none focus:border-coral"
+                    />
+                    <p x-show="error" x-text="error" class="text-[9px] text-red-400 mt-0.5"></p>
+                  </div>
+                  <button
+                    type="button"
+                    @click="editing = !editing; if (editing) { name = $el.closest('.client-edit-row').dataset.clientName; $nextTick(() => $refs.wsInput?.focus()); }"
+                    class="opacity-0 group-hover:opacity-100 transition-opacity text-gray-500 hover:text-white p-1 -mr-1"
+                    :class="editing && 'opacity-100 text-coral'"
+                    title="Rename workspace"
+                  >
+                    <svg x-show="!editing" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+                    <svg x-show="editing" x-cloak class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                  </button>
                 </div>
               ) : (
                 <div x-data="{ open: false }" class="relative">
@@ -545,6 +599,59 @@ const icons = {
     // form's data-org-id, POSTs to the org-scoped client create endpoint,
     // then drops the user on /welcome to seed the new workspace's first
     // scan.
+    // Sprint 15.3 - rename org. Called from the org-chip pencil button.
+    // Owner/admin only (UI gate) + backend enforces with _require_org_manager.
+    window.__renameOrg = async function (rowEl, name, state) {
+      const trimmed = (name || '').trim();
+      if (!trimmed || state.loading) return;
+      const orgId = rowEl?.dataset?.orgId;
+      if (!orgId) { state.error = 'Missing org id'; return; }
+      state.loading = true; state.error = '';
+      try {
+        const res = await fetch('/api/organizations/' + orgId, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: trimmed }),
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          state.error = (body && body.detail) || ('HTTP ' + res.status);
+          state.loading = false;
+          return;
+        }
+        location.reload();
+      } catch (e) {
+        state.error = String(e && e.message || e);
+        state.loading = false;
+      }
+    };
+
+    // Sprint 15.3 - rename client workspace.
+    window.__renameClient = async function (rowEl, name, state) {
+      const trimmed = (name || '').trim();
+      if (!trimmed || state.loading) return;
+      const clientId = rowEl?.dataset?.clientId;
+      if (!clientId) { state.error = 'Missing client id'; return; }
+      state.loading = true; state.error = '';
+      try {
+        const res = await fetch('/api/clients/' + clientId, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: trimmed }),
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          state.error = (body && body.detail) || ('HTTP ' + res.status);
+          state.loading = false;
+          return;
+        }
+        location.reload();
+      } catch (e) {
+        state.error = String(e && e.message || e);
+        state.loading = false;
+      }
+    };
+
     window.__createClientInOrg = async function (formEl, name, state) {
       const trimmed = (name || '').trim();
       if (!trimmed || state.loading) return;

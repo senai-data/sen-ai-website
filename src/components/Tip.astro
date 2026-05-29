@@ -272,6 +272,34 @@ const TIPS: Record<string, string> = {
   yt_unknown_channel: 'Videos that returned no oEmbed metadata (private, age-gated, deleted, region-blocked, or removed by uploader) bucket here. Each video URL is still listed - click through to see why.',
   yt_video_count: 'Number of distinct video URLs the LLMs cited on this channel during the scan.<br/>'
     + '<em>Multiple videos = strong topical fit, not a one-off mention.</em>',
+
+  // ── Sprint 12 — Crisis monitoring ───────────────────────────────────
+  crisis_severity: 'Composite severity score (0-100) blending negative-mention volume, negative ratio, high-consequence categories (safety / ingredients), and dispersion across questions + providers.<br/>'
+    + '<em>0-15 none · 16-35 low · 36-60 medium · 61-80 high · 81-100 critical.</em>',
+  crisis_overall: 'Severity level of your focus brand on this scan.<br/>'
+    + '<em>This is a single-scan snapshot - cross-scan trend detection lands in S12.1 once enough rescans accumulate.</em>',
+  crisis_dominant: 'The category with the most negative mentions for this brand.<br/>'
+    + '<em>Drives the playbook card on the right.</em>',
+  crisis_shared: 'Topics where YOUR brand AND a competitor both got negative mentions.<br/>'
+    + '<em>Industry-wide signal - your brand alone isn\'t the problem, but you\'re still exposed.</em>',
+  crisis_competitor: 'Competitor crisis = intelligence, not a fire to put out.<br/>'
+    + '<em>"Competitive opening" : LLMs surface negative signal about this rival - prepare comparative content.</em>',
+  crisis_neg_ratio: 'Negative mentions divided by total mentions of this brand.<br/>'
+    + '<em>Compare against the positive/neutral split before declaring an emergency.</em>',
+  crisis_category_safety: 'Safety / adverse-event signal.<br/>'
+    + '<em>High consequence - check pharmacovigilance + regulatory FIRST, then communicate.</em>',
+  crisis_category_ingredients: 'Ingredient / composition concern.<br/>'
+    + '<em>Watch for stale formula references - the LLM may be citing a deprecated formula.</em>',
+  crisis_category_efficacy: 'Efficacy doubt (does not work / disappointed / no result).<br/>'
+    + '<em>Often fixable with clinical evidence + dosage instructions on cited pages.</em>',
+  crisis_category_pricing: 'Price / value perception.<br/>'
+    + '<em>Identify the comparator - which competitor or channel is the LLM citing as cheaper?</em>',
+  crisis_category_service: 'Customer service / fulfilment.<br/>'
+    + '<em>Cross-reference with internal CS ticket volumes ; fix the process before any external comms.</em>',
+  crisis_category_quality: 'Product quality / defect.<br/>'
+    + '<em>Look for batch / SKU concentration.</em>',
+  crisis_action: 'Recommended next step derived from severity_label.<br/>'
+    + '<em>Crisis war room / Investigate now / Triage this week / Monitor / All clear.</em>',
 };
 
 const tipText = text || TIPS[id || ''] || '';

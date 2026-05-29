@@ -475,6 +475,36 @@ class ScanYouTubeCreator(Base):
     __table_args__ = (UniqueConstraint("scan_id", "channel_url", name="uq_scan_youtube_creators_scan_channel"),)
 
 
+class ScanCrisisSignal(Base):
+    """Sprint 12 (migration 056) - crisis monitoring snapshot. One row per
+    (scan, brand) where brand is classified my_brand or competitor on
+    this scan. Counts negative brand_mentions + categorizes them via
+    multilingual heuristics. PARITÉ obligatoire avec worker/models.py.
+    """
+    __tablename__ = "scan_crisis_signals"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    scan_id = Column(UUID(as_uuid=True), ForeignKey("scans.id", ondelete="CASCADE"), nullable=False)
+    brand_id = Column(UUID(as_uuid=True), ForeignKey("client_brands.id", ondelete="CASCADE"), nullable=False)
+    brand_classification = Column(Text, nullable=False)
+    brand_name = Column(Text, nullable=False)
+    negative_count = Column(Integer, nullable=False, default=0)
+    positive_count = Column(Integer, nullable=False, default=0)
+    neutral_count = Column(Integer, nullable=False, default=0)
+    total_mentions = Column(Integer, nullable=False, default=0)
+    negative_ratio = Column(Float)
+    severity = Column(Integer)
+    severity_label = Column(Text)
+    dominant_category = Column(Text)
+    category_breakdown = Column(JSONB, nullable=False, default=dict)
+    top_contexts = Column(JSONB, nullable=False, default=list)
+    topic_clusters = Column(JSONB, nullable=False, default=list)
+    shared_with = Column(JSONB, nullable=False, default=list)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (UniqueConstraint("scan_id", "brand_id", name="uq_scan_crisis_signals_scan_brand"),)
+
+
 class ClientBrandPage(Base):
     """Sitemap-discovered page for a client_brand domain.
 

@@ -1,0 +1,442 @@
+---
+/**
+ * Sprint 12 - Crisis monitoring snapshot.
+ *
+ * Surfaces negative brand mentions per brand for this scan, categorized
+ * by content theme (safety / efficacy / ingredients / pricing / service /
+ * quality / other), with a matching static playbook per category.
+ *
+ * Data source : GET  /api/scans/{id}/crisis
+ * Refresh     : POST /api/scans/{id}/crisis/refresh
+ *
+ * Laws of UX :
+ *  - Peak-End : hero shows the overall severity label of the focus brand.
+ *  - Hick : focus brand at top, competitor list below with simple filter.
+ *  - Jakob : per-brand expandable rows mirror PR / YouTube / Internal tabs.
+ *  - Von Restorff : critical/high rows ringed red ; "All clear" stays grey.
+ */
+export const prerender = false;
+import ScanResultsLayout from '../../../../layouts/ScanResultsLayout.astro';
+import Tip from '../../../../components/Tip.astro';
+
+const token = Astro.cookies.get('token')?.value;
+if (!token) return Astro.redirect('/login');
+const scanId = Astro.params.id as string;
+
+const headers = { Cookie: `token=${token}` };
+let data: any = null;
+try {
+  const res = await fetch(`http://api:8000/api/scans/${scanId}/crisis`, { headers });
+  if (res.ok) data = await res.json();
+} catch (_) {}
+
+const target = data?.target as any;
+const competitors: any[] = data?.competitors || [];
+const summary = data?.summary || {};
+const lastFetched = data?.last_fetched;
+
+function timeAgo(iso?: string): string {
+  if (!iso) return 'never';
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return 'never';
+  const mins = Math.round((Date.now() - t) / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins} min ago`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.round(hrs / 24);
+  if (days < 14) return `${days}d ago`;
+  return new Date(iso).toISOString().slice(0, 10);
+}
+
+function severityClasses(label?: string | null) {
+  switch (label) {
+    case 'critical': return { ring: 'ring-2 ring-red-400', chip: 'bg-red-100 text-red-700 font-semibold', bar: 'bg-red-500' };
+    case 'high':     return { ring: 'ring-1 ring-red-300', chip: 'bg-red-50 text-red-700 font-semibold', bar: 'bg-red-400' };
+    case 'medium':   return { ring: 'ring-1 ring-amber-300', chip: 'bg-amber-100 text-amber-800', bar: 'bg-amber-400' };
+    case 'low':      return { ring: 'ring-1 ring-gray-200', chip: 'bg-gray-100 text-charcoal-light', bar: 'bg-gray-300' };
+    case 'none':     return { ring: '', chip: 'bg-emerald-50 text-emerald-700', bar: 'bg-emerald-400' };
+    default:         return { ring: '', chip: 'bg-gray-100 text-charcoal-light', bar: 'bg-gray-300' };
+  }
+}
+
+function categoryChip(cat?: string | null) {
+  switch (cat) {
+    case 'safety':      return { label: 'safety',      cls: 'bg-red-50 text-red-700 font-semibold', tip: 'crisis_category_safety' };
+    case 'ingredients': return { label: 'ingredients', cls: 'bg-orange-50 text-orange-700 font-semibold', tip: 'crisis_category_ingredients' };
+    case 'efficacy':    return { label: 'efficacy',    cls: 'bg-amber-50 text-amber-800', tip: 'crisis_category_efficacy' };
+    case 'pricing':     return { label: 'pricing',     cls: 'bg-sky-50 text-sky-700', tip: 'crisis_category_pricing' };
+    case 'service':     return { label: 'service',     cls: 'bg-sky-50 text-sky-700', tip: 'crisis_category_service' };
+    case 'quality':     return { label: 'quality',     cls: 'bg-orange-50 text-orange-700', tip: 'crisis_category_quality' };
+    case 'other':       return { label: 'other',       cls: 'bg-gray-100 text-charcoal-light', tip: '' };
+    default:            return null;
+  }
+}
+
+function actionChip(a?: { label?: string; tone?: string }) {
+  if (!a || !a.label) return { label: '-', cls: 'text-charcoal-light' };
+  const tone = a.tone || 'low';
+  const map = {
+    urgent:   'bg-red-100 text-red-700 font-semibold',
+    high:     'bg-orange-100 text-orange-700',
+    medium:   'bg-amber-100 text-amber-800',
+    positive: 'bg-emerald-50 text-emerald-700',
+    low:      'bg-gray-100 text-charcoal-light',
+  } as any;
+  return { label: a.label, cls: map[tone] || 'bg-gray-100 text-charcoal-light' };
+}
+---
+
+<ScanResultsLayout scanId={scanId} activeTab="crisis">
+  <div x-data={`{ expanded: null, refreshing: false, showAllCompetitors: false }`}>
+
+    <p class="text-sm text-charcoal-light mb-6">
+      Snapshot of negative LLM mentions for this scan. We count
+      <code class="text-[10px] bg-gray-100 px-1 rounded">brand_mentions[].sentiment = 'negative'</code> per brand,
+      categorize each by content theme (safety, efficacy, ingredients, pricing, service, quality), and surface
+      the matching playbook. Single-scan only in v1 - cross-scan trend
+      lands in S12.1 once enough rescans accumulate.
+    </p>
+
+    {/* Hero KPI banner */}
+    <div class="grid grid-cols-1 lg:grid-cols-4 gap-4 mb-6">
+      {target && (() => {
+        const sev = severityClasses(target.severity_label);
+        return (
+          <div class={`bg-white rounded-xl shadow-sm p-6 lg:col-span-2 ${sev.ring}`}>
+            <p class="text-[11px] text-charcoal-light uppercase tracking-wide mb-2">
+              <Tip id="crisis_overall">Your brand severity</Tip>
+            </p>
+            <div class="flex items-baseline gap-3 flex-wrap">
+              <span class={`inline-block text-sm px-2 py-0.5 rounded uppercase ${sev.chip}`}>
+                {target.severity_label || 'none'}
+              </span>
+              <span class="text-3xl font-bold text-charcoal-dark">{target.severity ?? 0}</span>
+              <span class="text-sm text-charcoal-light">/ 100</span>
+              <span class="text-xs text-charcoal-light ml-auto">{target.brand_name}</span>
+            </div>
+            <p class="text-[11px] text-charcoal-light mt-3 leading-snug">
+              <strong>{target.negative_count}</strong> negative · {target.positive_count} positive · {target.neutral_count} neutral
+              {target.total_mentions > 0 && (
+                <span> ({Math.round((target.negative_ratio || 0) * 100)}% negative ratio)</span>
+              )}
+            </p>
+            {target.dominant_category && (() => {
+              const c = categoryChip(target.dominant_category);
+              return c ? (
+                <p class="text-[11px] mt-2 flex items-center gap-2 flex-wrap">
+                  <span class="text-charcoal-light">Dominant theme :</span>
+                  <Tip id={c.tip}>
+                    <span class={`px-1.5 py-0.5 rounded uppercase text-[9px] ${c.cls}`}>{c.label}</span>
+                  </Tip>
+                </p>
+              ) : null;
+            })()}
+          </div>
+        );
+      })()}
+      {!target && (
+        <div class="bg-white rounded-xl shadow-sm p-6 lg:col-span-2">
+          <p class="text-[11px] text-charcoal-light uppercase tracking-wide mb-2">Your brand severity</p>
+          <p class="text-sm text-charcoal-light italic">No focus brand classified on this scan yet.</p>
+        </div>
+      )}
+
+      <div class="bg-white rounded-xl shadow-sm p-6">
+        <p class="text-[11px] text-charcoal-light uppercase tracking-wide mb-2">Other signals</p>
+        <ul class="space-y-1 text-[11px]">
+          <li class="flex items-center justify-between">
+            <span class="text-charcoal-dark">Competitors in crisis</span>
+            <span class="text-charcoal-light">{summary.competitor_in_crisis || 0}</span>
+          </li>
+          <li class="flex items-center justify-between">
+            <Tip id="crisis_shared"><span class="text-charcoal-dark">Shared crisis topics</span></Tip>
+            <span class="text-charcoal-light">{summary.shared_crisis_topics || 0}</span>
+          </li>
+          <li class="flex items-center justify-between">
+            <span class="text-charcoal-dark">Brands tracked</span>
+            <span class="text-charcoal-light">{summary.brand_count || 0}</span>
+          </li>
+        </ul>
+      </div>
+
+      <div class="bg-white rounded-xl shadow-sm p-6 flex flex-col justify-between">
+        <div>
+          <p class="text-[11px] text-charcoal-light uppercase tracking-wide mb-2">Last refresh</p>
+          <p class="text-sm text-charcoal-dark">{timeAgo(lastFetched)}</p>
+          <p class="text-[10px] text-charcoal-light mt-1">Pure aggregation, no LLM. Completes in &lt; 2 s.</p>
+        </div>
+        <button
+          @click={`if (refreshing) return; refreshing = true; fetch('/api/scans/${scanId}/crisis/refresh?reset=true', { method: 'POST' }).then(r => r.json()).then(_ => { setTimeout(() => location.reload(), 3000); }).catch(() => { refreshing = false; });`}
+          :disabled="refreshing"
+          class="mt-3 px-3 py-1.5 text-xs font-medium rounded-lg bg-coral text-white hover:bg-coral-dark disabled:bg-gray-300 transition-colors"
+        >
+          <span x-show="!refreshing">Refresh radar</span>
+          <span x-show="refreshing">Computing...</span>
+        </button>
+      </div>
+    </div>
+
+    {!target && competitors.length === 0 && (
+      <div class="bg-amber-50 border border-amber-200 rounded-xl p-6 text-sm text-amber-800">
+        No crisis radar built yet. Click <strong>Refresh radar</strong>
+        above. We mine the negative sentiment signals in
+        <code class="text-[10px] bg-amber-100 px-1 rounded">brand_mentions[]</code>
+        already in the database - completes in under 2 seconds.
+      </div>
+    )}
+
+    {/* Target brand drill-down */}
+    {target && target.negative_count > 0 && (
+      <div class="mb-6">
+        <h3 class="text-sm font-semibold text-charcoal-dark mb-3">Your brand - negative mentions</h3>
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          {/* Top contexts */}
+          <div class="bg-white rounded-xl shadow-sm p-5 lg:col-span-2">
+            <p class="text-[10px] uppercase tracking-wide text-charcoal-light font-semibold mb-3">
+              Worst contexts (up to 5)
+            </p>
+            <ul class="space-y-3">
+              {target.top_contexts.map((c: any) => {
+                const cat = categoryChip(c.category);
+                return (
+                  <li class="border-l-2 border-red-200 pl-3">
+                    <div class="flex items-start gap-2 mb-1 flex-wrap">
+                      {cat && (
+                        <Tip id={cat.tip}>
+                          <span class={`text-[9px] px-1.5 py-0.5 rounded uppercase ${cat.cls}`}>{cat.label}</span>
+                        </Tip>
+                      )}
+                      {c.provider && (
+                        <span class="text-[9px] px-1.5 py-0.5 rounded bg-gray-100 text-charcoal-light uppercase">{c.provider}</span>
+                      )}
+                      {c.topic_name && (
+                        <span class="text-[10px] text-charcoal-light italic">{c.topic_name}</span>
+                      )}
+                    </div>
+                    {c.question && (
+                      <p class="text-[11px] text-charcoal-dark mb-1 leading-snug">
+                        <span class="text-charcoal-light">Q :</span> {c.question}
+                      </p>
+                    )}
+                    {c.contexte && (
+                      <p class="text-[12px] text-charcoal-dark italic leading-relaxed">"{c.contexte}"</p>
+                    )}
+                    {c.sentiment_justification && (
+                      <p class="text-[10px] text-charcoal-light mt-1 leading-snug">
+                        <em>{c.sentiment_justification}</em>
+                      </p>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+
+          {/* Playbook */}
+          {target.playbook && (
+            <div class="bg-white rounded-xl shadow-sm p-5 border border-coral/30">
+              <p class="text-[10px] uppercase tracking-wide text-charcoal-light font-semibold mb-2">
+                Playbook
+              </p>
+              <p class="text-[13px] font-semibold text-charcoal-dark mb-3">{target.playbook.title}</p>
+              <div class="space-y-3 text-[11px] text-charcoal-dark">
+                <div>
+                  <p class="text-[9px] text-charcoal-light uppercase font-semibold mb-1">Investigate</p>
+                  <ul class="space-y-1 leading-snug">
+                    {target.playbook.investigate.map((s: string) => (
+                      <li>- {s}</li>
+                    ))}
+                  </ul>
+                </div>
+                <div>
+                  <p class="text-[9px] text-charcoal-light uppercase font-semibold mb-1">Respond</p>
+                  <ul class="space-y-1 leading-snug">
+                    {target.playbook.respond.map((s: string) => (
+                      <li>- {s}</li>
+                    ))}
+                  </ul>
+                </div>
+                {target.playbook.channels && (
+                  <div>
+                    <p class="text-[9px] text-charcoal-light uppercase font-semibold mb-1">Channels</p>
+                    <p class="leading-snug">{target.playbook.channels.join(' · ')}</p>
+                  </div>
+                )}
+                {target.playbook.timeline && (
+                  <div>
+                    <p class="text-[9px] text-charcoal-light uppercase font-semibold mb-1">Timeline</p>
+                    <p class="leading-snug italic">{target.playbook.timeline}</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Shared crises */}
+        {target.shared_with && target.shared_with.length > 0 && (
+          <div class="mt-4 bg-white rounded-xl shadow-sm p-5">
+            <p class="text-[10px] uppercase tracking-wide text-charcoal-light font-semibold mb-3">
+              <Tip id="crisis_shared">Shared crises with competitors</Tip>
+              <span class="text-[9px] text-charcoal-light normal-case italic font-normal"> (industry-wide signal)</span>
+            </p>
+            <ul class="space-y-2 text-[11px]">
+              {target.shared_with.map((sw: any) => (
+                <li class="border-l-2 border-amber-300 pl-3">
+                  <p class="text-charcoal-dark"><strong>{sw.competitor_brand_name}</strong> shares :</p>
+                  <ul class="ml-3 mt-1 space-y-0.5 text-charcoal-light">
+                    {sw.shared_topics.map((t: any) => (
+                      <li>- {t.topic_name || '(no topic)'} : you {t.target_negative_count}, them {t.competitor_negative_count}</li>
+                    ))}
+                  </ul>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+    )}
+
+    {target && target.negative_count === 0 && (
+      <div class="mb-6 bg-emerald-50 border border-emerald-200 rounded-xl p-5">
+        <p class="text-sm text-emerald-800 font-semibold mb-1">No negative target mentions in this scan.</p>
+        <p class="text-[11px] text-emerald-700">
+          {target.total_mentions} total mentions for <strong>{target.brand_name}</strong>,
+          all positive or neutral. The "All clear" label sticks until the next scan refresh.
+        </p>
+      </div>
+    )}
+
+    {/* Competitor table */}
+    {competitors.length > 0 && (
+      <div>
+        <h3 class="text-sm font-semibold text-charcoal-dark mb-3">Competitor radar
+          <span class="text-[11px] text-charcoal-light font-normal italic">(intelligence, not a fire)</span>
+        </h3>
+        <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+          <table class="w-full text-[11px]">
+            <thead class="bg-gray-50 text-charcoal-light text-[10px] uppercase tracking-wide">
+              <tr>
+                <th class="text-left px-3 py-2 font-semibold">Brand</th>
+                <th class="text-left px-3 py-2 font-semibold w-24">Severity</th>
+                <th class="text-left px-3 py-2 font-semibold w-28">Dominant theme</th>
+                <th class="text-right px-3 py-2 font-semibold w-16">Negative</th>
+                <th class="text-right px-3 py-2 font-semibold w-16">Ratio</th>
+                <th class="text-left px-3 py-2 font-semibold w-36">Action</th>
+                <th class="text-right px-3 py-2 font-semibold w-8"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {competitors.map((c: any, ci: number) => {
+                const sev = severityClasses(c.severity_label);
+                const cat = categoryChip(c.dominant_category);
+                const action = actionChip(c.recommended_action);
+                const rowKey = `c${ci}`;
+                const hasContexts = (c.top_contexts || []).length > 0;
+                const limited = !hasContexts && ci >= 5;
+                return (
+                  <>
+                    <tr
+                      x-show={limited ? `showAllCompetitors` : `true`}
+                      class={`border-t border-gray-100 hover:bg-gray-50/60 ${hasContexts ? 'cursor-pointer' : ''} ${sev.ring}`}
+                      @click={hasContexts ? `expanded = expanded === '${rowKey}' ? null : '${rowKey}'` : ''}
+                    >
+                      <td class="px-3 py-2 align-top text-charcoal-dark font-medium">
+                        {c.brand_name}
+                      </td>
+                      <td class="px-3 py-2 align-top">
+                        <Tip id="crisis_severity">
+                          <span class={`inline-block text-[9px] px-1.5 py-0.5 rounded uppercase ${sev.chip}`}>
+                            {c.severity_label || 'none'} {c.severity != null ? `· ${c.severity}` : ''}
+                          </span>
+                        </Tip>
+                      </td>
+                      <td class="px-3 py-2 align-top">
+                        {cat ? (
+                          <Tip id={cat.tip}>
+                            <span class={`inline-block text-[9px] px-1.5 py-0.5 rounded uppercase ${cat.cls}`}>{cat.label}</span>
+                          </Tip>
+                        ) : (
+                          <span class="text-charcoal-light">-</span>
+                        )}
+                      </td>
+                      <td class="px-3 py-2 align-top text-right text-charcoal-dark">{c.negative_count}</td>
+                      <td class="px-3 py-2 align-top text-right text-charcoal-light">
+                        {c.total_mentions > 0 ? `${Math.round((c.negative_ratio || 0) * 100)}%` : '-'}
+                      </td>
+                      <td class="px-3 py-2 align-top">
+                        <Tip id="crisis_action">
+                          <span class={`inline-block text-[9px] px-2 py-0.5 rounded ${action.cls}`}>{action.label}</span>
+                        </Tip>
+                      </td>
+                      <td class="px-3 py-2 align-top text-right text-charcoal-light">
+                        {hasContexts && (
+                          <svg class="w-3.5 h-3.5 inline-block transition-transform"
+                               :class={`expanded === '${rowKey}' ? 'rotate-180' : ''`}
+                               fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                          </svg>
+                        )}
+                      </td>
+                    </tr>
+                    {hasContexts && (
+                      <tr x-show={`expanded === '${rowKey}'`} x-transition>
+                        <td colspan="7" class="px-3 py-3 bg-gray-50/40 border-t border-gray-100">
+                          <div class="grid grid-cols-1 lg:grid-cols-3 gap-3">
+                            <div class="bg-white rounded border border-gray-100 p-3 lg:col-span-2">
+                              <p class="text-[10px] uppercase tracking-wide text-charcoal-light font-semibold mb-2">
+                                Worst contexts
+                              </p>
+                              <ul class="space-y-2">
+                                {c.top_contexts.map((ctx: any) => {
+                                  const cc = categoryChip(ctx.category);
+                                  return (
+                                    <li class="border-l-2 border-amber-200 pl-2">
+                                      <div class="flex items-center gap-2 mb-0.5 flex-wrap">
+                                        {cc && <span class={`text-[9px] px-1 py-0.5 rounded uppercase ${cc.cls}`}>{cc.label}</span>}
+                                        {ctx.provider && <span class="text-[9px] text-charcoal-light uppercase">{ctx.provider}</span>}
+                                        {ctx.topic_name && <span class="text-[10px] text-charcoal-light italic">{ctx.topic_name}</span>}
+                                      </div>
+                                      {ctx.question && <p class="text-[10px] text-charcoal-light"><span>Q :</span> {ctx.question}</p>}
+                                      {ctx.contexte && <p class="text-[11px] text-charcoal-dark italic">"{ctx.contexte}"</p>}
+                                    </li>
+                                  );
+                                })}
+                              </ul>
+                            </div>
+                            {c.playbook && (
+                              <div class="bg-white rounded border border-coral/20 p-3">
+                                <p class="text-[10px] uppercase tracking-wide text-charcoal-light font-semibold mb-1">
+                                  <Tip id="crisis_competitor">Competitive opening</Tip>
+                                </p>
+                                <p class="text-[12px] font-semibold text-charcoal-dark mb-2">{c.playbook.title}</p>
+                                <p class="text-[10px] text-charcoal-light">
+                                  Their problem is your opening. Pull the contexts above to identify what to position against in your own content.
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        {competitors.length > 5 && (
+          <div class="mt-3 text-center">
+            <button @click="showAllCompetitors = !showAllCompetitors"
+                    class="text-[11px] text-charcoal-light hover:text-charcoal-dark">
+              <span x-show="!showAllCompetitors">Show all {competitors.length} competitors</span>
+              <span x-show="showAllCompetitors">Collapse to top 5</span>
+            </button>
+          </div>
+        )}
+      </div>
+    )}
+
+  </div>
+</ScanResultsLayout>

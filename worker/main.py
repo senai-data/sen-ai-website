@@ -123,7 +123,8 @@ def load_handlers():
                           audit_reddit_threads,
                           build_pr_outreach,
                           audit_internal_links,
-                          audit_youtube_creators)  # noqa: F401
+                          audit_youtube_creators,
+                          build_crisis_radar)  # noqa: F401
     HANDLERS["fetch_keywords"] = fetch_keywords.execute
     HANDLERS["classify_topics"] = classify_topics.execute
     HANDLERS["assign_keywords"] = assign_keywords.execute
@@ -160,6 +161,7 @@ def load_handlers():
     HANDLERS["build_pr_outreach"] = build_pr_outreach.execute
     HANDLERS["audit_internal_links"] = audit_internal_links.execute
     HANDLERS["audit_youtube_creators"] = audit_youtube_creators.execute
+    HANDLERS["build_crisis_radar"] = build_crisis_radar.execute
 
 
 # Job types that operate on a single content item (one FAQ / article / …)
@@ -181,6 +183,7 @@ POST_SCAN_AUDIT_JOB_TYPES = {
     "build_pr_outreach",        # Sprint 9
     "audit_internal_links",     # Sprint 11
     "audit_youtube_creators",   # Sprint 10
+    "build_crisis_radar",       # Sprint 12
     "check_brand_wikipedia",    # Sprint 4
     "refresh_ai_snapshot",
     "measure_publish_outcome",

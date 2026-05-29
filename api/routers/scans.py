@@ -12,7 +12,7 @@ from models import (
     Scan, ScanKeyword, ScanTopic, ScanPersona, ScanQuestion, ScanLLMResult,
     ScanQuestionJudgment,
     ScanBrandClassification, ScanBrandTopic, ScanOpportunity, ClientBrand,
-    ScanPageAudit, ScanSchemaAudit, ScanCompetitorPage, ScanRedditThread, ScanPROutreach, ScanInternalLink, ScanYouTubeCreator,
+    ScanPageAudit, ScanSchemaAudit, ScanCompetitorPage, ScanRedditThread, ScanPROutreach, ScanInternalLink, ScanYouTubeCreator, ScanCrisisSignal,
     Client,
     Job, UserClient, get_db,
 )
@@ -4236,3 +4236,247 @@ async def refresh_youtube_creators(
     })
     db.commit()
     return {"status": "enqueued", "scan_id": scan_id, "reset": bool(reset), "limit": limit}
+
+
+# --- Sprint 12 : crisis monitoring snapshot ------------------------------
+# Per-brand counts of negative brand_mentions[] in this scan, categorized
+# by content theme (safety / efficacy / ingredients / pricing / service /
+# quality / other), with static playbook templates per category. Mirrors
+# Sprint 9.1 noise gate by trusting the brand classification table.
+
+# Static, vertical-agnostic playbook templates. Keyed by dominant_category.
+# Each template returns one card the UI renders next to the brand row.
+_CRISIS_PLAYBOOKS: dict[str, dict] = {
+    "safety": {
+        "title": "Safety / adverse-event signal",
+        "tone": "urgent",
+        "investigate": [
+            "Pull the exact contexte snippet and verify the claim against pharmacovigilance, regulatory recall lists, and your own quality / adverse-event database.",
+            "Identify whether the signal originates from the brand_mentions source (LLM-summarised public discussion) or a verified incident.",
+            "Check the timeline : is this a freshly-emerging signal or recycled historical content the LLM is still surfacing?",
+        ],
+        "respond": [
+            "Loop in pharmacovigilance / regulatory affairs before any external communication.",
+            "Coordinate with medical / scientific affairs to prepare an evidence-backed correction.",
+            "If the claim is materially false, file a takedown / correction request with the cited sources.",
+        ],
+        "channels": ["pharmacovigilance@", "regulatory affairs", "medical comms", "PR (gated until cleared)"],
+        "timeline": "Same day triage. 48h cross-functional response if signal is verified.",
+    },
+    "ingredients": {
+        "title": "Ingredient / composition concern",
+        "tone": "high",
+        "investigate": [
+            "Confirm whether the disputed ingredient is actually in the current formulation (the LLM may be citing a deprecated formula).",
+            "Map the concern to the underlying source : NGO list, regulatory body, viral consumer post, or pseudo-scientific blog.",
+            "Check whether competitors face the same concern (shared crisis vs target-only).",
+        ],
+        "respond": [
+            "Prepare an ingredient-level explainer (why we use it, at what concentration, what the science says).",
+            "If the formula has changed, push corrected references to Wikipedia, brand site, and key media that the LLM cites.",
+            "Brief customer-facing teams with a 3-sentence response talk track.",
+        ],
+        "channels": ["formulation / R&D", "scientific affairs", "digital comms", "Wikipedia edit guidelines"],
+        "timeline": "Within 1 week, ahead of the next scan refresh.",
+    },
+    "efficacy": {
+        "title": "Efficacy doubt",
+        "tone": "medium",
+        "investigate": [
+            "Sample the negative excerpts : is it dosage / duration of use / wrong indication, or genuine product underperformance?",
+            "Check whether positive mentions cluster on the same product line or a different one (signal might be product-specific).",
+            "Pull clinical / consumer-test evidence available for the contested benefit.",
+        ],
+        "respond": [
+            "Add measurable efficacy claims + clinical data references to the product pages that LLMs already cite (cf. Page Audit tab).",
+            "Brief influencer / partner network to feature before-after / how-to-use content correcting the misuse pattern.",
+            "If a competitor wins on a specific benefit claim, prepare comparative content for the PR / Media tab.",
+        ],
+        "channels": ["product marketing", "clinical / consumer studies", "influencer / PR", "SEO / content"],
+        "timeline": "2-4 weeks rolling. Re-measure on the next scan.",
+    },
+    "pricing": {
+        "title": "Price / value perception",
+        "tone": "medium",
+        "investigate": [
+            "Identify the comparison anchor : which competitor / channel is the LLM citing as the cheaper alternative?",
+            "Check whether the price perception is driven by promotion gaps or by structurally cheaper rivals.",
+        ],
+        "respond": [
+            "Surface value-justification content (premium-grade ingredients, manufacturing origin, certifications) on the cited pages.",
+            "Review promotion calendar with the channel team if the gap is structural.",
+            "If the issue is comparator-specific, prepare a 'why we cost more' talk track for customer-facing teams.",
+        ],
+        "channels": ["pricing / revenue", "ecommerce", "customer support"],
+        "timeline": "1-2 weeks for content, longer for pricing decisions.",
+    },
+    "service": {
+        "title": "Customer service / fulfilment",
+        "tone": "medium",
+        "investigate": [
+            "Cross-reference negative excerpts with internal CS ticket volumes and NPS detractors for the same time window.",
+            "Identify whether the signal is about delivery, returns, support latency, or refund process.",
+        ],
+        "respond": [
+            "Fix the underlying CS process before any external comms (silent fix > public apology).",
+            "Update help-centre FAQ pages that LLMs cite, with explicit policy language.",
+        ],
+        "channels": ["customer service ops", "ecommerce / logistics", "help-centre / content"],
+        "timeline": "Operational fix in 2-4 weeks ; content update same week.",
+    },
+    "quality": {
+        "title": "Product quality / defect",
+        "tone": "high",
+        "investigate": [
+            "Pull the defect type from the contexte (packaging leak, breakage, batch issue).",
+            "Tie to internal quality returns + check whether a specific batch / SKU shows over-representation.",
+        ],
+        "respond": [
+            "If batch-isolated, brief CS with the affected SKU range and replacement protocol.",
+            "If systemic, escalate to quality / supply with an action plan.",
+        ],
+        "channels": ["quality assurance", "supply chain", "customer service"],
+        "timeline": "Same week triage. Cross-functional plan within 2 weeks.",
+    },
+    "other": {
+        "title": "General negative signal",
+        "tone": "low",
+        "investigate": [
+            "Pull the top contexts and identify the underlying theme - the keyword categorisation didn't match a known bucket.",
+            "Decide whether the signal warrants its own playbook category in a future iteration.",
+        ],
+        "respond": [
+            "If it's an emerging theme (e.g. sustainability, animal welfare, social positioning), prepare a position statement.",
+            "Otherwise monitor on the next scan.",
+        ],
+        "channels": ["brand strategy", "corporate communications"],
+        "timeline": "Monitor on next scan refresh.",
+    },
+}
+
+
+def _crisis_action(severity_label: str | None, classification: str) -> dict:
+    """Recommended action chip per brand row."""
+    label_map = {
+        "critical": ("Crisis war room", "urgent"),
+        "high":     ("Investigate now", "high"),
+        "medium":   ("Triage this week", "medium"),
+        "low":      ("Monitor", "low"),
+        "none":     ("All clear", "positive"),
+    }
+    sev = severity_label or "none"
+    text, tone = label_map.get(sev, ("Monitor", "low"))
+    # Slightly different framing for competitors : their crisis is intelligence,
+    # not a fire to put out.
+    if classification == "competitor" and sev in ("high", "critical"):
+        return {"label": "Competitive opening", "tone": "positive"}
+    return {"label": text, "tone": tone}
+
+
+@router.get("/{scan_id}/crisis")
+async def get_crisis(scan_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
+    """Per-scan crisis snapshot. One row per (scan, brand) with severity
+    label + dominant category + top contexts + matching playbook."""
+    _check_scan_access(scan_id, user, db)
+
+    rows = (
+        db.query(ScanCrisisSignal)
+        .filter(ScanCrisisSignal.scan_id == scan_id)
+        .order_by(
+            ScanCrisisSignal.severity.desc().nullslast(),
+            ScanCrisisSignal.negative_count.desc(),
+        )
+        .all()
+    )
+
+    # Pick the focus brand explicitly for the hero row : when the scan
+    # has many my_brand entries (product lines) we want the master brand
+    # in the headline, not whichever variant happened to sort first.
+    scan_row = db.query(Scan).filter(Scan.id == scan_id).first()
+    focus_brand_id = str(scan_row.focus_brand_id) if (scan_row and scan_row.focus_brand_id) else None
+
+    target_row = None
+    target_candidate_by_mentions = None
+    competitor_rows = []
+    last_seen = None
+    by_severity: dict[str, int] = {"none": 0, "low": 0, "medium": 0, "high": 0, "critical": 0}
+    for r in rows:
+        if r.created_at and (last_seen is None or r.created_at > last_seen):
+            last_seen = r.created_at
+        item = {
+            "brand_id": str(r.brand_id),
+            "brand_name": r.brand_name,
+            "classification": r.brand_classification,
+            "negative_count": r.negative_count,
+            "positive_count": r.positive_count,
+            "neutral_count": r.neutral_count,
+            "total_mentions": r.total_mentions,
+            "negative_ratio": r.negative_ratio,
+            "severity": r.severity,
+            "severity_label": r.severity_label,
+            "dominant_category": r.dominant_category,
+            "category_breakdown": r.category_breakdown or {},
+            "top_contexts": r.top_contexts or [],
+            "topic_clusters": r.topic_clusters or [],
+            "shared_with": r.shared_with or [],
+            "recommended_action": _crisis_action(r.severity_label, r.brand_classification),
+            "playbook": _CRISIS_PLAYBOOKS.get(r.dominant_category or "other") if r.negative_count > 0 else None,
+        }
+        if r.severity_label:
+            by_severity[r.severity_label] = by_severity.get(r.severity_label, 0) + 1
+        if r.brand_classification == "my_brand":
+            if focus_brand_id and str(r.brand_id) == focus_brand_id:
+                target_row = item
+            # Fallback : the my_brand row with the most total mentions = the
+            # master brand most of the time (a master brand collects citations
+            # across all its product mentions via the brand resolver).
+            if target_candidate_by_mentions is None or (item["total_mentions"] or 0) > (target_candidate_by_mentions["total_mentions"] or 0):
+                target_candidate_by_mentions = item
+        else:
+            competitor_rows.append(item)
+    if target_row is None:
+        target_row = target_candidate_by_mentions
+
+    # Overall severity = the target's severity, or the worst severity
+    # across all rows if no target row exists.
+    overall_label = "none"
+    overall_severity = 0
+    if target_row:
+        overall_label = target_row["severity_label"] or "none"
+        overall_severity = target_row["severity"] or 0
+    elif rows:
+        overall_severity = rows[0].severity or 0
+        overall_label = rows[0].severity_label or "none"
+
+    return {
+        "scan_id": scan_id,
+        "target": target_row,
+        "competitors": competitor_rows,
+        "summary": {
+            "overall_severity": overall_severity,
+            "overall_label": overall_label,
+            "by_severity": by_severity,
+            "brand_count": len(rows),
+            "target_negative_count": target_row["negative_count"] if target_row else 0,
+            "competitor_in_crisis": sum(1 for c in competitor_rows if (c["severity"] or 0) >= 36),
+            "shared_crisis_topics": sum(len(s.get("shared_topics", [])) for s in (target_row["shared_with"] if target_row else [])),
+        },
+        "playbooks_library": _CRISIS_PLAYBOOKS,
+        "last_fetched": last_seen.isoformat() + "Z" if last_seen else None,
+    }
+
+
+@router.post("/{scan_id}/crisis/refresh")
+async def refresh_crisis(
+    scan_id: str,
+    reset: bool = True,
+    user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Enqueue a `build_crisis_radar` worker job. Free (no LLM) - pure
+    aggregation + keyword categorisation over brand_mentions[] already
+    in the DB. Completes in <2s on a 100-question scan."""
+    _check_scan_access(scan_id, user, db)
+    _create_job(db, scan_id, "build_crisis_radar", {"reset": bool(reset)})
+    db.commit()
+    return {"status": "enqueued", "scan_id": scan_id, "reset": bool(reset)}

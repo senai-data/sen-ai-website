@@ -75,3 +75,17 @@ async def startup():
 @app.get("/api/health")
 async def health():
     return {"status": "ok"}
+
+
+# S14.1 - public PDF endpoint for the methodology page. Same Astro-via-internal-HTTP
+# + weasyprint pattern as the per-scan compliance PDF, but no auth (the page is
+# public). Procurement / DPO reviewers download it without creating an account.
+@app.get("/api/methodology/pdf")
+async def methodology_pdf(lang: str = "en"):
+    from fastapi import HTTPException
+    from routers.scans import _render_astro_to_pdf
+    if lang not in ("en", "fr"):
+        raise HTTPException(400, "lang must be 'en' or 'fr'")
+    page_path = "/methodology" if lang == "en" else "/fr/methodology"
+    filename = "methodology-sen-ai.pdf" if lang == "en" else "methodologie-sen-ai.pdf"
+    return await _render_astro_to_pdf(page_path=page_path, cookies={}, filename=filename)

@@ -23,6 +23,7 @@ const upstreamCookie = [
 
 let scans: any[] = [];
 let activeClient: any = null;
+let activeOrgId: string | null = null;
 try {
   const clientsRes = await fetch('http://api:8000/api/clients/', {
     headers: { Cookie: upstreamCookie },
@@ -36,6 +37,15 @@ try {
       signal: AbortSignal.timeout(5000),
     });
     scans = scansRes.ok ? await scansRes.json() : [];
+  }
+  // S14.1 - need the org id to build the PDF download URL.
+  const orgsRes = await fetch('http://api:8000/api/organizations/', {
+    headers: { Cookie: upstreamCookie },
+    signal: AbortSignal.timeout(3000),
+  });
+  if (orgsRes.ok) {
+    const orgs = await orgsRes.json();
+    activeOrgId = (orgs.find((o: any) => o.is_active) || orgs[0])?.id || null;
   }
 } catch (_) {}
 
@@ -69,9 +79,18 @@ const totalScans = scans.length;
     <section class="bg-white rounded-xl shadow-sm p-6 mb-4 compliance-section">
       <div class="flex items-baseline justify-between mb-3 flex-wrap gap-2">
         <h2 class="section-title">Workspace identity</h2>
-        <button onclick="window.print()" class="screen-only text-xs px-3 py-1.5 rounded-lg bg-coral hover:bg-coral-dark text-white font-medium">
-          ⬇ Save this page as PDF
-        </button>
+        <div class="screen-only flex items-center gap-2">
+          {activeOrgId && (
+            <a
+              href={`/api/organizations/${activeOrgId}/compliance/pdf`}
+              download
+              class="text-xs px-3 py-1.5 rounded-lg bg-coral hover:bg-coral-dark text-white font-medium"
+            >&#8595; Download PDF</a>
+          )}
+          <button onclick="window.print()" class="text-xs px-3 py-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 text-charcoal-dark">
+            Browser print
+          </button>
+        </div>
       </div>
       <table class="kv-table">
         <tbody>

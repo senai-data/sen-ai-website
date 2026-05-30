@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Cookie, Depends, HTTPException, Response
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response
 from pydantic import BaseModel
 from sqlalchemy import cast, func, Float, Integer
 from sqlalchemy.orm import Session
@@ -1043,3 +1043,42 @@ async def workspaces_overview(
             "with_crisis": with_crisis,
         },
     }
+
+
+@router.get("/{org_id}/compliance/pdf")
+async def org_compliance_pdf(
+    org_id: str,
+    request: Request,
+    user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """S14.1 - server-side rendered PDF of the org-level compliance hub
+    (audit log + DPIA template + sub-processors + governance). Same
+    Astro-via-internal-HTTP + weasyprint pattern as the per-scan PDF."""
+    try:
+        org_uuid = uuid.UUID(org_id)
+    except (ValueError, TypeError):
+        raise HTTPException(400, "Malformed organization_id")
+    org = db.query(Organization).filter(Organization.id == org_uuid).first()
+    if not org:
+        raise HTTPException(404, "Organization not found")
+    membership = (
+        db.query(OrganizationUser)
+        .filter(
+            OrganizationUser.organization_id == org.id,
+            OrganizationUser.user_id == user.id,
+        )
+        .first()
+    )
+    if not membership:
+        raise HTTPException(403, "You are not a member of this organization")
+    from routers.scans import _render_astro_to_pdf
+    cookies = {
+        k: v for k, v in request.cookies.items()
+        if k in ("token", "active_organization_id", "active_client_id")
+    }
+    return await _render_astro_to_pdf(
+        page_path="/app/compliance",
+        cookies=cookies,
+        filename=f"compliance-org-{str(org.id)[:8]}.pdf",
+    )

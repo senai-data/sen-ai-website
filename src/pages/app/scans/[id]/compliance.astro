@@ -83,9 +83,16 @@ const runsDisplay = runsDepth.configured || runsDepth.observed_max || 1;
           requirements under the EU AI Act (applicable 2 August 2026).
         </p>
       </div>
-      <button onclick="window.print()" class="ml-4 px-4 py-2 rounded-lg bg-coral hover:bg-coral-dark text-white text-sm font-medium shrink-0">
-        ⬇  Save as PDF (browser print)
-      </button>
+      <div class="ml-4 flex items-center gap-2 shrink-0">
+        <a
+          href={`/api/scans/${scanId}/compliance/pdf`}
+          download
+          class="px-4 py-2 rounded-lg bg-coral hover:bg-coral-dark text-white text-sm font-medium"
+        >&#8595;  Download PDF</a>
+        <button onclick="window.print()" class="px-3 py-2 rounded-lg border border-gray-200 text-charcoal-dark text-sm hover:bg-gray-50">
+          Browser print
+        </button>
+      </div>
     </div>
 
     {!data && (

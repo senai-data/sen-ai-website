@@ -19,9 +19,12 @@ const lastUpdated = "2026-05-29";
   <Nav />
   <main class="pt-24 pb-20 px-4">
     <div class="max-w-3xl mx-auto prose prose-charcoal">
-      <div class="flex items-center justify-between mb-2 not-prose">
+      <div class="flex items-center justify-between mb-2 not-prose flex-wrap gap-2">
         <h1 class="text-3xl sm:text-4xl font-bold text-charcoal-dark">Methodology</h1>
-        <a href="/fr/methodology" class="text-xs text-charcoal-light hover:text-coral underline">Français &rarr;</a>
+        <div class="flex items-center gap-3 text-xs">
+          <a href="/api/methodology/pdf?lang=en" download class="px-3 py-1.5 rounded-lg bg-coral hover:bg-coral-dark text-white font-medium">&#8595; Download PDF</a>
+          <a href="/fr/methodology" class="text-charcoal-light hover:text-coral underline">Français &rarr;</a>
+        </div>
       </div>
       <p class="text-sm text-charcoal-light mb-10">Last updated : {lastUpdated}</p>
 

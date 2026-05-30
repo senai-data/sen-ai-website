@@ -4835,6 +4835,67 @@ async def refresh_crisis(
 # audit trail + transparency satisfy the procurement asks that block EU
 # enterprise deals.
 
+async def _render_astro_to_pdf(page_path: str, cookies: dict, filename: str):
+    """Shared helper for S14.1 server-side PDF compliance endpoints.
+
+    Fetches the SSR'd HTML from astro over the docker internal network
+    (so we inherit the same auth + data context the in-app page sees),
+    runs it through weasyprint, returns a FastAPI Response with a PDF
+    payload + attachment headers.
+    """
+    import httpx
+    from fastapi.responses import Response as _PdfResponse
+    try:
+        async with httpx.AsyncClient(timeout=45.0) as client:
+            r = await client.get(f"http://astro:4321{page_path}", cookies=cookies)
+        if r.status_code != 200:
+            raise HTTPException(
+                502,
+                f"Astro returned {r.status_code} while rendering {page_path} for PDF",
+            )
+        html = r.text
+    except httpx.HTTPError as e:
+        raise HTTPException(502, f"Failed to fetch {page_path} for PDF: {e}")
+    try:
+        from weasyprint import HTML as _WeasyHTML
+        pdf_bytes = _WeasyHTML(
+            string=html,
+            base_url=f"https://sen-ai.fr{page_path}",
+        ).write_pdf()
+    except Exception as e:
+        logger.exception("weasyprint rendering failed")
+        raise HTTPException(500, f"PDF rendering failed: {e}")
+    return _PdfResponse(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/{scan_id}/compliance/pdf")
+async def compliance_pdf(
+    scan_id: str,
+    request: Request,
+    user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """S14.1 - server-side rendered PDF version of the per-scan AI Act
+    compliance report. The browser-print path stays available for
+    customers who prefer the in-browser preview. This endpoint replicates
+    the same visual report deterministically so auditors can attach it
+    to a procurement file without rendering quirks across browsers."""
+    _check_scan_access(scan_id, user, db)
+    cookies = {
+        k: v for k, v in request.cookies.items()
+        if k in ("token", "active_organization_id", "active_client_id")
+    }
+    return await _render_astro_to_pdf(
+        page_path=f"/app/scans/{scan_id}/compliance",
+        cookies=cookies,
+        filename=f"compliance-scan-{scan_id[:8]}.pdf",
+    )
+
+
 @router.get("/{scan_id}/compliance-data")
 async def get_compliance_data(scan_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
     """Aggregated payload for the per-scan AI Act compliance report.

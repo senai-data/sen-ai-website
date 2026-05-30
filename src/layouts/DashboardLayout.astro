@@ -415,9 +415,17 @@ const icons = {
               </div>
             </div>
           )}
-          {/* Sprint 15.4 - bulk add link, only when the active org is an
-              agency (owner/admin role + non-personal). For solo brand
-              owners on their personal org this is hidden noise. */}
+          {/* Sprint 15.4 - cross-workspace overview (any agency member can see
+              it ; bulk add stays gated to owner/admin since it mutates). */}
+          {!activeOrg.is_personal && (
+            <a
+              href="/app/agency/overview"
+              class="mt-2 flex items-center gap-2 px-2 py-1 rounded-md text-[11px] text-gray-400 hover:text-white hover:bg-white/5 transition-colors"
+            >
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7h4v4H3V7zm6 0h4v4H9V7zm6 0h4v4h-4V7zM3 13h4v4H3v-4zm6 0h4v4H9v-4zm6 0h4v4h-4v-4z"/></svg>
+              <span>Workspace overview</span>
+            </a>
+          )}
           {(activeOrg.role === 'owner' || activeOrg.role === 'admin') && !activeOrg.is_personal && (
             <a
               href="/app/agency/bulk"

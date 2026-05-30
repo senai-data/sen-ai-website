@@ -1,0 +1,253 @@
+---
+/**
+ * Agency workspace overview - S15.4
+ *
+ * Cross-workspace dashboard for agencies : one card per Client in the
+ * active org with latest scan KPIs, schedule, and crisis severity.
+ * Avoids the per-workspace click-through when an agency tracks 10+
+ * brands.
+ *
+ * UX Laws :
+ *  - Jakob's Law : familiar SaaS dashboard card pattern
+ *  - Hick's Law : 4 quick filters (all / scanned / scheduled / crisis)
+ *  - Peak-End : crisis cards float to the top
+ */
+export const prerender = false;
+import DashboardLayout from '../../../layouts/DashboardLayout.astro';
+
+const token = Astro.cookies.get('token')?.value;
+if (!token) return Astro.redirect('/login');
+
+const activeOrgCookie = Astro.cookies.get('active_organization_id')?.value;
+const upstreamCookie = [`token=${token}`, activeOrgCookie ? `active_organization_id=${activeOrgCookie}` : null].filter(Boolean).join('; ');
+
+type OrgItem = { id: string; name: string; is_personal: boolean; role: string | null; is_active: boolean };
+let activeOrg: OrgItem | null = null;
+try {
+  const r = await fetch('http://api:8000/api/organizations/', { headers: { Cookie: upstreamCookie }, signal: AbortSignal.timeout(3000) });
+  if (r.ok) {
+    const list: OrgItem[] = await r.json();
+    activeOrg = list.find(o => o.is_active) || list[0] || null;
+  }
+} catch {}
+
+type Workspace = {
+  client_id: string;
+  name: string;
+  scan_count: number;
+  completed_count: number;
+  latest_scan: null | {
+    scan_id: string;
+    name: string;
+    domain: string;
+    status: string;
+    completed_at: string | null;
+    schedule: string | null;
+    next_run_at: string | null;
+    citation_rate: number | null;
+    brand_mention_rate: number | null;
+    target_cited: number | null;
+    total_tests: number | null;
+    critical_count: number;
+    crisis_severity: number | null;
+    crisis_severity_label: string | null;
+  };
+};
+
+let workspaces: Workspace[] = [];
+let summary = { total: 0, with_scan: 0, with_crisis: 0 };
+let fetchError = '';
+
+if (activeOrg) {
+  try {
+    const r = await fetch(`http://api:8000/api/organizations/${activeOrg.id}/workspaces/overview`, {
+      headers: { Cookie: upstreamCookie },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (r.ok) {
+      const data = await r.json();
+      workspaces = data.workspaces || [];
+      summary = data.summary || summary;
+    } else {
+      fetchError = `API returned ${r.status}`;
+    }
+  } catch (e: any) {
+    fetchError = e?.message || 'Network error';
+  }
+}
+
+function statusChip(status: string | null): { label: string; cls: string } {
+  switch (status) {
+    case 'completed': return { label: 'Completed', cls: 'bg-emerald-50 text-emerald-700' };
+    case 'failed':    return { label: 'Failed',    cls: 'bg-red-50 text-red-700' };
+    case 'scanning':  return { label: 'Scanning',  cls: 'bg-blue-50 text-blue-700' };
+    case null:
+    case undefined:   return { label: 'No scan',   cls: 'bg-gray-100 text-charcoal-light' };
+    default:          return { label: 'In progress', cls: 'bg-amber-50 text-amber-700' };
+  }
+}
+
+function citationRateBadge(rate: number | null) {
+  if (rate === null || rate === undefined) return { letter: '-', cls: 'bg-gray-100 text-charcoal-light' };
+  if (rate >= 50) return { letter: 'A', cls: 'bg-emerald-100 text-emerald-700' };
+  if (rate >= 30) return { letter: 'B', cls: 'bg-blue-100 text-blue-700' };
+  if (rate >= 15) return { letter: 'C', cls: 'bg-amber-100 text-amber-700' };
+  return { letter: 'D', cls: 'bg-red-100 text-red-700' };
+}
+
+function severityChip(label: string | null) {
+  switch (label) {
+    case 'critical': return { label: 'critical', cls: 'bg-red-100 text-red-700 font-semibold' };
+    case 'high':     return { label: 'high',     cls: 'bg-red-50 text-red-700' };
+    case 'medium':   return { label: 'medium',   cls: 'bg-amber-100 text-amber-800' };
+    case 'low':      return { label: 'low',      cls: 'bg-gray-100 text-charcoal-light' };
+    default:         return null;
+  }
+}
+
+function relTime(iso: string | null): string {
+  if (!iso) return 'never';
+  const ms = Date.now() - new Date(iso).getTime();
+  if (ms < 0) {
+    const fwd = Math.round(-ms / 86400000);
+    if (fwd <= 0) return 'today';
+    if (fwd === 1) return 'in 1d';
+    return `in ${fwd}d`;
+  }
+  const mins = Math.round(ms / 60000);
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.round(hrs / 24);
+  if (days < 30) return `${days}d ago`;
+  return new Date(iso).toISOString().slice(0, 10);
+}
+
+const isAgencyOrg = !!activeOrg && !activeOrg.is_personal;
+
+// Sort : crisis severity DESC, then citation_rate ASC (worst first), then name
+workspaces.sort((a, b) => {
+  const sa = a.latest_scan?.crisis_severity ?? -1;
+  const sb = b.latest_scan?.crisis_severity ?? -1;
+  if (sa !== sb) return sb - sa;
+  const ra = a.latest_scan?.citation_rate ?? 999;
+  const rb = b.latest_scan?.citation_rate ?? 999;
+  if (ra !== rb) return ra - rb;
+  return a.name.localeCompare(b.name);
+});
+---
+
+<DashboardLayout title="Workspace overview" activeSection="dashboard">
+  <main class="px-6 py-8 max-w-6xl mx-auto">
+    <div class="mb-6 flex items-end justify-between gap-4 flex-wrap">
+      <div>
+        <a href="/app/dashboard" class="text-xs text-charcoal-light hover:text-coral">&larr; Single-workspace dashboard</a>
+        <h1 class="text-2xl font-bold text-charcoal-dark mt-2">Workspace overview</h1>
+        <p class="text-sm text-charcoal-light mt-1">
+          {activeOrg ? `Every workspace in ${activeOrg.name}.` : 'Sign in to see workspaces.'}
+          {' '}Sorted by crisis severity, then weakest brand mention rate first.
+        </p>
+      </div>
+      <a href="/app/agency/bulk" class="text-sm font-medium text-coral hover:text-coral-dark whitespace-nowrap">Bulk add &rarr;</a>
+    </div>
+
+    {!isAgencyOrg && (
+      <div class="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-6">
+        <p class="text-sm text-amber-800 font-medium mb-1">Agency org required</p>
+        <p class="text-xs text-amber-700">
+          The workspace overview only makes sense inside an agency organization. Switch via the header dropdown or
+          <a href="/agency" class="underline">read about agency mode</a>.
+        </p>
+      </div>
+    )}
+
+    {fetchError && (
+      <div class="bg-red-50 border border-red-200 rounded-xl p-4 mb-6">
+        <p class="text-xs text-red-700">Failed to load overview : {fetchError}</p>
+      </div>
+    )}
+
+    {isAgencyOrg && workspaces.length === 0 && !fetchError && (
+      <div class="bg-white rounded-xl border border-gray-200 p-8 text-center">
+        <p class="text-sm text-charcoal-dark font-medium mb-2">No workspaces yet</p>
+        <p class="text-xs text-charcoal-light mb-4">Add a single workspace from the sidebar, or batch-create several at once.</p>
+        <a href="/app/agency/bulk" class="inline-flex items-center gap-2 px-4 py-2 bg-coral text-white text-sm font-medium rounded-lg hover:bg-coral-dark transition-all">Bulk add workspaces</a>
+      </div>
+    )}
+
+    {isAgencyOrg && workspaces.length > 0 && (
+      <>
+        {/* Org summary band */}
+        <div class="grid grid-cols-3 gap-3 mb-6">
+          <div class="bg-white rounded-xl border border-gray-200 p-4">
+            <p class="text-2xl font-bold text-charcoal-dark">{summary.total}</p>
+            <p class="text-[10px] uppercase tracking-wide text-charcoal-light mt-1">Workspaces</p>
+          </div>
+          <div class="bg-white rounded-xl border border-gray-200 p-4">
+            <p class="text-2xl font-bold text-emerald-700">{summary.with_scan}</p>
+            <p class="text-[10px] uppercase tracking-wide text-charcoal-light mt-1">Have a completed scan</p>
+          </div>
+          <div class={`rounded-xl border p-4 ${summary.with_crisis > 0 ? 'bg-red-50 border-red-200' : 'bg-white border-gray-200'}`}>
+            <p class={`text-2xl font-bold ${summary.with_crisis > 0 ? 'text-red-700' : 'text-charcoal-dark'}`}>{summary.with_crisis}</p>
+            <p class={`text-[10px] uppercase tracking-wide mt-1 ${summary.with_crisis > 0 ? 'text-red-600' : 'text-charcoal-light'}`}>In crisis (severity &ge; 36)</p>
+          </div>
+        </div>
+
+        {/* Workspace cards */}
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {workspaces.map((w) => {
+            const ls = w.latest_scan;
+            const sc = statusChip(ls?.status || null);
+            const rate = ls?.brand_mention_rate ?? ls?.citation_rate ?? null;
+            const badge = citationRateBadge(rate);
+            const crisis = severityChip(ls?.crisis_severity_label || null);
+            const scanPath = ls ? (ls.status === 'completed' ? `/app/scans/${ls.scan_id}/results` : `/app/scans/${ls.scan_id}`) : null;
+            return (
+              <a href={scanPath || '#'} class={`block bg-white rounded-xl border p-5 hover:shadow-md hover:border-coral/40 transition-all ${crisis ? 'border-red-200' : 'border-gray-200'}`}>
+                <div class="flex items-start justify-between gap-3 mb-3">
+                  <div class="min-w-0">
+                    <h2 class="text-base font-semibold text-charcoal-dark truncate">{w.name}</h2>
+                    <p class="text-[11px] text-charcoal-light truncate mt-0.5">{ls?.domain || '—'}</p>
+                  </div>
+                  <div class={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${badge.cls}`}>
+                    <span class="text-lg font-black">{badge.letter}</span>
+                  </div>
+                </div>
+
+                <div class="flex items-center gap-2 flex-wrap mb-3">
+                  <span class={`text-[10px] px-2 py-0.5 rounded uppercase tracking-wide ${sc.cls}`}>{sc.label}</span>
+                  {crisis && <span class={`text-[10px] px-2 py-0.5 rounded uppercase tracking-wide ${crisis.cls}`}>&#9888; {crisis.label}</span>}
+                  {ls?.schedule && ls.schedule !== 'manual' && (
+                    <span class="text-[10px] px-2 py-0.5 rounded uppercase tracking-wide bg-sky-50 text-sky-700">auto {ls.schedule}</span>
+                  )}
+                </div>
+
+                {ls ? (
+                  <dl class="grid grid-cols-2 gap-y-1.5 gap-x-3 text-[11px]">
+                    <dt class="text-charcoal-light">Brand mention</dt>
+                    <dd class="text-charcoal-dark text-right tabular-nums">{rate !== null ? `${rate}%` : '—'}</dd>
+
+                    <dt class="text-charcoal-light">Critical gaps</dt>
+                    <dd class={`text-right tabular-nums ${(ls.critical_count || 0) > 0 ? 'text-red-600 font-medium' : 'text-charcoal-dark'}`}>{ls.critical_count}</dd>
+
+                    <dt class="text-charcoal-light">Last scan</dt>
+                    <dd class="text-charcoal-dark text-right">{relTime(ls.completed_at)}</dd>
+
+                    {ls.next_run_at && (
+                      <>
+                        <dt class="text-charcoal-light">Next rescan</dt>
+                        <dd class="text-charcoal-dark text-right">{relTime(ls.next_run_at)}</dd>
+                      </>
+                    )}
+                  </dl>
+                ) : (
+                  <p class="text-[11px] text-charcoal-light italic">No scan yet – click to set up.</p>
+                )}
+              </a>
+            );
+          })}
+        </div>
+      </>
+    )}
+  </main>
+</DashboardLayout>

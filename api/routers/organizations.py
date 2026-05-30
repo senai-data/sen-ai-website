@@ -894,3 +894,152 @@ async def bulk_create_clients_in_org(
             "errors": len(errors),
         },
     }
+
+
+@router.get("/{org_id}/workspaces/overview")
+async def workspaces_overview(
+    org_id: str,
+    user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """S15.4 - cross-workspace dashboard for agencies. Returns one row per
+    Client in the org with the latest completed scan summary + auto-rescan
+    schedule + focus-brand crisis severity. Any org member (owner / admin /
+    member) can read this ; it's the agency's "all-in-one" view that
+    replaces visiting each workspace one by one.
+    """
+    try:
+        org_uuid = uuid.UUID(org_id)
+    except (ValueError, TypeError):
+        raise HTTPException(400, "Malformed organization_id")
+    org = db.query(Organization).filter(Organization.id == org_uuid).first()
+    if not org:
+        raise HTTPException(404, "Organization not found")
+    membership = (
+        db.query(OrganizationUser)
+        .filter(
+            OrganizationUser.organization_id == org.id,
+            OrganizationUser.user_id == user.id,
+        )
+        .first()
+    )
+    if not membership:
+        raise HTTPException(403, "You are not a member of this organization")
+
+    clients = (
+        db.query(Client)
+        .filter(Client.organization_id == org.id)
+        .order_by(Client.created_at.asc())
+        .all()
+    )
+    if not clients:
+        return {
+            "organization": {"id": str(org.id), "name": org.name},
+            "workspaces": [],
+            "summary": {"total": 0, "with_scan": 0, "with_crisis": 0},
+        }
+
+    cids = [str(c.id) for c in clients]
+    from sqlalchemy import text as _text
+
+    # Latest scan per client (any status), so an in-flight rescan still shows up.
+    latest_rows = db.execute(_text(
+        """
+        SELECT DISTINCT ON (s.client_id)
+               s.client_id::text   AS cid,
+               s.id::text          AS scan_id,
+               s.name              AS scan_name,
+               s.domain,
+               s.status,
+               s.schedule,
+               s.next_run_at,
+               s.completed_at,
+               s.summary,
+               s.focus_brand_id::text AS focus_brand_id
+          FROM scans s
+         WHERE s.client_id::text = ANY(:cids)
+         ORDER BY s.client_id, s.completed_at DESC NULLS LAST, s.created_at DESC
+        """
+    ), {"cids": cids}).fetchall()
+    latest_by_client = {r.cid: r for r in latest_rows}
+
+    count_rows = db.execute(_text(
+        """
+        SELECT client_id::text AS cid,
+               COUNT(*) AS total,
+               COUNT(*) FILTER (WHERE status='completed') AS completed_count
+          FROM scans
+         WHERE client_id::text = ANY(:cids)
+         GROUP BY client_id
+        """
+    ), {"cids": cids}).fetchall()
+    counts_by_client = {r.cid: (r.total or 0, r.completed_count or 0) for r in count_rows}
+
+    # Focus-brand crisis severity for the latest scan only - keeps the
+    # response shape narrow and avoids joining the full lineage.
+    latest_scan_ids = [r.scan_id for r in latest_rows if r.scan_id]
+    crisis_by_scan: dict[str, tuple] = {}
+    if latest_scan_ids:
+        crisis_rows = db.execute(_text(
+            """
+            SELECT scs.scan_id::text AS sid,
+                   scs.severity,
+                   scs.severity_label
+              FROM scan_crisis_signals scs
+              JOIN scans s ON s.id = scs.scan_id
+             WHERE scs.scan_id::text = ANY(:sids)
+               AND s.focus_brand_id = scs.brand_id
+            """
+        ), {"sids": latest_scan_ids}).fetchall()
+        crisis_by_scan = {r.sid: (r.severity, r.severity_label) for r in crisis_rows}
+
+    workspaces = []
+    with_scan = 0
+    with_crisis = 0
+    for c in clients:
+        cid = str(c.id)
+        total, completed_count = counts_by_client.get(cid, (0, 0))
+        latest = latest_by_client.get(cid)
+        ws = {
+            "client_id": cid,
+            "name": c.name,
+            "scan_count": total,
+            "completed_count": completed_count,
+            "latest_scan": None,
+        }
+        if latest is not None:
+            summary = latest.summary or {}
+            opp = (summary.get("opportunities") or {}) if isinstance(summary, dict) else {}
+            critical_count = (opp.get("critique") if isinstance(opp, dict) else None) or 0
+            sev, sev_label = crisis_by_scan.get(latest.scan_id, (None, None))
+            if sev_label and sev_label not in ("none", None) and (sev or 0) >= 36:
+                with_crisis += 1
+            if latest.status == "completed":
+                with_scan += 1
+            ws["latest_scan"] = {
+                "scan_id": latest.scan_id,
+                "name": latest.scan_name,
+                "domain": latest.domain,
+                "status": latest.status,
+                "completed_at": latest.completed_at.isoformat() + "Z" if latest.completed_at else None,
+                "schedule": latest.schedule,
+                "next_run_at": latest.next_run_at.isoformat() + "Z" if latest.next_run_at else None,
+                "citation_rate": summary.get("citation_rate") if isinstance(summary, dict) else None,
+                "brand_mention_rate": summary.get("brand_mention_rate") if isinstance(summary, dict) else None,
+                "target_cited": summary.get("target_cited") if isinstance(summary, dict) else None,
+                "total_tests": summary.get("total_tests") if isinstance(summary, dict) else None,
+                "critical_count": critical_count,
+                "crisis_severity": sev,
+                "crisis_severity_label": sev_label,
+            }
+        workspaces.append(ws)
+
+    return {
+        "organization": {"id": str(org.id), "name": org.name, "is_personal": org.is_personal},
+        "workspaces": workspaces,
+        "summary": {
+            "total": len(workspaces),
+            "with_scan": with_scan,
+            "with_crisis": with_crisis,
+        },
+    }

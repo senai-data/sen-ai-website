@@ -8,6 +8,7 @@
  */
 export const prerender = false;
 import DashboardLayout from '../../layouts/DashboardLayout.astro';
+import { SUBPROCESSORS, CHANGELOG, changelogKindLabel, changelogKindClass } from '../../data/subprocessors';
 
 const token = Astro.cookies.get('token')?.value;
 if (!token) return Astro.redirect('/login');
@@ -101,42 +102,14 @@ const totalScans = scans.length;
           </tr>
         </thead>
         <tbody>
-          <tr>
-            <td><strong>Hetzner Online GmbH</strong></td>
-            <td>Application hosting, PostgreSQL database, file storage</td>
-            <td>Falkenstein, Germany (EU)</td>
-            <td>EU controller, no transfer</td>
-          </tr>
-          <tr>
-            <td><strong>OpenAI, L.L.C.</strong></td>
-            <td>AI provider (ChatGPT) - read-only inference</td>
-            <td>United States</td>
-            <td>EU-US Data Privacy Framework + SCC</td>
-          </tr>
-          <tr>
-            <td><strong>Google Ireland Ltd</strong></td>
-            <td>AI provider (Gemini) - read-only inference</td>
-            <td>European Union (Belgium / Netherlands)</td>
-            <td>EU controller, no transfer</td>
-          </tr>
-          <tr>
-            <td><strong>Anthropic PBC</strong></td>
-            <td>AI provider (Claude) - read-only inference</td>
-            <td>United States</td>
-            <td>EU-US Data Privacy Framework + SCC</td>
-          </tr>
-          <tr>
-            <td><strong>Stripe Payments Europe</strong></td>
-            <td>Billing &amp; payment processing</td>
-            <td>European Union (Ireland)</td>
-            <td>EU controller, no transfer</td>
-          </tr>
-          <tr>
-            <td><strong>Babbar Technologies</strong></td>
-            <td>Backlink &amp; domain authority enrichment</td>
-            <td>European Union (France)</td>
-            <td>EU controller, no transfer</td>
-          </tr>
+          {SUBPROCESSORS.filter(sp => sp.status === 'active').map(sp => (
+            <tr>
+              <td><strong>{sp.legal_entity}</strong></td>
+              <td>{sp.purpose}</td>
+              <td>{sp.hosting_region}</td>
+              <td>{sp.transfer_mechanism}</td>
+            </tr>
+          ))}
         </tbody>
       </table>
       <p class="section-note">
@@ -144,6 +117,35 @@ const totalScans = scans.length;
         No personal data of your end users is transmitted to any AI provider. Full
         disclosure in our <a href="/privacy" target="_blank">Privacy Policy</a>.
       </p>
+
+      {/* Sprint S15.4 - sub-processors changelog. Mirrors the git log
+          on src/data/subprocessors.ts but in a user-visible form so
+          auditors can verify "Mistral SAS added 2026-XX-YY" without
+          reading our repo. */}
+      <h3 class="text-[13px] font-semibold text-charcoal-dark mt-6 mb-2">Sub-processors changelog</h3>
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Change</th>
+            <th>Sub-processor</th>
+            <th>Notes</th>
+          </tr>
+        </thead>
+        <tbody>
+          {CHANGELOG.length === 0 && (
+            <tr><td colspan="4" class="text-charcoal-light italic">No changes recorded yet.</td></tr>
+          )}
+          {CHANGELOG.map(c => (
+            <tr>
+              <td class="whitespace-nowrap tabular-nums">{c.date}</td>
+              <td><span class={`inline-block text-[10px] px-2 py-0.5 rounded uppercase ${changelogKindClass(c.kind)}`}>{changelogKindLabel(c.kind)}</span></td>
+              <td><strong>{c.subprocessor_id === 'all' ? '(all)' : (SUBPROCESSORS.find(s => s.id === c.subprocessor_id)?.legal_entity || c.subprocessor_id)}</strong></td>
+              <td>{c.summary}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </section>
 
     {/* Data governance */}

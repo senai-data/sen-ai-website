@@ -10,6 +10,7 @@
 import BaseLayout from '../layouts/BaseLayout.astro';
 import Nav from '../components/Nav.astro';
 import Footer from '../components/Footer.astro';
+import { SUBPROCESSORS, CHANGELOG, changelogKindLabel, changelogKindClass } from '../data/subprocessors';
 
 const lastUpdated = "2026-05-29";
 ---
@@ -178,6 +179,37 @@ const lastUpdated = "2026-05-29";
           Logged-in customers can download a per-scan transparency report and an org-level DPIA
           template from the in-app Compliance section.
         </p>
+
+        <h3 class="text-base font-semibold text-charcoal-dark mt-6 mb-2">8.1 Sub-processors changelog</h3>
+        <p class="text-charcoal-light leading-relaxed mb-3">
+          History of sub-processor additions, sunsets, and scope changes since the initial AI Act
+          disclosure. Updated in lock-step with the in-app compliance pack.
+        </p>
+        <div class="not-prose overflow-x-auto rounded-xl border border-gray-200">
+          <table class="w-full text-[12px]">
+            <thead class="bg-gray-50 text-charcoal-light uppercase text-[10px] tracking-wide">
+              <tr>
+                <th class="text-left px-3 py-2 font-semibold">Date</th>
+                <th class="text-left px-3 py-2 font-semibold">Change</th>
+                <th class="text-left px-3 py-2 font-semibold">Sub-processor</th>
+                <th class="text-left px-3 py-2 font-semibold">Notes</th>
+              </tr>
+            </thead>
+            <tbody>
+              {CHANGELOG.length === 0 && (
+                <tr><td colspan="4" class="px-3 py-3 text-charcoal-light italic">No changes recorded yet.</td></tr>
+              )}
+              {CHANGELOG.map((c) => (
+                <tr class="border-t border-gray-100">
+                  <td class="px-3 py-2 whitespace-nowrap tabular-nums text-charcoal-dark">{c.date}</td>
+                  <td class="px-3 py-2"><span class={`inline-block text-[10px] px-2 py-0.5 rounded uppercase ${changelogKindClass(c.kind)}`}>{changelogKindLabel(c.kind)}</span></td>
+                  <td class="px-3 py-2 text-charcoal-dark"><strong>{c.subprocessor_id === 'all' ? '(all)' : (SUBPROCESSORS.find(s => s.id === c.subprocessor_id)?.legal_entity || c.subprocessor_id)}</strong></td>
+                  <td class="px-3 py-2 text-charcoal-light">{c.summary}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </section>
 
       <section class="mb-10">

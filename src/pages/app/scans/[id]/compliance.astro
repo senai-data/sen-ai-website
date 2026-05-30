@@ -48,12 +48,24 @@ function fmtDuration(s?: number): string {
   return `${h}h ${m}min`;
 }
 
-const PROVIDER_INFO: Record<string, { name: string; sub_processor: string; model_family: string; region: string }> = {
-  openai: { name: 'OpenAI ChatGPT', sub_processor: 'OpenAI, L.L.C.', model_family: 'GPT-5.4-mini / GPT-5.4', region: 'United States (DPF certified)' },
-  gemini: { name: 'Google Gemini', sub_processor: 'Google Ireland Ltd (EU controller)', model_family: 'Gemini 2.5 Flash', region: 'European Union (Belgium / Netherlands)' },
-  claude: { name: 'Anthropic Claude', sub_processor: 'Anthropic PBC', model_family: 'Claude Haiku 4.5 / Sonnet 4.6', region: 'United States (DPF certified)' },
-  mistral: { name: 'Mistral Le Chat', sub_processor: 'Mistral AI S.A.S.', model_family: 'Mistral Large', region: 'European Union (France)' },
+import { SUBPROCESSORS, CHANGELOG, getSubprocessor, changelogKindLabel, changelogKindClass } from '../../../../data/subprocessors';
+
+// Provider-key (as emitted by the LLM runner) -> sub-processor id. Lets
+// the per-scan compliance table look up the centralised registry rather
+// than maintaining its own copy. Add an entry here when a new provider
+// goes live AND a matching SUBPROCESSORS row in src/data/subprocessors.ts.
+const PROVIDER_TO_SUBPROCESSOR: Record<string, string> = {
+  openai: 'openai',
+  gemini: 'gemini',
+  claude: 'anthropic',
+  mistral: 'mistral',
 };
+function providerInfo(providerKey: string): { name: string; sub_processor: string; model_family: string; region: string } {
+  const subId = PROVIDER_TO_SUBPROCESSOR[String(providerKey).toLowerCase()];
+  const sp = subId ? getSubprocessor(subId) : undefined;
+  if (!sp) return { name: providerKey, sub_processor: '-', model_family: '-', region: '-' };
+  return { name: sp.name, sub_processor: sp.legal_entity, model_family: sp.model_family || '-', region: sp.hosting_region };
+}
 
 const reportDate = new Date().toLocaleDateString('en-GB', { year: 'numeric', month: 'long', day: '2-digit' });
 const runsDisplay = runsDepth.configured || runsDepth.observed_max || 1;
@@ -150,7 +162,7 @@ const runsDisplay = runsDepth.configured || runsDepth.observed_max || 1;
                 <tr><td colspan="6" class="text-charcoal-light italic">No provider responses recorded.</td></tr>
               )}
               {providers.map((p: any) => {
-                const info = PROVIDER_INFO[String(p.provider).toLowerCase()] || { name: p.provider, sub_processor: '-', model_family: '-', region: '-' };
+                const info = providerInfo(String(p.provider));
                 return (
                   <tr>
                     <td>{info.name}</td>
@@ -167,9 +179,38 @@ const runsDisplay = runsDepth.configured || runsDepth.observed_max || 1;
           <p class="section-note">
             Sub-processor data-protection certifications : OpenAI &amp; Anthropic operate under the
             EU-US Data Privacy Framework. Google Gemini is contracted through Google Ireland Ltd
-            (EU controller). Mistral is EU-based (France). Full sub-processor list available
-            in our public <a href="/privacy" target="_blank">Privacy Policy</a>.
+            (EU controller). Mistral is EU-based (France). Full sub-processor list + changelog at
+            <a href="/app/compliance" target="_blank">organisation compliance hub</a>.
           </p>
+
+          <h3 class="text-[13px] font-semibold text-charcoal-dark mt-6 mb-2">3.1 Sub-processors changelog (audit trail)</h3>
+          <p class="section-prose">
+            History of sub-processor additions, sunsets, and scope changes since
+            sen-ai.fr&apos;s initial AI Act disclosure. Newest first.
+          </p>
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Change</th>
+                <th>Sub-processor</th>
+                <th>Notes</th>
+              </tr>
+            </thead>
+            <tbody>
+              {CHANGELOG.length === 0 && (
+                <tr><td colspan="4" class="text-charcoal-light italic">No changes recorded yet.</td></tr>
+              )}
+              {CHANGELOG.map((c) => (
+                <tr>
+                  <td class="whitespace-nowrap tabular-nums">{c.date}</td>
+                  <td><span class={`inline-block text-[10px] px-2 py-0.5 rounded uppercase ${changelogKindClass(c.kind)}`}>{changelogKindLabel(c.kind)}</span></td>
+                  <td><strong>{c.subprocessor_id === 'all' ? '(all)' : (SUBPROCESSORS.find(s => s.id === c.subprocessor_id)?.legal_entity || c.subprocessor_id)}</strong></td>
+                  <td>{c.summary}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </section>
 
         {/* §4 Methodology */}

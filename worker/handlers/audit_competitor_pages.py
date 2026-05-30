@@ -31,6 +31,7 @@ from sqlalchemy import text as _text
 from sqlalchemy.orm import Session
 
 from adapters.geo_pattern_analyzer import analyze_page
+from config import settings
 from adapters.page_fetcher import fetch_page
 from adapters.schema_extractor import extract as extract_schemas
 from adapters.schema_generator import detect_page_type, expected_schemas
@@ -484,6 +485,26 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
             time.sleep(PAGE_DELAY_SECONDS)
 
     db.commit()
+
+    # Sprint 7.2 - LLM recommendation card. After we've audited the
+    # competitor pages we have enough delta vs the user's own pages to
+    # ask Haiku for 3 specific "what to change" hints per competitor.
+    # Budget capped at $0.02 / scan (~5 competitors × $0.004 max) so
+    # this never balloons.
+    try:
+        recos = _generate_competitor_recommendations(db, scan, scan_id)
+        if recos:
+            summary = dict(scan.summary or {})
+            summary["competitor_recommendations"] = recos
+            from datetime import datetime as _dt
+            summary["competitor_recommendations_generated_at"] = _dt.utcnow().isoformat() + "Z"
+            scan.summary = summary
+            from sqlalchemy.orm.attributes import flag_modified
+            flag_modified(scan, "summary")
+            db.commit()
+    except Exception:
+        logger.exception("competitor recommendations generation failed - non-fatal")
+
     logger.info(
         f"competitor audit complete : competitors={len(competitors)} "
         f"audited={audited} errors={errors} skipped={skipped}"
@@ -494,3 +515,161 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
         "errors": errors,
         "skipped": skipped,
     }
+
+
+_LLM_RECO_MODEL = "claude-haiku-4-5-20251001"
+_LLM_RECO_BUDGET_USD = 0.02
+_LLM_RECO_PROMPT = """You audit a brand competing with {own_brand} on AI search visibility.
+
+COMPETITOR: {comp_brand} ({comp_domain})
+- {comp_n_pages} cited pages audited
+- Average GEO score (Princeton heuristics, 0-100): {comp_geo}
+- Average Schema.org JSON-LD score (0-100): {comp_schema}
+- Schema types they use: {comp_schemas}
+- Babbar DA: {comp_da}
+
+YOUR BRAND: {own_brand}
+- Average GEO score: {own_geo}
+- Average Schema score: {own_schema}
+- Schema types you use: {own_schemas}
+
+Reply with JSON only:
+{{
+  "recommendations": [
+    {{"title": "short imperative", "rationale": "one sentence why", "effort": "low|medium|high"}}
+  ]
+}}
+
+Rules:
+- Exactly 3 recommendations
+- Each "title" <= 8 words, action verb first
+- "rationale" cites a specific delta from the audit numbers above
+- "effort" reflects implementation cost from the user's side
+- No generic SEO advice ; tie each reco to the audit data you were given
+- French is OK if domains are .fr"""
+
+
+def _generate_competitor_recommendations(db, scan, scan_id: str) -> dict:
+    """Per top competitor, ask Haiku for 3 actionable recommendations
+    grounded in the audit delta. Returns dict keyed by brand_id with
+    {recommendations: [...], comp_brand_name, comp_domain}."""
+    api_key = (getattr(settings, "anthropic_api_key", "") or "").strip()
+    if not api_key:
+        logger.info("competitor recommendations: no anthropic_api_key, skipping")
+        return {}
+
+    import httpx as _httpx
+    import json as _json
+    from datetime import datetime as _dt
+    from models import ScanCompetitorPage, ScanPageAudit, ScanSchemaAudit, ClientBrand
+
+    own_pages = db.query(ScanPageAudit).filter(ScanPageAudit.scan_id == scan_id).all()
+    own_schemas = db.query(ScanSchemaAudit).filter(ScanSchemaAudit.scan_id == scan_id).all()
+    own_geo_avg = None
+    if own_pages:
+        s = [p.geo_score for p in own_pages if p.geo_score is not None]
+        own_geo_avg = round(sum(s) / len(s), 1) if s else None
+    own_schema_avg = None
+    if own_schemas:
+        s = [x.schema_score for x in own_schemas if x.schema_score is not None]
+        own_schema_avg = round(sum(s) / len(s), 1) if s else None
+    own_schema_types: dict[str, int] = {}
+    for ss in own_schemas:
+        for b in (ss.existing_schemas or []):
+            if b.get("valid") and b.get("type"):
+                own_schema_types[b["type"]] = own_schema_types.get(b["type"], 0) + 1
+
+    own_brand_name = None
+    if scan.focus_brand_id:
+        fb = db.query(ClientBrand).filter(ClientBrand.id == scan.focus_brand_id).first()
+        own_brand_name = fb.name if fb else None
+    own_brand_name = own_brand_name or scan.domain or "your brand"
+
+    comp_pages = db.query(ScanCompetitorPage, ClientBrand).join(
+        ClientBrand, ClientBrand.id == ScanCompetitorPage.brand_id
+    ).filter(ScanCompetitorPage.scan_id == scan_id).all()
+    by_brand: dict[str, dict] = {}
+    for row, brand in comp_pages:
+        bucket = by_brand.setdefault(str(brand.id), {
+            "brand_name": brand.name, "domain": brand.domain,
+            "geo": [], "schema": [], "schema_types": {}, "da": None,
+        })
+        if row.geo_score is not None:
+            bucket["geo"].append(row.geo_score)
+        if row.schema_score is not None:
+            bucket["schema"].append(row.schema_score)
+        for b in (row.schemas or []):
+            if b.get("valid") and b.get("type"):
+                bucket["schema_types"][b["type"]] = bucket["schema_types"].get(b["type"], 0) + 1
+        if bucket["da"] is None and (row.backlinks or {}).get("da"):
+            bucket["da"] = row.backlinks["da"]
+
+    out: dict[str, dict] = {}
+    spent = 0.0
+    for bid, agg in by_brand.items():
+        if spent >= _LLM_RECO_BUDGET_USD:
+            logger.info(f"competitor recommendations: budget {_LLM_RECO_BUDGET_USD} reached, stopping")
+            break
+        if len(agg["geo"]) < 3:
+            continue
+        comp_geo_avg = round(sum(agg["geo"]) / len(agg["geo"]), 1)
+        comp_schema_avg = round(sum(agg["schema"]) / len(agg["schema"]), 1) if agg["schema"] else None
+        prompt = _LLM_RECO_PROMPT.format(
+            own_brand=own_brand_name,
+            comp_brand=agg["brand_name"],
+            comp_domain=agg["domain"] or "-",
+            comp_n_pages=len(agg["geo"]),
+            comp_geo=comp_geo_avg,
+            comp_schema=comp_schema_avg if comp_schema_avg is not None else "n/a",
+            comp_schemas=", ".join(sorted(agg["schema_types"].keys())) or "none",
+            comp_da=agg["da"] if agg["da"] is not None else "n/a",
+            own_geo=own_geo_avg if own_geo_avg is not None else "n/a",
+            own_schema=own_schema_avg if own_schema_avg is not None else "n/a",
+            own_schemas=", ".join(sorted(own_schema_types.keys())) or "none",
+        )
+        try:
+            resp = _httpx.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={
+                    "x-api-key": api_key,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json",
+                },
+                json={
+                    "model": _LLM_RECO_MODEL,
+                    "max_tokens": 600,
+                    "messages": [{"role": "user", "content": prompt}],
+                },
+                timeout=30.0,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            text = "".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text")
+            usage = data.get("usage", {}) or {}
+            cost = (usage.get("input_tokens", 0) / 1_000_000 * 0.80) + (usage.get("output_tokens", 0) / 1_000_000 * 4.00)
+            spent += cost
+        except Exception:
+            logger.exception(f"competitor recommendations: Haiku call failed for brand {bid}")
+            continue
+        # Parse JSON. Be tolerant : strip code fences if any.
+        t = text.strip()
+        if t.startswith("```"):
+            t = t.strip("`")
+            # remove "json" leader
+            t = t.split("\n", 1)[1] if "\n" in t else t
+            t = t.rstrip("`").strip()
+        try:
+            parsed = _json.loads(t)
+            recs = parsed.get("recommendations") or []
+            if recs:
+                out[bid] = {
+                    "brand_name": agg["brand_name"],
+                    "domain": agg["domain"],
+                    "recommendations": recs[:3],
+                    "generated_at": _dt.utcnow().isoformat() + "Z",
+                    "model": _LLM_RECO_MODEL,
+                }
+        except Exception:
+            logger.warning(f"competitor recommendations: bad JSON for brand {bid}: {t[:200]}")
+            continue
+    return out

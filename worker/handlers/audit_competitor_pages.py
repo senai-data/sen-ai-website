@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import logging
 import time
+from datetime import datetime
 from urllib.parse import urlparse
 
 from bs4 import BeautifulSoup
@@ -164,9 +165,15 @@ def _competitor_urls(
     ]
 
 
-def _babbar_for_domain(db: Session, brand_domain: str) -> dict:
+def _babbar_for_domain(db: Session, brand_domain: str, babbar_client=None) -> dict:
     """Look up Babbar authority signal in media_catalog. Returns the highest-
-    quality row found for this domain (any locale). Empty dict if absent."""
+    quality row found for this domain (any locale). When the domain is not
+    in media_catalog yet (Sprint 7.1), fall back to a live Babbar call and
+    UPSERT the result so subsequent reads hit the cache.
+
+    `babbar_client` is an optional BabbarClient instance to reuse across
+    competitors in the same scan (avoids per-call setup + shares the
+    in-memory rate-limit state). Pass None to disable the live fallback."""
     if not brand_domain:
         return {}
     sql = _text(
@@ -182,15 +189,75 @@ def _babbar_for_domain(db: Session, brand_domain: str) -> dict:
     row = db.execute(
         sql, {"dom": brand_domain.lower(), "www_dom": f"www.{brand_domain.lower()}"}
     ).fetchone()
-    if not row:
+    if row and row[0] is not None:
+        return {
+            "source": "media_catalog",
+            "da": int(row[0]),
+            "tf": int(row[1]) if row[1] is not None else None,
+            "cf": int(row[2]) if row[2] is not None else None,
+            "rd": int(row[3]) if row[3] is not None else None,
+            "checked_at": row[4].isoformat() + "Z" if row[4] else None,
+        }
+
+    # Sprint 7.1 - live Babbar lookup for competitor domains absent du
+    # media_catalog (or present but never enriched). One sync call per
+    # competitor, ~1-3s + 6/min rate-limit pause. The result is UPSERT'd
+    # so the next scan + the nightly media_catalog sweep both benefit.
+    if babbar_client is None:
         return {"source": "none"}
+    try:
+        metrics = babbar_client.get_domain_metrics_cached(brand_domain)
+    except Exception:
+        logger.exception(f"audit_competitor_pages: Babbar live lookup crashed for {brand_domain}")
+        return {"source": "none"}
+    if not metrics or metrics.get("domainTrust") is None:
+        return {"source": "none"}
+
+    def _as_int(v):
+        return int(v) if isinstance(v, (int, float)) else None
+    da_val = _as_int(metrics.get("hostTrust"))
+    tf_val = _as_int(metrics.get("domainTrust"))
+    cf_val = _as_int(metrics.get("semanticValue"))
+    rd_val = _as_int(metrics.get("backlinksCount"))
+
+    # Best-effort UPSERT - failure here MUST NOT abort the parent audit.
+    # Country / language unknown for competitor domains : 'XX' / 'xx' is
+    # the convention the catalog sweep already uses for "unscoped".
+    try:
+        db.execute(_text(
+            """
+            INSERT INTO media_catalog (domain, country, language,
+                                       da, tf, cf, rd,
+                                       babbar_last_check, llm_citation_decayed,
+                                       created_at, updated_at)
+            VALUES (:d, 'XX', 'xx', :da, :tf, :cf, :rd, NOW(), 0,
+                    NOW(), NOW())
+            ON CONFLICT (domain, country, language) DO UPDATE
+               SET da = EXCLUDED.da,
+                   tf = EXCLUDED.tf,
+                   cf = EXCLUDED.cf,
+                   rd = EXCLUDED.rd,
+                   babbar_last_check = NOW(),
+                   updated_at = NOW()
+            """
+        ), {
+            "d": brand_domain.lower(),
+            "da": da_val, "tf": tf_val, "cf": cf_val, "rd": rd_val,
+        })
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception(
+            f"audit_competitor_pages: media_catalog UPSERT failed for {brand_domain}"
+        )
+
     return {
-        "source": "media_catalog",
-        "da": int(row[0]) if row[0] is not None else None,
-        "tf": int(row[1]) if row[1] is not None else None,
-        "cf": int(row[2]) if row[2] is not None else None,
-        "rd": int(row[3]) if row[3] is not None else None,
-        "checked_at": row[4].isoformat() + "Z" if row[4] else None,
+        "source": "babbar_live",
+        "da": da_val,
+        "tf": tf_val,
+        "cf": cf_val,
+        "rd": rd_val,
+        "checked_at": datetime.utcnow().isoformat() + "Z",
     }
 
 
@@ -288,13 +355,26 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
         logger.info(f"audit_competitor_pages: no competitor wins for scan {scan_id}")
         return {"competitors": 0, "audited": 0, "errors": 0}
 
+    # Sprint 7.1 - one BabbarClient shared across competitors so the
+    # in-memory rate-limit state stays consistent + we don't re-load env
+    # vars 5 times. None if Babbar isn't configured -> live fallback
+    # silently degrades to the existing media-catalog-only behaviour.
+    babbar_client = None
+    try:
+        from seo_llm.src.babbar_client import BabbarClient
+        candidate = BabbarClient()
+        if candidate.api_key:
+            babbar_client = candidate
+    except Exception:
+        logger.exception("audit_competitor_pages: Babbar client init failed, skipping live enrichment")
+
     audited = 0
     errors = 0
     skipped = 0
 
     for comp in competitors:
         brand_domain = comp["domain"]
-        backlinks = _babbar_for_domain(db, brand_domain)
+        backlinks = _babbar_for_domain(db, brand_domain, babbar_client=babbar_client)
 
         urls = _competitor_urls(db, scan_id, brand_domain, n_urls)
         if not urls:

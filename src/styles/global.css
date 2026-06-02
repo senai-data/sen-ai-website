@@ -1,6 +1,21 @@
 @import "tailwindcss";
 
+/**
+ * sen-ai design tokens.
+ *
+ * Source of truth for spacing, radius, shadow, type scale and colour roles.
+ * Companion doc: /docs/DESIGN_TOKENS.md
+ *
+ * Migration rule: new tokens are added *alongside* the Tailwind defaults so
+ * the 600+ existing utilities (rounded-lg, shadow-sm, text-xs, etc.) keep
+ * their current geometry. Pages opt in to the new tokens one PR at a time.
+ */
 @theme {
+  /* ============================================================
+     BRAND COLOURS (kept from the original palette)
+     Keep using these in unmigrated pages. New code should reach
+     for the semantic role tokens defined further down instead.
+     ============================================================ */
   --color-coral: #E8707A;
   --color-coral-light: #F2A3AA;
   --color-coral-dark: #C94F5A;
@@ -15,6 +30,96 @@
   --color-gads: #4285F4;
   --color-gads-light: #6EA8FE;
   --color-gads-dark: #2B63C6;
+
+  /* ============================================================
+     SEMANTIC COLOUR ROLES
+     Use these in new components. They abstract over brand names
+     so the palette can shift without touching component code.
+     ============================================================ */
+
+  /* Text */
+  --color-text: #1A202C;          /* alias of charcoal-dark, body + headings */
+  --color-text-muted: #4A5568;    /* alias of charcoal-light, secondary */
+  --color-text-subtle: #9CA3AF;   /* tertiary, metadata, placeholder */
+  --color-text-inverse: #FFFFFF;  /* on coloured surfaces */
+
+  /* Surfaces */
+  --color-surface: #FFFFFF;         /* cards, modals */
+  --color-surface-muted: #F9FAFB;   /* page background, table zebra */
+  --color-surface-sunken: #F3F4F6;  /* code blocks, inline tag bg */
+
+  /* Borders */
+  --color-border: #E5E7EB;          /* card outline, divider */
+  --color-border-strong: #D1D5DB;   /* input outline, focused divider */
+
+  /* Primary (CTA + active state) */
+  --color-primary: #E8707A;         /* aliases coral */
+  --color-primary-hover: #C94F5A;
+  --color-primary-soft: #FCE7E9;    /* tinted bg for soft buttons / chips */
+  --color-primary-contrast: #FFFFFF;
+
+  /* Status roles. Each ships paired with a -soft tint for bg + a -strong
+     for icon/text on the tint. */
+  --color-success: #059669;
+  --color-success-soft: #D1FAE5;
+  --color-success-strong: #047857;
+
+  --color-danger: #DC2626;
+  --color-danger-soft: #FEE2E2;
+  --color-danger-strong: #B91C1C;
+
+  --color-warning: #D97706;
+  --color-warning-soft: #FEF3C7;
+  --color-warning-strong: #B45309;
+
+  --color-info: #2563EB;
+  --color-info-soft: #DBEAFE;
+  --color-info-strong: #1D4ED8;
+
+  /* Focus ring (Fitts + accessibility) */
+  --color-ring: #E8707A;
+
+  /* ============================================================
+     RADIUS
+     Four named tokens with role-specific intent. We do NOT
+     override Tailwind's rounded-sm/md/lg/xl/2xl so the existing
+     ~650 usages keep their look. New components use these.
+     ============================================================ */
+  --radius-pill: 9999px;     /* chips, badges, sentiment dot */
+  --radius-control: 0.5rem;  /* 8px - inputs, selects, sm/md buttons */
+  --radius-card: 0.75rem;    /* 12px - DEFAULT card radius */
+  --radius-sheet: 1rem;      /* 16px - modals, hero cards, empty-state panels */
+
+  /* ============================================================
+     SHADOW
+     Three tiers, replaces ad-hoc shadow-sm / shadow-md mixing.
+     ============================================================ */
+  --shadow-card:     0 1px 2px 0 rgb(0 0 0 / 0.04), 0 1px 1px -1px rgb(0 0 0 / 0.04);
+  --shadow-elevated: 0 4px 6px -1px rgb(0 0 0 / 0.06), 0 2px 4px -2px rgb(0 0 0 / 0.04);
+  --shadow-overlay:  0 10px 25px -5px rgb(0 0 0 / 0.10), 0 8px 10px -6px rgb(0 0 0 / 0.04);
+
+  /* ============================================================
+     TYPE SCALE
+     Semantic names so the role drives the size, not the px value.
+     Tailwind's text-xs/sm/base/lg/xl/2xl/3xl/4xl stay intact.
+     ============================================================ */
+  --text-meta: 0.6875rem;                 /* 11px - timestamps, sublabels */
+  --text-meta--line-height: 1rem;
+  --text-caption: 0.75rem;                /* 12px - chip, badge, table footer */
+  --text-caption--line-height: 1rem;
+  --text-body: 0.875rem;                  /* 14px - default UI text */
+  --text-body--line-height: 1.25rem;
+  --text-lede: 1rem;                      /* 16px - section intros, tooltip body */
+  --text-lede--line-height: 1.5rem;
+  --text-h3: 1.125rem;                    /* 18px - card title */
+  --text-h3--line-height: 1.5rem;
+  --text-h2: 1.5rem;                      /* 24px - section title */
+  --text-h2--line-height: 2rem;
+  --text-h1: 1.875rem;                    /* 30px - page title */
+  --text-h1--line-height: 2.25rem;
+  --text-display: 2.25rem;                /* 36px - hero KPI digits, grade letter */
+  --text-display--line-height: 2.5rem;
+
   --font-family-sans: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
 }
 

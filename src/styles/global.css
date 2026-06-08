@@ -1,126 +1,133 @@
 @import "tailwindcss";
 
 /**
- * sen-ai design tokens.
+ * sen-ai design system entry point.
  *
- * Source of truth for spacing, radius, shadow, type scale and colour roles.
- * Companion doc: /docs/DESIGN_TOKENS.md
+ * Source of truth:
+ *   - tokens.css     ......  canonical CSS variables (Claude Design v1, 2026-06)
+ *   - components.css .....  class-based primitives (.btn .card .chip .stat ...)
  *
- * Migration rule: new tokens are added *alongside* the Tailwind defaults so
- * the 600+ existing utilities (rounded-lg, shadow-sm, text-xs, etc.) keep
- * their current geometry. Pages opt in to the new tokens one PR at a time.
+ * The @theme inline block below is the Tailwind-4 equivalent of the
+ * tailwind.config.js mapping shipped in the design handoff (01-tokens.html).
+ * It exposes the design tokens as Tailwind utilities (bg-primary,
+ * text-text-secondary, rounded-lg, shadow-md, p-5, ...) so authors can
+ * reach for either the class API (components.css) or the utility API
+ * (Tailwind) with identical underlying values.
+ *
+ * Migration posture: existing brand-named utilities (bg-coral, text-charcoal-dark,
+ * rounded-xl) stay defined further down so unmigrated pages keep their
+ * current look. Pages opt in to the new tokens one PR at a time.
+ *
+ * Companion doc: docs/DESIGN_TOKENS.md
  */
+@import "./tokens.css";
+@import "./components.css";
+
+/* ============================================================
+   TAILWIND 4 THEME BRIDGE
+   Maps the :root variables from tokens.css to Tailwind utilities.
+   `@theme inline` keeps tokens.css as the runtime source of truth -
+   utilities resolve via var(...) at paint time, so a future theme
+   swap (white-label accent, dark mode) only edits :root.
+   ============================================================ */
+@theme inline {
+  /* Colours (semantic roles - prefer these in new code) */
+  --color-primary: var(--color-primary);
+  --color-primary-hover: var(--color-primary-hover);
+  --color-primary-subtle: var(--color-primary-subtle);
+
+  --color-surface: var(--color-surface);
+  --color-surface-elevated: var(--color-surface-elevated);
+  --color-surface-sunken: var(--color-surface-sunken);
+  --color-surface-muted: var(--color-surface-muted);
+
+  --color-border: var(--color-border);
+  --color-border-strong: var(--color-border-strong);
+
+  --color-text-primary: var(--color-text-primary);
+  --color-text-secondary: var(--color-text-secondary);
+  --color-text-muted: var(--color-text-muted);
+
+  /* Status (categorical) */
+  --color-status-positive: var(--status-positive);
+  --color-status-warning: var(--status-warning);
+  --color-status-critical: var(--status-critical);
+  --color-status-info: var(--status-info);
+  --color-status-neutral: var(--status-neutral);
+  --color-status-auto: var(--status-auto);
+  --color-status-positive-bg: var(--status-positive-bg);
+  --color-status-warning-bg: var(--status-warning-bg);
+  --color-status-critical-bg: var(--status-critical-bg);
+  --color-status-info-bg: var(--status-info-bg);
+  --color-status-neutral-bg: var(--status-neutral-bg);
+  --color-status-auto-bg: var(--status-auto-bg);
+
+  /* Severity (ordered 5-scale) */
+  --color-sev-none: var(--sev-none);
+  --color-sev-low: var(--sev-low);
+  --color-sev-medium: var(--sev-medium);
+  --color-sev-high: var(--sev-high);
+  --color-sev-critical: var(--sev-critical);
+
+  /* Coral ramp - exposed so legacy bg-coral-500 etc. survive the move */
+  --color-coral-50: var(--coral-50);
+  --color-coral-100: var(--coral-100);
+  --color-coral-200: var(--coral-200);
+  --color-coral-300: var(--coral-300);
+  --color-coral-400: var(--coral-400);
+  --color-coral-500: var(--coral-500);
+  --color-coral-600: var(--coral-600);
+  --color-coral-700: var(--coral-700);
+  --color-coral-800: var(--coral-800);
+  --color-coral-900: var(--coral-900);
+
+  /* Radius - matches the handoff: sm 6 / md 8 / lg 12 / xl 16 / full pill */
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --radius-lg: var(--radius-lg);
+  --radius-xl: var(--radius-xl);
+  --radius-full: var(--radius-full);
+
+  /* Shadow tiers */
+  --shadow-xs: var(--shadow-xs);
+  --shadow-sm: var(--shadow-sm);
+  --shadow-md: var(--shadow-md);
+  --shadow-lg: var(--shadow-lg);
+  --shadow-xl: var(--shadow-xl);
+
+  /* Type scale (system stack, no licence) */
+  --text-micro: 11px;
+  --text-micro--line-height: 16px;
+  --text-small: 13px;
+  --text-small--line-height: 18px;
+  --text-body: 14px;
+  --text-body--line-height: 22px;
+
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+  --font-family-sans: var(--font-sans);
+}
+
+/* ============================================================
+   LEGACY BRAND ALIASES
+   Kept so unmigrated pages don't restyle silently. These will be
+   removed in a final sweep once grep shows zero usage.
+   ============================================================ */
 @theme {
-  /* ============================================================
-     BRAND COLOURS (kept from the original palette)
-     Keep using these in unmigrated pages. New code should reach
-     for the semantic role tokens defined further down instead.
-     ============================================================ */
-  --color-coral: #E8707A;
-  --color-coral-light: #F2A3AA;
-  --color-coral-dark: #C94F5A;
-  --color-emerald: #059669;
+  --color-coral: #F06A5C;
+  --color-coral-light: #F4897A;
+  --color-coral-dark: #DC4F40;
+  --color-emerald: #047857;
   --color-emerald-light: #34D399;
-  --color-emerald-dark: #047857;
-  --color-gold: #E8A830;
-  --color-gold-light: #F5C963;
-  --color-charcoal: #2D3748;
-  --color-charcoal-light: #4A5568;
-  --color-charcoal-dark: #1A202C;
-  --color-gads: #4285F4;
-  --color-gads-light: #6EA8FE;
-  --color-gads-dark: #2B63C6;
-
-  /* ============================================================
-     SEMANTIC COLOUR ROLES
-     Use these in new components. They abstract over brand names
-     so the palette can shift without touching component code.
-     ============================================================ */
-
-  /* Text */
-  --color-text: #1A202C;          /* alias of charcoal-dark, body + headings */
-  --color-text-muted: #4A5568;    /* alias of charcoal-light, secondary */
-  --color-text-subtle: #9CA3AF;   /* tertiary, metadata, placeholder */
-  --color-text-inverse: #FFFFFF;  /* on coloured surfaces */
-
-  /* Surfaces */
-  --color-surface: #FFFFFF;         /* cards, modals */
-  --color-surface-muted: #F9FAFB;   /* page background, table zebra */
-  --color-surface-sunken: #F3F4F6;  /* code blocks, inline tag bg */
-
-  /* Borders */
-  --color-border: #E5E7EB;          /* card outline, divider */
-  --color-border-strong: #D1D5DB;   /* input outline, focused divider */
-
-  /* Primary (CTA + active state) */
-  --color-primary: #E8707A;         /* aliases coral */
-  --color-primary-hover: #C94F5A;
-  --color-primary-soft: #FCE7E9;    /* tinted bg for soft buttons / chips */
-  --color-primary-contrast: #FFFFFF;
-
-  /* Status roles. Each ships paired with a -soft tint for bg + a -strong
-     for icon/text on the tint. */
-  --color-success: #059669;
-  --color-success-soft: #D1FAE5;
-  --color-success-strong: #047857;
-
-  --color-danger: #DC2626;
-  --color-danger-soft: #FEE2E2;
-  --color-danger-strong: #B91C1C;
-
-  --color-warning: #D97706;
-  --color-warning-soft: #FEF3C7;
-  --color-warning-strong: #B45309;
-
-  --color-info: #2563EB;
-  --color-info-soft: #DBEAFE;
-  --color-info-strong: #1D4ED8;
-
-  /* Focus ring (Fitts + accessibility) */
-  --color-ring: #E8707A;
-
-  /* ============================================================
-     RADIUS
-     Four named tokens with role-specific intent. We do NOT
-     override Tailwind's rounded-sm/md/lg/xl/2xl so the existing
-     ~650 usages keep their look. New components use these.
-     ============================================================ */
-  --radius-pill: 9999px;     /* chips, badges, sentiment dot */
-  --radius-control: 0.5rem;  /* 8px - inputs, selects, sm/md buttons */
-  --radius-card: 0.75rem;    /* 12px - DEFAULT card radius */
-  --radius-sheet: 1rem;      /* 16px - modals, hero cards, empty-state panels */
-
-  /* ============================================================
-     SHADOW
-     Three tiers, replaces ad-hoc shadow-sm / shadow-md mixing.
-     ============================================================ */
-  --shadow-card:     0 1px 2px 0 rgb(0 0 0 / 0.04), 0 1px 1px -1px rgb(0 0 0 / 0.04);
-  --shadow-elevated: 0 4px 6px -1px rgb(0 0 0 / 0.06), 0 2px 4px -2px rgb(0 0 0 / 0.04);
-  --shadow-overlay:  0 10px 25px -5px rgb(0 0 0 / 0.10), 0 8px 10px -6px rgb(0 0 0 / 0.04);
-
-  /* ============================================================
-     TYPE SCALE
-     Semantic names so the role drives the size, not the px value.
-     Tailwind's text-xs/sm/base/lg/xl/2xl/3xl/4xl stay intact.
-     ============================================================ */
-  --text-meta: 0.6875rem;                 /* 11px - timestamps, sublabels */
-  --text-meta--line-height: 1rem;
-  --text-caption: 0.75rem;                /* 12px - chip, badge, table footer */
-  --text-caption--line-height: 1rem;
-  --text-body: 0.875rem;                  /* 14px - default UI text */
-  --text-body--line-height: 1.25rem;
-  --text-lede: 1rem;                      /* 16px - section intros, tooltip body */
-  --text-lede--line-height: 1.5rem;
-  --text-h3: 1.125rem;                    /* 18px - card title */
-  --text-h3--line-height: 1.5rem;
-  --text-h2: 1.5rem;                      /* 24px - section title */
-  --text-h2--line-height: 2rem;
-  --text-h1: 1.875rem;                    /* 30px - page title */
-  --text-h1--line-height: 2.25rem;
-  --text-display: 2.25rem;                /* 36px - hero KPI digits, grade letter */
-  --text-display--line-height: 2.5rem;
-
-  --font-family-sans: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+  --color-emerald-dark: #065F46;
+  --color-gold: #B54708;
+  --color-gold-light: #F79009;
+  --color-charcoal: #1F2937;
+  --color-charcoal-light: #4B5563;
+  --color-charcoal-dark: #1A1A1A;
+  --color-gads: #175CD3;
+  --color-gads-light: #2E90FA;
+  --color-gads-dark: #1849A9;
 }
 
 html {

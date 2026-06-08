@@ -340,7 +340,7 @@ function provVisual(p: string) {
     <div class="cit__intro">
       <div>
         <h2>Citations</h2>
-        <p>Every time a provider named this brand across <span x-text="totalQ"></span> questions x <span x-text="providers.length"></span> providers this period. Click a row to read the verbatim answer and trace its source.</p>
+        <p>Every time an AI named this brand across <span x-text="totalQ"></span> questions and <span x-text="providers.length"></span> AIs in this scan. Click a row to read the verbatim answer and the page it came from.</p>
       </div>
       <button class="btn btn--secondary btn--md" @click="exportCsv()" type="button">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M8 2v8M4.5 6.5L8 10l3.5-3.5M3 13h10"/></svg>
@@ -384,8 +384,8 @@ function provVisual(p: string) {
       </div>
       <div class="cit__sumcard">
         <div class="cit__sumlabel">Avg. position in answer</div>
-        <div class="cit__sumvalue">{avgPosition ? `#${avgPosition}` : '-'} <small>of named brands</small></div>
-        <div class="cit__summeta">lower is better - first-named brand wins recall</div>
+        <div class="cit__sumvalue">{avgPosition ? `#${avgPosition}` : '-'} <small>of brands cited</small></div>
+        <div class="cit__summeta">lower is better - the first brand named in an answer is the one buyers remember</div>
       </div>
     </div>
 
@@ -396,7 +396,7 @@ function provVisual(p: string) {
         <input type="search" placeholder="Search question or quote..." x-model="q" />
       </div>
       <div class="cit__seg">
-        <button type="button" :class="prov==='all' && 'on'" @click="prov='all'">All providers</button>
+        <button type="button" :class="prov==='all' && 'on'" @click="prov='all'">All AIs</button>
         <template x-for="p in providers" :key="p">
           <button type="button" :class="prov===p && 'on'" @click="prov=p" x-text="p"></button>
         </template>
@@ -454,7 +454,7 @@ function provVisual(p: string) {
     <div class="cit__activef" x-show="hasActiveFilters" x-cloak>
       <span class="cit__activeflabel">Filters</span>
       <template x-if="prov!=='all'">
-        <span class="cit__afchip">Provider: <span x-text="prov"></span><button type="button" class="x" @click="prov='all'" aria-label="Clear provider filter"><svg width="9" height="9" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M4 4l8 8M12 4l-8 8"/></svg></button></span>
+        <span class="cit__afchip">AI: <span x-text="prov"></span><button type="button" class="x" @click="prov='all'" aria-label="Clear AI filter"><svg width="9" height="9" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M4 4l8 8M12 4l-8 8"/></svg></button></span>
       </template>
       <template x-if="sent!=='all'">
         <span class="cit__afchip">Sentiment: <span x-text="sentLabel(sent)"></span><button type="button" class="x" @click="sent='all'" aria-label="Clear sentiment filter"><svg width="9" height="9" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M4 4l8 8M12 4l-8 8"/></svg></button></span>
@@ -477,7 +477,7 @@ function provVisual(p: string) {
         <div class="empty">
           <div class="empty__art"><span>0 / 0</span></div>
           <div class="empty__title">No citations captured yet</div>
-          <div class="empty__body">When AI providers cite a web source while naming this brand, every event will appear here with the verbatim quote and traced URL.</div>
+          <div class="empty__body">When an AI cites a web page while mentioning this brand, every event will appear here with the verbatim quote and the source URL.</div>
         </div>
       </div>
     ) : (
@@ -486,9 +486,9 @@ function provVisual(p: string) {
           <thead>
             <tr>
               <th style="width:34px"></th>
-              <th class="sortable" @click="sortBy('question')">Buyer question</th>
-              <th class="sortable" @click="sortBy('provider')" style="width:130px">Provider</th>
-              <th class="sortable" @click="sortBy('surface')" style="width:160px">Source surface</th>
+              <th class="sortable" @click="sortBy('question')">Question</th>
+              <th class="sortable" @click="sortBy('provider')" style="width:130px">AI</th>
+              <th class="sortable" @click="sortBy('surface')" style="width:160px">Source</th>
               <th class="sortable" @click="sortBy('position')" style="width:130px">Position</th>
               <th class="sortable" @click="sortBy('sentiment')" style="width:130px">Sentiment</th>
               <th class="sortable" @click="sortBy('date')" style="width:120px">Captured <span class="arr">&#9660;</span></th>
@@ -512,14 +512,14 @@ function provVisual(p: string) {
                       <div class="quote__l">Verbatim answer <span class="ans-prov"><span class="prov__ic" :style="`width:16px;height:16px;font-size:9px;background:${provVisual(row.provider).bg}`" x-text="provVisual(row.provider).ab"></span><span x-text="row.provider"></span></span></div>
                       <div class="quote__text" x-html="highlightQuote(row.contexte)"></div>
                       <div class="quote__meta">
-                        <div>Position<b>#<span x-text="row.position"></span> of named brands</b></div>
+                        <div>Position<b>#<span x-text="row.position"></span> of brands cited</b></div>
                         <div>Captured<b x-text="row.dateLabel"></b></div>
                         <div>Sentiment<b :style="row.sentiment==='neg' ? 'color:var(--status-critical)' : ''" x-text="sentLabel(row.sentiment)"></b></div>
                       </div>
                     </div>
                     <div class="detail-side">
                       <div class="src">
-                        <div class="src__l">Traced source</div>
+                        <div class="src__l">Page the AI cited</div>
                         <div class="src__row">
                           <span class="src__fav" :style="`background:${row.surfaceColor}1A;color:${row.surfaceColor}`">
                             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 4.5h10M3 8h10M3 11.5h7"/></svg>
@@ -533,10 +533,10 @@ function provVisual(p: string) {
                       <div style="display:flex;flex-direction:column;gap:8px">
                         <a class="btn btn--secondary btn--sm" :href="row.url || ('https://' + row.domain)" target="_blank" rel="noopener noreferrer" @click.stop>
                           <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M9 3H3v10h10V7M11 2h3v3M7 9l7-7"/></svg>
-                          Open source
+                          Open the page
                         </a>
-                        <a class="btn btn--ghost btn--sm" :href={`/app/scans/${scanId}/questions`} @click.stop>
-                          View full answer transcript
+                        <a class="btn btn--ghost btn--sm" :href="'/app/scans/' + scanId + '/questions?q=' + encodeURIComponent(row.question)" @click.stop>
+                          See the full AI answer
                         </a>
                       </div>
                     </div>

@@ -21,6 +21,9 @@ const toParam = Astro.url.searchParams.get('to') || '';
 const runParam = Astro.url.searchParams.get('run') || '';
 const effectiveScanId = (rangeParam === 'latest' && runParam) ? runParam : scanId;
 const providerParam = Astro.url.searchParams.get('provider') || 'all';
+// Deep-link from Citations row : ?q=<question-text> pre-fills the search
+// and auto-expands the matching row so the user lands on the right answer.
+const initialQuery = Astro.url.searchParams.get('q') || '';
 
 const useAggregated = rangeParam !== 'latest';
 let resultsUrl = `http://api:8000/api/scans/${effectiveScanId}/results`;
@@ -96,7 +99,7 @@ const typeRateColors = typeRates.map(r => r >= 30 ? '#10b981' : r > 0 ? '#f59e0b
   <div x-data={`{
     details: ${JSON.stringify(enriched)},
     expandedQ: null,
-    filterText: '',
+    filterText: ${JSON.stringify(initialQuery)},
     filterTopic: 'all',
     filterPersona: 'all',
     filterType: 'all',
@@ -111,6 +114,13 @@ const typeRateColors = typeRates.map(r => r >= 30 ? '#10b981' : r > 0 ? '#f59e0b
         (this.filterMentioned === 'all' || (this.filterMentioned === 'yes' && d.brand_mentioned) || (this.filterMentioned === 'no' && !d.brand_mentioned)) &&
         (this.filterProvider === 'all' || d.provider === this.filterProvider)
       );
+    },
+    init() {
+      // Auto-expand the first filtered row when arriving from a Citations
+      // deep-link. The x-for uses index as key, so set to 0.
+      if (this.filterText && this.filtered.length) {
+        this.$nextTick(() => { this.expandedQ = 0; });
+      }
     }
   }`}>
 

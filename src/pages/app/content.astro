@@ -189,8 +189,12 @@ function ageLabel(iso: string | null): string {
     .ctp .board--5 { grid-template-columns: repeat(5, minmax(0, 1fr)); }
     @media (max-width: 1199px) { .ctp .board, .ctp .board--5 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
     @media (max-width: 699px) { .ctp .board, .ctp .board--5 { grid-template-columns: 1fr; } }
-    .ctp .col { background: var(--color-surface-sunken); border: 1px solid var(--color-border); border-radius: var(--radius-lg); display: flex; flex-direction: column; min-height: 220px; }
-    .ctp .col__head { display: flex; align-items: center; gap: 9px; padding: 14px 16px 10px; }
+    /* Columns cap at viewport height and scroll internally (Trello model) -
+       a 1000+ card "To create" column must not stretch the page while the
+       other columns sit empty at the top. */
+    .ctp .col { background: var(--color-surface-sunken); border: 1px solid var(--color-border); border-radius: var(--radius-lg); display: flex; flex-direction: column; min-height: 220px; max-height: calc(100vh - 230px); }
+    .ctp .col__body { overflow-y: auto; }
+    .ctp .col__head { display: flex; align-items: center; gap: 9px; padding: 14px 16px 10px; flex: none; }
     .ctp .col__dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
     .ctp .col__title { font-size: 13px; font-weight: 680; color: var(--color-text-primary); }
     .ctp .col__count { font-size: 11px; font-weight: 700; color: var(--color-text-muted); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-full); padding: 1px 8px; }

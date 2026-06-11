@@ -1,14 +1,20 @@
 ---
 /**
- * Sprint 14 - Org-level AI Act compliance hub.
+ * Org-level AI Act compliance hub - redesign per 08-compliance.html.
  *
- * Workspace-wide audit log + DPIA template + sub-processors + data
- * governance summary. Print-friendly so the user can save the DPIA
- * (or any section) as PDF.
+ * Sprint 14 content preserved verbatim (sub-processors registry from
+ * src/data/subprocessors.ts, data governance, full 6-section DPIA
+ * template, scan audit log) ; restructured visually : sticky jump nav
+ * with scroll-spy, 4 honest status cards, .tbl panels, .clog changelog,
+ * print-only document header.
+ *
+ * PRINT : keeps the S14 visibility:hidden + override pattern (memory
+ * foot-gun #3 - anything added outside .compliance-hub stays hidden on
+ * print unless explicitly overridden). The same HTML is the PDF.
  */
 export const prerender = false;
 import DashboardLayout from '../../layouts/DashboardLayout.astro';
-import { SUBPROCESSORS, CHANGELOG, changelogKindLabel, changelogKindClass } from '../../data/subprocessors';
+import { SUBPROCESSORS, CHANGELOG, changelogKindLabel } from '../../data/subprocessors';
 
 const token = Astro.cookies.get('token')?.value;
 if (!token) return Astro.redirect('/login');
@@ -30,7 +36,7 @@ try {
     signal: AbortSignal.timeout(3000),
   });
   const clients = clientsRes.ok ? await clientsRes.json() : [];
-  activeClient = clients[0] || null;
+  activeClient = clients.find((c: any) => c.id === activeClientCookie) || clients[0] || null;
   if (activeClient?.id) {
     const scansRes = await fetch(`http://api:8000/api/scans?client_id=${activeClient.id}`, {
       headers: { Cookie: `token=${token}` },
@@ -38,7 +44,7 @@ try {
     });
     scans = scansRes.ok ? await scansRes.json() : [];
   }
-  // S14.1 - need the org id to build the PDF download URL.
+  // S14.1 - org id builds the server-side PDF download URL.
   const orgsRes = await fetch('http://api:8000/api/organizations/', {
     headers: { Cookie: upstreamCookie },
     signal: AbortSignal.timeout(3000),
@@ -59,284 +65,433 @@ function fmtDate(iso?: string): string {
 const reportDate = new Date().toLocaleDateString('en-GB', { year: 'numeric', month: 'long', day: '2-digit' });
 const completedScans = scans.filter((s: any) => s.status === 'completed');
 const totalScans = scans.length;
+const activeSubs = SUBPROCESSORS.filter((sp) => sp.status === 'active');
+const aiProviderCount = activeSubs.filter((sp) => sp.category === 'ai-provider').length;
+
+function scanStatusChip(status: string): string {
+  if (status === 'completed') return 'chip--positive';
+  if (status === 'failed') return 'chip--critical';
+  return 'chip--warning';
+}
+const kindChip: Record<string, string> = {
+  added: 'chip--positive',
+  scope_change: 'chip--warning',
+  sunset: 'chip--critical',
+  restored: 'chip--info',
+  initial_disclosure: 'chip--neutral',
+};
 ---
 
 <DashboardLayout title="Compliance" activeSection="dashboard">
-  <div class="compliance-hub max-w-5xl px-8 py-6">
+  <style is:global>
+    /* Page-local vocabulary from 08-compliance.html (.wrap .jump .phead
+       .status .stc .shead .panel .tbl .clog .printhead). */
+    .cph { display: grid; grid-template-columns: 200px 1fr; gap: 32px; max-width: 1180px; margin: 0 auto; padding: var(--space-7) var(--space-6) var(--space-9); }
+    @media (max-width: 899px) { .cph { grid-template-columns: 1fr; } .cph .jump { display: none; } }
 
-    <header class="screen-only mb-6">
-      <p class="text-[11px] text-charcoal-light uppercase tracking-wide mb-1">EU AI Act &amp; data governance</p>
-      <h1 class="text-2xl font-bold text-charcoal-dark mb-2">Compliance pack</h1>
-      <p class="text-sm text-charcoal-light max-w-3xl">
-        Workspace-wide audit log, sub-processors disclosure, data governance summary,
-        and a DPIA template you can adapt for your own EU AI Act assessment. Use the
-        per-scan Compliance tab for transparency reports on individual scans.
-        Use this page to satisfy the org-wide procurement asks.
-      </p>
-    </header>
+    .cph .jump { position: sticky; top: 84px; align-self: start; }
+    .cph .jump__l { font-size: 10.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--color-text-muted); padding: 0 10px; margin-bottom: 8px; }
+    .cph .jump a { display: block; padding: 7px 10px; border-radius: var(--radius-md); font-size: 13px; color: var(--color-text-secondary); text-decoration: none; transition: .12s; border-left: 2px solid transparent; }
+    .cph .jump a:hover { background: var(--color-surface); color: var(--color-text-primary); }
+    .cph .jump a.active { color: var(--coral-700); font-weight: 600; border-left-color: var(--color-primary); background: var(--color-primary-subtle); }
 
-    {/* Workspace identity */}
-    <section class="bg-white rounded-xl shadow-sm p-6 mb-4 compliance-section">
-      <div class="flex items-baseline justify-between mb-3 flex-wrap gap-2">
-        <h2 class="section-title">Workspace identity</h2>
-        <div class="screen-only flex items-center gap-2">
-          {activeOrgId && (
-            <a
-              href={`/api/organizations/${activeOrgId}/compliance/pdf`}
-              download
-              class="text-xs px-3 py-1.5 rounded-lg bg-coral hover:bg-coral-dark text-white font-medium"
-            >&#8595; Download PDF</a>
-          )}
-          <button onclick="window.print()" class="text-xs px-3 py-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 text-charcoal-dark">
-            Browser print
-          </button>
-        </div>
-      </div>
-      <table class="kv-table">
-        <tbody>
-          <tr><th>Workspace name</th><td>{activeClient?.name || '-'}</td></tr>
-          <tr><th>Workspace ID</th><td><code class="text-[10px] bg-gray-100 px-1 rounded">{activeClient?.id || '-'}</code></td></tr>
-          <tr><th>Brand under monitoring</th><td>{activeClient?.brand || '-'}</td></tr>
-          <tr><th>Report date</th><td>{reportDate}</td></tr>
-        </tbody>
-      </table>
-    </section>
+    .cph .doc { min-width: 0; }
+    .cph .printhead { display: none; }
 
-    {/* Sub-processors */}
-    <section class="bg-white rounded-xl shadow-sm p-6 mb-4 compliance-section">
-      <h2 class="section-title">Sub-processors</h2>
-      <p class="section-prose">
-        sen-ai.fr relies on the following sub-processors to deliver the service.
-        Each sub-processor operates under a Data Processing Addendum (DPA) and is
-        certified under at least one of : EU-US Data Privacy Framework, EU Standard
-        Contractual Clauses (SCC), or EU-based hosting.
-      </p>
-      <table class="data-table">
-        <thead>
-          <tr>
-            <th>Sub-processor</th>
-            <th>Purpose</th>
-            <th>Hosting region</th>
-            <th>Lawful transfer mechanism</th>
-          </tr>
-        </thead>
-        <tbody>
-          {SUBPROCESSORS.filter(sp => sp.status === 'active').map(sp => (
-            <tr>
-              <td><strong>{sp.legal_entity}</strong></td>
-              <td>{sp.purpose}</td>
-              <td>{sp.hosting_region}</td>
-              <td>{sp.transfer_mechanism}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      <p class="section-note">
-        AI providers process prompt text containing brand / domain / topic data only.
-        No personal data of your end users is transmitted to any AI provider. Full
-        disclosure in our <a href="/privacy" target="_blank">Privacy Policy</a>.
-      </p>
+    .cph .phead { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; margin-bottom: var(--space-5); flex-wrap: wrap; }
+    .cph .phead h1 { font-size: 26px; font-weight: 700; letter-spacing: -.025em; color: var(--color-text-primary); display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .cph .phead .reg { font-size: 11px; font-weight: 600; color: var(--color-text-secondary); background: var(--color-surface-muted); border: 1px solid var(--color-border); padding: 3px 9px; border-radius: var(--radius-full); }
+    .cph .phead p { font-size: 14px; color: var(--color-text-secondary); margin-top: 7px; max-width: 64ch; }
+    .cph .phead__meta { font-size: 12.5px; color: var(--color-text-muted); margin-top: 10px; display: flex; gap: 16px; flex-wrap: wrap; }
+    .cph .phead__meta b { color: var(--color-text-secondary); font-weight: 600; }
+    .cph .phead__actions { display: flex; gap: 10px; flex: none; }
 
-      {/* Sprint S15.4 - sub-processors changelog. Mirrors the git log
-          on src/data/subprocessors.ts but in a user-visible form so
-          auditors can verify "Mistral SAS added 2026-XX-YY" without
-          reading our repo. */}
-      <h3 class="text-[13px] font-semibold text-charcoal-dark mt-6 mb-2">Sub-processors changelog</h3>
-      <table class="data-table">
-        <thead>
-          <tr>
-            <th>Date</th>
-            <th>Change</th>
-            <th>Sub-processor</th>
-            <th>Notes</th>
-          </tr>
-        </thead>
-        <tbody>
-          {CHANGELOG.length === 0 && (
-            <tr><td colspan="4" class="text-charcoal-light italic">No changes recorded yet.</td></tr>
-          )}
-          {CHANGELOG.map(c => (
-            <tr>
-              <td class="whitespace-nowrap tabular-nums">{c.date}</td>
-              <td><span class={`inline-block text-[10px] px-2 py-0.5 rounded uppercase ${changelogKindClass(c.kind)}`}>{changelogKindLabel(c.kind)}</span></td>
-              <td><strong>{c.subprocessor_id === 'all' ? '(all)' : (SUBPROCESSORS.find(s => s.id === c.subprocessor_id)?.legal_entity || c.subprocessor_id)}</strong></td>
-              <td>{c.summary}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </section>
+    .cph .status { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: var(--space-7); }
+    @media (max-width: 899px) { .cph .status { grid-template-columns: repeat(2, 1fr); } }
+    .cph .stc { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: 16px 18px; box-shadow: var(--shadow-xs); }
+    .cph .stc__l { font-size: 11px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--color-text-muted); }
+    .cph .stc__v { font-size: 17px; font-weight: 700; letter-spacing: -.015em; margin-top: 10px; color: var(--color-text-primary); line-height: 1.25; }
+    .cph .stc__m { font-size: 12px; color: var(--color-text-muted); margin-top: 7px; }
 
-    {/* Data governance */}
-    <section class="bg-white rounded-xl shadow-sm p-6 mb-4 compliance-section">
-      <h2 class="section-title">Data governance summary</h2>
-      <table class="kv-table">
-        <tbody>
-          <tr><th>Data controller</th><td>The customer (you) is the controller for any brand / domain / persona data uploaded to the workspace.</td></tr>
-          <tr><th>Data processor</th><td>sen-ai.fr is the processor, acting on the customer&apos;s documented instructions.</td></tr>
-          <tr><th>Personal data exposure</th><td>Minimal. Only the email + name of users granted workspace access are stored. AI provider prompts contain no personal data.</td></tr>
-          <tr><th>Retention period</th><td>Scan results retained for the duration of the workspace subscription, then 30 days post-cancellation before deletion.</td></tr>
-          <tr><th>International transfers</th><td>OpenAI and Anthropic (US) under EU-US Data Privacy Framework + Standard Contractual Clauses. All other sub-processors are EU-hosted.</td></tr>
-          <tr><th>Right to access / erase</th><td>Email <a href="mailto:contact@sen-ai.fr">contact@sen-ai.fr</a>. Workspace owner can also delete any scan from the UI at any time.</td></tr>
-          <tr><th>Breach notification</th><td>72-hour notification to the customer in case of a confirmed personal data breach, per GDPR Article 33.</td></tr>
-        </tbody>
-      </table>
-    </section>
+    .cph section { margin-bottom: var(--space-7); scroll-margin-top: 84px; }
+    .cph .shead { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: var(--space-4); padding-bottom: 12px; border-bottom: 1px solid var(--color-border); }
+    .cph .shead h2 { font-size: 18px; font-weight: 680; letter-spacing: -.015em; color: var(--color-text-primary); }
+    .cph .shead p { font-size: 13px; color: var(--color-text-muted); margin-top: 3px; max-width: 70ch; }
+    .cph .shead__r { font-size: 12.5px; color: var(--color-text-muted); flex: none; }
 
-    {/* Audit log */}
-    <section class="bg-white rounded-xl shadow-sm p-6 mb-4 compliance-section">
-      <h2 class="section-title">Audit log - scans in this workspace</h2>
-      <p class="section-prose">
-        Complete list of scans recorded against this workspace. Each row links to the
-        per-scan transparency report. <strong>{totalScans}</strong> scan(s) total,
-        <strong>{completedScans.length}</strong> completed.
-      </p>
-      {scans.length === 0 && (
-        <p class="text-[12px] text-charcoal-light italic">No scans in this workspace yet.</p>
-      )}
-      {scans.length > 0 && (
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>Scan name</th>
-              <th>Domain</th>
-              <th>Type</th>
-              <th>Status</th>
-              <th>Created</th>
-              <th>Completed</th>
-              <th class="screen-only">Report</th>
-            </tr>
-          </thead>
-          <tbody>
-            {scans.map((s: any) => (
-              <tr>
-                <td>{s.name || s.focus_brand_name || '-'}</td>
-                <td>{s.domain || '-'}</td>
-                <td>{s.scan_type || '-'}</td>
-                <td>
-                  <span class={`text-[9px] uppercase px-1.5 py-0.5 rounded ${
-                    s.status === 'completed' ? 'bg-emerald-50 text-emerald-700' :
-                    s.status === 'failed' ? 'bg-red-50 text-red-700' :
-                    'bg-amber-50 text-amber-700'
-                  }`}>{s.status}</span>
-                </td>
-                <td>{fmtDate(s.created_at)}</td>
-                <td>{fmtDate(s.completed_at)}</td>
-                <td class="screen-only">
-                  <a href={`/app/scans/${s.id}/compliance`} class="text-coral hover:text-coral-dark text-[11px]">Open →</a>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-    </section>
+    .cph .panel { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); box-shadow: var(--shadow-xs); overflow: hidden; }
+    .cph .panel--pad { padding: var(--space-5); }
 
-    {/* DPIA template */}
-    <section class="bg-white rounded-xl shadow-sm p-6 mb-4 compliance-section">
-      <h2 class="section-title">Data Protection Impact Assessment (DPIA) - template</h2>
-      <p class="section-prose">
-        The EU AI Act does not by itself require a DPIA, but Article 35 GDPR does
-        when processing is likely to result in a high risk to the rights and
-        freedoms of natural persons. For limited-risk AI applications like sen-ai,
-        a DPIA is typically NOT mandatory but procurement teams often ask for one.
-        Use this template as a starting point - adapt to your context, then save as
-        PDF and attach to your DPA.
-      </p>
+    .cph table.tbl { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13px; }
+    .cph table.tbl th { text-align: left; font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--color-text-muted); padding: 10px 16px; border-bottom: 1px solid var(--color-border); background: var(--color-surface-sunken); white-space: nowrap; }
+    .cph table.tbl td { padding: 11px 16px; border-bottom: 1px solid var(--color-border); color: var(--color-text-secondary); vertical-align: middle; }
+    .cph table.tbl tbody tr:last-child td { border-bottom: 0; }
+    .cph table.tbl tbody tr:hover { background: var(--color-surface-sunken); }
+    .cph .ev { font-weight: 550; color: var(--color-text-primary); }
+    .cph .mono { font-family: var(--font-mono); font-size: 11.5px; color: var(--color-text-muted); }
 
-      <div class="dpia-template border border-gray-200 rounded-lg p-5 bg-gray-50 mt-4">
-        <h3 class="dpia-h3">1. Processing description</h3>
-        <p class="dpia-p"><strong>Service used :</strong> sen-ai.fr - brand visibility analytics across generative AI systems.</p>
-        <p class="dpia-p"><strong>Purpose :</strong> Measure how third-party AI systems (ChatGPT, Gemini, Claude, Mistral) reference the customer&apos;s brand and competitors when responding to typical buyer questions. Surface optimisation opportunities.</p>
-        <p class="dpia-p"><strong>Categories of data processed :</strong> Brand names, domain names, persona descriptions (fictional), topic taxonomies. No personal data of end users.</p>
-        <p class="dpia-p"><strong>Data subjects :</strong> Only the customer&apos;s account holders (workspace users) - identified by email + name.</p>
+    .cph .kv { width: 100%; font-size: 13px; border-collapse: collapse; }
+    .cph .kv th { width: 30%; padding: 10px 16px; text-align: left; color: var(--color-text-muted); font-weight: 600; vertical-align: top; border-bottom: 1px solid var(--color-border); }
+    .cph .kv td { padding: 10px 16px; color: var(--color-text-primary); vertical-align: top; border-bottom: 1px solid var(--color-border); }
+    .cph .kv tr:last-child th, .cph .kv tr:last-child td { border-bottom: 0; }
+    .cph .kv a { color: var(--coral-700); }
 
-        <h3 class="dpia-h3">2. Necessity &amp; proportionality</h3>
-        <p class="dpia-p"><strong>Lawful basis :</strong> Article 6(1)(b) GDPR - performance of a contract (the SaaS subscription).</p>
-        <p class="dpia-p"><strong>Data minimisation :</strong> sen-ai.fr does not collect personal data of the customer&apos;s end users. AI provider prompts contain only brand / domain / topic data.</p>
-        <p class="dpia-p"><strong>Retention :</strong> Scan results retained for the active subscription + 30 days. Account data retained per Privacy Policy.</p>
+    .cph .note { font-size: 12px; color: var(--color-text-muted); font-style: italic; padding: 12px 16px; border-top: 1px dashed var(--color-border); }
+    .cph .note a { color: var(--coral-700); }
 
-        <h3 class="dpia-h3">3. Risk assessment</h3>
-        <p class="dpia-p"><strong>Risk to data subjects :</strong> LOW. The only data subjects are workspace users (employees of the customer). No biometric, health, financial, or special-category data is processed.</p>
-        <p class="dpia-p"><strong>Risk of unauthorised access :</strong> Mitigated by encrypted storage at rest, TLS in transit, HttpOnly auth cookies, scoped per-workspace access controls.</p>
-        <p class="dpia-p"><strong>Risk of AI bias / discrimination :</strong> The AI systems used are GENERAL-PURPOSE and outside sen-ai.fr&apos;s control. sen-ai.fr does not train or fine-tune any model. Bias risks rest with the upstream AI providers.</p>
-        <p class="dpia-p"><strong>Risk of international transfer :</strong> Two sub-processors are US-based (OpenAI, Anthropic). Mitigated by EU-US Data Privacy Framework + Standard Contractual Clauses.</p>
+    .cph .changelog { display: flex; flex-direction: column; }
+    .cph .clog { display: grid; grid-template-columns: 130px 1fr; gap: 18px; padding: 14px 0; border-bottom: 1px solid var(--color-border); }
+    .cph .changelog .clog:last-child { border-bottom: 0; }
+    .cph .clog__date { font-size: 12.5px; color: var(--color-text-muted); }
+    .cph .clog__t { font-size: 13.5px; font-weight: 650; color: var(--color-text-primary); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .cph .clog__d { font-size: 13px; color: var(--color-text-secondary); margin-top: 4px; line-height: 1.5; }
 
-        <h3 class="dpia-h3">4. Safeguards in place</h3>
-        <ul class="dpia-ul">
-          <li>EU-hosted application + database (Hetzner, Germany)</li>
-          <li>Encrypted-at-rest PostgreSQL with daily backups, 7-day retention</li>
-          <li>TLS 1.3 for all in-transit traffic (sen-ai.fr ↔ user, sen-ai.fr ↔ sub-processors)</li>
-          <li>HttpOnly + Secure + SameSite=Lax authentication cookies</li>
-          <li>Per-workspace role-based access (owner / editor / viewer)</li>
-          <li>Sentry observability for error tracking (EU instance, scrubbed PII)</li>
-          <li>72-hour breach notification procedure per GDPR Article 33</li>
-        </ul>
+    .cph .dpia-h3 { font-size: 13.5px; font-weight: 700; color: var(--color-text-primary); margin-top: 18px; margin-bottom: 5px; }
+    .cph .dpia-h3:first-child { margin-top: 0; }
+    .cph .dpia-p { font-size: 12.5px; color: var(--color-text-secondary); line-height: 1.6; margin: 3px 0; }
+    .cph .dpia-p strong, .cph .dpia-p b { color: var(--color-text-primary); }
+    .cph .dpia-ul { list-style: disc; padding-left: 20px; font-size: 12.5px; color: var(--color-text-secondary); line-height: 1.65; margin-top: 5px; }
 
-        <h3 class="dpia-h3">5. Customer&apos;s residual decisions</h3>
-        <p class="dpia-p">As the data controller you decide :</p>
-        <ul class="dpia-ul">
-          <li>Whether to make scan results visible to employees (workspace roles)</li>
-          <li>How long to keep historical scan data (delete from UI at any time)</li>
-          <li>Whether to add brand / persona / topic data that may be considered confidential</li>
-          <li>Whether your specific use case classes sen-ai.fr as a high-risk AI deployment (it normally does not, but your sector may impose additional duties)</li>
-        </ul>
+    .cph .bullets { list-style: disc; padding-left: 20px; font-size: 13px; color: var(--color-text-secondary); line-height: 1.8; }
+    .cph .bullets a { color: var(--coral-700); font-weight: 600; text-decoration: none; }
+    .cph .bullets a:hover { color: var(--coral-800); }
 
-        <h3 class="dpia-h3">6. Conclusion</h3>
-        <p class="dpia-p">
-          For the standard use case (brand visibility analytics), processing is assessed as
-          <strong> LOW RISK</strong>. No prior consultation with the supervisory authority is
-          required under Article 36 GDPR.
-        </p>
-        <p class="dpia-p">
-          This template is informational and not legal advice. Customers should validate
-          with their own Data Protection Officer or legal counsel before signing off.
-        </p>
-      </div>
-    </section>
-
-    {/* Footer links */}
-    <section class="bg-white rounded-xl shadow-sm p-6 mb-4 compliance-section">
-      <h2 class="section-title">More resources</h2>
-      <ul class="bullets">
-        <li><a href="/methodology" target="_blank" class="text-coral hover:text-coral-dark">Public methodology whitepaper</a> - N-runs paradigm, provider mix, citation extraction</li>
-        <li><a href="/privacy" target="_blank" class="text-coral hover:text-coral-dark">Privacy Policy</a> - full data handling disclosure</li>
-        <li><a href="/terms" target="_blank" class="text-coral hover:text-coral-dark">Terms of Service</a> - contractual basis</li>
-        <li><a href="/mentions-legales" target="_blank" class="text-coral hover:text-coral-dark">Legal Notice</a> - operating entity</li>
-        <li>Compliance contact : <a href="mailto:contact@sen-ai.fr">contact@sen-ai.fr</a></li>
-      </ul>
-    </section>
-
-  </div>
-
-  <style>
-    .compliance-hub .section-title { font-size: 1.1rem; font-weight: 700; color: #1f2937; margin-bottom: 0.5rem; }
-    .compliance-hub .section-prose { font-size: 12.5px; line-height: 1.6; color: #374151; margin: 0.4rem 0; }
-    .compliance-hub .section-note { font-size: 11px; color: #6b7280; font-style: italic; margin-top: 0.5rem; }
-    .compliance-hub .bullets { list-style: disc; padding-left: 1.25rem; font-size: 12.5px; color: #374151; line-height: 1.7; }
-    .compliance-hub .kv-table { width: 100%; font-size: 12.5px; }
-    .compliance-hub .kv-table th { width: 30%; padding: 0.35rem 0.6rem; text-align: left; color: #6b7280; font-weight: 600; vertical-align: top; }
-    .compliance-hub .kv-table td { padding: 0.35rem 0.6rem; color: #1f2937; vertical-align: top; }
-    .compliance-hub .kv-table tr { border-bottom: 1px solid #f3f4f6; }
-    .compliance-hub .data-table { width: 100%; font-size: 12px; border-collapse: collapse; margin-top: 0.5rem; }
-    .compliance-hub .data-table th { background: #f9fafb; padding: 0.4rem 0.6rem; text-align: left; font-weight: 600; color: #374151; border-bottom: 1px solid #e5e7eb; }
-    .compliance-hub .data-table td { padding: 0.3rem 0.6rem; border-bottom: 1px solid #f3f4f6; color: #1f2937; }
-    .compliance-hub .data-table .text-right { text-align: right; }
-    .compliance-hub .dpia-h3 { font-size: 13px; font-weight: 700; color: #1f2937; margin-top: 0.85rem; margin-bottom: 0.3rem; }
-    .compliance-hub .dpia-p { font-size: 12px; color: #374151; line-height: 1.6; margin: 0.2rem 0; }
-    .compliance-hub .dpia-ul { list-style: disc; padding-left: 1.25rem; font-size: 12px; color: #374151; line-height: 1.6; margin-top: 0.3rem; }
-    .compliance-hub code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-
+    /* ============ PRINT - S14 visibility pattern preserved ============ */
     .screen-only { display: revert; }
-
     @media print {
+      @page { margin: 18mm 16mm; }
+      body { background: #fff !important; }
       body * { visibility: hidden !important; }
       .compliance-hub, .compliance-hub * { visibility: visible !important; }
-      .compliance-hub { position: absolute !important; left: 0; top: 0; width: 100%; padding: 0 !important; }
-      .compliance-hub .screen-only { display: none !important; }
-      .compliance-hub .compliance-section { box-shadow: none !important; border-bottom: 1px solid #e5e7eb; border-radius: 0; padding: 1rem 0 !important; page-break-inside: avoid; }
-      body { background: white !important; }
-      @page { margin: 1.5cm 1.8cm; }
+      .compliance-hub { position: absolute !important; left: 0; top: 0; width: 100%; display: block !important; padding: 0 !important; }
+      .compliance-hub .jump, .compliance-hub .screen-only { display: none !important; }
+      .compliance-hub .printhead { display: block !important; margin-bottom: 14px; padding-bottom: 14px; border-bottom: 2px solid #111; }
+      .compliance-hub .printhead__row { display: flex; justify-content: space-between; align-items: flex-end; }
+      .compliance-hub .printhead__org { font-size: 15px; font-weight: 700; }
+      .compliance-hub .printhead__doc { font-size: 12px; color: #444; margin-top: 2px; }
+      .compliance-hub .printhead__date { font-size: 11px; color: #444; text-align: right; }
+      .compliance-hub .phead h1 { font-size: 20px; }
+      .compliance-hub .status { gap: 8px; }
+      .compliance-hub .stc, .compliance-hub .panel { box-shadow: none !important; border: 1px solid #ccc; }
+      .compliance-hub .panel { page-break-inside: avoid; }
+      .compliance-hub section { page-break-inside: auto; margin-bottom: 22px; }
+      .compliance-hub .shead { page-break-after: avoid; }
+      .compliance-hub table.tbl tbody tr, .compliance-hub .clog { page-break-inside: avoid; }
+      .compliance-hub a[href] { color: inherit !important; text-decoration: none !important; }
     }
   </style>
+
+  <div class="cph compliance-hub">
+    {/* JUMP NAV (screen only) */}
+    <nav class="jump screen-only" id="cphJump">
+      <div class="jump__l">On this page</div>
+      <a href="#identity" class="active">Identity</a>
+      <a href="#subproc">Sub-processors</a>
+      <a href="#governance">Data governance</a>
+      <a href="#audit">Audit log</a>
+      <a href="#dpia">DPIA template</a>
+      <a href="#resources">Resources</a>
+    </nav>
+
+    <div class="doc">
+      {/* print-only document header */}
+      <div class="printhead">
+        <div class="printhead__row">
+          <div>
+            <div class="printhead__org">{activeClient?.name || 'Workspace'} - sen-ai.fr</div>
+            <div class="printhead__doc">AI Act compliance record</div>
+          </div>
+          <div class="printhead__date">Generated {reportDate}</div>
+        </div>
+      </div>
+
+      <div class="phead">
+        <div>
+          <h1>AI Act compliance <span class="reg">EU 2024/1689</span></h1>
+          <p>
+            The org-level record of how this workspace uses generative-AI providers, what data
+            it processes, and every scan recorded. Built to attach to a procurement or DPO file.
+            Use the per-scan Compliance tab for transparency reports on individual scans.
+          </p>
+          <div class="phead__meta">
+            <span>Report date <b>{reportDate}</b></span>
+            <span>Workspace <b>{activeClient?.name || '-'}</b></span>
+            <span>Scans recorded <b>{totalScans}</b></span>
+          </div>
+        </div>
+        <div class="phead__actions screen-only">
+          <button onclick="window.print()" class="btn btn--secondary btn--md">Browser print</button>
+          {activeOrgId && (
+            <a href={`/api/organizations/${activeOrgId}/compliance/pdf`} download class="btn btn--primary btn--md">
+              <svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M8 2v8M4.5 6.5L8 10l3.5-3.5M3 13h10"/></svg>
+              Download PDF
+            </a>
+          )}
+        </div>
+      </div>
+
+      {/* STATUS - factual values only, no fabricated audit verdicts */}
+      <div class="status">
+        <div class="stc">
+          <div class="stc__l">AI Act posture</div>
+          <div class="stc__v">Limited-risk deployer</div>
+          <div class="stc__m">Title IV, Article 50 - transparency duties</div>
+        </div>
+        <div class="stc">
+          <div class="stc__l">DPIA</div>
+          <div class="stc__v">Template provided</div>
+          <div class="stc__m">Validate with your DPO before signing</div>
+        </div>
+        <div class="stc">
+          <div class="stc__l">Sub-processors</div>
+          <div class="stc__v">{activeSubs.length} active</div>
+          <div class="stc__m">{aiProviderCount} generative-AI providers</div>
+        </div>
+        <div class="stc">
+          <div class="stc__l">Scan audit trail</div>
+          <div class="stc__v">{totalScans} recorded</div>
+          <div class="stc__m">{completedScans.length} completed with full results</div>
+        </div>
+      </div>
+
+      {/* IDENTITY */}
+      <section id="identity">
+        <div class="shead">
+          <div><h2>Workspace identity</h2><p>The legal anchor of this record - which workspace, which brand, generated when.</p></div>
+        </div>
+        <div class="panel">
+          <table class="kv">
+            <tbody>
+              <tr><th>Workspace name</th><td>{activeClient?.name || '-'}</td></tr>
+              <tr><th>Workspace ID</th><td><span class="mono">{activeClient?.id || '-'}</span></td></tr>
+              <tr><th>Brand under monitoring</th><td>{activeClient?.brand || '-'}</td></tr>
+              <tr><th>Report date</th><td>{reportDate}</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      {/* SUB-PROCESSORS */}
+      <section id="subproc">
+        <div class="shead">
+          <div>
+            <h2>Sub-processors</h2>
+            <p>
+              Third parties that process data on behalf of this workspace. Each operates under a
+              Data Processing Addendum (DPA) and at least one of : EU-US Data Privacy Framework,
+              EU Standard Contractual Clauses, or EU-based hosting.
+            </p>
+          </div>
+          <div class="shead__r">{activeSubs.length} active</div>
+        </div>
+        <div class="panel">
+          <table class="tbl">
+            <thead>
+              <tr><th>Sub-processor</th><th>Purpose</th><th>Hosting region</th><th>Lawful transfer mechanism</th></tr>
+            </thead>
+            <tbody>
+              {activeSubs.map((sp) => (
+                <tr>
+                  <td class="ev">{sp.legal_entity}</td>
+                  <td>{sp.purpose}</td>
+                  <td>{sp.hosting_region}</td>
+                  <td>{sp.transfer_mechanism}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p class="note">
+            AI providers process prompt text containing brand / domain / topic data only.
+            No personal data of your end users is transmitted to any AI provider. Full
+            disclosure in our <a href="/privacy" target="_blank">Privacy Policy</a>.
+          </p>
+        </div>
+
+        {/* changelog - the user-visible mirror of src/data/subprocessors.ts */}
+        <div class="shead" style="margin-top:var(--space-5)">
+          <div><h2 style="font-size:15px">Sub-processors changelog</h2><p>Versioned record of every registry change, so an old DPA can be checked against what was true at signing.</p></div>
+        </div>
+        <div class="panel panel--pad">
+          <div class="changelog">
+            {CHANGELOG.length === 0 && <p style="font-size:12.5px;color:var(--color-text-muted);font-style:italic">No changes recorded yet.</p>}
+            {CHANGELOG.map((c) => (
+              <div class="clog">
+                <div class="clog__date">{c.date}</div>
+                <div>
+                  <div class="clog__t">
+                    <span class={`chip chip--sm ${kindChip[c.kind] || 'chip--neutral'}`}>{changelogKindLabel(c.kind)}</span>
+                    {c.subprocessor_id === 'all' ? 'All sub-processors' : (SUBPROCESSORS.find((s) => s.id === c.subprocessor_id)?.legal_entity || c.subprocessor_id)}
+                  </div>
+                  <div class="clog__d">{c.summary}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* GOVERNANCE */}
+      <section id="governance">
+        <div class="shead">
+          <div><h2>Data governance summary</h2><p>Roles, retention and rights under GDPR for the data this workspace processes.</p></div>
+        </div>
+        <div class="panel">
+          <table class="kv">
+            <tbody>
+              <tr><th>Data controller</th><td>The customer (you) is the controller for any brand / domain / persona data uploaded to the workspace.</td></tr>
+              <tr><th>Data processor</th><td>sen-ai.fr is the processor, acting on the customer&apos;s documented instructions.</td></tr>
+              <tr><th>Personal data exposure</th><td>Minimal. Only the email + name of users granted workspace access are stored. AI provider prompts contain no personal data.</td></tr>
+              <tr><th>Retention period</th><td>Scan results retained for the duration of the workspace subscription, then 30 days post-cancellation before deletion.</td></tr>
+              <tr><th>International transfers</th><td>OpenAI and Anthropic (US) under EU-US Data Privacy Framework + Standard Contractual Clauses. All other sub-processors are EU-hosted.</td></tr>
+              <tr><th>Right to access / erase</th><td>Email <a href="mailto:contact@sen-ai.fr">contact@sen-ai.fr</a>. Workspace owner can also delete any scan from the UI at any time.</td></tr>
+              <tr><th>Breach notification</th><td>72-hour notification to the customer in case of a confirmed personal data breach, per GDPR Article 33.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      {/* AUDIT LOG */}
+      <section id="audit">
+        <div class="shead">
+          <div><h2>Audit log</h2><p>Complete list of scans recorded against this workspace. Each row links to the per-scan transparency report.</p></div>
+          <div class="shead__r">{totalScans} scan{totalScans === 1 ? '' : 's'}, {completedScans.length} completed</div>
+        </div>
+        {scans.length === 0 ? (
+          <div class="panel panel--pad">
+            <p style="font-size:12.5px;color:var(--color-text-muted);font-style:italic">No scans in this workspace yet.</p>
+          </div>
+        ) : (
+          <div class="panel">
+            <table class="tbl">
+              <thead>
+                <tr><th>Scan name</th><th>Domain</th><th>Type</th><th>Status</th><th>Created</th><th>Completed</th><th class="screen-only">Report</th></tr>
+              </thead>
+              <tbody>
+                {scans.map((s: any) => (
+                  <tr>
+                    <td class="ev">{s.name || s.focus_brand_name || '-'}</td>
+                    <td>{s.domain || '-'}</td>
+                    <td>{s.scan_type || '-'}</td>
+                    <td><span class={`chip chip--sm ${scanStatusChip(s.status)}`}>{s.status}</span></td>
+                    <td class="mono">{fmtDate(s.created_at)}</td>
+                    <td class="mono">{fmtDate(s.completed_at)}</td>
+                    <td class="screen-only"><a href={`/app/scans/${s.id}/compliance`} style="color:var(--coral-700);font-weight:600;font-size:12px;text-decoration:none">Open &rarr;</a></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      {/* DPIA */}
+      <section id="dpia">
+        <div class="shead">
+          <div>
+            <h2>Data Protection Impact Assessment - template</h2>
+            <p>
+              The EU AI Act does not by itself require a DPIA, but Article 35 GDPR does when
+              processing is likely to result in a high risk to natural persons. For limited-risk
+              AI applications like sen-ai a DPIA is typically NOT mandatory, but procurement teams
+              often ask for one. Adapt this template, then print to PDF and attach to your DPA.
+            </p>
+          </div>
+        </div>
+        <div class="panel panel--pad">
+          <h3 class="dpia-h3">1. Processing description</h3>
+          <p class="dpia-p"><strong>Service used :</strong> sen-ai.fr - brand visibility analytics across generative AI systems.</p>
+          <p class="dpia-p"><strong>Purpose :</strong> Measure how third-party AI systems (ChatGPT, Gemini, Claude, Mistral) reference the customer&apos;s brand and competitors when responding to typical buyer questions. Surface optimisation opportunities.</p>
+          <p class="dpia-p"><strong>Categories of data processed :</strong> Brand names, domain names, persona descriptions (fictional), topic taxonomies. No personal data of end users.</p>
+          <p class="dpia-p"><strong>Data subjects :</strong> Only the customer&apos;s account holders (workspace users) - identified by email + name.</p>
+
+          <h3 class="dpia-h3">2. Necessity &amp; proportionality</h3>
+          <p class="dpia-p"><strong>Lawful basis :</strong> Article 6(1)(b) GDPR - performance of a contract (the SaaS subscription).</p>
+          <p class="dpia-p"><strong>Data minimisation :</strong> sen-ai.fr does not collect personal data of the customer&apos;s end users. AI provider prompts contain only brand / domain / topic data.</p>
+          <p class="dpia-p"><strong>Retention :</strong> Scan results retained for the active subscription + 30 days. Account data retained per Privacy Policy.</p>
+
+          <h3 class="dpia-h3">3. Risk assessment</h3>
+          <p class="dpia-p"><strong>Risk to data subjects :</strong> LOW. The only data subjects are workspace users (employees of the customer). No biometric, health, financial, or special-category data is processed.</p>
+          <p class="dpia-p"><strong>Risk of unauthorised access :</strong> Mitigated by encrypted storage at rest, TLS in transit, HttpOnly auth cookies, scoped per-workspace access controls.</p>
+          <p class="dpia-p"><strong>Risk of AI bias / discrimination :</strong> The AI systems used are GENERAL-PURPOSE and outside sen-ai.fr&apos;s control. sen-ai.fr does not train or fine-tune any model. Bias risks rest with the upstream AI providers.</p>
+          <p class="dpia-p"><strong>Risk of international transfer :</strong> Two sub-processors are US-based (OpenAI, Anthropic). Mitigated by EU-US Data Privacy Framework + Standard Contractual Clauses.</p>
+
+          <h3 class="dpia-h3">4. Safeguards in place</h3>
+          <ul class="dpia-ul">
+            <li>EU-hosted application + database (Hetzner, Germany)</li>
+            <li>Encrypted-at-rest PostgreSQL with daily backups, 7-day retention</li>
+            <li>TLS 1.3 for all in-transit traffic (sen-ai.fr ↔ user, sen-ai.fr ↔ sub-processors)</li>
+            <li>HttpOnly + Secure + SameSite=Lax authentication cookies</li>
+            <li>Per-workspace role-based access (owner / editor / viewer)</li>
+            <li>Sentry observability for error tracking (EU instance, scrubbed PII)</li>
+            <li>72-hour breach notification procedure per GDPR Article 33</li>
+          </ul>
+
+          <h3 class="dpia-h3">5. Customer&apos;s residual decisions</h3>
+          <p class="dpia-p">As the data controller you decide :</p>
+          <ul class="dpia-ul">
+            <li>Whether to make scan results visible to employees (workspace roles)</li>
+            <li>How long to keep historical scan data (delete from UI at any time)</li>
+            <li>Whether to add brand / persona / topic data that may be considered confidential</li>
+            <li>Whether your specific use case classes sen-ai.fr as a high-risk AI deployment (it normally does not, but your sector may impose additional duties)</li>
+          </ul>
+
+          <h3 class="dpia-h3">6. Conclusion</h3>
+          <p class="dpia-p">
+            For the standard use case (brand visibility analytics), processing is assessed as
+            <strong> LOW RISK</strong>. No prior consultation with the supervisory authority is
+            required under Article 36 GDPR.
+          </p>
+          <p class="dpia-p">
+            This template is informational and not legal advice. Customers should validate
+            with their own Data Protection Officer or legal counsel before signing off.
+          </p>
+        </div>
+      </section>
+
+      {/* RESOURCES */}
+      <section id="resources">
+        <div class="shead">
+          <div><h2>More resources</h2></div>
+        </div>
+        <div class="panel panel--pad">
+          <ul class="bullets">
+            <li><a href="/methodology" target="_blank">Public methodology whitepaper</a> - N-runs paradigm, AI mix, citation extraction</li>
+            <li><a href="/privacy" target="_blank">Privacy Policy</a> - full data handling disclosure</li>
+            <li><a href="/terms" target="_blank">Terms of Service</a> - contractual basis</li>
+            <li><a href="/mentions-legales" target="_blank">Legal Notice</a> - operating entity</li>
+            <li>Compliance contact : <a href="mailto:contact@sen-ai.fr" style="color:var(--coral-700)">contact@sen-ai.fr</a></li>
+          </ul>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <script is:inline>
+    // Jump-nav scroll-spy : smooth-scroll on click + IntersectionObserver
+    // highlights the section currently in the reading band.
+    (() => {
+      const nav = document.getElementById('cphJump');
+      if (!nav) return;
+      const links = Array.from(nav.querySelectorAll('a'));
+      const map = {};
+      links.forEach((l) => {
+        const id = l.getAttribute('href').slice(1);
+        const el = document.getElementById(id);
+        if (el) map[id] = l;
+        l.addEventListener('click', (e) => {
+          e.preventDefault();
+          document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' });
+        });
+      });
+      const obs = new IntersectionObserver((entries) => {
+        entries.forEach((e) => {
+          if (e.isIntersecting) {
+            links.forEach((l) => l.classList.remove('active'));
+            map[e.target.id]?.classList.add('active');
+          }
+        });
+      }, { rootMargin: '-15% 0px -75% 0px' });
+      Object.keys(map).forEach((id) => obs.observe(document.getElementById(id)));
+    })();
+  </script>
 </DashboardLayout>

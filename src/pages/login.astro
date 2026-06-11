@@ -24,8 +24,9 @@ const safeNext = (rawNext.startsWith('/') && !rawNext.startsWith('//')) ? rawNex
     .auth-page { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: var(--color-surface-sunken); padding: var(--space-6) var(--space-4); }
     .auth { width: 100%; max-width: 400px; }
     .auth__brand { display: flex; align-items: center; gap: 9px; justify-content: center; margin-bottom: 28px; text-decoration: none; }
-    .auth .brand__mark { width: 26px; height: 26px; border-radius: 8px; background: var(--color-primary); position: relative; flex: none; }
-    .auth .brand__mark::after { content: ""; position: absolute; inset: 7px; border-radius: 50%; border: 2.5px solid #fff; }
+    /* Brand lockup (decided 2026-06-11) : the real lotus glyph (coral
+       recolour of favicon.svg) + handoff wordmark treatment. */
+    .auth .brand__glyph { width: 28px; height: 28px; flex: none; }
     .auth .brand__name { font-size: 15px; font-weight: 700; letter-spacing: -.01em; color: var(--color-text-primary); }
     .auth .brand__name span { color: var(--color-text-muted); font-weight: 500; }
     .auth h1 { font-size: 23px; font-weight: 700; letter-spacing: -.02em; text-align: center; color: var(--color-text-primary); }
@@ -54,7 +55,7 @@ const safeNext = (rawNext.startsWith('/') && !rawNext.startsWith('//')) ? rawNex
   <div class="auth-page">
     <div class="auth">
       <a href="/" class="auth__brand">
-        <span class="brand__mark"></span>
+        <img src="/logo-mark.svg" alt="" class="brand__glyph" />
         <span class="brand__name">sen-ai<span>.fr</span></span>
       </a>
       <h1>Log in</h1>

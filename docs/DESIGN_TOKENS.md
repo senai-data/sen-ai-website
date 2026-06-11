@@ -80,6 +80,27 @@ Each migration PR rewrites one surface, uses the class API where a primitive exi
 
 The handoff folder ships 12 high-fidelity HTML reference surfaces + screenshots. Implementers should open the relevant `.html` next to the page they are migrating and match the layout. The HTML is a reference, not code to copy verbatim. Astro components stay Astro components.
 
+## Brand lockup (decided 2026-06-11)
+
+The compact brand lockup used on auth / welcome / future white-label credit is :
+
+```html
+<img src="/logo-mark.svg" alt="" style="width:28px;height:28px" />
+<span class="brand__name">sen-ai<span>.fr</span></span>
+```
+
+- **Glyph** : `public/logo-mark.svg` - the real lotus network mark, a coral
+  (`#F06A5C`) recolour of `favicon.svg`. Do NOT use the handoff's square+ring
+  placeholder (`.brand__mark` CSS) - it was a Claude Design invention with no
+  brand story ; the lotus carries the "from data to bloom" identity.
+- **Wordmark** : `sen-ai` bold `--color-text-primary`, `.fr` weight 500
+  `--color-text-muted` (handoff treatment kept - brand reads first, TLD
+  recedes). Pattern : `sen-ai<span>.fr</span>` with
+  `.brand__name span { color: var(--color-text-muted); font-weight: 500; }`.
+- The full-size PNG (`/logo-sen-ai-fr.png`, glyph + uniform wordmark) stays
+  for large marketing placements (landing nav, og-image).
+
 ## Changelog
 
 - 2026-06-08 - Foundation shipped : `tokens.css`, `components.css`, Tailwind 4 bridge in `global.css`. No surfaces migrated yet.
+- 2026-06-08 → 06-11 - All 12 handoff surfaces migrated (see project memory tracker). Brand lockup decided : lotus glyph + handoff wordmark.

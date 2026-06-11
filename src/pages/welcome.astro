@@ -94,8 +94,9 @@ try {
 
     .wlc .frame { width: 100%; max-width: 480px; }
     .wlc .brandrow { display: flex; align-items: center; gap: 9px; justify-content: center; margin-bottom: 26px; text-decoration: none; }
-    .wlc .brand__mark { width: 26px; height: 26px; border-radius: 8px; background: var(--color-primary); position: relative; flex: none; }
-    .wlc .brand__mark::after { content: ""; position: absolute; inset: 7px; border-radius: 50%; border: 2.5px solid #fff; }
+    /* Brand lockup (decided 2026-06-11) : the real lotus glyph (coral
+       recolour of favicon.svg) + handoff wordmark treatment. */
+    .wlc .brand__glyph { width: 28px; height: 28px; flex: none; }
     .wlc .brand__name { font-size: 15px; font-weight: 700; letter-spacing: -.01em; color: var(--color-text-primary); }
     .wlc .brand__name span { color: var(--color-text-muted); font-weight: 500; }
 
@@ -167,7 +168,7 @@ try {
 
   <div class="frame">
     <a href="/" class="brandrow">
-      <span class="brand__mark"></span>
+      <img src="/logo-mark.svg" alt="" class="brand__glyph" />
       <span class="brand__name">sen-ai<span>.fr</span></span>
     </a>
 

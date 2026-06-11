@@ -91,8 +91,12 @@ const trippedProviders: string[] = providerStatus
 const mentionRateTrend = trendFromApi.map((t: any) => t.citation_rate);
 
 // ─── KPI 2 : Total citations (sum across details) ───
+// The aggregated endpoint does not carry total_citations on d.latest,
+// so fall back to counting the citations[] array (same source the
+// Citations tab counts). Single-run keeps the cheap field when present.
 const totalCitations = details.reduce((s: number, d: any) => {
-  const tc = isAggregated ? (d.latest?.total_citations || 0) : (d.total_citations || 0);
+  const det = isAggregated ? (d.latest || {}) : d;
+  const tc = det.total_citations ?? (det.citations || []).length;
   return s + tc;
 }, 0);
 const citationsTrend = trendFromApi.map((t: any) => t.total_citations || 0).filter((v: number) => v > 0);

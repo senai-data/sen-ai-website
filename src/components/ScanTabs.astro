@@ -50,22 +50,25 @@ interface Props {
 const { scanId, activeTab, counts = {}, criticalCount = 0, queryString = '' } = Astro.props;
 
 // Leaf table - id, label, href segment, badge value, critical flag.
+// Zero counts collapse to null : a "0" badge is pure noise next to the
+// label (Hick) and reads like a bug when the page itself shows data.
+const n = (v?: number) => (v && v > 0 ? v : null);
 const leaves: Record<string, { label: string; href: string; badge: number | null; critical?: boolean; dotColor?: string }> = {
   overview:          { label: 'Overview',       href: 'results',           badge: null },
-  topics:            { label: 'Topics',         href: 'topics',            badge: counts.topics ?? null },
-  personas:          { label: 'Personas',       href: 'personas',          badge: counts.personas ?? null },
-  questions:         { label: 'Questions',      href: 'questions',         badge: counts.questions ?? null },
-  citations:         { label: 'Citations',      href: 'citations',         badge: counts.citations ?? null },
-  competitors:       { label: 'Competitors',    href: 'competitors',       badge: counts.competitors ?? null },
-  wikipedia:         { label: 'Wikipedia',      href: 'wikipedia',         badge: counts.wikipedia ?? null },
-  reddit:            { label: 'Reddit',         href: 'reddit',            badge: counts.reddit ?? null },
-  'pr-outreach':     { label: 'PR / Media',     href: 'pr-outreach',       badge: counts.prOutreach ?? null },
-  youtube:           { label: 'YouTube',        href: 'youtube',           badge: counts.youtube ?? null },
-  audit:             { label: 'Page Audit',     href: 'audit',             badge: counts.audit ?? null },
-  schema:            { label: 'Schema',         href: 'schema',            badge: counts.schema ?? null },
-  'internal-linking':{ label: 'Internal links', href: 'internal-linking',  badge: counts.internalLinking ?? null },
-  crisis:            { label: 'Crisis',         href: 'crisis',            badge: counts.crisis ?? null, dotColor: 'var(--status-critical)' },
-  actions:           { label: 'Actions',        href: 'actions',           badge: criticalCount > 0 ? criticalCount : (counts.actions ?? null), critical: criticalCount > 0 },
+  topics:            { label: 'Topics',         href: 'topics',            badge: n(counts.topics) },
+  personas:          { label: 'Personas',       href: 'personas',          badge: n(counts.personas) },
+  questions:         { label: 'Questions',      href: 'questions',         badge: n(counts.questions) },
+  citations:         { label: 'Citations',      href: 'citations',         badge: n(counts.citations) },
+  competitors:       { label: 'Competitors',    href: 'competitors',       badge: n(counts.competitors) },
+  wikipedia:         { label: 'Wikipedia',      href: 'wikipedia',         badge: n(counts.wikipedia) },
+  reddit:            { label: 'Reddit',         href: 'reddit',            badge: n(counts.reddit) },
+  'pr-outreach':     { label: 'PR / Media',     href: 'pr-outreach',       badge: n(counts.prOutreach) },
+  youtube:           { label: 'YouTube',        href: 'youtube',           badge: n(counts.youtube) },
+  audit:             { label: 'Page Audit',     href: 'audit',             badge: n(counts.audit) },
+  schema:            { label: 'Schema',         href: 'schema',            badge: n(counts.schema) },
+  'internal-linking':{ label: 'Internal links', href: 'internal-linking',  badge: n(counts.internalLinking) },
+  crisis:            { label: 'Crisis',         href: 'crisis',            badge: n(counts.crisis), dotColor: 'var(--status-critical)' },
+  actions:           { label: 'Actions',        href: 'actions',           badge: criticalCount > 0 ? criticalCount : n(counts.actions), critical: criticalCount > 0 },
   compliance:        { label: 'Compliance',     href: 'compliance',        badge: null },
 };
 

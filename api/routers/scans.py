@@ -254,6 +254,7 @@ def _serialize_scan(scan: Scan) -> dict:
         "status": scan.status,
         "focus_brand_id": str(scan.focus_brand_id) if scan.focus_brand_id else None,
         "focus_brand_name": scan.focus_brand.name if scan.focus_brand else None,
+        "scan_type": scan.scan_type,
         "parent_scan_id": str(scan.parent_scan_id) if scan.parent_scan_id else None,
         "run_index": scan.run_index or 1,
         "schedule": scan.schedule or "manual",

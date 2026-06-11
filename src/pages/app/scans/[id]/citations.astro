@@ -70,7 +70,12 @@ const SITE_TYPE_COLOR: Record<string, string> = {
   'Other':                'var(--neutral-400)',
 };
 function classifySurface(dom: string, siteType: string | null | undefined, isPr: boolean, isYou: boolean): { name: string; color: string } {
-  if (isYou) return { name: 'Brand (yours)', color: 'var(--coral-500)' };
+  if (isYou) return { name: 'Your site', color: 'var(--coral-500)' };
+  // The canonical "Brand" bucket = a brand's own website (taxonomy from
+  // worker/seo_llm/src/site_classifier.SITE_CATEGORIES). For unambiguous
+  // UI copy : if it's a Brand site that isn't ours, label it as a
+  // competitor site.
+  if (siteType === 'Brand') return { name: 'Competitor site', color: 'var(--neutral-600)' };
   if (siteType && SITE_TYPE_COLOR[siteType]) {
     return { name: siteType, color: SITE_TYPE_COLOR[siteType] };
   }
@@ -391,7 +396,7 @@ rows.forEach(r => { if (!surfaceSwatch[r.surface]) surfaceSwatch[r.surface] = r.
     <div class="cit__intro">
       <div>
         <h2>Citations</h2>
-        <p>One row per source the AI cited while answering. <b>Brand named</b> rows = wins (the AI cited a source AND named this brand). <b>Brand missing</b> rows = gaps (the AI cited a source but did not name this brand - often a competitor was named instead). Use the Brand filter to focus on either.</p>
+        <p>One row per source the AI cited while answering. <b>Brand mentioned</b> rows = wins (the AI cited a source AND mentioned this brand by name). <b>Brand missing</b> rows = gaps (the AI cited a source but did not mention this brand - often a competitor was mentioned instead). Use the Brand filter to focus on either.</p>
       </div>
       <button class="btn btn--secondary btn--md" @click="exportCsv()" type="button">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M8 2v8M4.5 6.5L8 10l3.5-3.5M3 13h10"/></svg>
@@ -434,9 +439,9 @@ rows.forEach(r => { if (!surfaceSwatch[r.surface]) surfaceSwatch[r.surface] = r.
         <div class="cit__summeta">{topSurfaceName ? `fed ${topSurfaceCount} citations (${topSurfacePct}% of total)` : 'no citations yet'}</div>
       </div>
       <div class="cit__sumcard">
-        <div class="cit__sumlabel">Avg. position in answer</div>
-        <div class="cit__sumvalue">{avgPosition ? `#${avgPosition}` : '-'} <small>of brands cited</small></div>
-        <div class="cit__summeta">lower is better - the first brand named in an answer is the one buyers remember</div>
+        <div class="cit__sumlabel">Avg. citation position</div>
+        <div class="cit__sumvalue">{avgPosition ? `#${avgPosition}` : '-'} <small>in source list</small></div>
+        <div class="cit__summeta">lower is better - first-listed sources get the most reader attention</div>
       </div>
     </div>
 
@@ -459,9 +464,9 @@ rows.forEach(r => { if (!surfaceSwatch[r.surface]) surfaceSwatch[r.surface] = r.
         <button type="button" :class="sent==='neg' && 'on'" @click="sent='neg'"><span class="pd" style="background:var(--status-critical)"></span>Negative</button>
       </div>
 
-      <div class="cit__seg" title="Filter on rows where the AI named this brand vs rows where the AI cited a source but did not name this brand">
+      <div class="cit__seg" title="Filter on rows where the AI mentioned this brand vs rows where the AI cited a source but did not mention this brand">
         <button type="button" :class="brand==='all' && 'on'" @click="brand='all'">All citations</button>
-        <button type="button" :class="brand==='mine' && 'on'" @click="brand='mine'">Brand named</button>
+        <button type="button" :class="brand==='mine' && 'on'" @click="brand='mine'">Brand mentioned</button>
         <button type="button" :class="brand==='other' && 'on'" @click="brand='other'">Brand missing</button>
       </div>
 
@@ -547,7 +552,7 @@ rows.forEach(r => { if (!surfaceSwatch[r.surface]) surfaceSwatch[r.surface] = r.
                   </div>
                   <div class="qsub">
                     <template x-if="row.brandMentioned">
-                      <span class="qsub__chip qsub__chip--ok" title="This brand was named in the AI's answer">Brand named</span>
+                      <span class="qsub__chip qsub__chip--ok" title="This brand was mentioned in the AI's answer">Brand mentioned</span>
                     </template>
                     <template x-if="!row.brandMentioned">
                       <span class="qsub__chip qsub__chip--off" title="The AI cited a web page but did not name this brand in the answer">Brand missing</span>
@@ -562,7 +567,7 @@ rows.forEach(r => { if (!surfaceSwatch[r.surface]) surfaceSwatch[r.surface] = r.
                 <td><span class="rank" :class="row.position>=4 && 'weak'" x-text="'#' + row.position"></span></td>
                 <td>
                   <template x-if="row.sentiment === 'na'">
-                    <span class="sent sent--na" title="This brand was not named in the answer, so there is no sentiment about it">-</span>
+                    <span class="sent sent--na" title="This brand was not mentioned in the answer, so there is no sentiment about it">-</span>
                   </template>
                   <template x-if="row.sentiment !== 'na'">
                     <span class="sent" :class="`sent--${row.sentiment}`"><span class="sdot"></span><span x-text="sentLabel(row.sentiment)"></span></span>
@@ -592,10 +597,10 @@ rows.forEach(r => { if (!surfaceSwatch[r.surface]) surfaceSwatch[r.surface] = r.
                         <div class="quote__brands">
                           <span class="quote__brands__l">
                             <template x-if="row.brandMentioned">
-                              <span>Other brands cited in this answer</span>
+                              <span>Other brands mentioned in this answer</span>
                             </template>
                             <template x-if="!row.brandMentioned">
-                              <span>Brands cited instead of yours</span>
+                              <span>Brands mentioned instead of yours</span>
                             </template>
                           </span>
                           <span class="quote__brands__v">
@@ -658,7 +663,7 @@ rows.forEach(r => { if (!surfaceSwatch[r.surface]) surfaceSwatch[r.surface] = r.
           <span style="font-size:12px;color:var(--color-text-muted)">- {yourUrls.length} page{yourUrls.length > 1 ? 's' : ''}{yourUrlsTopShare > 0 ? ` - top page = ${yourUrlsTopShare}% of all your-site citations` : ''}</span>
         </summary>
         <div style="padding:var(--space-5)" x-data="{ expandedUrl: null }">
-          <p style="font-size:13px;color:var(--color-text-secondary);margin-bottom:var(--space-4)">Drill into the citations above where the AI named this brand and the source page belongs to <b>{scanDomain}</b>. Tells you which of your existing pages the AIs already trust as a source - so you can double down on the formats and topics that work.</p>
+          <p style="font-size:13px;color:var(--color-text-secondary);margin-bottom:var(--space-4)">Drill into the citations above where the AI mentioned this brand and the source page belongs to <b>{scanDomain}</b>. Tells you which of your existing pages the AIs already trust as a source - so you can double down on the formats and topics that work.</p>
           <div style="display:flex;flex-direction:column;gap:10px">
             {yourUrls.slice(0, 20).map((u: any, ui: number) => (
               <div style="border:1px solid var(--color-border);border-radius:var(--radius-md);overflow:hidden">
@@ -720,7 +725,7 @@ rows.forEach(r => { if (!surfaceSwatch[r.surface]) surfaceSwatch[r.surface] = r.
         sent: 'all',
         source: 'all',
         topic: 'all',
-        brand: 'all', /* all | mine (brand named in answer) | other (brand missing) */
+        brand: 'all', /* all | mine (brand mentioned in answer) | other (brand missing) */
         q: '',
         sort: 'date',
         dir: 1, /* 1 = desc (most recent first for date / highest for numeric), -1 = asc */
@@ -763,7 +768,7 @@ rows.forEach(r => { if (!surfaceSwatch[r.surface]) surfaceSwatch[r.surface] = r.
         },
 
         brandLabel(b) {
-          return b === 'mine' ? 'Brand named' : (b === 'other' ? 'Brand missing' : 'All');
+          return b === 'mine' ? 'Brand mentioned' : (b === 'other' ? 'Brand missing' : 'All');
         },
 
         sentLabel(s) {

@@ -1,18 +1,14 @@
 ---
 /**
- * Registration page — restored in Sprint 15 (self-serve reopen).
+ * Registration - redesign per 12-marketing.html (auth frame, mobile-first).
  *
- * Renders an email / password / name form. On API 503 (= the
- * `registration_open` kill-switch is OFF), the form transparently
- * surfaces the "inscriptions fermées" banner inline so the operations
- * team can flip the switch without redeploying. The audit-gratuit CTA
- * is kept reachable from the closed state.
- *
- * `?intent=agency` URL param adds a top banner so a visitor coming
- * from the /agency landing page knows they are on the right path. The
- * same intent flag is forwarded to the welcome wizard so the deeper
- * agency-aware onboarding (S15.1) can pre-select bulk-workspace
- * creation. v1 only surfaces the banner + hint.
+ * Logic unchanged from the Sprint 15 self-serve reopen :
+ *  - POST /api/auth/register ; on 503 (registration_open kill-switch OFF)
+ *    the "inscriptions fermées" banner surfaces inline, no redeploy needed
+ *  - ?intent=agency banner + intent forwarded to the API (persisted on
+ *    users.signup_intent) and to the welcome wizard
+ *  - required ToS checkbox (kept over the ref's passive legal line)
+ *  - ?next= guarded to relative paths
  */
 export const prerender = false;
 import AppLayout from '../layouts/AppLayout.astro';
@@ -25,57 +21,82 @@ const safeNext = (rawNext.startsWith('/') && !rawNext.startsWith('//')) ? rawNex
 ---
 
 <AppLayout title="Create your account">
-  <div class="min-h-screen flex items-center justify-center px-4 py-12 bg-gradient-to-br from-white via-white to-coral/5">
-    <div class="w-full max-w-md">
-      <div class="text-center mb-8">
-        <a href="/">
-          <img src="/logo-sen-ai-fr.png" alt="sen-ai.fr" class="h-10 mx-auto mb-4" />
-        </a>
-        <h1 class="text-2xl font-bold text-charcoal-dark">Create your account</h1>
-        <p class="text-charcoal-light mt-1">Free to start. 50 scan credits included.</p>
-      </div>
+  <style is:global>
+    /* Auth frame from 12-marketing.html - same vocabulary as login.astro. */
+    .auth-page { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: var(--color-surface-sunken); padding: var(--space-6) var(--space-4); }
+    .auth { width: 100%; max-width: 400px; }
+    .auth__brand { display: flex; align-items: center; gap: 9px; justify-content: center; margin-bottom: 28px; text-decoration: none; }
+    .auth .brand__mark { width: 26px; height: 26px; border-radius: 8px; background: var(--color-primary); position: relative; flex: none; }
+    .auth .brand__mark::after { content: ""; position: absolute; inset: 7px; border-radius: 50%; border: 2.5px solid #fff; }
+    .auth .brand__name { font-size: 15px; font-weight: 700; letter-spacing: -.01em; color: var(--color-text-primary); }
+    .auth .brand__name span { color: var(--color-text-muted); font-weight: 500; }
+    .auth h1 { font-size: 23px; font-weight: 700; letter-spacing: -.02em; text-align: center; color: var(--color-text-primary); }
+    .auth__sub { font-size: 13.5px; color: var(--color-text-secondary); text-align: center; margin-top: 7px; margin-bottom: 24px; }
+    .auth__card { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); box-shadow: var(--shadow-sm); padding: 24px; }
+    .sso__btn { display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; height: 48px; border: 1px solid var(--color-border-strong); border-radius: var(--radius-md); background: var(--color-surface); font: 600 14px var(--font-sans); color: var(--color-text-primary); cursor: pointer; text-decoration: none; transition: .12s; }
+    .sso__btn:hover { background: var(--color-surface-sunken); }
+    .divider { display: flex; align-items: center; gap: 12px; margin: 20px 0; color: var(--color-text-muted); font-size: 12px; }
+    .divider::before, .divider::after { content: ""; flex: 1; height: 1px; background: var(--color-border); }
+    .auth .fieldset { display: flex; flex-direction: column; gap: 16px; }
+    .auth .f label { font-size: 13px; font-weight: 600; display: block; margin-bottom: 7px; color: var(--color-text-primary); }
+    .auth .f input { width: 100%; height: 48px; border: 1px solid var(--color-border-strong); border-radius: var(--radius-md); padding: 0 14px; font-size: 15px; font-family: var(--font-sans); background: var(--color-surface); color: var(--color-text-primary); }
+    .auth .f input:focus { outline: none; border-color: var(--color-primary); box-shadow: 0 0 0 3px var(--coral-100); }
+    .auth .f__hint { font-size: 11.5px; color: var(--color-text-muted); margin-top: 6px; }
+    .auth__tos { display: flex; align-items: flex-start; gap: 9px; font-size: 12px; color: var(--color-text-secondary); line-height: 1.5; cursor: pointer; }
+    .auth__tos input { width: 15px; height: 15px; margin-top: 2px; accent-color: var(--color-primary); flex: none; }
+    .auth__tos a { color: var(--coral-700); font-weight: 600; text-decoration: none; }
+    .auth__cta { display: flex; align-items: center; justify-content: center; width: 100%; height: 50px; border-radius: var(--radius-md); font: 650 15px var(--font-sans); background: var(--color-primary); color: #fff; border: 0; cursor: pointer; transition: .12s; }
+    .auth__cta:hover { background: var(--color-primary-hover); }
+    .auth__cta[disabled] { opacity: .5; cursor: not-allowed; }
+    .auth__error { background: var(--status-critical-bg); border: 1px solid #FAD9D5; border-radius: var(--radius-md); padding: 11px 13px; font-size: 13px; color: var(--status-critical); margin-bottom: 16px; }
+    .auth__notice { border-radius: var(--radius-md); padding: 13px 14px; font-size: 12.5px; margin-bottom: 16px; line-height: 1.5; }
+    .auth__notice--agency { background: var(--color-primary-subtle); border: 1px solid var(--coral-200); color: var(--color-text-primary); }
+    .auth__notice--closed { background: var(--status-warning-bg); border: 1px solid #F2E2C4; color: var(--color-text-primary); }
+    .auth__notice--closed a { color: var(--coral-700); font-weight: 650; text-decoration: none; }
+    .auth__switch { font-size: 13px; color: var(--color-text-secondary); text-align: center; margin-top: 22px; }
+    .auth__switch a { color: var(--coral-700); font-weight: 650; text-decoration: none; }
+    .auth__back { display: block; text-align: center; font-size: 12.5px; color: var(--color-text-muted); margin-top: 18px; text-decoration: none; }
+    .auth__back:hover { color: var(--color-text-primary); }
+    .hidden { display: none !important; }
+  </style>
+
+  <div class="auth-page">
+    <div class="auth">
+      <a href="/" class="auth__brand">
+        <span class="brand__mark"></span>
+        <span class="brand__name">sen-ai<span>.fr</span></span>
+      </a>
+      <h1>Create your account</h1>
+      <div class="auth__sub">Your first scan is free. No card required.</div>
 
       {isAgencyIntent && (
-        <div class="mb-4 p-3 bg-coral/5 border border-coral/30 rounded-lg text-sm text-charcoal-dark flex items-start gap-2">
-          <svg class="w-4 h-4 text-coral mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V7M3 7l9 6 9-6M3 7l9-4 9 4"/></svg>
-          <div>
-            <strong>Agency sign-up</strong>
-            <p class="text-[12px] text-charcoal-light mt-0.5">Your workspace will be configured for multi-brand tracking. We'll reach out about volume pricing once you've launched your first scan.</p>
-          </div>
+        <div class="auth__notice auth__notice--agency">
+          <strong>Agency sign-up</strong>
+          <p style="font-size:12px;color:var(--color-text-secondary);margin-top:3px">
+            Your workspace will be configured for multi-brand tracking. We'll reach out about
+            volume pricing once you've launched your first scan.
+          </p>
         </div>
       )}
 
-      <div id="closed-banner" class="hidden mb-4 p-4 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-900">
-        <p class="font-semibold mb-1">Inscriptions temporairement fermées</p>
-        <p class="text-[12px] text-amber-800 mb-3">La création de compte est en pause. Vous pouvez tout de même demander un audit IA gratuit pendant ce temps.</p>
-        <a href="/#engagement" class="inline-flex items-center gap-1 text-coral hover:text-coral-dark font-medium text-[13px]">
-          Demander un audit gratuit
-          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
-        </a>
+      <div id="closed-banner" class="hidden auth__notice auth__notice--closed">
+        <p style="font-weight:650;margin-bottom:3px">Inscriptions temporairement fermées</p>
+        <p style="font-size:12px;color:var(--color-text-secondary);margin-bottom:8px">
+          La création de compte est en pause. Vous pouvez tout de même demander un audit IA gratuit pendant ce temps.
+        </p>
+        <a href="/#engagement">Demander un audit gratuit &rarr;</a>
       </div>
 
-      <div class="bg-white rounded-2xl shadow-lg p-8">
-        <a
-          href={`/api/auth/google${isAgencyIntent ? '?intent=agency' : ''}`}
-          class="w-full flex items-center justify-center gap-3 px-4 py-3 border-2 border-gray-200 rounded-lg hover:border-gray-300 hover:bg-gray-50 transition-colors mb-6"
-        >
-          <svg class="w-5 h-5" viewBox="0 0 24 24">
-            <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/>
-            <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-            <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
-            <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
-          </svg>
-          <span class="font-medium text-charcoal">Continue with Google</span>
+      <div class="auth__card">
+        <a href={`/api/auth/google${isAgencyIntent ? '?intent=agency' : ''}`} class="sso__btn">
+          <svg width="18" height="18" viewBox="0 0 18 18"><path fill="#4285F4" d="M17.6 9.2c0-.6-.1-1.2-.2-1.8H9v3.4h4.8a4.1 4.1 0 0 1-1.8 2.7v2.2h2.9c1.7-1.6 2.7-3.9 2.7-6.5z"/><path fill="#34A853" d="M9 18c2.4 0 4.5-.8 6-2.2l-2.9-2.2c-.8.5-1.8.9-3.1.9-2.4 0-4.4-1.6-5.1-3.8H.9v2.3A9 9 0 0 0 9 18z"/><path fill="#FBBC05" d="M3.9 10.7a5.4 5.4 0 0 1 0-3.4V5H.9a9 9 0 0 0 0 8z"/><path fill="#EA4335" d="M9 3.6c1.3 0 2.5.5 3.4 1.3l2.6-2.6A9 9 0 0 0 .9 5l3 2.3C4.6 5.2 6.6 3.6 9 3.6z"/></svg>
+          Continue with Google
         </a>
 
-        <div class="flex items-center gap-4 mb-6">
-          <div class="flex-1 h-px bg-gray-200"></div>
-          <span class="text-sm text-charcoal-light">or</span>
-          <div class="flex-1 h-px bg-gray-200"></div>
-        </div>
+        <div class="divider">or</div>
 
         {error && (
-          <div id="error-banner" class="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+          <div id="error-banner" class="auth__error">
             {error === 'invalid' ? 'Please check the form and try again.' :
              error === 'exists' ? 'An account already exists for this email. Try logging in instead.' :
              error === 'weak_password' ? 'Password must be at least 8 characters with a letter and a number.' :
@@ -84,62 +105,42 @@ const safeNext = (rawNext.startsWith('/') && !rawNext.startsWith('//')) ? rawNex
           </div>
         )}
 
-        <form id="register-form" class="space-y-4">
-          <div>
-            <label for="name" class="block text-sm font-medium text-charcoal mb-1">Full name</label>
-            <input
-              type="text" id="name" name="name" required minlength="2" maxlength="120"
-              class="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-coral/50 focus:border-coral"
-              placeholder="Jane Doe"
-              autocomplete="name"
-            />
+        <form id="register-form" class="fieldset">
+          <div class="f">
+            <label for="name">Full name</label>
+            <input type="text" id="name" name="name" required minlength="2" maxlength="120"
+                   placeholder="Jane Doe" autocomplete="name" />
           </div>
-          <div>
-            <label for="email" class="block text-sm font-medium text-charcoal mb-1">Work email</label>
-            <input
-              type="email" id="email" name="email" required
-              class="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-coral/50 focus:border-coral"
-              placeholder="you@company.com"
-              autocomplete="email"
-            />
+          <div class="f">
+            <label for="email">Work email</label>
+            <input type="email" id="email" name="email" required placeholder="you@company.com"
+                   inputmode="email" autocomplete="email" />
           </div>
-          <div>
-            <label for="password" class="block text-sm font-medium text-charcoal mb-1">Password</label>
-            <input
-              type="password" id="password" name="password" required minlength="8"
-              class="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-coral/50 focus:border-coral"
-              placeholder="••••••••"
-              autocomplete="new-password"
-            />
-            <p class="text-[11px] text-charcoal-light mt-1">At least 8 characters with a letter and a number.</p>
+          <div class="f">
+            <label for="password">Password</label>
+            <input type="password" id="password" name="password" required minlength="8"
+                   placeholder="At least 8 characters" autocomplete="new-password" />
+            <p class="f__hint">Use 8+ characters with a mix of letters and numbers.</p>
           </div>
 
-          <label class="flex items-start gap-2 text-[12px] text-charcoal-light">
-            <input type="checkbox" id="tos" required class="mt-0.5 rounded text-coral focus:ring-coral" />
+          <label class="auth__tos">
+            <input type="checkbox" id="tos" required />
             <span>
-              I accept the <a href="/terms" target="_blank" class="text-coral hover:text-coral-dark">Terms of Service</a>
-              and <a href="/privacy" target="_blank" class="text-coral hover:text-coral-dark">Privacy Policy</a>.
+              I accept the <a href="/terms" target="_blank">Terms of Service</a>
+              and <a href="/privacy" target="_blank">Privacy Policy</a>.
             </span>
           </label>
 
-          <button
-            id="submit-btn"
-            type="submit"
-            class="w-full py-3 bg-coral text-white font-medium rounded-lg hover:bg-coral-dark disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
-          >
-            Create my account
-          </button>
+          <button id="submit-btn" type="submit" class="auth__cta">Create my account</button>
         </form>
 
-        <p class="text-center text-sm text-charcoal-light mt-6">
+        <p class="auth__switch">
           Already have an account?
-          <a href="/login" class="text-coral hover:text-coral-dark font-medium">Log in</a>
+          <a href="/login">Log in</a>
         </p>
       </div>
 
-      <p class="text-center text-sm text-charcoal-light mt-6">
-        <a href="/" class="hover:text-coral transition-colors">&larr; Back to website</a>
-      </p>
+      <a href="/" class="auth__back">&larr; Back to website</a>
     </div>
   </div>
 
@@ -175,7 +176,8 @@ const safeNext = (rawNext.startsWith('/') && !rawNext.startsWith('//')) ? rawNex
           // Kill-switch ON — surface the "fermées" inline (no redirect)
           // so the user gets an honest answer + audit fallback.
           closedBanner.classList.remove('hidden');
-          form.classList.add('opacity-50', 'pointer-events-none');
+          form.style.opacity = '.5';
+          form.style.pointerEvents = 'none';
           submitBtn.disabled = true;
           submitBtn.textContent = 'Inscriptions fermées';
           return;

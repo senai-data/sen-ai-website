@@ -1,11 +1,17 @@
 ---
 /**
- * White-label lite branding editor - S15.4.
+ * White-label branding editor - redesign per 11-branding.html.
  *
- * Agency owners / admins can set a logo URL, display name, and accent
- * color that override the default sen-ai.fr branding in the sidebar
- * (and future surfaces) for everyone inside this org. No custom domain
- * support yet (still served from sen-ai.fr).
+ * Agency owners / admins set a logo URL, display name and accent colour
+ * that override the sen-ai.fr branding in the sidebar (and the
+ * compliance / methodology surfaces) for everyone in the org. The right
+ * column is a live mini-app preview driven by the same Alpine state as
+ * the form.
+ *
+ * Deliberate gaps vs the design ref :
+ *  - no file upload (no storage endpoint - we embed a hosted URL)
+ *  - no "Powered by" toggle (not in the branding API ; we don't render
+ *    fake controls)
  */
 export const prerender = false;
 import DashboardLayout from '../../../layouts/DashboardLayout.astro';
@@ -28,20 +34,98 @@ try {
 
 const isManager = !!activeOrg && !activeOrg.is_personal && (activeOrg.role === 'owner' || activeOrg.role === 'admin');
 const branding = activeOrg?.branding || {};
+
+// Preset accents (first = sen-ai default). Free hex input stays available.
+const ACCENTS = [
+  { c: '#F06A5C', name: 'sen-ai coral' },
+  { c: '#4F46E5', name: 'Indigo' },
+  { c: '#0D9488', name: 'Teal' },
+  { c: '#7C3AED', name: 'Violet' },
+  { c: '#2563EB', name: 'Blue' },
+  { c: '#334155', name: 'Slate' },
+  { c: '#D97706', name: 'Amber' },
+];
 ---
 
 <DashboardLayout title="Branding" activeSection="dashboard">
-  <main class="px-6 py-8 max-w-2xl mx-auto">
-    <a href="/app/agency/overview" class="text-xs text-charcoal-light hover:text-coral">&larr; Workspace overview</a>
-    <h1 class="text-2xl font-bold text-charcoal-dark mt-2">Branding</h1>
-    <p class="text-sm text-charcoal-light mt-1 mb-6">
-      White-label lite. Custom logo + display name + accent color show up inside the app for
-      everyone in this org. No custom domain yet (the app stays on sen-ai.fr).
-    </p>
+  <style is:global>
+    /* Page-local vocabulary from 11-branding.html (.card2 .fld .logo-drop
+       .swatches .save-bar .mini preview). */
+    .brd { padding: var(--space-6); max-width: 1240px; margin: 0 auto; }
+    .brd .phead { margin-bottom: var(--space-5); }
+    .brd .phead h1 { font-size: 24px; font-weight: 700; letter-spacing: -.025em; color: var(--color-text-primary); }
+    .brd .phead p { font-size: 13.5px; color: var(--color-text-secondary); margin-top: 5px; max-width: 64ch; }
+    .brd .phead .back { font-size: 12px; color: var(--color-text-muted); text-decoration: none; }
+    .brd .phead .back:hover { color: var(--color-text-primary); }
+
+    .brd .wrap { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: start; }
+    @media (max-width: 899px) { .brd .wrap { grid-template-columns: 1fr; } }
+
+    .brd .card2 { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); box-shadow: var(--shadow-xs); }
+    .brd .card2__head { padding: 16px 20px; border-bottom: 1px solid var(--color-border); font-size: 14px; font-weight: 680; color: var(--color-text-primary); display: flex; align-items: center; justify-content: space-between; }
+    .brd .card2__head .badge { font-size: 11px; font-weight: 600; color: var(--color-text-muted); background: var(--color-surface-muted); padding: 3px 9px; border-radius: var(--radius-full); }
+    .brd .card2__body { padding: 20px; display: flex; flex-direction: column; gap: 22px; }
+    .brd .fld__label { font-size: 13px; font-weight: 600; display: block; margin-bottom: 8px; color: var(--color-text-primary); }
+    .brd .fld__help { font-size: 12px; color: var(--color-text-muted); margin-top: 7px; }
+
+    .brd .logo-up { display: flex; align-items: flex-start; gap: 16px; }
+    .brd .logo-drop { width: 120px; height: 72px; border: 1.5px dashed var(--color-border-strong); border-radius: var(--radius-md); display: grid; place-items: center; background: var(--neutral-800); flex: none; overflow: hidden; }
+    .brd .logo-drop img { max-width: 90%; max-height: 80%; object-fit: contain; }
+    .brd .logo-drop .ph { text-align: center; color: #9CA3AF; font: 600 10px var(--font-mono); }
+
+    .brd .swatches { display: flex; gap: 10px; flex-wrap: wrap; }
+    .brd .swatch { width: 40px; height: 40px; border-radius: var(--radius-md); cursor: pointer; position: relative; border: 2px solid transparent; transition: .12s; }
+    .brd .swatch:hover { transform: translateY(-1px); }
+    .brd .swatch.on { border-color: var(--color-surface); box-shadow: 0 0 0 2px var(--color-text-primary); }
+    .brd .swatch.on::after { content: ""; position: absolute; inset: 0; display: grid; place-items: center; background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='none' stroke='%23fff' stroke-width='2.4'%3E%3Cpath d='M3 8.5l3.5 3.5L13 5'/%3E%3C/svg%3E") center no-repeat; }
+
+    .brd .save-bar { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-top: 1px solid var(--color-border); }
+    .brd .save-bar__s { font-size: 12.5px; color: var(--color-text-muted); display: flex; align-items: center; gap: 7px; }
+    .brd .save-bar__s.ok { color: var(--status-positive); }
+    .brd .save-bar__s.err { color: var(--status-critical); }
+
+    .brd .preview-card { position: sticky; top: var(--space-6); }
+    .brd .preview-stage { padding: 20px; background: var(--color-surface-sunken); }
+    .brd .preview-foot { padding: 14px 20px; font-size: 12px; color: var(--color-text-muted); border-top: 1px solid var(--color-border); display: flex; gap: 8px; align-items: flex-start; }
+
+    .brd .mini { display: grid; grid-template-columns: 120px 1fr; background: #fff; border: 1px solid var(--color-border); border-radius: var(--radius-md); overflow: hidden; box-shadow: var(--shadow-md); height: 300px; }
+    .brd .mini__side { background: #fff; border-right: 1px solid var(--color-border); padding: 12px 10px; display: flex; flex-direction: column; }
+    .brd .mini__brand { display: flex; align-items: center; gap: 8px; padding: 2px 4px 14px; }
+    .brd .mini__logo { width: 24px; height: 24px; border-radius: 6px; flex: none; display: grid; place-items: center; overflow: hidden; color: #fff; font-weight: 750; font-size: 11px; }
+    .brd .mini__logo img { max-width: 100%; max-height: 100%; object-fit: contain; }
+    .brd .mini__name { font-size: 12px; font-weight: 700; letter-spacing: -.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--color-text-primary); }
+    .brd .mini__nav { display: flex; flex-direction: column; gap: 3px; }
+    .brd .mini__ni { font-size: 11px; color: var(--color-text-secondary); padding: 6px 8px; border-radius: 6px; display: flex; align-items: center; gap: 7px; }
+    .brd .mini__ni .dot { width: 11px; height: 11px; border-radius: 3px; background: var(--color-surface-muted); flex: none; }
+    .brd .mini__ni.on { font-weight: 650; }
+    .brd .mini__main { padding: 14px; display: flex; flex-direction: column; gap: 11px; }
+    .brd .mini__h { font-size: 14px; font-weight: 700; letter-spacing: -.02em; color: var(--color-text-primary); }
+    .brd .mini__row { display: flex; gap: 8px; }
+    .brd .mini__stat { flex: 1; border: 1px solid var(--color-border); border-radius: 7px; padding: 9px 10px; }
+    .brd .mini__stat .l { font-size: 8px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--color-text-muted); }
+    .brd .mini__stat .v { font-size: 15px; font-weight: 750; margin-top: 3px; color: var(--color-text-primary); }
+    .brd .mini__cta { align-self: flex-start; color: #fff; font-size: 11px; font-weight: 650; padding: 7px 13px; border-radius: 7px; }
+    .brd .mini__pill { display: inline-flex; align-items: center; gap: 5px; font-size: 10px; font-weight: 600; padding: 3px 8px; border-radius: var(--radius-full); width: max-content; background: var(--status-neutral-bg); color: var(--status-neutral); }
+    .brd .mini__powered { font-size: 9px; color: var(--color-text-muted); margin-top: auto; padding-top: 10px; }
+
+    .brd .notice--warn { background: var(--status-warning-bg); border: 1px solid #F2E2C4; border-radius: var(--radius-lg); padding: var(--space-5); }
+  </style>
+
+  <main class="brd">
+    <div class="phead">
+      <a href="/app/agency/overview" class="back">&larr; Workspace overview</a>
+      <h1 style="margin-top:6px">White-label branding</h1>
+      <p>
+        How your clients see the platform. Your logo, name and accent replace ours in the
+        sidebar and on the compliance and methodology pages for everyone in this org.
+        The app stays on sen-ai.fr (no custom domain yet).
+      </p>
+    </div>
 
     {!isManager && (
-      <div class="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-6">
-        <p class="text-xs text-amber-700">
+      <div class="notice--warn" style="max-width:560px">
+        <p style="font-size:13px;font-weight:600;color:var(--color-text-primary);margin-bottom:4px">Owners and admins only</p>
+        <p style="font-size:12px;color:var(--color-text-secondary)">
           Only owners and admins of an agency org can edit branding. Switch via the header
           dropdown or ask your org owner.
         </p>
@@ -50,15 +134,24 @@ const branding = activeOrg?.branding || {};
 
     {isManager && (
       <div
+        class="wrap"
         x-data={`{
           logo: '${(branding.logo_url || '').replace(/'/g, "\\'")}',
           name: '${(branding.display_name || '').replace(/'/g, "\\'")}',
           color: '${branding.accent_color || ''}',
           saving: false,
-          saved: false,
+          saved: true,
           err: '',
+          accent() { return this.color || '#F06A5C'; },
+          initial() { return (this.name || '${(activeOrg!.name || 'A').replace(/'/g, "\\'")}').trim().charAt(0).toUpperCase(); },
+          tint(a) {
+            const h = this.accent().replace('#','');
+            if (h.length !== 6) return 'rgba(240,106,92,' + a + ')';
+            return 'rgba(' + parseInt(h.slice(0,2),16) + ',' + parseInt(h.slice(2,4),16) + ',' + parseInt(h.slice(4,6),16) + ',' + a + ')';
+          },
+          dirty() { this.saved = false; this.err = ''; },
           async save() {
-            this.saving = true; this.saved = false; this.err = '';
+            this.saving = true; this.err = '';
             try {
               const r = await fetch('/api/organizations/${activeOrg!.id}/branding', {
                 method: 'PATCH',
@@ -70,69 +163,118 @@ const branding = activeOrg?.branding || {};
                 this.err = j.detail || 'Save failed';
               } else {
                 this.saved = true;
-                setTimeout(() => location.reload(), 600);
+                setTimeout(() => location.reload(), 700);
               }
             } catch (e) { this.err = (e && e.message) || 'Network error'; }
             this.saving = false;
           },
         }`}
-        class="bg-white rounded-xl border border-gray-200 p-6 space-y-4"
       >
-        <div>
-          <label class="block text-xs uppercase tracking-wide text-charcoal-light font-semibold mb-1">Logo URL</label>
-          <input
-            x-model="logo"
-            type="url"
-            placeholder="https://your-cdn.example.com/logo.png"
-            class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:border-coral"
-          />
-          <p class="text-[11px] text-charcoal-light mt-1">Square PNG / SVG works best. Hosted publicly (we just embed the URL).</p>
-          <template x-if="logo">
-            <div class="mt-2 flex items-center gap-2">
-              <img :src="logo" alt="logo preview" class="w-10 h-10 rounded object-contain bg-gray-50 border border-gray-200" onerror="this.style.display='none'" />
-              <span class="text-[10px] text-charcoal-light">Preview</span>
+        {/* ── SETTINGS ── */}
+        <div class="card2">
+          <div class="card2__head">Brand settings</div>
+          <div class="card2__body">
+            <div>
+              <label class="fld__label">Logo</label>
+              <div class="logo-up">
+                <div class="logo-drop">
+                  <template x-if="logo">
+                    <img :src="logo" alt="logo preview" onerror="this.style.display='none'" />
+                  </template>
+                  <template x-if="!logo">
+                    <div class="ph">PNG / SVG<br/>via URL</div>
+                  </template>
+                </div>
+                <div style="flex:1">
+                  <input class="input" type="url" x-model="logo" @input="dirty()"
+                         placeholder="https://your-cdn.example.com/logo.png" />
+                  <div class="fld__help">Hosted publicly - we embed the URL. Transparent background, at least 120 x 72px. Leave empty to keep the default mark.</div>
+                </div>
+              </div>
             </div>
-          </template>
-        </div>
 
-        <div>
-          <label class="block text-xs uppercase tracking-wide text-charcoal-light font-semibold mb-1">Display name</label>
-          <input
-            x-model="name"
-            type="text"
-            maxlength="80"
-            placeholder={activeOrg!.name}
-            class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:border-coral"
-          />
-          <p class="text-[11px] text-charcoal-light mt-1">Shown in the sidebar instead of the org name. Leave empty to keep "{activeOrg!.name}".</p>
-        </div>
+            <div>
+              <label class="fld__label">Display name</label>
+              <input class="input" type="text" maxlength="80" x-model="name" @input="dirty()"
+                     placeholder={activeOrg!.name} />
+              <div class="fld__help">
+                Shown beside the logo in the sidebar. Leave empty to keep "{activeOrg!.name}".
+                <span x-text="name.length"></span>/80 characters.
+              </div>
+            </div>
 
-        <div>
-          <label class="block text-xs uppercase tracking-wide text-charcoal-light font-semibold mb-1">Accent color</label>
-          <div class="flex items-center gap-2">
-            <input
-              x-model="color"
-              type="text"
-              maxlength="7"
-              placeholder="#FF5733"
-              class="w-32 px-3 py-2 text-sm font-mono border border-gray-300 rounded-lg focus:outline-none focus:border-coral"
-            />
-            <span x-show="color" class="w-8 h-8 rounded border border-gray-300" :style="'background-color: ' + color"></span>
+            <div>
+              <label class="fld__label">Accent colour</label>
+              <div class="swatches">
+                {ACCENTS.map((a) => (
+                  <div
+                    class="swatch"
+                    style={`background:${a.c}`}
+                    title={a.name}
+                    :class={`(color || '#F06A5C').toLowerCase() === '${a.c.toLowerCase()}' ? 'on' : ''`}
+                    @click={`color = '${a.c}'; dirty()`}
+                  ></div>
+                ))}
+              </div>
+              <div style="display:flex;align-items:center;gap:10px;margin-top:12px">
+                <input class="input" type="text" maxlength="7" x-model="color" @input="dirty()"
+                       placeholder="#F06A5C" style="width:120px;font-family:var(--font-mono)" />
+                <span style="width:32px;height:32px;border-radius:var(--radius-md);border:1px solid var(--color-border-strong);flex:none"
+                      :style="'background:' + accent()"></span>
+              </div>
+              <div class="fld__help">Used for the active nav, primary buttons and links inside your clients' workspaces. Pick a preset or paste any CSS hex.</div>
+            </div>
           </div>
-          <p class="text-[11px] text-charcoal-light mt-1">CSS hex (e.g. #FF5733). v1 surfaces this on the compliance + methodology pages only.</p>
+
+          <div class="save-bar">
+            <span class="save-bar__s" :class="err ? 'err' : saved ? 'ok' : ''">
+              <template x-if="err"><span x-text="err"></span></template>
+              <template x-if="!err && saved"><span>✓ All changes saved</span></template>
+              <template x-if="!err && !saved && !saving"><span>Unsaved changes</span></template>
+              <template x-if="!err && saving"><span>Saving...</span></template>
+            </span>
+            <button class="btn btn--primary btn--md" @click="save()" :disabled="saving || saved">Save branding</button>
+          </div>
         </div>
 
-        <div class="flex items-center gap-2 pt-2">
-          <button
-            @click="save()"
-            :disabled="saving"
-            class="px-4 py-2 bg-coral text-white text-sm font-medium rounded-lg hover:bg-coral-dark disabled:bg-gray-300 transition-all"
-          >
-            <span x-show="!saving && !saved">Save</span>
-            <span x-show="saving">Saving&hellip;</span>
-            <span x-show="saved" class="text-emerald-100">Saved &#10003;</span>
-          </button>
-          <p x-show="err" x-text="err" class="text-xs text-red-600"></p>
+        {/* ── LIVE PREVIEW ── */}
+        <div class="card2 preview-card">
+          <div class="card2__head"><span>Live preview</span><span class="badge">What your clients see</span></div>
+          <div class="preview-stage">
+            <div class="mini">
+              <div class="mini__side">
+                <div class="mini__brand">
+                  <div class="mini__logo" :style="logo ? 'background:transparent' : 'background:' + accent()">
+                    <template x-if="logo"><img :src="logo" alt="" onerror="this.style.display='none'" /></template>
+                    <template x-if="!logo"><span x-text="initial()"></span></template>
+                  </div>
+                  <div class="mini__name" x-text={`name || '${(activeOrg!.name || 'Your agency').replace(/'/g, "\\'")}'`}></div>
+                </div>
+                <div class="mini__nav">
+                  <div class="mini__ni on" :style="'background:' + tint(.10) + ';color:' + accent()">
+                    <span class="dot" :style="'background:' + accent()"></span>Dashboard
+                  </div>
+                  <div class="mini__ni"><span class="dot"></span>Scans</div>
+                  <div class="mini__ni"><span class="dot"></span>Content</div>
+                  <div class="mini__ni"><span class="dot"></span>Reports</div>
+                </div>
+                <div class="mini__powered">Powered by sen-ai.fr</div>
+              </div>
+              <div class="mini__main">
+                <div class="mini__h">Sample brand</div>
+                <div class="mini__row">
+                  <div class="mini__stat"><div class="l">Mention</div><div class="v">74%</div></div>
+                  <div class="mini__stat"><div class="l">Citations</div><div class="v">312</div></div>
+                </div>
+                <span class="mini__pill">▲ Stable</span>
+                <div class="mini__cta" :style="'background:' + accent()">Run new scan</div>
+              </div>
+            </div>
+          </div>
+          <div class="preview-foot">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="var(--status-info)" stroke-width="1.6" style="flex:none;margin-top:1px"><circle cx="8" cy="8" r="6.5"/><path d="M8 7.5v3.5M8 5v.1"/></svg>
+            <span>The accent recolours interactive elements only. Greys, text and status colours stay fixed so reports remain legible.</span>
+          </div>
         </div>
       </div>
     )}

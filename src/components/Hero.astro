@@ -93,8 +93,10 @@ const { hero } = site;
   .dbar { display: grid; grid-template-columns: 64px 1fr 34px; align-items: center; gap: 9px; font-size: 11.5px; }
   .dbar__n { font-weight: 600; display: flex; align-items: center; gap: 6px; color: var(--color-text-primary); }
   .dbar__ic { width: 15px; height: 15px; border-radius: 4px; display: grid; place-items: center; color: #fff; font-size: 8px; font-weight: 700; }
-  .dbar__track { height: 7px; background: var(--color-surface-muted); border-radius: var(--radius-full); overflow: hidden; }
-  .dbar__fill { height: 100%; border-radius: var(--radius-full); }
+  /* display:block required - these are <span>s, and width/height are
+     ignored on inline boxes (the fill was invisible without it). */
+  .dbar__track { display: block; height: 7px; background: var(--color-surface-muted); border-radius: var(--radius-full); overflow: hidden; }
+  .dbar__fill { display: block; height: 100%; border-radius: var(--radius-full); }
   .dbar__v { font-weight: 700; text-align: right; color: var(--color-text-primary); }
   .demo__foot { margin-top: 14px; padding-top: 12px; border-top: 1px dashed var(--color-border); font-size: 11.5px; color: var(--color-text-muted); line-height: 1.45; }
 </style>

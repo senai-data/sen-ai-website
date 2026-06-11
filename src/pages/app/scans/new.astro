@@ -1,14 +1,18 @@
 ---
 /**
- * New Scan Wizard — Step-by-step guided scan creation.
+ * New scan - redesign per 07-create-scan.html.
  *
- * UX Laws:
- * - Zeigarnik Effect: stepper shows progress, incomplete tasks stay in mind
- * - Hick's Law: 1 action per step, smart defaults
- * - Goal-Gradient: motivation increases as steps complete
- * - Cognitive Load: minimal choices, plain language
- * - Doherty Threshold: loading states, instant feedback
- * - Paradox of Active User: no docs needed, self-explanatory
+ * One real step lives on this page (the domain form) ; everything after
+ * (topics, brands, personas, launch) happens on the scan pipeline page,
+ * so the steps bar shows the TRUE pipeline with step 1 active instead of
+ * the ref's self-contained 4-step demo. Right rail = live scan summary
+ * (.summary pattern) fed by Alpine state.
+ *
+ * UX Laws :
+ *  - Zeigarnik : steps bar shows the journey ahead
+ *  - Hick's Law : 3 depth presets, advanced options collapsed
+ *  - Goal-Gradient : step 1 of 5 already lit
+ *  - Doherty : loading state on the CTA, summary updates as you type
  */
 export const prerender = false;
 import DashboardLayout from '../../../layouts/DashboardLayout.astro';
@@ -33,254 +37,220 @@ try {
   const clients = res.ok ? await res.json() : [];
   clientId = clients[0]?.id;
 } catch {}
+
+const COUNTRIES = [
+  ['fr', 'France'], ['us', 'United States'], ['uk', 'United Kingdom'],
+  ['de', 'Germany'], ['es', 'Spain'], ['it', 'Italy'], ['nl', 'Netherlands'],
+  ['be', 'Belgium'], ['ch', 'Switzerland'], ['ca', 'Canada'],
+];
 ---
 
-<DashboardLayout title="New Scan" activeSection="scan-new">
-  <div class="p-8 max-w-3xl mx-auto" x-data={`scanWizard('${clientId}', '${token}')`}>
+<DashboardLayout title="New scan" activeSection="scan-new">
+  <style is:global>
+    /* Page-local vocabulary from 07-create-scan.html (.wrap .whead .wgrid
+       .stepsbar .stepcard .wnav .summary .cost .optcard). Steps / field /
+       input primitives come from components.css. */
+    .nsw { padding: var(--space-7) var(--space-6) var(--space-9); max-width: 1080px; margin: 0 auto; }
+    .nsw .whead { margin-bottom: var(--space-6); }
+    .nsw .whead h1 { font-size: 26px; font-weight: 700; letter-spacing: -.025em; color: var(--color-text-primary); }
+    .nsw .whead p { font-size: 14px; color: var(--color-text-secondary); margin-top: 5px; max-width: 68ch; }
 
-    <!-- Stepper (Zeigarnik: shows progress) -->
-    <div class="flex items-center gap-2 mb-8">
-      <template x-for="(step, i) in steps" :key="i">
-        <div class="flex items-center gap-2">
-          <div
-            class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-all"
-            :class="i < currentStep ? 'bg-emerald-500 text-white' : i === currentStep ? 'bg-coral text-white' : 'bg-gray-200 text-gray-400'"
-          >
-            <span x-show="i < currentStep">&#10003;</span>
-            <span x-show="i >= currentStep" x-text="i + 1"></span>
-          </div>
-          <span
-            class="text-sm hidden sm:inline"
-            :class="i === currentStep ? 'text-charcoal-dark font-medium' : 'text-charcoal-light'"
-            x-text="step"
-          ></span>
-          <div x-show="i < steps.length - 1" class="w-8 h-px bg-gray-200 hidden sm:block"></div>
-        </div>
-      </template>
+    .nsw .stepsbar { display: flex; align-items: center; margin-bottom: var(--space-5); padding: 16px 20px; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); box-shadow: var(--shadow-xs); overflow-x: auto; }
+    .nsw .stepsbar .steps__line { flex: 1; width: auto; }
+
+    .nsw .wgrid { display: grid; grid-template-columns: 1fr 296px; gap: 24px; align-items: start; }
+    @media (max-width: 899px) { .nsw .wgrid { grid-template-columns: 1fr; } }
+
+    .nsw .stepcard { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); box-shadow: var(--shadow-xs); padding: var(--space-6); }
+    .nsw .stepcard__title { font-size: 18px; font-weight: 680; letter-spacing: -.015em; color: var(--color-text-primary); }
+    .nsw .stepcard__desc { font-size: 13.5px; color: var(--color-text-secondary); margin-top: 5px; margin-bottom: var(--space-5); max-width: 62ch; }
+    .nsw .form2 { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+    .nsw .span2 { grid-column: 1 / -1; }
+    @media (max-width: 639px) { .nsw .form2 { grid-template-columns: 1fr; } .nsw .span2 { grid-column: auto; } }
+
+    /* selectable option cards (scan type + depth) - .schedopt pattern */
+    .nsw .optrow { display: flex; gap: 10px; }
+    .nsw .optcard { flex: 1; padding: 13px 15px; border: 1.5px solid var(--color-border); border-radius: var(--radius-md); cursor: pointer; transition: .12s; background: var(--color-surface); text-align: left; font-family: var(--font-sans); }
+    .nsw .optcard:hover { border-color: var(--color-border-strong); }
+    .nsw .optcard.on { border-color: var(--color-primary); background: var(--color-primary-subtle); }
+    .nsw .optcard__name { font-size: 13.5px; font-weight: 650; display: flex; align-items: center; gap: 8px; color: var(--color-text-primary); }
+    .nsw .optcard__meta { font-size: 11.5px; color: var(--color-text-muted); margin-top: 3px; }
+    .nsw .optcard__radio { width: 15px; height: 15px; border-radius: 50%; border: 1.5px solid var(--color-border-strong); display: inline-grid; place-items: center; flex: none; }
+    .nsw .optcard.on .optcard__radio { border-color: var(--color-primary); }
+    .nsw .optcard.on .optcard__radio::after { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--color-primary); }
+
+    .nsw .adv summary { font-size: 13px; color: var(--color-text-muted); cursor: pointer; }
+    .nsw .adv summary:hover { color: var(--color-text-primary); }
+    .nsw .adv[open] summary { margin-bottom: 14px; }
+    .nsw .adv__body { display: flex; flex-direction: column; gap: 14px; padding-left: 14px; border-left: 2px solid var(--color-border); }
+
+    .nsw .wnav { display: flex; align-items: center; justify-content: flex-end; gap: 16px; margin-top: var(--space-5); }
+    .nsw .wnav__hint { font-size: 12.5px; color: var(--color-text-muted); }
+
+    .nsw .summary { position: sticky; top: var(--space-6); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); box-shadow: var(--shadow-sm); overflow: hidden; }
+    .nsw .summary__head { padding: 16px 18px; border-bottom: 1px solid var(--color-border); font-size: 14px; font-weight: 680; color: var(--color-text-primary); }
+    .nsw .summary__body { padding: 18px; display: flex; flex-direction: column; gap: 14px; }
+    .nsw .srow { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; font-size: 13px; }
+    .nsw .srow__k { color: var(--color-text-muted); }
+    .nsw .srow__v { font-weight: 600; text-align: right; color: var(--color-text-primary); overflow-wrap: anywhere; }
+    .nsw .srow__v.muted { color: var(--color-text-muted); font-weight: 500; font-style: italic; }
+    .nsw .cost { background: var(--color-surface-sunken); border-top: 1px solid var(--color-border); padding: 16px 18px; }
+    .nsw .cost__l { font-size: 12.5px; font-weight: 650; color: var(--color-text-primary); }
+    .nsw .cost__body { font-size: 12px; color: var(--color-text-secondary); margin-top: 6px; line-height: 1.5; }
+
+    .nsw .errbox { margin-top: 16px; background: var(--status-critical-bg); border: 1px solid #FAD9D5; border-radius: var(--radius-md); padding: 12px 14px; font-size: 13px; color: var(--status-critical); }
+  </style>
+
+  <main class="nsw" x-data={`scanWizard('${clientId}')`}>
+    <div class="whead">
+      <h1>New scan</h1>
+      <p>Tell us which site to analyze. We discover its topics, generate the questions real buyers ask, and measure how often each AI mentions the brand.</p>
     </div>
 
-    <!-- Step 1: Domain -->
-    <div x-show="currentStep === 0" x-transition>
-      <h2 class="text-xl font-bold text-charcoal-dark mb-2">Which website do you want to analyze?</h2>
-      <p class="text-charcoal-light mb-6">Enter a domain to discover its topics, personas, and AI visibility.</p>
+    {/* Steps bar - the TRUE pipeline. Only step 1 lives on this page ;
+        the rest happens on the scan page after the redirect. */}
+    <div class="stepsbar">
+      <div class="steps" style="width:100%">
+        <div class="steps__node is-active"><div class="steps__num">1</div><div class="steps__lbl">Domain</div></div>
+        <div class="steps__line"></div>
+        <div class="steps__node is-todo"><div class="steps__num">2</div><div class="steps__lbl">Topics</div></div>
+        <div class="steps__line"></div>
+        <div class="steps__node is-todo"><div class="steps__num">3</div><div class="steps__lbl">Brands</div></div>
+        <div class="steps__line"></div>
+        <div class="steps__node is-todo"><div class="steps__num">4</div><div class="steps__lbl">Personas</div></div>
+        <div class="steps__line"></div>
+        <div class="steps__node is-todo"><div class="steps__num">5</div><div class="steps__lbl">Launch</div></div>
+      </div>
+    </div>
 
-      <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 space-y-5">
-        <div>
-          <label class="block text-sm font-medium text-charcoal-dark mb-1.5">
-            Scan name <span class="text-charcoal-light font-normal">— how you'll recognize it later</span>
-          </label>
-          <input
-            type="text" x-model="scanName" :placeholder="domain || 'e.g. Avène tracking Q2 2026'"
-            class="w-full px-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-coral/50 focus:border-coral text-lg"
-          />
-          <p class="text-[11px] text-charcoal-light mt-1">Defaults to the domain if left empty. Each scan tracks one brand over time via rescans.</p>
-        </div>
+    <div class="wgrid">
+      {/* LEFT : the domain step */}
+      <div>
+        <div class="stepcard">
+          <div class="stepcard__title">About the site</div>
+          <div class="stepcard__desc">The domain you want to measure. We pull its Google rankings to map what buyers search for, then test those questions against the AIs.</div>
 
-        <div>
-          <label class="block text-sm font-medium text-charcoal-dark mb-1.5">
-            <Tip id="domain_input" position="bottom">Domain</Tip>
-          </label>
-          <input
-            type="text" x-model="domain" placeholder="e.g. eau-thermale-avene.fr"
-            class="w-full px-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-coral/50 focus:border-coral text-lg"
-          />
-        </div>
+          <div class="form2">
+            <div class="field span2">
+              <label class="field__label">Scan name <span class="opt">- how you'll recognize it later</span></label>
+              <input class="input" type="text" x-model="scanName" :placeholder="domain || 'e.g. Avène tracking Q2 2026'" />
+              <span class="field__help">Defaults to the domain if left empty. Each scan tracks one brand over time via rescans.</span>
+            </div>
 
-        <div>
-          <label class="block text-sm font-medium text-charcoal-dark mb-1.5">This domain is</label>
-          <div class="flex gap-3">
-            <button
-              @click="scanType = 'own'"
-              :class="scanType === 'own' ? 'border-coral bg-coral/5 text-coral' : 'border-gray-200 text-charcoal-light hover:border-gray-300'"
-              class="flex-1 px-4 py-3 rounded-lg border-2 text-sm font-medium transition-all"
-            >
-              My own site
-            </button>
-            <button
-              @click="scanType = 'competitor'"
-              :class="scanType === 'competitor' ? 'border-coral bg-coral/5 text-coral' : 'border-gray-200 text-charcoal-light hover:border-gray-300'"
-              class="flex-1 px-4 py-3 rounded-lg border-2 text-sm font-medium transition-all"
-            >
-              A competitor's site
-            </button>
-          </div>
-        </div>
+            <div class="field span2">
+              <label class="field__label"><Tip id="domain_input" position="bottom">Domain</Tip></label>
+              <input class="input" type="text" x-model="domain" placeholder="e.g. eau-thermale-avene.fr" @keydown.enter="createScan()" />
+              <span class="field__help">Used to detect when an AI cites the brand's own pages.</span>
+            </div>
 
-        <div>
-          <label class="block text-sm font-medium text-charcoal-dark mb-1.5">
-            <Tip id="country" position="bottom">Country</Tip>
-          </label>
-          <select x-model="country" class="w-full px-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-coral/50 text-sm">
-            <option value="fr">France</option>
-            <option value="us">United States</option>
-            <option value="uk">United Kingdom</option>
-            <option value="de">Germany</option>
-            <option value="es">Spain</option>
-            <option value="it">Italy</option>
-            <option value="nl">Netherlands</option>
-            <option value="be">Belgium</option>
-            <option value="ch">Switzerland</option>
-            <option value="ca">Canada</option>
-          </select>
-        </div>
-
-        <!-- Analysis depth — 3 presets (Hick's Law: 3 choices, not a free slider) -->
-        <div>
-          <label class="block text-sm font-medium text-charcoal-dark mb-1.5">
-            <Tip id="analysis_depth" position="bottom">Analysis depth</Tip>
-          </label>
-          <div class="flex gap-2">
-            <button @click="depth = 'light'"
-              :class="depth === 'light' ? 'border-coral bg-coral/5 text-coral' : 'border-gray-200 text-charcoal-light hover:border-gray-300'"
-              class="flex-1 px-3 py-3 rounded-lg border-2 text-sm font-medium transition-all text-center">
-              <span class="block font-semibold">Light</span>
-              <span class="text-[10px] opacity-70">1 persona/topic</span>
-            </button>
-            <button @click="depth = 'balanced'"
-              :class="depth === 'balanced' ? 'border-coral bg-coral/5 text-coral' : 'border-gray-200 text-charcoal-light hover:border-gray-300'"
-              class="flex-1 px-3 py-3 rounded-lg border-2 text-sm font-medium transition-all text-center">
-              <span class="block font-semibold">Balanced</span>
-              <span class="text-[10px] opacity-70">3 personas/topic</span>
-            </button>
-            <button @click="depth = 'deep'"
-              :class="depth === 'deep' ? 'border-coral bg-coral/5 text-coral' : 'border-gray-200 text-charcoal-light hover:border-gray-300'"
-              class="flex-1 px-3 py-3 rounded-lg border-2 text-sm font-medium transition-all text-center">
-              <span class="block font-semibold">Deep</span>
-              <span class="text-[10px] opacity-70">6 personas/topic</span>
-            </button>
-          </div>
-          <p class="text-[11px] text-charcoal-light mt-1.5">Each persona generates 15 questions (5 types x 3 each). More personas = broader coverage but higher cost.</p>
-        </div>
-
-        <!-- Advanced options (collapsed by default — Hick's Law) -->
-        <details class="text-sm">
-          <summary class="text-charcoal-light cursor-pointer hover:text-charcoal-dark">Advanced options</summary>
-          <div class="mt-3 space-y-3 pl-4 border-l-2 border-gray-100">
-            <div>
-              <label class="block text-xs font-medium text-charcoal-light mb-1">
-                <Tip id="ranking_filter" position="bottom">Google ranking filter</Tip>
-              </label>
-              <div class="flex gap-2">
-                <button @click="maxPosition = 10" :class="maxPosition === 10 ? 'bg-charcoal-dark text-white' : 'bg-gray-100 text-charcoal-light'" class="px-3 py-1.5 rounded text-xs font-medium transition-all">Top 10</button>
-                <button @click="maxPosition = 30" :class="maxPosition === 30 ? 'bg-charcoal-dark text-white' : 'bg-gray-100 text-charcoal-light'" class="px-3 py-1.5 rounded text-xs font-medium transition-all">Top 30</button>
-                <button @click="maxPosition = 50" :class="maxPosition === 50 ? 'bg-charcoal-dark text-white' : 'bg-gray-100 text-charcoal-light'" class="px-3 py-1.5 rounded text-xs font-medium transition-all">Top 50 <span class="text-[10px] opacity-60">recommended</span></button>
+            <div class="field span2">
+              <label class="field__label">This domain is</label>
+              <div class="optrow">
+                <button type="button" class="optcard" :class="scanType === 'own' ? 'on' : ''" @click="scanType = 'own'">
+                  <div class="optcard__name"><span class="optcard__radio"></span>Your site</div>
+                  <div class="optcard__meta">Track your own brand's AI visibility.</div>
+                </button>
+                <button type="button" class="optcard" :class="scanType === 'competitor' ? 'on' : ''" @click="scanType = 'competitor'">
+                  <div class="optcard__name"><span class="optcard__radio"></span>Competitor site</div>
+                  <div class="optcard__meta">Audit how a competitor shows up.</div>
+                </button>
               </div>
             </div>
-            <div>
-              <label class="block text-xs font-medium text-charcoal-light mb-1">
-                <Tip id="max_keywords" position="bottom">Max keywords</Tip>
-              </label>
-              <input type="number" x-model.number="maxUrls" min="100" max="5000" class="px-3 py-1.5 border border-gray-200 rounded text-xs w-24" />
-              <span class="text-[10px] text-charcoal-light ml-2">recommended: 2000</span>
+
+            <div class="field span2">
+              <label class="field__label"><Tip id="country" position="bottom">Country</Tip></label>
+              <select class="select" x-model="country">
+                {COUNTRIES.map(([code, label]) => <option value={code}>{label}</option>)}
+              </select>
+              <span class="field__help">Where the buyers you care about are searching.</span>
             </div>
-          </div>
-        </details>
-      </div>
 
-      <div class="mt-6 flex justify-end">
-        <button
-          @click="createScan()"
-          :disabled="!domain || loading"
-          class="px-6 py-3 bg-coral text-white rounded-lg font-medium hover:bg-coral-dark hover:shadow-md hover:scale-[1.02] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-        >
-          <span x-show="!loading">Analyze this site</span>
-          <span x-show="loading" class="flex items-center gap-2">
-            <svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
-            Analyzing...
-          </span>
-          <svg x-show="!loading" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
-        </button>
-      </div>
+            <div class="field span2">
+              <label class="field__label"><Tip id="analysis_depth" position="bottom">Analysis depth</Tip></label>
+              <div class="optrow">
+                <button type="button" class="optcard" :class="depth === 'light' ? 'on' : ''" @click="depth = 'light'">
+                  <div class="optcard__name"><span class="optcard__radio"></span>Light</div>
+                  <div class="optcard__meta">1 persona per topic</div>
+                </button>
+                <button type="button" class="optcard" :class="depth === 'balanced' ? 'on' : ''" @click="depth = 'balanced'">
+                  <div class="optcard__name"><span class="optcard__radio"></span>Balanced</div>
+                  <div class="optcard__meta">3 personas per topic</div>
+                </button>
+                <button type="button" class="optcard" :class="depth === 'deep' ? 'on' : ''" @click="depth = 'deep'">
+                  <div class="optcard__name"><span class="optcard__radio"></span>Deep</div>
+                  <div class="optcard__meta">6 personas per topic</div>
+                </button>
+              </div>
+              <span class="field__help">Each persona generates 15 buyer questions. More personas means broader coverage and higher cost.</span>
+            </div>
 
-      <p class="text-xs text-charcoal-light mt-3 text-right">Takes about 1-2 minutes</p>
-    </div>
-
-    <!-- Step 2: Processing (fetching + classifying) -->
-    <div x-show="currentStep === 1" x-transition>
-      <h2 class="text-xl font-bold text-charcoal-dark mb-2">Analyzing <span x-text="domain" class="text-coral"></span></h2>
-
-      <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-8 text-center">
-        <div class="mb-6">
-          <svg class="w-12 h-12 mx-auto animate-spin text-coral/30" fill="none" viewBox="0 0 24 24">
-            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
-            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
-          </svg>
-        </div>
-        <p class="text-charcoal-dark font-medium mb-2" x-text="processingMessage">Fetching keyword data...</p>
-        <p class="text-sm text-charcoal-light">This usually takes 1-2 minutes. You can leave this page.</p>
-
-        <!-- Progress steps -->
-        <div class="mt-8 space-y-3 text-left max-w-sm mx-auto">
-          <div class="flex items-center gap-3 text-sm" :class="processingStep >= 1 ? 'text-emerald-600' : 'text-charcoal-light'">
-            <span x-show="processingStep >= 1">&#10003;</span>
-            <span x-show="processingStep < 1" class="text-charcoal-light">○</span>
-            Fetching keywords from HaloScan
-          </div>
-          <div class="flex items-center gap-3 text-sm" :class="processingStep >= 2 ? 'text-emerald-600' : 'text-charcoal-light'">
-            <span x-show="processingStep >= 2">&#10003;</span>
-            <span x-show="processingStep < 2" class="text-charcoal-light">○</span>
-            Classifying pages into topics
-          </div>
-          <div class="flex items-center gap-3 text-sm" :class="processingStep >= 3 ? 'text-emerald-600' : 'text-charcoal-light'">
-            <span x-show="processingStep >= 3">&#10003;</span>
-            <span x-show="processingStep < 3" class="text-charcoal-light">○</span>
-            Detecting brands & competitors
+            <details class="adv span2">
+              <summary>Advanced options</summary>
+              <div class="adv__body">
+                <div class="field">
+                  <label class="field__label" style="font-size:12px"><Tip id="ranking_filter" position="bottom">Google ranking filter</Tip></label>
+                  <div class="optrow" style="max-width:340px">
+                    <button type="button" class="optcard" style="padding:9px 12px" :class="maxPosition === 10 ? 'on' : ''" @click="maxPosition = 10"><div class="optcard__name" style="font-size:12.5px">Top 10</div></button>
+                    <button type="button" class="optcard" style="padding:9px 12px" :class="maxPosition === 30 ? 'on' : ''" @click="maxPosition = 30"><div class="optcard__name" style="font-size:12.5px">Top 30</div></button>
+                    <button type="button" class="optcard" style="padding:9px 12px" :class="maxPosition === 50 ? 'on' : ''" @click="maxPosition = 50"><div class="optcard__name" style="font-size:12.5px">Top 50</div><div class="optcard__meta">recommended</div></button>
+                  </div>
+                </div>
+                <div class="field" style="max-width:220px">
+                  <label class="field__label" style="font-size:12px"><Tip id="max_keywords" position="bottom">Max keywords</Tip></label>
+                  <input class="input" type="number" x-model.number="maxUrls" min="100" max="5000" />
+                  <span class="field__help">Recommended : 2000.</span>
+                </div>
+              </div>
+            </details>
           </div>
         </div>
+
+        <div class="wnav">
+          <span class="wnav__hint" x-show="!loading">Discovery takes about 1 to 2 minutes</span>
+          <button class="btn btn--primary btn--md" @click="createScan()" :disabled="!domain || loading">
+            <span x-show="!loading" style="display:flex;align-items:center;gap:8px">
+              Analyze this site
+              <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 8h10M9 4l4 4-4 4"/></svg>
+            </span>
+            <span x-show="loading" x-cloak style="display:flex;align-items:center;gap:8px">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" class="nsw-spin"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" opacity=".25"/><path fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" opacity=".75"/></svg>
+              Analyzing...
+            </span>
+          </button>
+        </div>
+
+        <div class="errbox" x-show="error" x-cloak x-text="error"></div>
       </div>
-    </div>
 
-    <!-- Step 3: Topics ready -->
-    <div x-show="currentStep === 2" x-transition>
-      <h2 class="text-xl font-bold text-charcoal-dark mb-2">Topics found on <span x-text="domain" class="text-coral"></span></h2>
-      <p class="text-charcoal-light mb-6">Toggle off topics you don't want to analyze. Each active topic costs 1 scan credit.</p>
-
-      <div class="bg-white rounded-xl shadow-sm border border-gray-100 divide-y divide-gray-100">
-        <template x-for="topic in topics" :key="topic.id">
-          <div class="flex items-center gap-4 px-5 py-3.5 hover:bg-gray-50 transition-colors">
-            <button
-              @click="topic.active = !topic.active"
-              :class="topic.active ? 'bg-coral' : 'bg-gray-300'"
-              class="relative w-10 h-6 rounded-full transition-colors shrink-0"
-            >
-              <span
-                :class="topic.active ? 'translate-x-4' : 'translate-x-0'"
-                class="absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform"
-              ></span>
-            </button>
-            <div class="flex-1 min-w-0">
-              <p class="text-sm font-medium text-charcoal-dark" x-text="topic.name"></p>
-              <p class="text-xs text-charcoal-light"><span x-text="topic.keyword_count"></span> keywords</p>
-            </div>
+      {/* RIGHT : live summary rail */}
+      <div class="summary">
+        <div class="summary__head">Scan summary</div>
+        <div class="summary__body">
+          <div class="srow"><span class="srow__k">Scan name</span><span class="srow__v" :class="(scanName || domain) ? '' : 'muted'" x-text="scanName || domain || 'Not set'"></span></div>
+          <div class="srow"><span class="srow__k">Domain</span><span class="srow__v" :class="domain ? '' : 'muted'" x-text="domain || 'Not set'"></span></div>
+          <div class="srow"><span class="srow__k">Type</span><span class="srow__v" x-text="scanType === 'own' ? 'Your site' : 'Competitor site'"></span></div>
+          <div class="srow"><span class="srow__k">Country</span><span class="srow__v" x-text="countryLabel()"></span></div>
+          <div class="srow"><span class="srow__k">Depth</span><span class="srow__v" x-text="depth === 'light' ? 'Light (1 persona/topic)' : depth === 'deep' ? 'Deep (6 personas/topic)' : 'Balanced (3 personas/topic)'"></span></div>
+          <div class="srow"><span class="srow__k">Ranking filter</span><span class="srow__v" x-text="'Top ' + maxPosition"></span></div>
+        </div>
+        <div class="cost">
+          <div class="cost__l">Cost</div>
+          <div class="cost__body">
+            Discovery (keywords + topics) is free. AI testing is charged per active topic when you launch it - you pick the topics first.
           </div>
-        </template>
-      </div>
-
-      <div class="mt-6 flex items-center justify-between">
-        <p class="text-sm text-charcoal-light">
-          <span x-text="topics.filter(t => t.active).length" class="font-medium text-charcoal-dark"></span> topics selected
-        </p>
-        <button
-          @click="validateTopics()"
-          :disabled="topics.filter(t => t.active).length === 0"
-          class="px-6 py-3 bg-coral text-white rounded-lg font-medium hover:bg-coral-dark hover:shadow-md hover:scale-[1.02] transition-all disabled:opacity-50"
-        >
-          Continue
-          <svg class="w-4 h-4 inline ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
-        </button>
+        </div>
       </div>
     </div>
+  </main>
 
-    <!-- Error state -->
-    <div x-show="error" class="mt-4 bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 text-sm" x-text="error"></div>
-
-  </div>
+  <style>
+    .nsw-spin { animation: nswspin .7s linear infinite; }
+    @keyframes nswspin { to { transform: rotate(360deg); } }
+  </style>
 
   <script is:inline>
     document.addEventListener('alpine:init', () => {
-      Alpine.data('scanWizard', (clientId, token) => ({
-        steps: ['Domain', 'Processing', 'Topics', 'Brands', 'Personas', 'Scan'],
-        currentStep: 0,
+      Alpine.data('scanWizard', (clientId) => ({
         domain: '',
         scanName: '',
         scanType: 'own',
@@ -290,16 +260,17 @@ try {
         maxUrls: 2000,
         loading: false,
         error: null,
-        scanId: null,
-        topics: [],
-        processingStep: 0,
-        processingMessage: 'Fetching keyword data...',
+
+        countryLabel() {
+          const map = { fr: 'France', us: 'United States', uk: 'United Kingdom', de: 'Germany', es: 'Spain', it: 'Italy', nl: 'Netherlands', be: 'Belgium', ch: 'Switzerland', ca: 'Canada' };
+          return map[this.country] || this.country;
+        },
 
         async createScan() {
+          if (!this.domain || this.loading) return;
           this.loading = true;
           this.error = null;
           try {
-            // Create scan
             const res = await fetch('/api/scans/', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -322,74 +293,23 @@ try {
             try {
               scan = JSON.parse(rawText);
             } catch (parseErr) {
-              throw parseErr;
+              throw new Error('Unexpected response from the API');
             }
             if (!res.ok) throw new Error(scan.detail || 'Failed to create scan');
-            this.scanId = scan.id;
 
-            // Generate domain brief (parallel with keyword fetch — ~10s OpenAI web search)
-            fetch(`/api/scans/${this.scanId}/generate-brief`, { method: 'POST' });
+            // Domain brief generation runs in parallel with the keyword
+            // fetch (~10s OpenAI web search) - fire and forget.
+            fetch(`/api/scans/${scan.id}/generate-brief`, { method: 'POST' });
+            await fetch(`/api/scans/${scan.id}/fetch-keywords`, { method: 'POST' });
 
-            // Fetch keywords
-            await fetch(`/api/scans/${this.scanId}/fetch-keywords`, { method: 'POST' });
-
-            // Redirect to scan detail page — it handles all processing states
-            // (spinner, auto-classify, topics, brands, personas) in one place.
-            // No need for the wizard's separate "Processing" step.
-            window.location.href = '/app/scans/' + this.scanId;
+            // The scan page owns every later pipeline state (processing
+            // spinner, topics, brands, personas, launch).
+            window.location.href = '/app/scans/' + scan.id;
+            return;
           } catch (e) {
             this.error = e.message;
           }
           this.loading = false;
-        },
-
-        async pollScanStatus() {
-          const poll = setInterval(async () => {
-            try {
-              const res = await fetch(`/api/scans/${this.scanId}`);
-              const scan = await res.json();
-
-              if (scan.status === 'keywords_fetched' || scan.status === 'topics_ready') {
-                if (this.processingStep < 1) {
-                  this.processingStep = 1;
-                  this.processingMessage = 'Keywords fetched. Classifying topics...';
-                  // Auto-trigger classification
-                  await fetch(`/api/scans/${this.scanId}/topics/auto-classify`, { method: 'POST' });
-                }
-              }
-
-              if (scan.status === 'topics_ready') {
-                this.processingStep = 3;
-                clearInterval(poll);
-                // Redirect to scan detail page which has the full Topics view
-                // (with drill-down keywords, pages, sort, filter, move, edit)
-                window.location.href = '/app/scans/' + this.scanId;
-              }
-
-              if (scan.status === 'failed') {
-                clearInterval(poll);
-                this.error = scan.error_message || 'Scan failed';
-                this.currentStep = 0;
-              }
-            } catch {}
-          }, 3000);
-        },
-
-        async validateTopics() {
-          // Disable inactive topics via API
-          for (const topic of this.topics) {
-            if (!topic.active && topic.is_active) {
-              await fetch(`/api/scans/${this.scanId}/topics/${topic.id}`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ is_active: false }),
-              });
-            }
-          }
-          // Validate → triggers assign_keywords → generate_personas
-          await fetch(`/api/scans/${this.scanId}/topics/validate`, { method: 'POST' });
-          // Redirect to scan detail page for remaining steps
-          window.location.href = `/app/scans/${this.scanId}`;
         },
       }));
     });

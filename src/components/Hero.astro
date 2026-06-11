@@ -1,100 +1,102 @@
 ---
+/**
+ * Landing hero - redesign per 12-marketing.html (mobile-first).
+ *
+ * Structure from the ref : providers tag, hooky H1 with coral em, double
+ * CTA, trust line, and the sample-result demo card (grade + per-AI bars)
+ * replacing the old decorative orbital circles.
+ *
+ * Funnel decision (2026-06-11) : primary CTA = self-serve /register
+ * (S15 reopen direction), the 24h free-audit modal stays one click away
+ * as the secondary CTA. Copy stays French - the landing sells to the
+ * French market even though the app UI is English.
+ */
 import site from '../content/site.json';
 const { hero } = site;
-
-const trustIcons: Record<string, string> = {
-  clock: '<path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />',
-  shield: '<path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M3.75 12c0 4.142 3.358 7.5 7.5 7.5s7.5-3.358 7.5-7.5-3.358-7.5-7.5-7.5-7.5 3.358-7.5 7.5Z" />',
-  check: '<path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12c0 1.268-.63 2.39-1.593 3.068a3.745 3.745 0 0 1-1.043 3.296 3.745 3.745 0 0 1-3.296 1.043A3.745 3.745 0 0 1 12 21c-1.268 0-2.39-.63-3.068-1.593a3.746 3.746 0 0 1-3.296-1.043 3.745 3.745 0 0 1-1.043-3.296A3.745 3.745 0 0 1 3 12c0-1.268.63-2.39 1.593-3.068a3.745 3.745 0 0 1 1.043-3.296 3.746 3.746 0 0 1 3.296-1.043A3.746 3.746 0 0 1 12 3c1.268 0 2.39.63 3.068 1.593a3.746 3.746 0 0 1 3.296 1.043 3.746 3.746 0 0 1 1.043 3.296A3.745 3.745 0 0 1 21 12Z" />'
-};
 ---
 
-<section class="relative min-h-screen flex items-center py-24 sm:py-16 overflow-hidden bg-gradient-to-br from-white via-white to-coral/5">
-  <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 w-full">
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-16 items-center">
-
-      <!-- Texte - gauche -->
-      <div class="max-w-xl">
-        <!-- Tagline -->
-        <p class="text-coral uppercase tracking-[0.25em] text-sm font-medium mb-6">
-          {hero.tagline}
-        </p>
-
-        <!-- H1 produit-centric : question hooky qui dit ce que le produit fait -->
-        <h1 class="text-4xl sm:text-5xl lg:text-[3.25rem] font-bold text-charcoal-dark leading-[1.1] mb-5">
-          Que disent <span class="text-coral">ChatGPT et Gemini</span> de votre marque ?
-        </h1>
-
-        <!-- Description -->
-        <p class="text-lg text-charcoal-light/80 leading-relaxed mb-8">
-          AI Scan mesure votre visibilité dans les IA génératives, sur un sujet précis. <strong class="text-charcoal font-medium">Audit gratuit en 24h</strong>, calibré sur vos produits, vos segments, vos concurrents.
-        </p>
-
-        <!-- CTA -->
-        <div class="flex flex-col sm:flex-row items-start gap-4 mb-6">
-          <button
-            id="hero-audit-cta"
-            class="inline-flex items-center px-7 py-3.5 bg-coral text-white font-medium rounded-lg hover:bg-coral-dark transition-colors text-base shadow-lg shadow-coral/20 cursor-pointer"
-          >
-            {hero.cta_primary}
-          </button>
-          <a
-            href="#ai-scan"
-            class="inline-flex items-center px-7 py-3.5 border-2 border-charcoal-light/30 text-charcoal font-medium rounded-lg hover:border-coral hover:text-coral transition-colors text-base"
-          >
-            {hero.cta_secondary}
-          </a>
-        </div>
-
-        <!-- Trust signals -->
-        <div class="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-charcoal-light">
-          {hero.trust_signals.map((t) => (
-            <span class="inline-flex items-center gap-1.5">
-              <svg class="w-3.5 h-3.5 text-charcoal-light/70 shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.75" stroke="currentColor">
-                <Fragment set:html={trustIcons[t.icon]} />
-              </svg>
-              {t.label}
-            </span>
-          ))}
-        </div>
+<section class="lhero">
+  <div class="lhero__inner">
+    <div class="lhero__copy">
+      <div class="lhero__tag">
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="8" r="6"/><path d="M8 5v3l2 1.5"/></svg>
+        ChatGPT &middot; Gemini &middot; Claude &middot; Mistral
       </div>
 
-      <!-- Visuel - droite -->
-      <div class="hidden lg:flex items-center justify-center relative" aria-hidden="true">
-        <div class="relative w-80 h-80">
-          <!-- Cercles décoratifs -->
-          <div class="absolute inset-0 rounded-full bg-gradient-to-br from-coral/10 to-coral/5 animate-pulse-slow"></div>
-          <div class="absolute inset-6 rounded-full bg-gradient-to-tr from-coral/8 to-transparent"></div>
-          <div class="absolute inset-12 rounded-full bg-white/80 backdrop-blur-sm shadow-inner"></div>
+      <h1>Que disent <em>ChatGPT et Gemini</em> de votre marque&nbsp;?</h1>
 
-          <!-- Logo central -->
-          <div class="absolute inset-0 flex items-center justify-center">
-            <img src="/logo-sen-ai-fr.png" alt="" class="w-32 h-32 object-contain drop-shadow-lg" />
+      <p class="lhero__lede">
+        sen-ai pose aux IA les questions que vos clients leur posent, puis vous montre
+        quand votre marque est citée, quand elle ne l'est pas, et qui est recommandé à votre place.
+      </p>
+
+      <div class="lhero__cta">
+        <a class="lhero__btn lhero__btn--primary" href="/register">Lancer mon premier scan gratuit</a>
+        <button type="button" id="hero-audit-cta" class="lhero__btn lhero__btn--ghost">
+          {hero.cta_primary}
+        </button>
+      </div>
+
+      <div class="lhero__trust">Sans CB ni engagement &middot; Premier scan gratuit &middot; Audit expert sous 24h</div>
+    </div>
+
+    {/* Sample result card - what the product actually shows */}
+    <div class="lhero__demo" aria-hidden="true">
+      <div class="demo__card">
+        <div class="demo__hd">
+          <div class="demo__grade">C</div>
+          <div>
+            <div class="demo__name">Votre marque</div>
+            <div class="demo__sub">citée dans 41% des réponses</div>
           </div>
-
-          <!-- Points orbitaux -->
-          <div class="absolute top-4 right-8 w-3 h-3 rounded-full bg-coral/40"></div>
-          <div class="absolute bottom-12 left-2 w-2 h-2 rounded-full bg-coral/30"></div>
-          <div class="absolute top-1/3 -right-2 w-4 h-4 rounded-full bg-coral/20"></div>
-          <div class="absolute bottom-4 right-1/4 w-2.5 h-2.5 rounded-full bg-coral/25"></div>
         </div>
+        <div class="demo__bars">
+          <div class="dbar"><span class="dbar__n"><span class="dbar__ic" style="background:#10A37F">AI</span>OpenAI</span><span class="dbar__track"><span class="dbar__fill" style="width:52%;background:var(--status-positive)"></span></span><span class="dbar__v">52%</span></div>
+          <div class="dbar"><span class="dbar__n"><span class="dbar__ic" style="background:#4285F4">G</span>Gemini</span><span class="dbar__track"><span class="dbar__fill" style="width:44%;background:var(--sev-low)"></span></span><span class="dbar__v">44%</span></div>
+          <div class="dbar"><span class="dbar__n"><span class="dbar__ic" style="background:#D97757">C</span>Claude</span><span class="dbar__track"><span class="dbar__fill" style="width:38%;background:var(--sev-medium)"></span></span><span class="dbar__v">38%</span></div>
+          <div class="dbar"><span class="dbar__n"><span class="dbar__ic" style="background:#FF7000">M</span>Mistral</span><span class="dbar__track"><span class="dbar__fill" style="width:29%;background:var(--sev-high)"></span></span><span class="dbar__v">29%</span></div>
+        </div>
+        <div class="demo__foot">Et la liste des sources que chaque IA cite - les vôtres ou celles de vos concurrents.</div>
       </div>
-
     </div>
   </div>
-
-  <!-- Subtle bottom fade -->
-  <div class="absolute bottom-0 left-0 right-0 h-24 bg-gradient-to-t from-white to-transparent pointer-events-none"></div>
 </section>
 
 <style>
-  @keyframes pulse-slow {
-    0%, 100% { transform: scale(1); opacity: 1; }
-    50% { transform: scale(1.04); opacity: 0.85; }
-  }
-  .animate-pulse-slow {
-    animation: pulse-slow 6s ease-in-out infinite;
-  }
+  /* Mobile-first per 12-marketing.html ; scales to a 2-col desktop hero. */
+  .lhero { background: var(--color-surface); border-bottom: 1px solid var(--color-border); padding: 44px 22px 36px; }
+  .lhero__inner { max-width: 1080px; margin: 0 auto; display: grid; grid-template-columns: 1fr; gap: 32px; align-items: center; }
+  @media (min-width: 900px) { .lhero { padding: 72px 32px 64px; } .lhero__inner { grid-template-columns: 1.1fr 1fr; gap: 56px; } }
+
+  .lhero__tag { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 600; color: var(--color-text-secondary); background: var(--color-surface-muted); padding: 5px 11px; border-radius: var(--radius-full); margin-bottom: 18px; }
+  .lhero h1 { font-size: 30px; font-weight: 700; letter-spacing: -.03em; line-height: 1.1; color: var(--color-text-primary); }
+  @media (min-width: 900px) { .lhero h1 { font-size: 42px; } }
+  .lhero h1 em { font-style: normal; color: var(--color-primary); }
+  .lhero__lede { font-size: 15px; color: var(--color-text-secondary); margin-top: 14px; line-height: 1.55; max-width: 54ch; }
+  @media (min-width: 900px) { .lhero__lede { font-size: 16px; } }
+
+  .lhero__cta { display: flex; flex-direction: column; gap: 10px; margin-top: 22px; }
+  @media (min-width: 640px) { .lhero__cta { flex-direction: row; } }
+  .lhero__btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 50px; padding: 0 22px; border-radius: var(--radius-md); font: 650 15px var(--font-sans); cursor: pointer; border: 1px solid transparent; text-decoration: none; transition: .12s; }
+  .lhero__btn--primary { background: var(--color-primary); color: #fff; }
+  .lhero__btn--primary:hover { background: var(--color-primary-hover); }
+  .lhero__btn--ghost { background: var(--color-surface); color: var(--color-text-primary); border-color: var(--color-border-strong); }
+  .lhero__btn--ghost:hover { background: var(--color-surface-sunken); }
+  .lhero__trust { font-size: 12px; color: var(--color-text-muted); margin-top: 14px; }
+
+  .demo__card { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); box-shadow: var(--shadow-md); padding: 18px; max-width: 420px; }
+  .demo__hd { display: flex; align-items: center; gap: 11px; }
+  .demo__grade { width: 38px; height: 38px; border-radius: 9px; background: var(--status-warning-bg); color: var(--status-warning); box-shadow: inset 0 0 0 1.5px var(--status-warning); display: grid; place-items: center; font-size: 19px; font-weight: 750; flex: none; }
+  .demo__name { font-size: 14px; font-weight: 680; color: var(--color-text-primary); }
+  .demo__sub { font-size: 11.5px; color: var(--color-text-muted); }
+  .demo__bars { margin-top: 14px; display: flex; flex-direction: column; gap: 9px; }
+  .dbar { display: grid; grid-template-columns: 64px 1fr 34px; align-items: center; gap: 9px; font-size: 11.5px; }
+  .dbar__n { font-weight: 600; display: flex; align-items: center; gap: 6px; color: var(--color-text-primary); }
+  .dbar__ic { width: 15px; height: 15px; border-radius: 4px; display: grid; place-items: center; color: #fff; font-size: 8px; font-weight: 700; }
+  .dbar__track { height: 7px; background: var(--color-surface-muted); border-radius: var(--radius-full); overflow: hidden; }
+  .dbar__fill { height: 100%; border-radius: var(--radius-full); }
+  .dbar__v { font-weight: 700; text-align: right; color: var(--color-text-primary); }
+  .demo__foot { margin-top: 14px; padding-top: 12px; border-top: 1px dashed var(--color-border); font-size: 11.5px; color: var(--color-text-muted); line-height: 1.45; }
 </style>
 
 <script>

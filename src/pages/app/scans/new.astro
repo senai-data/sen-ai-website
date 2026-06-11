@@ -207,15 +207,14 @@ const COUNTRIES = [
 
         <div class="wnav">
           <span class="wnav__hint" x-show="!loading">Discovery takes about 1 to 2 minutes</span>
+          {/* text + icons as DIRECT children of the inline-flex .btn -
+              wrapper spans lose their inline display when x-show restores
+              them, which dropped the arrow onto a second line. */}
           <button class="btn btn--primary btn--md" @click="createScan()" :disabled="!domain || loading">
-            <span x-show="!loading" style="display:flex;align-items:center;gap:8px">
-              Analyze this site
-              <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 8h10M9 4l4 4-4 4"/></svg>
-            </span>
-            <span x-show="loading" x-cloak style="display:flex;align-items:center;gap:8px">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" class="nsw-spin"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" opacity=".25"/><path fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" opacity=".75"/></svg>
-              Analyzing...
-            </span>
+            <span x-show="!loading">Analyze this site</span>
+            <svg x-show="!loading" class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 8h10M9 4l4 4-4 4"/></svg>
+            <svg x-show="loading" x-cloak class="ic nsw-spin" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" opacity=".25"/><path fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" opacity=".75"/></svg>
+            <span x-show="loading" x-cloak>Analyzing...</span>
           </button>
         </div>
 

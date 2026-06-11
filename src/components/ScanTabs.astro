@@ -1,16 +1,28 @@
 ---
 /**
- * Horizontal tab bar for scan result sub-pages.
+ * 2-level nav for scan-result sub-pages.
  *
- * Laws of UX:
- * - Miller's 7±2 : currently 7 tabs after Wikipedia was added in Sprint 4.
- *   Past this point we should consolidate the "GEO toolkit" features
- *   (Wikipedia + future Princeton audit + Schema generator + ...) into a
- *   single tab with sub-nav. Tracked in project_revised_roadmap_2026_05_27.md.
- * - Serial Position: Overview first (most visited), Actions last (CTA)
- * - Von Restorff: active tab = coral underline, Actions red badge
- * - Fitts's: large touch targets (py-3)
- * - Zeigarnik: badge count on Actions creates urgency
+ * Replaces the 16-tab flat strip with a macro segmented control over a
+ * contextual leaf row, per design handoff `04-navigation.html` (v1, 2026-06).
+ *
+ *   Visibility (6)   Overview / Topics / Personas / Questions / Citations / Competitors
+ *   Sources    (7)   Wikipedia / Reddit / PR-Media / YouTube + Page Audit / Schema / Internal links
+ *   Act        (3)   Crisis / Actions / Compliance
+ *
+ * URL stability : every leaf path stays `/app/scans/{id}/{leaf}` so audit
+ * reports + email links never break. The macro level is pure UI - derived
+ * server-side from the active leaf, swap-able client-side via Alpine.
+ *
+ * Laws of UX :
+ *   - Hick : max 9 visible choices at any time (3 macro + ~5 leaves) vs 16 flat.
+ *   - Miller : every macro stays inside 7+/-2.
+ *   - Jakob's : two-level tab pattern is standard (Linear / Datadog).
+ *   - Serial Position : within Act, Crisis sits first (most urgent) ; Actions
+ *     last in its row (CTA).
+ *   - Von Restorff : the only coloured leaf-dot is Crisis-red ; the Actions
+ *     critical-count badge is the only loud number in the strip.
+ *   - SSR-first : the active leaf strip is the one rendered server-side. JS
+ *     only adds the macro-swap interactivity.
  */
 interface Props {
   scanId: string;
@@ -37,56 +49,152 @@ interface Props {
 
 const { scanId, activeTab, counts = {}, criticalCount = 0, queryString = '' } = Astro.props;
 
-const tabs = [
-  { id: 'overview', label: 'Overview', href: 'results', badge: null },
-  { id: 'topics', label: 'Topics', href: 'topics', badge: counts.topics || null },
-  { id: 'personas', label: 'Personas', href: 'personas', badge: counts.personas || null },
-  { id: 'questions', label: 'Questions', href: 'questions', badge: counts.questions || null },
-  { id: 'citations', label: 'Citations', href: 'citations', badge: counts.citations || null },
-  { id: 'wikipedia', label: 'Wikipedia', href: 'wikipedia', badge: counts.wikipedia || null },
-  { id: 'audit', label: 'Page Audit', href: 'audit', badge: counts.audit || null },
-  { id: 'schema', label: 'Schema', href: 'schema', badge: counts.schema || null },
-  { id: 'competitors', label: 'Competitors', href: 'competitors', badge: counts.competitors || null },
-  { id: 'reddit', label: 'Reddit', href: 'reddit', badge: counts.reddit || null },
-  { id: 'pr-outreach', label: 'PR / Media', href: 'pr-outreach', badge: counts.prOutreach || null },
-  { id: 'internal-linking', label: 'Internal links', href: 'internal-linking', badge: counts.internalLinking || null },
-  { id: 'youtube', label: 'YouTube', href: 'youtube', badge: counts.youtube || null },
-  { id: 'crisis', label: 'Crisis', href: 'crisis', badge: counts.crisis || null },
-  { id: 'compliance', label: 'Compliance', href: 'compliance', badge: null },
-  { id: 'actions', label: 'Actions', href: 'actions', badge: criticalCount > 0 ? criticalCount : (counts.actions || null) },
+// Leaf table - id, label, href segment, badge value, critical flag.
+const leaves: Record<string, { label: string; href: string; badge: number | null; critical?: boolean; dotColor?: string }> = {
+  overview:          { label: 'Overview',       href: 'results',           badge: null },
+  topics:            { label: 'Topics',         href: 'topics',            badge: counts.topics ?? null },
+  personas:          { label: 'Personas',       href: 'personas',          badge: counts.personas ?? null },
+  questions:         { label: 'Questions',      href: 'questions',         badge: counts.questions ?? null },
+  citations:         { label: 'Citations',      href: 'citations',         badge: counts.citations ?? null },
+  competitors:       { label: 'Competitors',    href: 'competitors',       badge: counts.competitors ?? null },
+  wikipedia:         { label: 'Wikipedia',      href: 'wikipedia',         badge: counts.wikipedia ?? null },
+  reddit:            { label: 'Reddit',         href: 'reddit',            badge: counts.reddit ?? null },
+  'pr-outreach':     { label: 'PR / Media',     href: 'pr-outreach',       badge: counts.prOutreach ?? null },
+  youtube:           { label: 'YouTube',        href: 'youtube',           badge: counts.youtube ?? null },
+  audit:             { label: 'Page Audit',     href: 'audit',             badge: counts.audit ?? null },
+  schema:            { label: 'Schema',         href: 'schema',            badge: counts.schema ?? null },
+  'internal-linking':{ label: 'Internal links', href: 'internal-linking',  badge: counts.internalLinking ?? null },
+  crisis:            { label: 'Crisis',         href: 'crisis',            badge: counts.crisis ?? null, dotColor: 'var(--status-critical)' },
+  actions:           { label: 'Actions',        href: 'actions',           badge: criticalCount > 0 ? criticalCount : (counts.actions ?? null), critical: criticalCount > 0 },
+  compliance:        { label: 'Compliance',     href: 'compliance',        badge: null },
+};
+
+// Macro grouping. The leaf order inside each macro matters (Serial Position).
+const macros: { id: 'visibility' | 'sources' | 'act'; label: string; leaves: string[] }[] = [
+  { id: 'visibility', label: 'Visibility', leaves: ['overview','topics','personas','questions','citations','competitors'] },
+  { id: 'sources',    label: 'Sources',    leaves: ['wikipedia','reddit','pr-outreach','youtube','audit','schema','internal-linking'] },
+  { id: 'act',        label: 'Act',        leaves: ['crisis','actions','compliance'] },
 ];
+
+// Server-side : which macro contains the active leaf ?
+const activeMacroId = macros.find(m => m.leaves.includes(activeTab))?.id || 'visibility';
+const queryStringSuffix = queryString ? '?' + queryString : '';
 ---
 
-<div class="px-8 border-b border-gray-200 bg-white sticky top-[68px] z-10">
-  <nav class="flex gap-0 max-w-5xl -mb-px" aria-label="Results navigation">
-    {tabs.map(tab => {
-      const isActive = activeTab === tab.id;
-      const isActions = tab.id === 'actions';
-      return (
-        <a
-          href={`/app/scans/${scanId}/${tab.href}${queryString ? '?' + queryString : ''}`}
-          class:list={[
-            'px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap',
-            isActive
-              ? 'border-coral text-coral'
-              : 'border-transparent text-charcoal-light hover:text-charcoal-dark hover:border-gray-300',
-          ]}
-        >
-          {tab.label}
-          {tab.badge && (
-            <span
-              class:list={[
-                'ml-1.5 text-[10px] font-bold px-1.5 py-0.5 rounded-full',
-                isActions && criticalCount > 0
-                  ? 'bg-red-100 text-red-600'
-                  : 'bg-gray-100 text-charcoal-light',
-              ]}
+<div class="scantabs px-8 bg-white sticky top-[68px] z-10 pt-3" x-data={`{ macro: '${activeMacroId}' }`}>
+  <style is:global>
+    /* The components.css library styles `.tabs__leaf button` ; the working
+       nav uses `<a>` (SSR-first, right-click-open-tab-friendly). Mirror
+       the same look on anchors, scoped to .scantabs to avoid leaking. */
+    .scantabs .tabs__leaf a {
+      border: 0;
+      background: transparent;
+      font: 550 13px var(--font-sans);
+      color: var(--color-text-secondary);
+      padding: 9px 12px;
+      cursor: pointer;
+      position: relative;
+      transition: color .12s;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      white-space: nowrap;
+    }
+    .scantabs .tabs__leaf a:hover { color: var(--color-text-primary); }
+    .scantabs .tabs__leaf a[aria-selected="true"] { color: var(--coral-700); font-weight: 600; }
+    .scantabs .tabs__leaf a[aria-selected="true"]::after {
+      content: "";
+      position: absolute;
+      left: 8px;
+      right: 8px;
+      bottom: -1px;
+      height: 2px;
+      background: var(--color-primary);
+      border-radius: var(--radius-full);
+    }
+    .scantabs .tabs__leaf {
+      max-width: 1024px;
+      flex-wrap: wrap;
+      row-gap: 0;
+    }
+    .scantabs__macro {
+      max-width: 480px;
+      margin-bottom: 0;
+    }
+    .scantabs__leafdot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--color-border-strong);
+      flex: none;
+    }
+    .scantabs__badge {
+      font-size: 10px;
+      font-weight: 700;
+      padding: 1px 6px;
+      border-radius: var(--radius-full);
+      background: var(--color-surface-sunken);
+      color: var(--color-text-muted);
+      margin-left: 2px;
+    }
+    .scantabs__badge--critical {
+      background: var(--status-critical-bg);
+      color: var(--status-critical);
+    }
+    .scantabs .tabs__leaf a[aria-selected="true"] .scantabs__badge {
+      background: var(--color-primary-subtle);
+      color: var(--coral-700);
+    }
+  </style>
+
+  {/* MACRO SEGMENTED CONTROL */}
+  <div class="tabs__macro scantabs__macro" role="tablist" aria-label="Section">
+    {macros.map(m => (
+      <button
+        type="button"
+        :aria-selected={`macro === '${m.id}' ? 'true' : 'false'`}
+        aria-selected={activeMacroId === m.id ? 'true' : 'false'}
+        @click={`macro = '${m.id}'`}
+      >
+        {m.label}<span class="count">{m.leaves.length}</span>
+      </button>
+    ))}
+  </div>
+
+  {/* LEAF STRIPS - one per macro. SSR renders the active one ; Alpine
+      swaps on macro click. Inactive strips carry `style=display:none` so
+      JS-disabled browsers don't see all 16 leaves stacked. */}
+  {macros.map(m => {
+    const isActive = m.id === activeMacroId;
+    return (
+      <nav
+        class="tabs__leaf"
+        aria-label={`${m.label} sub-navigation`}
+        x-show={`macro === '${m.id}'`}
+        style={isActive ? '' : 'display:none'}
+      >
+        {m.leaves.map(id => {
+          const leaf = leaves[id];
+          if (!leaf) return null;
+          const isCurrent = id === activeTab;
+          const badgeClass = leaf.critical ? 'scantabs__badge scantabs__badge--critical' : 'scantabs__badge';
+          return (
+            <a
+              href={`/app/scans/${scanId}/${leaf.href}${queryStringSuffix}`}
+              aria-selected={isCurrent ? 'true' : 'false'}
             >
-              {tab.badge}
-            </span>
-          )}
-        </a>
-      );
-    })}
-  </nav>
+              {leaf.dotColor && (
+                <span class="scantabs__leafdot" style={`background:${leaf.dotColor}`} aria-hidden="true"></span>
+              )}
+              {leaf.label}
+              {leaf.badge !== null && leaf.badge !== undefined && (
+                <span class={badgeClass}>{leaf.badge}</span>
+              )}
+            </a>
+          );
+        })}
+      </nav>
+    );
+  })}
 </div>

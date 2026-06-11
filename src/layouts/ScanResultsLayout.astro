@@ -26,7 +26,7 @@ import { fetchScanHeader } from '../lib/scan-header';
 
 interface Props {
   scanId: string;
-  activeTab: 'overview' | 'topics' | 'personas' | 'questions' | 'citations' | 'wikipedia' | 'audit' | 'schema' | 'competitors' | 'reddit' | 'actions';
+  activeTab: 'overview' | 'topics' | 'personas' | 'questions' | 'citations' | 'wikipedia' | 'audit' | 'schema' | 'competitors' | 'reddit' | 'pr-outreach' | 'internal-linking' | 'youtube' | 'crisis' | 'compliance' | 'actions';
 }
 
 const { scanId, activeTab } = Astro.props;
@@ -62,8 +62,10 @@ const rootScanId = runs.length > 0 ? (runs[0]?.id || scanId) : scanId;
 // Tab label mapping for breadcrumb
 const tabLabels: Record<string, string> = {
   overview: 'Overview', topics: 'Topics', personas: 'Personas',
-  questions: 'Questions', citations: 'Citations', wikipedia: 'Wikipedia',
-  audit: 'Page Audit', schema: 'Schema', competitors: 'Competitors', reddit: 'Reddit', actions: 'Actions',
+  questions: 'Questions', citations: 'Citations', competitors: 'Competitors',
+  wikipedia: 'Wikipedia', reddit: 'Reddit', 'pr-outreach': 'PR / Media', youtube: 'YouTube',
+  audit: 'Page Audit', schema: 'Schema', 'internal-linking': 'Internal links',
+  crisis: 'Crisis', actions: 'Actions', compliance: 'Compliance',
 };
 
 // Derive current tab path for date picker links

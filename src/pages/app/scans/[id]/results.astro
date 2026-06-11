@@ -87,8 +87,20 @@ const trippedProviders: string[] = providerStatus
   ? Object.entries(providerStatus).filter(([_, s]: any) => s.tripped).map(([p]) => p)
   : [];
 
-// ─── KPI 1 : Mention rate (already in o.citation_rate) ───
-const mentionRateTrend = trendFromApi.map((t: any) => t.citation_rate);
+// ─── KPI trends - one point per run, from the API's per-run aggregates.
+// Sparkline shows when >= 2 points exist ; otherwise the tile shows a
+// Goal-Gradient hint nudging the user toward Rescan / a schedule.
+const mentionRateTrend: number[] = trendFromApi.map((t: any) => t.citation_rate).filter((v: any) => v != null);
+const citationsTrend: number[] = trendFromApi.map((t: any) => t.total_citations).filter((v: any) => v != null);
+const sentimentTrend: number[] = trendFromApi.map((t: any) => t.sentiment_score).filter((v: any) => v != null);
+const sovTrend: number[] = trendFromApi.map((t: any) => t.sov).filter((v: any) => v != null);
+const hasTrend = mentionRateTrend.length > 1;
+
+function trendTone(vals: number[]): 'up' | 'down' | 'flat' {
+  if (vals.length < 2) return 'flat';
+  const d = vals[vals.length - 1] - vals[vals.length - 2];
+  return d > 0 ? 'up' : d < 0 ? 'down' : 'flat';
+}
 
 // ─── KPI 2 : Total citations (sum across details) ───
 // The aggregated endpoint does not carry total_citations on d.latest,
@@ -99,7 +111,6 @@ const totalCitations = details.reduce((s: number, d: any) => {
   const tc = det.total_citations ?? (det.citations || []).length;
   return s + tc;
 }, 0);
-const citationsTrend = trendFromApi.map((t: any) => t.total_citations || 0).filter((v: number) => v > 0);
 
 // ─── KPI 3 : Sentiment score (-1..+1 from brand_mentions[].sentiment on target) ───
 let sentPos = 0, sentNeu = 0, sentNeg = 0;
@@ -274,6 +285,7 @@ const mentionTone: 'up' | 'down' | 'flat' = delta == null ? 'flat' : delta > 0 ?
     .ovl .stat__row { margin-top:8px; }
     .ovl .stat__value { font-size:28px; line-height:1; }
     .ovl .spark { margin-top:10px; height:34px; }
+    .ovl .spark--empty { display:flex; align-items:center; font-size:11px; color:var(--color-text-muted); font-style:italic; }
 
     .grid-12 { display:grid; grid-template-columns:repeat(12,1fr); gap:16px; }
     .col-3 { grid-column:span 3; } .col-4 { grid-column:span 4; }
@@ -358,7 +370,10 @@ const mentionTone: 'up' | 'down' | 'flat' = delta == null ? 'flat' : delta > 0 ?
         </div>
       )}
 
-      {/* ─── KPI ROW (4 tiles, design ref §ovl) ─── */}
+      {/* ─── KPI ROW (4 tiles, design ref §ovl) ───
+          Each tile carries a per-run sparkline when the scan has a
+          lineage (>= 2 runs). Single-run scans show a Goal-Gradient
+          hint instead : the user knows exactly what unlocks the trend. */}
       <div class="ovl">
         <div class="card card--flat stat">
           <div class="stat__label">Mention rate</div>
@@ -370,7 +385,9 @@ const mentionTone: 'up' | 'down' | 'flat' = delta == null ? 'flat' : delta > 0 ?
               </span>
             )}
           </div>
-          {mentionRateTrend.length > 1 && <div class="spark" set:html={sparkSvg(mentionRateTrend, mentionTone)} />}
+          {mentionRateTrend.length > 1
+            ? <div class="spark" set:html={sparkSvg(mentionRateTrend, mentionTone)} />
+            : <div class="spark spark--empty">Trend appears after your next rescan</div>}
         </div>
 
         <div class="card card--flat stat">
@@ -379,7 +396,9 @@ const mentionTone: 'up' | 'down' | 'flat' = delta == null ? 'flat' : delta > 0 ?
             <div class="stat__value">{totalCitations.toLocaleString('en-US')}</div>
             <span class="stat__delta stat__delta--flat">{totalTests} test{totalTests > 1 ? 's' : ''}</span>
           </div>
-          {citationsTrend.length > 1 && <div class="spark" set:html={sparkSvg(citationsTrend, 'up')} />}
+          {citationsTrend.length > 1
+            ? <div class="spark" set:html={sparkSvg(citationsTrend, trendTone(citationsTrend))} />
+            : <div class="spark spark--empty">Trend appears after your next rescan</div>}
         </div>
 
         <div class="card card--flat stat">
@@ -390,13 +409,15 @@ const mentionTone: 'up' | 'down' | 'flat' = delta == null ? 'flat' : delta > 0 ?
             </div>
             <span class="stat__delta stat__delta--flat">{sentTotal} mention{sentTotal > 1 ? 's' : ''}</span>
           </div>
-          {sentTotal > 0 && (
-            <span class="sentiment" style="margin-top:10px;align-self:flex-start">
-              {sentPos > 0 && <span class="pos">▲ {sentPos}</span>}
-              {sentNeu > 0 && <span class="neu">{sentNeu}</span>}
-              {sentNeg > 0 && <span class="neg">▼ {sentNeg}</span>}
-            </span>
-          )}
+          {sentimentTrend.length > 1
+            ? <div class="spark" set:html={sparkSvg(sentimentTrend, trendTone(sentimentTrend))} />
+            : sentTotal > 0 && (
+              <span class="sentiment" style="margin-top:10px;align-self:flex-start">
+                {sentPos > 0 && <span class="pos">▲ {sentPos}</span>}
+                {sentNeu > 0 && <span class="neu">{sentNeu}</span>}
+                {sentNeg > 0 && <span class="neg">▼ {sentNeg}</span>}
+              </span>
+            )}
         </div>
 
         <div class="card card--flat stat">
@@ -405,7 +426,9 @@ const mentionTone: 'up' | 'down' | 'flat' = delta == null ? 'flat' : delta > 0 ?
             <div class="stat__value">{sovPct}%</div>
             <span class="stat__delta stat__delta--flat">vs {competitors.length} competitor{competitors.length > 1 ? 's' : ''}</span>
           </div>
-          <div style="font-size:11.5px;color:var(--color-text-muted);margin-top:10px">{myMentions} mention{myMentions > 1 ? 's' : ''} for this brand, {competitorMentions} for competitors</div>
+          {sovTrend.length > 1
+            ? <div class="spark" set:html={sparkSvg(sovTrend, trendTone(sovTrend))} />
+            : <div style="font-size:11.5px;color:var(--color-text-muted);margin-top:10px">{myMentions} mention{myMentions > 1 ? 's' : ''} for this brand, {competitorMentions} for competitors</div>}
         </div>
       </div>
 

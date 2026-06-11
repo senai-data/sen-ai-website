@@ -2976,7 +2976,13 @@ async def get_results_aggregated(
 
     # 5. Group results by (question_text, persona_name) across runs
     question_groups = {}  # key: (question_text, persona_name) → { runs: [...] }
-    per_run_stats = {s.id: {"total": 0, "brand_mentioned": 0, "domain_cited": 0} for s in lineage}
+    # Per-run aggregates. citations / sentiment / competitor mention counts
+    # feed the per-KPI sparklines on the Overview tab (one point per run).
+    per_run_stats = {s.id: {
+        "total": 0, "brand_mentioned": 0, "domain_cited": 0,
+        "citations": 0, "sent_pos": 0, "sent_neg": 0, "sent_total": 0,
+        "competitor_mentions": 0,
+    } for s in lineage}
 
     for r in all_results:
         q = all_questions.get(str(r.question_id))
@@ -3020,23 +3026,44 @@ async def get_results_aggregated(
 
         # Per-run stats
         if r.scan_id in per_run_stats:
-            per_run_stats[r.scan_id]["total"] += 1
+            st = per_run_stats[r.scan_id]
+            st["total"] += 1
             if bm_mentioned:
-                per_run_stats[r.scan_id]["brand_mentioned"] += 1
+                st["brand_mentioned"] += 1
             if r.target_cited:
-                per_run_stats[r.scan_id]["domain_cited"] += 1
+                st["domain_cited"] += 1
+            st["citations"] += len(r.citations or [])
+            for bm in overlaid_mentions:
+                is_target = bm.get("est_marque_cible") or bm.get("is_target_brand")
+                if is_target:
+                    s = (bm.get("sentiment") or "").lower()
+                    st["sent_total"] += 1
+                    if s.startswith("pos"):
+                        st["sent_pos"] += 1
+                    elif s.startswith("neg") or s.startswith("nég"):
+                        st["sent_neg"] += 1
+                else:
+                    st["competitor_mentions"] += 1
 
-    # 6. Build overview with trend
+    # 6. Build overview with trend - one point per run, feeding the four
+    # Overview KPI sparklines (mention rate / citations / sentiment / SoV).
     trend = []
     for s in lineage:
         stats = per_run_stats[s.id]
         rate = round(stats["brand_mentioned"] / stats["total"] * 100, 1) if stats["total"] > 0 else 0
+        sent_score = (round((stats["sent_pos"] - stats["sent_neg"]) / stats["sent_total"], 2)
+                      if stats["sent_total"] > 0 else None)
+        voice_total = stats["brand_mentioned"] + stats["competitor_mentions"]
+        sov = round(stats["brand_mentioned"] / voice_total * 100, 1) if voice_total > 0 else None
         trend.append({
             "run_index": scan_run_map.get(s.id, 0),
             "completed_at": s.completed_at.isoformat() if s.completed_at else None,
             "citation_rate": rate,
             "total_tests": stats["total"],
             "brand_mentioned": stats["brand_mentioned"],
+            "total_citations": stats["citations"],
+            "sentiment_score": sent_score,
+            "sov": sov,
         })
 
     latest_stats = per_run_stats[latest_scan.id]

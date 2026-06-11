@@ -102,7 +102,7 @@ const defaultFilter = (summary.opportunities || 0) > 0 ? 'opportunities' : 'all'
 ---
 
 <ScanResultsLayout scanId={scanId} activeTab="pr-outreach">
-  <div x-data={`{ filter: '${defaultFilter}', expanded: null, refreshing: false }`}>
+  <div x-data={`{ filter: '${defaultFilter}', siteTypeFilter: null, expanded: null, refreshing: false }`}>
 
     <p class="text-sm text-charcoal-light mb-6">
       Media domains the LLMs already cite for this scan's brands. The list is
@@ -131,7 +131,16 @@ const defaultFilter = (summary.opportunities || 0) > 0 ? 'opportunities' : 'all'
       </div>
 
       <div class="bg-white rounded-xl shadow-sm p-6">
-        <p class="text-[11px] text-charcoal-light uppercase tracking-wide mb-2">Site types</p>
+        <div class="flex items-center justify-between mb-2">
+          <p class="text-[11px] text-charcoal-light uppercase tracking-wide">Site types</p>
+          <button
+            x-show="siteTypeFilter !== null"
+            @click="siteTypeFilter = null"
+            class="text-[10px] text-coral-dark hover:underline"
+            x-cloak
+            type="button"
+          >Clear filter</button>
+        </div>
         {(() => {
           const bySt = summary.by_site_type || {};
           const entries = Object.entries(bySt).sort((a: any, b: any) => (b[1] as number) - (a[1] as number));
@@ -141,10 +150,16 @@ const defaultFilter = (summary.opportunities || 0) > 0 ? 'opportunities' : 'all'
           return (
             <div class="space-y-1">
               {entries.slice(0, 5).map(([st, n]: any) => (
-                <div class="flex items-center justify-between text-xs">
+                <button
+                  type="button"
+                  @click={`siteTypeFilter = (siteTypeFilter === '${st}') ? null : '${st}'`}
+                  :class={`siteTypeFilter === '${st}' ? 'bg-coral-50 ring-1 ring-coral' : 'hover:bg-gray-50'`}
+                  class="w-full flex items-center justify-between text-xs px-2 py-1 rounded transition-colors text-left"
+                  title={`Filter the list to ${siteTypeLabel(st)} domains only`}
+                >
                   <span class="text-charcoal-dark truncate">{siteTypeLabel(st)}</span>
-                  <span class="text-charcoal-light">{n}</span>
-                </div>
+                  <span class="text-charcoal-light tabular-nums">{n}</span>
+                </button>
               ))}
             </div>
           );
@@ -247,9 +262,11 @@ const defaultFilter = (summary.opportunities || 0) > 0 ? 'opportunities' : 'all'
                   <>
                     <tr
                       x-show={`
-                        filter === 'all'
-                        || filter === '${d.classification || 'target_only'}'
-                        || (filter === 'opportunities' && ['competitor_only','shared'].includes('${d.classification || ''}'))
+                        (filter === 'all'
+                          || filter === '${d.classification || 'target_only'}'
+                          || (filter === 'opportunities' && ['competitor_only','shared'].includes('${d.classification || ''}'))
+                        )
+                        && (siteTypeFilter === null || siteTypeFilter === '${d.site_type || ''}')
                       `}
                       class={`border-t border-gray-100 hover:bg-gray-50/60 cursor-pointer ${ringCls}`}
                       @click={`expanded = expanded === '${rowKey}' ? null : '${rowKey}'`}

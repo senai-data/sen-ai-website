@@ -253,17 +253,14 @@ function provVisual(p: string) {
     .cit__seg button.on { background:var(--color-surface); color:var(--color-text-primary); box-shadow:var(--shadow-xs); }
     .cit__seg button .pd { width:7px; height:7px; border-radius:50%; }
 
-    .cit__drop { position:relative; }
-    .cit__dropbtn { display:inline-flex; align-items:center; gap:8px; height:36px; padding:0 11px; font:600 12.5px var(--font-sans); color:var(--color-text-secondary); background:var(--color-surface); border:1px solid var(--color-border-strong); border-radius:var(--radius-md); cursor:pointer; transition:.12s; white-space:nowrap; }
-    .cit__dropbtn:hover { border-color:var(--neutral-400); }
-    .cit__dropbtn.active { border-color:var(--color-primary); color:var(--color-text-primary); }
-    .cit__dropbtn .k { color:var(--color-text-muted); font-weight:600; }
-    .cit__dropbtn .v { color:var(--color-text-primary); }
-    .cit__dropbtn .cv { color:var(--coral-700); }
-    .cit__dropbtn .car { color:var(--color-text-muted); transition:transform .14s; }
-    .cit__drop.open .cit__dropbtn .car { transform:rotate(180deg); }
-    .cit__dropmenu { position:absolute; top:calc(100% + 6px); left:0; min-width:200px; max-height:300px; overflow-y:auto; background:var(--color-surface); border:1px solid var(--color-border); border-radius:var(--radius-md); box-shadow:var(--shadow-lg); padding:5px; z-index:50; }
-    .cit__dropitem { display:flex; align-items:center; gap:9px; padding:8px 10px; border-radius:var(--radius-sm); font-size:13px; color:var(--color-text-primary); cursor:pointer; transition:background .1s; }
+    /* Native <select> styled to match the segmented controls (same 36px height,
+       same border). Inline label keeps it readable when many filters cohabit. */
+    .cit__nativesel { display:inline-flex; align-items:center; gap:8px; height:36px; padding:0 4px 0 11px; font:600 12.5px var(--font-sans); color:var(--color-text-secondary); background:var(--color-surface); border:1px solid var(--color-border-strong); border-radius:var(--radius-md); white-space:nowrap; transition:.12s; }
+    .cit__nativesel:hover { border-color:var(--neutral-400); }
+    .cit__nativesel:focus-within { border-color:var(--color-primary); box-shadow:0 0 0 3px var(--coral-100); }
+    .cit__nativesel span { color:var(--color-text-muted); }
+    .cit__nativesel:has(select:not([value="all"])) { border-color:var(--color-primary); }
+    .cit__nativeselbox { border:0; background:transparent; font:600 12.5px var(--font-sans); color:var(--color-text-primary); padding:0 22px 0 0; cursor:pointer; outline:none; appearance:none; background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='none' stroke='%236B7280' stroke-width='1.8'%3E%3Cpath d='M3 4.5l3 3 3-3'/%3E%3C/svg%3E"); background-repeat:no-repeat; background-position:right 4px center; }
     .cit__dropitem:hover { background:var(--color-surface-sunken); }
     .cit__dropitem.sel { color:var(--coral-700); font-weight:600; }
     .cit__dropitem .ck { margin-left:auto; opacity:0; }
@@ -340,7 +337,7 @@ function provVisual(p: string) {
     <div class="cit__intro">
       <div>
         <h2>Citations</h2>
-        <p>Every time an AI named this brand across <span x-text="totalQ"></span> questions and <span x-text="providers.length"></span> AIs in this scan. Click a row to read the verbatim answer and the page it came from.</p>
+        <p>One row per brand mention - every time an AI named this brand in an answer, with the web page the AI used as a source. Same question, two AIs - or two different sources - means two rows. Click a row to read the verbatim answer.</p>
       </div>
       <button class="btn btn--secondary btn--md" @click="exportCsv()" type="button">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M8 2v8M4.5 6.5L8 10l3.5-3.5M3 13h10"/></svg>
@@ -398,7 +395,7 @@ function provVisual(p: string) {
       <div class="cit__seg">
         <button type="button" :class="prov==='all' && 'on'" @click="prov='all'">All AIs</button>
         <template x-for="p in providers" :key="p">
-          <button type="button" :class="prov===p && 'on'" @click="prov=p" x-text="p"></button>
+          <button type="button" :class="prov===p && 'on'" @click="prov=p" x-text="provLabel(p)"></button>
         </template>
       </div>
       <div class="cit__seg">
@@ -409,40 +406,23 @@ function provVisual(p: string) {
       </div>
 
       {sourceOptions.length > 0 && (
-        <div class="cit__drop" :class="dropOpen==='source' && 'open'" @click.outside="dropOpen=null">
-          <button type="button" class="cit__dropbtn" :class="source!=='all' && 'active'" @click="dropOpen = dropOpen==='source' ? null : 'source'">
-            <span class="k">Source:</span>
-            <span :class="source==='all' ? 'v' : 'cv'" x-text="source==='all' ? 'All' : source"></span>
-            <svg class="car" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6l4 4 4-4"/></svg>
-          </button>
-          <div class="cit__dropmenu" x-show="dropOpen==='source'" x-cloak>
-            <div class="cit__dropitem" :class="source==='all' && 'sel'" @click="source='all'; dropOpen=null">All sources<svg class="ck" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 8.5l3.5 3.5L13 5"/></svg></div>
-            {sourceOptions.map(s => (
-              <div class="cit__dropitem" :class={`source==='${s}' && 'sel'`} @click={`source='${s}'; dropOpen=null`}>
-                <span class="sw" style={`background:${surfaceSwatch[s] || 'var(--neutral-400)'}`}></span>{s}
-                <svg class="ck" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 8.5l3.5 3.5L13 5"/></svg>
-              </div>
-            ))}
-          </div>
-        </div>
+        <label class="cit__nativesel">
+          <span>Source</span>
+          <select x-model="source" class="cit__nativeselbox">
+            <option value="all">All</option>
+            {sourceOptions.map(s => <option value={s}>{s}</option>)}
+          </select>
+        </label>
       )}
 
       {topicOptions.length > 0 && (
-        <div class="cit__drop" :class="dropOpen==='topic' && 'open'" @click.outside="dropOpen=null">
-          <button type="button" class="cit__dropbtn" :class="topic!=='all' && 'active'" @click="dropOpen = dropOpen==='topic' ? null : 'topic'">
-            <span class="k">Topic:</span>
-            <span :class="topic==='all' ? 'v' : 'cv'" x-text="topic==='all' ? 'All' : topic"></span>
-            <svg class="car" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6l4 4 4-4"/></svg>
-          </button>
-          <div class="cit__dropmenu" x-show="dropOpen==='topic'" x-cloak>
-            <div class="cit__dropitem" :class="topic==='all' && 'sel'" @click="topic='all'; dropOpen=null">All topics<svg class="ck" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 8.5l3.5 3.5L13 5"/></svg></div>
-            {topicOptions.map(t => (
-              <div class="cit__dropitem" :class={`topic==='${t}' && 'sel'`} @click={`topic='${t}'; dropOpen=null`}>{t}
-                <svg class="ck" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 8.5l3.5 3.5L13 5"/></svg>
-              </div>
-            ))}
-          </div>
-        </div>
+        <label class="cit__nativesel">
+          <span>Topic</span>
+          <select x-model="topic" class="cit__nativeselbox">
+            <option value="all">All</option>
+            {topicOptions.map(t => <option value={t}>{t}</option>)}
+          </select>
+        </label>
       )}
 
       <div style="margin-left:auto;display:flex;align-items:center;gap:10px">
@@ -454,7 +434,7 @@ function provVisual(p: string) {
     <div class="cit__activef" x-show="hasActiveFilters" x-cloak>
       <span class="cit__activeflabel">Filters</span>
       <template x-if="prov!=='all'">
-        <span class="cit__afchip">AI: <span x-text="prov"></span><button type="button" class="x" @click="prov='all'" aria-label="Clear AI filter"><svg width="9" height="9" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M4 4l8 8M12 4l-8 8"/></svg></button></span>
+        <span class="cit__afchip">AI: <span x-text="provLabel(prov)"></span><button type="button" class="x" @click="prov='all'" aria-label="Clear AI filter"><svg width="9" height="9" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M4 4l8 8M12 4l-8 8"/></svg></button></span>
       </template>
       <template x-if="sent!=='all'">
         <span class="cit__afchip">Sentiment: <span x-text="sentLabel(sent)"></span><button type="button" class="x" @click="sent='all'" aria-label="Clear sentiment filter"><svg width="9" height="9" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M4 4l8 8M12 4l-8 8"/></svg></button></span>
@@ -489,7 +469,7 @@ function provVisual(p: string) {
               <th class="sortable" @click="sortBy('question')">Question</th>
               <th class="sortable" @click="sortBy('provider')" style="width:130px">AI</th>
               <th class="sortable" @click="sortBy('surface')" style="width:160px">Source</th>
-              <th class="sortable" @click="sortBy('position')" style="width:130px">Position</th>
+              <th class="sortable" @click="sortBy('position')" style="width:115px" title="Order in which this brand was named in the AI answer (1st = most memorable)">Rank</th>
               <th class="sortable" @click="sortBy('sentiment')" style="width:130px">Sentiment</th>
               <th class="sortable" @click="sortBy('date')" style="width:120px">Captured <span class="arr">&#9660;</span></th>
             </tr>
@@ -499,9 +479,9 @@ function provVisual(p: string) {
               <tr class="main" :class="open.has(row.id) && 'open'" @click="toggle(row.id)">
                 <td><svg class="caret" width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 4l4 4-4 4"/></svg></td>
                 <td><div class="qcell"><span class="qtext" x-text="row.question"></span></div></td>
-                <td><span class="prov"><span class="prov__ic" :style="`background:${provVisual(row.provider).bg}`" x-text="provVisual(row.provider).ab"></span><span x-text="row.provider"></span></span></td>
+                <td><span class="prov"><span class="prov__ic" :style="`background:${provVisual(row.provider).bg}`" x-text="provVisual(row.provider).ab"></span><span x-text="provLabel(row.provider)"></span></span></td>
                 <td><span class="surface-chip"><span class="sd" :style="`background:${row.surfaceColor}`"></span><span x-text="row.surface"></span></span></td>
-                <td><span class="rank" :class="row.position>=4 && 'weak'">#<span x-text="row.position"></span><small>of named</small></span></td>
+                <td><span class="rank" :class="row.position>=4 && 'weak'" x-text="ordinal(row.position) + ' named'"></span></td>
                 <td><span class="sent" :class="`sent--${row.sentiment}`"><span class="sdot"></span><span x-text="sentLabel(row.sentiment)"></span></span></td>
                 <td><span class="datecell" x-text="row.dateLabel"></span></td>
               </tr>
@@ -509,10 +489,10 @@ function provVisual(p: string) {
                 <td colspan="7">
                   <div class="detail-inner">
                     <div class="quote">
-                      <div class="quote__l">Verbatim answer <span class="ans-prov"><span class="prov__ic" :style="`width:16px;height:16px;font-size:9px;background:${provVisual(row.provider).bg}`" x-text="provVisual(row.provider).ab"></span><span x-text="row.provider"></span></span></div>
+                      <div class="quote__l">Verbatim answer <span class="ans-prov"><span class="prov__ic" :style="`width:16px;height:16px;font-size:9px;background:${provVisual(row.provider).bg}`" x-text="provVisual(row.provider).ab"></span><span x-text="provLabel(row.provider)"></span></span></div>
                       <div class="quote__text" x-html="highlightQuote(row.contexte)"></div>
                       <div class="quote__meta">
-                        <div>Position<b>#<span x-text="row.position"></span> of brands cited</b></div>
+                        <div>Rank in answer<b x-text="ordinal(row.position) + ' brand named'"></b></div>
                         <div>Captured<b x-text="row.dateLabel"></b></div>
                         <div>Sentiment<b :style="row.sentiment==='neg' ? 'color:var(--status-critical)' : ''" x-text="sentLabel(row.sentiment)"></b></div>
                       </div>
@@ -520,7 +500,7 @@ function provVisual(p: string) {
                     <div class="detail-side">
                       <div class="src">
                         <div class="src__l">Page the AI cited</div>
-                        <div class="src__row">
+                        <a class="src__row src__row--link" :href="row.url || ('https://' + row.domain)" target="_blank" rel="noopener noreferrer" @click.stop>
                           <span class="src__fav" :style="`background:${row.surfaceColor}1A;color:${row.surfaceColor}`">
                             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 4.5h10M3 8h10M3 11.5h7"/></svg>
                           </span>
@@ -528,13 +508,10 @@ function provVisual(p: string) {
                             <div class="src__name" x-text="row.surface"></div>
                             <div class="src__url" x-text="row.url || row.domain"></div>
                           </div>
-                        </div>
+                          <svg class="src__ext" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M9 3H3v10h10V7M11 2h3v3M7 9l7-7"/></svg>
+                        </a>
                       </div>
                       <div style="display:flex;flex-direction:column;gap:8px">
-                        <a class="btn btn--secondary btn--sm" :href="row.url || ('https://' + row.domain)" target="_blank" rel="noopener noreferrer" @click.stop>
-                          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M9 3H3v10h10V7M11 2h3v3M7 9l7-7"/></svg>
-                          Open the page
-                        </a>
                         <a class="btn btn--ghost btn--sm" :href="'/app/scans/' + scanId + '/questions?q=' + encodeURIComponent(row.question)" @click.stop>
                           See the full AI answer
                         </a>
@@ -565,11 +542,11 @@ function provVisual(p: string) {
       <details class="card card--flat" style="margin-top:var(--space-6);padding:0;overflow:hidden">
         <summary style="cursor:pointer;padding:14px 18px;list-style:none;display:flex;align-items:center;gap:10px;background:var(--color-surface-sunken);border-bottom:1px solid var(--color-border)">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" style="color:var(--color-text-muted)"><path d="M4 6l4 4 4-4"/></svg>
-          <span style="font-size:14px;font-weight:650;color:var(--color-text-primary)">Your pages cited</span>
-          <span style="font-size:12px;color:var(--color-text-muted)">- {yourUrls.length} page{yourUrls.length > 1 ? 's' : ''}{yourUrlsTopShare > 0 ? ` - top page = ${yourUrlsTopShare}% of all your citations` : ''}</span>
+          <span style="font-size:14px;font-weight:650;color:var(--color-text-primary)">Which of your own pages do the AIs use as a source?</span>
+          <span style="font-size:12px;color:var(--color-text-muted)">- {yourUrls.length} page{yourUrls.length > 1 ? 's' : ''}{yourUrlsTopShare > 0 ? ` - top page = ${yourUrlsTopShare}% of all your-site citations` : ''}</span>
         </summary>
         <div style="padding:var(--space-5)" x-data="{ expandedUrl: null }">
-          <p style="font-size:13px;color:var(--color-text-secondary);margin-bottom:var(--space-4)">Which pages of <b>{scanDomain}</b> the LLMs reach for when answering brand questions. Source attribution lets you know which existing pages are doing the AI-visibility work.</p>
+          <p style="font-size:13px;color:var(--color-text-secondary);margin-bottom:var(--space-4)">Drill into the citations above where the AI named this brand and the source page belongs to <b>{scanDomain}</b>. Tells you which of your existing pages the AIs already trust as a source - so you can double down on the formats and topics that work.</p>
           <div style="display:flex;flex-direction:column;gap:10px">
             {yourUrls.slice(0, 20).map((u: any, ui: number) => (
               <div style="border:1px solid var(--color-border);border-radius:var(--radius-md);overflow:hidden">
@@ -674,20 +651,43 @@ function provVisual(p: string) {
           return s === 'pos' ? 'Positive' : (s === 'neg' ? 'Negative' : 'Neutral');
         },
 
+        ordinal(n) {
+          // 1 -> 1st, 2 -> 2nd, 3 -> 3rd, 4 -> 4th, 11 -> 11th, 21 -> 21st...
+          const v = Math.abs(n) % 100;
+          if (v >= 11 && v <= 13) return n + 'th';
+          switch (n % 10) {
+            case 1: return n + 'st';
+            case 2: return n + 'nd';
+            case 3: return n + 'rd';
+            default: return n + 'th';
+          }
+        },
+
         sortBy(k) {
           if (this.sort === k) this.dir *= -1;
           else { this.sort = k; this.dir = (k === 'date' || k === 'position' || k === 'sentiment') ? 1 : -1; }
         },
 
         provVisual(p) {
+          // ab is the badge letter. Kept to one upper-case letter per
+          // brand so the badge stays a tight square. OpenAI = 'O' (was
+          // 'AI' in the design, but now collides with the "AI" column
+          // header - 'O' is clearer at the cell level).
           const PROV = {
-            'openai':  { bg: '#10A37F', ab: 'AI' },
+            'openai':  { bg: '#10A37F', ab: 'O' },
             'gemini':  { bg: '#4285F4', ab: 'G' },
             'claude':  { bg: '#D97757', ab: 'C' },
             'mistral': { bg: '#FF7000', ab: 'M' },
           };
           const k = (p || '').toLowerCase();
           return PROV[k] || { bg: 'var(--neutral-500)', ab: (p || '?').slice(0, 1).toUpperCase() };
+        },
+
+        provLabel(p) {
+          // PascalCase brand names. The API returns lowercase ids.
+          const LBL = { 'openai': 'OpenAI', 'gemini': 'Gemini', 'claude': 'Claude', 'mistral': 'Mistral' };
+          const k = (p || '').toLowerCase();
+          return LBL[k] || (p ? p.charAt(0).toUpperCase() + p.slice(1) : '');
         },
 
         highlightQuote(text) {

@@ -142,7 +142,7 @@ function fmtDate(iso: string | null): string {
                 </button>
                 <button @click="regenerate()"
                         :disabled="saving || generating || !item.target_url"
-                        :class="(saving || generating || !item.target_url) ? 'bg-gray-50 text-gray-400 border-gray-200 cursor-not-allowed' : (item.content_type === 'netlinking_article' ? 'text-purple-700 border-purple-300 hover:bg-purple-50 hover:border-purple-500' : 'text-coral border-coral/30 hover:bg-coral/10 hover:border-coral/50')"
+                        :class="(saving || generating || !item.target_url) ? 'bg-gray-50 text-gray-400 border-gray-200 cursor-not-allowed' : (item.content_type === 'netlinking_article' ? 'text-coral border-coral/30 hover:bg-coral/10 hover:border-coral/50' : 'text-coral border-coral/30 hover:bg-coral/10 hover:border-coral/50')"
                         class="px-3 py-2 text-sm font-medium bg-white border rounded-lg transition-all flex items-center gap-1.5"
                         :title="!item.target_url ? (item.content_type === 'netlinking_article' ? 'Set the media partner URL first (in Source above)' : 'Set a target URL first') : (item.content_type === 'netlinking_article' ? 'Regenerate article from scratch (~5-15 min, 3 content credits). Current content overwritten.' : 'Regenerate FAQ from scratch (~60s, 1 content credit). Current content will be overwritten — use this when the output is off-brand or low quality but the question is still worth answering.')">
                   <span x-show="!generating">🔄 Regenerate</span>
@@ -173,7 +173,7 @@ function fmtDate(iso: string | null): string {
               <span class="inline-flex items-center gap-3">
                 <button @click="generate()"
                         :disabled="generating || !item.target_url || item.status === 'generating'"
-                        :class="(generating || !item.target_url) ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : (item.content_type === 'netlinking_article' ? 'bg-purple-600 text-white hover:bg-purple-700 hover:shadow-md' : 'bg-coral text-white hover:bg-coral-dark hover:shadow-md')"
+                        :class="(generating || !item.target_url) ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : (item.content_type === 'netlinking_article' ? 'bg-coral text-white hover:bg-coral-dark hover:shadow-md' : 'bg-coral text-white hover:bg-coral-dark hover:shadow-md')"
                         class="px-4 py-2 rounded-lg text-sm font-semibold transition-all flex items-center gap-2"
                         :title="!item.target_url ? (item.content_type === 'netlinking_article' ? 'Set the media partner URL first (in Source above)' : 'Set a target URL first') : (generating ? 'Generation in progress…' : (item.content_type === 'netlinking_article' ? 'Generate netlinking article (~5-15 min, 3 content credits)' : 'Generate FAQ content (~60s, 1 content credit)'))">
                   <span x-show="!generating" x-text="item.content_type === 'netlinking_article' ? '⚡ Generate Article' : '⚡ Generate FAQ'"></span>
@@ -202,7 +202,7 @@ function fmtDate(iso: string | null): string {
                     </span>
                     <span class="block h-1 w-full bg-gray-100 rounded-full overflow-hidden">
                       <span class="block h-full rounded-full transition-all duration-1000 ease-linear"
-                            :class="generateElapsedSec >= generateExpectedSec ? 'bg-amber-500' : (item.content_type === 'netlinking_article' ? 'bg-purple-500' : 'bg-coral')"
+                            :class="generateElapsedSec >= generateExpectedSec ? 'bg-amber-500' : (item.content_type === 'netlinking_article' ? 'bg-coral' : 'bg-coral')"
                             :style="'width: ' + Math.min(100, (generateElapsedSec / generateExpectedSec) * 100) + '%'"></span>
                     </span>
                     <span x-show="generateElapsedSec >= generateExpectedSec"
@@ -226,7 +226,7 @@ function fmtDate(iso: string | null): string {
                 <span class="text-xs text-gray-500 italic">Rejected</span>
                 <button @click="regenerate()"
                         :disabled="generating || !item.target_url"
-                        :class="(generating || !item.target_url) ? 'bg-gray-50 text-gray-400 border-gray-200 cursor-not-allowed' : (item.content_type === 'netlinking_article' ? 'text-purple-700 border-purple-300 hover:bg-purple-50 hover:border-purple-500' : 'text-coral border-coral/30 hover:bg-coral/10 hover:border-coral/50')"
+                        :class="(generating || !item.target_url) ? 'bg-gray-50 text-gray-400 border-gray-200 cursor-not-allowed' : (item.content_type === 'netlinking_article' ? 'text-coral border-coral/30 hover:bg-coral/10 hover:border-coral/50' : 'text-coral border-coral/30 hover:bg-coral/10 hover:border-coral/50')"
                         class="px-3 py-2 text-sm font-medium bg-white border rounded-lg transition-all flex items-center gap-1.5"
                         :title="!item.target_url ? 'Pick a target URL first (edit in Source above)' : (item.content_type === 'netlinking_article' ? 'Reopen this item and generate a fresh article (~5-15 min, 3 content credits).' : 'Reopen this item and generate a fresh FAQ (~60s, 1 content credit). The previous rejection stays in the audit timeline.')">
                   <span x-show="!generating">🔄 Regenerate</span>
@@ -343,8 +343,8 @@ function fmtDate(iso: string | null): string {
                 </div>
               </template>
               <template x-if="!item.target_url && item.content_type === 'netlinking_article'">
-                <div class="mt-1 mb-2 p-2.5 bg-purple-50 border border-purple-200 rounded text-[11px] text-purple-900 leading-relaxed">
-                  <strong>Set the media partner URL</strong> where this article will be published (e.g. <code class="bg-purple-100 px-1 rounded">https://www.doctissimo.fr/section/...</code>). The pipeline analyzes the top SERP results on this domain to tune the article's structure, tone and keyword density for that media's audience. The brand being promoted (your LEAD primary brand) is set separately in <em>Brand promotion</em> below.
+                <div class="mt-1 mb-2 p-2.5 bg-coral/5 border border-coral/30 rounded text-[11px] text-charcoal-dark leading-relaxed">
+                  <strong>Set the media partner URL</strong> where this article will be published (e.g. <code class="bg-coral/10 px-1 rounded">https://www.doctissimo.fr/section/...</code>). The pipeline analyzes the top SERP results on this domain to tune the article's structure, tone and keyword density for that media's audience. The brand being promoted (your LEAD primary brand) is set separately in <em>Brand promotion</em> below.
                 </div>
               </template>
 
@@ -416,7 +416,7 @@ function fmtDate(iso: string | null): string {
               <template x-if="item.content_type === 'netlinking_article' && (item.target_url_candidates || []).length >= 2">
                 <div class="mt-1 mb-3">
                   <div class="flex items-center gap-1.5 mb-1.5 text-[11px] text-charcoal-light">
-                    <svg class="w-3.5 h-3.5 text-purple-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <svg class="w-3.5 h-3.5 text-coral" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                       <path stroke-linecap="round" stroke-linejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/>
                     </svg>
                     <strong class="text-charcoal-dark">
@@ -428,7 +428,7 @@ function fmtDate(iso: string | null): string {
                           title="Discovered from your scan : these are the third-party medias the LLMs ALREADY cite when answering this question. Publish a sponsored article there to recapture citation share.&#10;&#10;HOW IT'S COMPUTED&#10;• Citation count — total mentions across all LLM providers in the scan&#10;• DA (Domain Authority) — Majestic / Ahrefs-style authority score from LinkFinder (0-100, higher = stronger backlink profile)&#10;• Price € HT — published price for a sponsored placement on link-finder.net&#10;• Ranking : citation_count × log(DA+1) − price/1000&#10;&#10;Sources : citations table in scan_llm_results + LinkFinder catalog. Click 'Refresh prices' to re-query LinkFinder.">ⓘ</span>
                     <button @click="refreshMediaEnrichment()"
                             :disabled="refreshingMedia"
-                            class="ml-auto text-[10px] text-purple-700 hover:text-purple-900 disabled:opacity-40 inline-flex items-center gap-1"
+                            class="ml-auto text-[10px] text-coral hover:text-coral-dark disabled:opacity-40 inline-flex items-center gap-1"
                             title="Re-fetch LinkFinder data (prices may have changed). LinkFinder serves a 7-day cache so this is cheap.">
                       <span x-show="!refreshingMedia">↻ Refresh prices</span>
                       <span x-show="refreshingMedia">⏳ Refreshing…</span>
@@ -437,14 +437,14 @@ function fmtDate(iso: string | null): string {
                   <div class="grid grid-cols-1 md:grid-cols-3 gap-2">
                     <template x-for="c in item.target_url_candidates" :key="c.url">
                       <div class="relative p-2.5 rounded-lg border transition-all flex flex-col gap-1"
-                           :class="c.url === item.target_url ? 'border-purple-400 ring-2 ring-purple-100 bg-purple-50/50' : 'border-gray-200 bg-white hover:border-purple-400/40 hover:shadow-sm'">
+                           :class="c.url === item.target_url ? 'border-coral ring-2 ring-coral/15 bg-coral/5' : 'border-gray-200 bg-white hover:border-coral/40 hover:shadow-sm'">
                         <span x-show="c.url === item.target_url"
-                              class="absolute top-1 right-2 text-purple-600 text-sm leading-none"
+                              class="absolute top-1 right-2 text-coral text-sm leading-none"
                               title="Currently selected">★</span>
                         <div class="flex items-center justify-between gap-1.5">
                           <a :href="c.url" target="_blank" rel="noopener"
                              :title="c.url"
-                             class="text-[10px] font-mono text-charcoal-light hover:text-purple-700 truncate leading-tight"
+                             class="text-[10px] font-mono text-charcoal-light hover:text-coral truncate leading-tight"
                              x-text="c.domain"></a>
                           {/* Site-type chip (C.1.4) — explicit category badge so
                               user understands why this domain was kept and what
@@ -470,7 +470,7 @@ function fmtDate(iso: string | null): string {
                            x-text="c.name || c.domain"></p>
                         <div class="flex items-center justify-between mt-auto pt-1 gap-2 flex-wrap">
                           <span class="text-[10px] inline-flex items-center gap-1.5 flex-wrap">
-                            <span class="font-semibold text-purple-700"
+                            <span class="font-semibold text-coral"
                                   :title="(c.providers_cited && c.providers_cited.length > 0 ? 'Cited by: ' + c.providers_cited.join(', ') : 'Citation count across all LLM providers in this scan')">
                               🎯 <span x-text="c.citation_count"></span>×
                             </span>
@@ -515,7 +515,7 @@ function fmtDate(iso: string | null): string {
                           <button @click="usePickerCandidate(c)"
                                   x-show="c.url !== item.target_url"
                                   :disabled="saving"
-                                  class="text-[10px] text-purple-700 hover:text-purple-900 font-semibold whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed">
+                                  class="text-[10px] text-coral hover:text-coral-dark font-semibold whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed">
                             Use this →
                           </button>
                         </div>
@@ -566,7 +566,7 @@ function fmtDate(iso: string | null): string {
                     <span class="inline-flex items-center gap-1.5">
                       <button @click="rematchUrl()"
                               :disabled="rematching || item.status === 'generating' || !canRematchMore()"
-                              :class="(rematching || !canRematchMore()) ? 'bg-gray-50 text-gray-400 border-gray-200 cursor-not-allowed' : (item.content_type === 'netlinking_article' ? 'text-purple-700 hover:bg-purple-50 border-purple-300' : 'text-coral hover:bg-coral/10 border-coral/30')"
+                              :class="(rematching || !canRematchMore()) ? 'bg-gray-50 text-gray-400 border-gray-200 cursor-not-allowed' : (item.content_type === 'netlinking_article' ? 'text-coral hover:bg-coral/10 border-coral/30' : 'text-coral hover:bg-coral/10 border-coral/30')"
                               class="text-[11px] px-2 py-0.5 border rounded inline-flex items-center gap-1 transition-colors"
                               :title="rematchTooltip()">
                         <span x-show="!rematching && canRematchMore()"
@@ -1363,7 +1363,7 @@ function fmtDate(iso: string | null): string {
                 <div class="mt-2">
                   <button type="button"
                           @click="expandFanouts = !expandFanouts"
-                          class="text-[10px] text-purple-700 hover:text-purple-900 inline-flex items-center gap-1">
+                          class="text-[10px] text-coral hover:text-coral-dark inline-flex items-center gap-1">
                     <svg class="w-3 h-3 transition-transform"
                          :class="expandFanouts ? 'rotate-90' : ''"
                          fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
@@ -1382,7 +1382,7 @@ function fmtDate(iso: string | null): string {
                               class="flex-shrink-0"></span>
                         <span class="text-charcoal-dark flex-1" x-text="q"></span>
                         <template x-if="i === 0">
-                          <span class="text-[9px] font-medium text-purple-700 bg-purple-50 border border-purple-100 rounded px-1 py-px whitespace-nowrap flex-shrink-0"
+                          <span class="text-[9px] font-medium text-coral bg-coral/5 border border-coral/20 rounded px-1 py-px whitespace-nowrap flex-shrink-0"
                                 title="Primary fan-out — the query used to build the article's SEO brief (keyword grammes + competitor SOSEO/DSEO targets).">★ Primary</span>
                         </template>
                       </li>
@@ -1439,7 +1439,7 @@ function fmtDate(iso: string | null): string {
                   <div class="mt-1.5">
                     <button type="button"
                             @click="expandSources = !expandSources"
-                            class="text-[10px] text-purple-700 hover:text-purple-900 inline-flex items-center gap-1">
+                            class="text-[10px] text-coral hover:text-coral-dark inline-flex items-center gap-1">
                       <svg class="w-3 h-3 transition-transform"
                            :class="expandSources ? 'rotate-90' : ''"
                            fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
@@ -1473,7 +1473,7 @@ function fmtDate(iso: string | null): string {
                             <template x-for="s in grp.items" :key="s.url">
                               <li class="flex items-start gap-1.5">
                                 <a :href="s.url" target="_blank" rel="noopener"
-                                   class="text-purple-700 hover:text-purple-900 hover:underline truncate flex-1"
+                                   class="text-coral hover:text-coral-dark hover:underline truncate flex-1"
                                    :title="s.url"
                                    x-text="s.domain + (s.anchor ? ' — ' + s.anchor.slice(0, 50) : '')"></a>
                               </li>

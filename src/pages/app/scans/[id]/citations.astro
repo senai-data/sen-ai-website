@@ -301,12 +301,14 @@ rows.forEach(r => { if (!surfaceSwatch[r.surface]) surfaceSwatch[r.surface] = r.
     .cit__seg button .pd { width:7px; height:7px; border-radius:50%; }
 
     /* Native <select> styled to match the segmented controls (same 36px height,
-       same border). Inline label keeps it readable when many filters cohabit. */
+       same border). Inline label keeps it readable when many filters cohabit.
+       Active state colored via Alpine binding (.is-active class), not :has(),
+       because select.value isn't an HTML attribute - :has() can't see it. */
     .cit__nativesel { display:inline-flex; align-items:center; gap:8px; height:36px; padding:0 4px 0 11px; font:600 12.5px var(--font-sans); color:var(--color-text-secondary); background:var(--color-surface); border:1px solid var(--color-border-strong); border-radius:var(--radius-md); white-space:nowrap; transition:.12s; }
     .cit__nativesel:hover { border-color:var(--neutral-400); }
     .cit__nativesel:focus-within { border-color:var(--color-primary); box-shadow:0 0 0 3px var(--coral-100); }
+    .cit__nativesel.is-active { border-color:var(--color-primary); }
     .cit__nativesel span { color:var(--color-text-muted); }
-    .cit__nativesel:has(select:not([value="all"])) { border-color:var(--color-primary); }
     .cit__nativeselbox { border:0; background:transparent; font:600 12.5px var(--font-sans); color:var(--color-text-primary); padding:0 22px 0 0; cursor:pointer; outline:none; appearance:none; background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='none' stroke='%236B7280' stroke-width='1.8'%3E%3Cpath d='M3 4.5l3 3 3-3'/%3E%3C/svg%3E"); background-repeat:no-repeat; background-position:right 4px center; }
     .cit__dropitem:hover { background:var(--color-surface-sunken); }
     .cit__dropitem.sel { color:var(--coral-700); font-weight:600; }
@@ -471,7 +473,7 @@ rows.forEach(r => { if (!surfaceSwatch[r.surface]) surfaceSwatch[r.surface] = r.
       </div>
 
       {sourceOptions.length > 0 && (
-        <label class="cit__nativesel">
+        <label class="cit__nativesel" :class="source !== 'all' && 'is-active'">
           <span>Source</span>
           <select x-model="source" class="cit__nativeselbox">
             <option value="all">All</option>
@@ -481,7 +483,7 @@ rows.forEach(r => { if (!surfaceSwatch[r.surface]) surfaceSwatch[r.surface] = r.
       )}
 
       {topicOptions.length > 0 && (
-        <label class="cit__nativesel">
+        <label class="cit__nativesel" :class="topic !== 'all' && 'is-active'">
           <span>Topic</span>
           <select x-model="topic" class="cit__nativeselbox">
             <option value="all">All</option>

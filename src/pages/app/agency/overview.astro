@@ -128,6 +128,15 @@ function fmtSent(v: number | null): string {
   if (v === null || v === undefined) return '–';
   return (v > 0 ? '+' : '') + v.toFixed(2);
 }
+// Pipeline-state chip. Only an actively-running scan reads "in progress" ;
+// every pre-run wizard stage (fetching_keywords, topics_ready,
+// personas_ready, ...) reads "Setting up" instead.
+function statusChipFor(status: string): { label: string; cls: string } | null {
+  if (status === 'completed') return null;
+  if (status.includes('fail')) return { label: 'Scan failed', cls: 'chip--critical' };
+  if (status === 'scanning' || status === 'running' || status === 'testing_llms') return { label: 'Scan in progress', cls: 'chip--info' };
+  return { label: 'Setting up', cls: 'chip--neutral' };
+}
 
 // Default SSR order = crisis severity DESC, then weakest mention rate ASC,
 // then name. The toolbar re-sorts client-side from the same data attributes.
@@ -414,8 +423,9 @@ function trendTone(vals: number[]): 'up' | 'down' | 'flat' {
                   {bucket === 'crisis' && <span class="chip chip--sm chip--critical"><span class="chip__dot"></span>Crisis</span>}
                   {bucket === 'warn' && <span class="chip chip--sm chip--warning"><span class="chip__dot"></span>Weak mention</span>}
                   {bucket === 'ok' && <span class="chip chip--sm chip--neutral"><span class="chip__dot"></span>Stable</span>}
-                  {ls && !isCompleted && ls.status !== 'failed' && <span class="chip chip--sm chip--info"><span class="chip__dot"></span>Scan in progress</span>}
-                  {ls?.status === 'failed' && <span class="chip chip--sm chip--critical"><span class="chip__dot"></span>Scan failed</span>}
+                  {ls && statusChipFor(ls.status) && (
+                    <span class={`chip chip--sm ${statusChipFor(ls.status)!.cls}`}><span class="chip__dot"></span>{statusChipFor(ls.status)!.label}</span>
+                  )}
                   {ls?.schedule && ls.schedule !== 'manual' && <span class="chip chip--sm chip--neutral">Auto {ls.schedule}</span>}
                 </div>
 

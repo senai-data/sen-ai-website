@@ -29,7 +29,8 @@ import ScanResultsLayout from '../../../../layouts/ScanResultsLayout.astro';
 
 const token = Astro.cookies.get('token')?.value;
 if (!token) return Astro.redirect('/login');
-const { id: scanId } = Astro.params;
+// [id].astro = id is always present in the route params.
+const scanId = Astro.params.id as string;
 
 const rangeParam = Astro.url.searchParams.get('range') || 'all';
 const runParam = Astro.url.searchParams.get('run') || '';
@@ -53,7 +54,7 @@ const isAggregated = data?.mode === 'aggregated';
 // Maps a citation to one of 6 buckets. Matches the source-surface chips
 // the design uses. Multi-vertical : no brand or vertical hardcoded; the
 // rule is purely about where the citation lives, not what it sells.
-function classifySurface(dom: string, url: string, isPr: boolean, isYou: boolean): { name: string; color: string } {
+function classifySurface(dom: string, _url: string, isPr: boolean, isYou: boolean): { name: string; color: string } {
   if (isYou) return { name: 'Owned page', color: 'var(--coral-500)' };
   if (/(^|\.)wikipedia\.org$/.test(dom) || /\.wikipedia\.org$/.test(dom)) return { name: 'Wikipedia', color: 'var(--status-info)' };
   if (/(^|\.)reddit\.com$/.test(dom)) return { name: 'Reddit', color: '#FF4500' };
@@ -64,18 +65,16 @@ function classifySurface(dom: string, url: string, isPr: boolean, isYou: boolean
 }
 
 // --- Per-citation sentiment ---
-// Inherited from the question's target-brand sentiment in brand_mentions[].
-// Rule : any negative on target brand -> neg ; else any positive -> pos ;
-// else neu. Citations on questions where the brand is not mentioned at
-// all stay neutral (we have no signal). This is a defensible question-
-// level propagation - the precise per-quote sentiment would need a
-// dedicated judge pass and isn't shipped today.
-function deriveSentiment(d: any): 'pos' | 'neu' | 'neg' {
+// Strictly the focus brand's sentiment on this answer. If the focus
+// brand is not in brand_mentions[] (= AI never named it on this
+// answer), sentiment = 'na' so we render an em-dash instead of
+// inheriting the sentiment of whatever competitor happened to be there.
+function deriveSentiment(d: any): 'pos' | 'neu' | 'neg' | 'na' {
   const bms = (isAggregated ? (d.latest?.brand_mentions || []) : (d.brand_mentions || [])) as any[];
   const target = bms.filter(b => b?.est_marque_cible || b?.is_target_brand);
-  const source = target.length ? target : bms;
-  if (source.some(b => (b?.sentiment || '').toLowerCase().startsWith('neg'))) return 'neg';
-  if (source.some(b => (b?.sentiment || '').toLowerCase().startsWith('pos'))) return 'pos';
+  if (!target.length) return 'na';
+  if (target.some(b => (b?.sentiment || '').toLowerCase().startsWith('neg'))) return 'neg';
+  if (target.some(b => (b?.sentiment || '').toLowerCase().startsWith('pos'))) return 'pos';
   return 'neu';
 }
 
@@ -89,7 +88,7 @@ interface Row {
   surface: string;
   surfaceColor: string;
   position: number;
-  sentiment: 'pos' | 'neu' | 'neg';
+  sentiment: 'pos' | 'neu' | 'neg' | 'na';
   brandMentioned: boolean;
   dateLabel: string;
   dateN: number;
@@ -117,9 +116,20 @@ details.forEach((d: any, di: number) => {
   const topic = d.topic_name || topicByPersona[persona] || 'Other';
   const brandMentioned = isAggregated ? !!d.latest?.brand_mentioned : !!d.brand_mentioned;
   const sentiment = deriveSentiment(d);
-  const capturedAt = (isAggregated ? (d.latest?.captured_at || d.latest?.created_at) : (d.captured_at || d.created_at)) || data?.scan?.completed_at;
-  const ageDays = capturedAt ? Math.max(0, Math.round((Date.now() - new Date(capturedAt).getTime()) / 86400000)) : 0;
-  const dateLabel = ageDays <= 0 ? 'today' : (ageDays === 1 ? '1d ago' : `${ageDays}d ago`);
+  // Capture date : prefer per-detail timestamps (where available); fall
+  // back to the scan completion / start so the column never lies.
+  // Unknown -> '-' so the user knows the value is missing, not "today".
+  const capturedAt = (isAggregated ? (d.latest?.captured_at || d.latest?.created_at) : (d.captured_at || d.created_at))
+    || data?.scan?.completed_at || data?.scan?.created_at || data?.scan?.last_run_at || data?.overview?.completed_at || data?.overview?.scan_date;
+  let dateLabel = '-';
+  let ageDays = Number.POSITIVE_INFINITY;
+  if (capturedAt) {
+    const t = new Date(capturedAt).getTime();
+    if (!Number.isNaN(t)) {
+      ageDays = Math.max(0, Math.round((Date.now() - t) / 86400000));
+      dateLabel = ageDays === 0 ? 'today' : (ageDays === 1 ? '1d ago' : `${ageDays}d ago`);
+    }
+  }
 
   citations.forEach((c: any, ci: number) => {
     const dom = (c.domaine || c.domain || '').toLowerCase().replace(/^www\./, '');
@@ -210,17 +220,9 @@ const providers = Array.from(new Set(rows.map(r => r.provider))).sort();
 const surfaceSwatch: Record<string, string> = {};
 rows.forEach(r => { if (!surfaceSwatch[r.surface]) surfaceSwatch[r.surface] = r.surfaceColor; });
 
-// Provider visual identity (matches design)
-const PROV: Record<string, { bg: string; ab: string }> = {
-  'openai':  { bg: '#10A37F', ab: 'AI' },
-  'gemini':  { bg: '#4285F4', ab: 'G' },
-  'claude':  { bg: '#D97757', ab: 'C' },
-  'mistral': { bg: '#FF7000', ab: 'M' },
-};
-function provVisual(p: string) {
-  const k = (p || '').toLowerCase();
-  return PROV[k] || { bg: 'var(--neutral-500)', ab: (p || '?').slice(0, 1).toUpperCase() };
-}
+// Provider visual identity / PascalCase labels are owned by the Alpine
+// component (see citationsTable() further down). The Astro frontmatter
+// does not need them - the table cells render via x-data at runtime.
 ---
 
 <ScanResultsLayout scanId={scanId} activeTab="citations">
@@ -287,6 +289,12 @@ function provVisual(p: string) {
     .ct tbody tr.main.open { background:var(--coral-50); }
     .ct tbody tr.main.open td { border-bottom-color:transparent; }
     .qcell { display:flex; align-items:center; gap:11px; max-width:380px; }
+    .qsub { display:flex; gap:6px; margin-top:5px; flex-wrap:wrap; }
+    .qsub__chip { display:inline-flex; align-items:center; font-size:10.5px; font-weight:600; padding:2px 7px; border-radius:var(--radius-full); letter-spacing:.01em; white-space:nowrap; }
+    .qsub__chip--ok  { background:var(--status-positive-bg); color:var(--status-positive); }
+    .qsub__chip--off { background:var(--color-surface-muted); color:var(--color-text-muted); }
+    .qsub__chip--own { background:var(--color-primary-subtle); color:var(--coral-700); }
+    .sent--na { color:var(--color-text-muted); font-size:13px; }
     .caret { color:var(--color-text-muted); transition:transform .16s; flex:none; }
     tr.main.open .caret { transform:rotate(90deg); color:var(--coral-700); }
     .qtext { color:var(--color-text-primary); font-weight:550; line-height:1.35; }
@@ -337,7 +345,7 @@ function provVisual(p: string) {
     <div class="cit__intro">
       <div>
         <h2>Citations</h2>
-        <p>One row per brand mention - every time an AI named this brand in an answer, with the web page the AI used as a source. Same question, two AIs - or two different sources - means two rows. Click a row to read the verbatim answer.</p>
+        <p>One row per source the AI cited while answering. <b>Brand named</b> rows = wins (the AI cited a source AND named this brand). <b>Brand missing</b> rows = gaps (the AI cited a source but did not name this brand - often a competitor was named instead). Use the Brand filter to focus on either.</p>
       </div>
       <button class="btn btn--secondary btn--md" @click="exportCsv()" type="button">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M8 2v8M4.5 6.5L8 10l3.5-3.5M3 13h10"/></svg>
@@ -405,6 +413,12 @@ function provVisual(p: string) {
         <button type="button" :class="sent==='neg' && 'on'" @click="sent='neg'"><span class="pd" style="background:var(--status-critical)"></span>Negative</button>
       </div>
 
+      <div class="cit__seg" title="Filter on rows where the AI named this brand vs rows where the AI cited a source but did not name this brand">
+        <button type="button" :class="brand==='all' && 'on'" @click="brand='all'">All citations</button>
+        <button type="button" :class="brand==='mine' && 'on'" @click="brand='mine'">Brand named</button>
+        <button type="button" :class="brand==='other' && 'on'" @click="brand='other'">Brand missing</button>
+      </div>
+
       {sourceOptions.length > 0 && (
         <label class="cit__nativesel">
           <span>Source</span>
@@ -445,6 +459,9 @@ function provVisual(p: string) {
       <template x-if="topic!=='all'">
         <span class="cit__afchip">Topic: <span x-text="topic"></span><button type="button" class="x" @click="topic='all'" aria-label="Clear topic filter"><svg width="9" height="9" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M4 4l8 8M12 4l-8 8"/></svg></button></span>
       </template>
+      <template x-if="brand!=='all'">
+        <span class="cit__afchip">Brand: <span x-text="brandLabel(brand)"></span><button type="button" class="x" @click="brand='all'" aria-label="Clear brand filter"><svg width="9" height="9" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M4 4l8 8M12 4l-8 8"/></svg></button></span>
+      </template>
       <template x-if="q">
         <span class="cit__afchip">Search: "<span x-text="q"></span>"<button type="button" class="x" @click="q=''" aria-label="Clear search"><svg width="9" height="9" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M4 4l8 8M12 4l-8 8"/></svg></button></span>
       </template>
@@ -469,7 +486,7 @@ function provVisual(p: string) {
               <th class="sortable" @click="sortBy('question')">Question</th>
               <th class="sortable" @click="sortBy('provider')" style="width:130px">AI</th>
               <th class="sortable" @click="sortBy('surface')" style="width:160px">Source</th>
-              <th class="sortable" @click="sortBy('position')" style="width:115px" title="Order in which this brand was named in the AI answer (1st = most memorable)">Rank</th>
+              <th class="sortable" @click="sortBy('position')" style="width:90px" title="Order of this source URL in the AI's answer (#1 = first source listed)">Citation #</th>
               <th class="sortable" @click="sortBy('sentiment')" style="width:130px">Sentiment</th>
               <th class="sortable" @click="sortBy('date')" style="width:120px">Captured <span class="arr">&#9660;</span></th>
             </tr>
@@ -478,11 +495,33 @@ function provVisual(p: string) {
             <tbody>
               <tr class="main" :class="open.has(row.id) && 'open'" @click="toggle(row.id)">
                 <td><svg class="caret" width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 4l4 4-4 4"/></svg></td>
-                <td><div class="qcell"><span class="qtext" x-text="row.question"></span></div></td>
+                <td>
+                  <div class="qcell">
+                    <span class="qtext" x-text="row.question"></span>
+                  </div>
+                  <div class="qsub">
+                    <template x-if="row.brandMentioned">
+                      <span class="qsub__chip qsub__chip--ok" title="This brand was named in the AI's answer">Brand named</span>
+                    </template>
+                    <template x-if="!row.brandMentioned">
+                      <span class="qsub__chip qsub__chip--off" title="The AI cited a web page but did not name this brand in the answer">Brand not named</span>
+                    </template>
+                    <template x-if="row.isYourSite">
+                      <span class="qsub__chip qsub__chip--own" title="The cited URL is on this brand's own domain">Your site</span>
+                    </template>
+                  </div>
+                </td>
                 <td><span class="prov"><span class="prov__ic" :style="`background:${provVisual(row.provider).bg}`" x-text="provVisual(row.provider).ab"></span><span x-text="provLabel(row.provider)"></span></span></td>
                 <td><span class="surface-chip"><span class="sd" :style="`background:${row.surfaceColor}`"></span><span x-text="row.surface"></span></span></td>
-                <td><span class="rank" :class="row.position>=4 && 'weak'" x-text="ordinal(row.position) + ' named'"></span></td>
-                <td><span class="sent" :class="`sent--${row.sentiment}`"><span class="sdot"></span><span x-text="sentLabel(row.sentiment)"></span></span></td>
+                <td><span class="rank" :class="row.position>=4 && 'weak'" x-text="'#' + row.position"></span></td>
+                <td>
+                  <template x-if="row.sentiment === 'na'">
+                    <span class="sent sent--na" title="This brand was not named in the answer, so there is no sentiment about it">-</span>
+                  </template>
+                  <template x-if="row.sentiment !== 'na'">
+                    <span class="sent" :class="`sent--${row.sentiment}`"><span class="sdot"></span><span x-text="sentLabel(row.sentiment)"></span></span>
+                  </template>
+                </td>
                 <td><span class="datecell" x-text="row.dateLabel"></span></td>
               </tr>
               <tr class="detail" x-show="open.has(row.id)" x-cloak>
@@ -608,6 +647,7 @@ function provVisual(p: string) {
         sent: 'all',
         source: 'all',
         topic: 'all',
+        brand: 'all', /* all | mine (brand named in answer) | other (brand missing) */
         q: '',
         sort: 'date',
         dir: 1, /* 1 = desc (most recent first for date / highest for numeric), -1 = asc */
@@ -624,6 +664,7 @@ function provVisual(p: string) {
           this.sent = u.searchParams.get('csent') || 'all';
           this.source = u.searchParams.get('csource') || 'all';
           this.topic = u.searchParams.get('ctopic') || 'all';
+          this.brand = u.searchParams.get('cbrand') || 'all';
           this.q = u.searchParams.get('cq') || '';
           this.$watch('filtered', () => { this.page = 1; this.syncUrl(); });
         },
@@ -635,16 +676,21 @@ function provVisual(p: string) {
           set('csent', this.sent);
           set('csource', this.source);
           set('ctopic', this.topic);
+          set('cbrand', this.brand);
           set('cq', this.q);
           window.history.replaceState({}, '', u.toString());
         },
 
         get hasActiveFilters() {
-          return this.prov !== 'all' || this.sent !== 'all' || this.source !== 'all' || this.topic !== 'all' || !!this.q;
+          return this.prov !== 'all' || this.sent !== 'all' || this.source !== 'all' || this.topic !== 'all' || this.brand !== 'all' || !!this.q;
         },
 
         clearAll() {
-          this.prov = 'all'; this.sent = 'all'; this.source = 'all'; this.topic = 'all'; this.q = '';
+          this.prov = 'all'; this.sent = 'all'; this.source = 'all'; this.topic = 'all'; this.brand = 'all'; this.q = '';
+        },
+
+        brandLabel(b) {
+          return b === 'mine' ? 'Brand named' : (b === 'other' ? 'Brand missing' : 'All');
         },
 
         sentLabel(s) {
@@ -721,6 +767,8 @@ function provVisual(p: string) {
             if (this.sent !== 'all' && r.sentiment !== this.sent) return false;
             if (this.source !== 'all' && r.surface !== this.source) return false;
             if (this.topic !== 'all' && r.topic !== this.topic) return false;
+            if (this.brand === 'mine' && !r.brandMentioned) return false;
+            if (this.brand === 'other' && r.brandMentioned) return false;
             if (this.q) {
               const needle = this.q.toLowerCase();
               const hay = (r.question + ' ' + r.contexte).toLowerCase();

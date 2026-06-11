@@ -50,18 +50,39 @@ const byPersona = data?.by_persona || [];
 const scanDomain = (o?.domain || '').replace(/^www\./, '').toLowerCase();
 const isAggregated = data?.mode === 'aggregated';
 
-// --- Surface classification (no LLM, no DB roundtrip) ---
-// Maps a citation to one of 6 buckets. Matches the source-surface chips
-// the design uses. Multi-vertical : no brand or vertical hardcoded; the
-// rule is purely about where the citation lives, not what it sells.
-function classifySurface(dom: string, _url: string, isPr: boolean, isYou: boolean): { name: string; color: string } {
-  if (isYou) return { name: 'Owned page', color: 'var(--coral-500)' };
-  if (/(^|\.)wikipedia\.org$/.test(dom) || /\.wikipedia\.org$/.test(dom)) return { name: 'Wikipedia', color: 'var(--status-info)' };
-  if (/(^|\.)reddit\.com$/.test(dom)) return { name: 'Reddit', color: '#FF4500' };
-  if (/(^|\.)(youtube\.com|youtu\.be)$/.test(dom)) return { name: 'YouTube', color: '#FF0000' };
-  if (isPr) return { name: 'PR / Media', color: 'var(--neutral-500)' };
-  if (/(^|\.)(quora\.com|stackexchange\.com|stackoverflow\.com)$/.test(dom)) return { name: 'Forum', color: 'var(--neutral-400)' };
-  return { name: 'Web', color: 'var(--neutral-400)' };
+// --- Surface classification ---
+// Canonical 10-category taxonomy from worker/seo_llm/src/site_classifier.py
+// (SITE_CATEGORIES). The API enriches each citation with
+// `site_type: 'Brand' | 'News' | 'Health & Beauty Media' | ...` via a JOIN
+// against domain_classifications (3503 PF-cached domains + on-demand Gemini
+// for the rest). When site_type is null (= domain not yet classified) we
+// fall back to a small heuristic so the chip never says 'undefined'.
+const SITE_TYPE_COLOR: Record<string, string> = {
+  'Brand':                'var(--coral-500)',
+  'Government':           'var(--status-info-strong, var(--status-info))',
+  'Medical Reference':    'var(--status-positive)',
+  'News':                 'var(--status-info)',
+  'Health & Beauty Media': '#7C3AED', // purple - distinct from News
+  'E-commerce':           'var(--status-warning)',
+  'Encyclopedia':         '#0EA5E9', // wikipedia-ish blue
+  'Forum':                'var(--sev-medium)',
+  'Blog':                 'var(--neutral-500)',
+  'Other':                'var(--neutral-400)',
+};
+function classifySurface(dom: string, siteType: string | null | undefined, isPr: boolean, isYou: boolean): { name: string; color: string } {
+  if (isYou) return { name: 'Brand (yours)', color: 'var(--coral-500)' };
+  if (siteType && SITE_TYPE_COLOR[siteType]) {
+    return { name: siteType, color: SITE_TYPE_COLOR[siteType] };
+  }
+  // Heuristic fallback for unclassified domains (worker will classify on
+  // the next on-demand pass via media_picker). Aligned with the canonical
+  // bucket names so user-visible labels stay consistent.
+  if (/(^|\.)wikipedia\.org$/.test(dom)) return { name: 'Encyclopedia', color: SITE_TYPE_COLOR['Encyclopedia'] };
+  if (/(^|\.)reddit\.com$/.test(dom)) return { name: 'Forum', color: SITE_TYPE_COLOR['Forum'] };
+  if (/(^|\.)(youtube\.com|youtu\.be)$/.test(dom)) return { name: 'Blog', color: SITE_TYPE_COLOR['Blog'] };
+  if (/(^|\.)(quora\.com|stackexchange\.com|stackoverflow\.com|aufeminin\.com)$/.test(dom)) return { name: 'Forum', color: SITE_TYPE_COLOR['Forum'] };
+  if (isPr) return { name: 'News', color: SITE_TYPE_COLOR['News'] };
+  return { name: 'Other', color: SITE_TYPE_COLOR['Other'] };
 }
 
 // --- Per-citation sentiment ---
@@ -97,6 +118,11 @@ interface Row {
   contexte: string;
   sourceType: 'grounding' | 'text';
   isYourSite: boolean;
+  // brand_mentions[].brand_name for this answer, target brand excluded.
+  // Used to surface "Brands cited in this answer" in the expand panel and
+  // (when site_type=Brand) to enrich the Source chip with the competitor name.
+  namedBrands: string[];
+  totalNamed: number;
 }
 
 const rows: Row[] = [];
@@ -116,6 +142,18 @@ details.forEach((d: any, di: number) => {
   const topic = d.topic_name || topicByPersona[persona] || 'Other';
   const brandMentioned = isAggregated ? !!d.latest?.brand_mentioned : !!d.brand_mentioned;
   const sentiment = deriveSentiment(d);
+
+  // "Brands cited in this answer" - list every brand_mention except the
+  // target. Used in the expand panel. The API already enriches each mention
+  // with `classification` ('target' / 'competitor' / 'discovered').
+  const bms = (isAggregated ? (d.latest?.brand_mentions || []) : (d.brand_mentions || [])) as any[];
+  const namedBrandsAll: string[] = [];
+  bms.forEach(b => {
+    if (b?.est_marque_cible || b?.is_target_brand || (b?.classification === 'target')) return;
+    const name = b?.brand_name_groupby || b?.brand_name;
+    if (name && !namedBrandsAll.includes(name)) namedBrandsAll.push(name);
+  });
+  const namedBrandsTop3 = namedBrandsAll.slice(0, 3);
   // Capture date : prefer per-detail timestamps (where available); fall
   // back to the scan completion / start so the column never lies.
   // Unknown -> '-' so the user knows the value is missing, not "today".
@@ -135,7 +173,7 @@ details.forEach((d: any, di: number) => {
     const dom = (c.domaine || c.domain || '').toLowerCase().replace(/^www\./, '');
     if (!dom) return;
     const isYou = !!c.est_site_cible || (!!scanDomain && dom.includes(scanDomain));
-    const surface = classifySurface(dom, c.url || '', !!c.is_pr_source, isYou);
+    const surface = classifySurface(dom, c.site_type || null, !!c.is_pr_source, isYou);
     const pos = c.position_dans_reponse || (ci + 1);
     const stype: 'grounding' | 'text' = (c.source_type === 'grounding' ? 'grounding' : 'text');
 
@@ -157,6 +195,8 @@ details.forEach((d: any, di: number) => {
       contexte: c.contexte || '',
       sourceType: stype,
       isYourSite: isYou,
+      namedBrands: namedBrandsTop3,
+      totalNamed: namedBrandsAll.length,
     });
 
     totalCit++;
@@ -321,6 +361,12 @@ rows.forEach(r => { if (!surfaceSwatch[r.surface]) surfaceSwatch[r.surface] = r.
     .quote__text mark { background:var(--coral-100); color:var(--coral-800); padding:1px 3px; border-radius:3px; font-weight:600; }
     .quote__meta { display:flex; gap:18px; margin-top:14px; padding-top:14px; border-top:1px solid var(--color-border); font-size:12px; color:var(--color-text-muted); }
     .quote__meta b { color:var(--color-text-primary); font-weight:600; display:block; margin-top:2px; font-size:13px; }
+    .quote__brands { margin-top:12px; padding-top:12px; border-top:1px solid var(--color-border); font-size:12px; color:var(--color-text-muted); display:flex; flex-direction:column; gap:6px; }
+    .quote__brands__l { font-weight:600; }
+    .quote__brands__v { display:flex; gap:6px; flex-wrap:wrap; }
+    .quote__brand { display:inline-flex; align-items:center; gap:6px; padding:3px 9px; border-radius:var(--radius-full); background:var(--color-surface-muted); color:var(--color-text-primary); font-size:12px; font-weight:600; }
+    .quote__brand__dot { width:6px; height:6px; border-radius:50%; background:var(--coral-400); flex:none; }
+    .quote__brand__more { font-size:11.5px; color:var(--color-text-muted); align-self:center; font-style:italic; }
     .detail-side { display:flex; flex-direction:column; gap:14px; }
     .src { background:var(--color-surface); border:1px solid var(--color-border); border-radius:var(--radius-md); padding:14px 16px; }
     .src__l { font-size:10.5px; font-weight:600; letter-spacing:.05em; text-transform:uppercase; color:var(--color-text-muted); margin-bottom:10px; }
@@ -531,10 +577,37 @@ rows.forEach(r => { if (!surfaceSwatch[r.surface]) surfaceSwatch[r.surface] = r.
                       <div class="quote__l">Verbatim answer <span class="ans-prov"><span class="prov__ic" :style="`width:16px;height:16px;font-size:9px;background:${provVisual(row.provider).bg}`" x-text="provVisual(row.provider).ab"></span><span x-text="provLabel(row.provider)"></span></span></div>
                       <div class="quote__text" x-html="highlightQuote(row.contexte)"></div>
                       <div class="quote__meta">
-                        <div>Rank in answer<b x-text="ordinal(row.position) + ' brand named'"></b></div>
+                        <div>Citation order<b x-text="'#' + row.position + ' source listed'"></b></div>
                         <div>Captured<b x-text="row.dateLabel"></b></div>
-                        <div>Sentiment<b :style="row.sentiment==='neg' ? 'color:var(--status-critical)' : ''" x-text="sentLabel(row.sentiment)"></b></div>
+                        <div>Brand sentiment
+                          <template x-if="row.sentiment !== 'na'">
+                            <b :style="row.sentiment==='neg' ? 'color:var(--status-critical)' : ''" x-text="sentLabel(row.sentiment)"></b>
+                          </template>
+                          <template x-if="row.sentiment === 'na'">
+                            <b style="color:var(--color-text-muted)">brand not in answer</b>
+                          </template>
+                        </div>
                       </div>
+                      <template x-if="row.namedBrands && row.namedBrands.length">
+                        <div class="quote__brands">
+                          <span class="quote__brands__l">
+                            <template x-if="row.brandMentioned">
+                              <span>Other brands cited in this answer</span>
+                            </template>
+                            <template x-if="!row.brandMentioned">
+                              <span>Brands cited instead of yours</span>
+                            </template>
+                          </span>
+                          <span class="quote__brands__v">
+                            <template x-for="(b, bi) in row.namedBrands" :key="bi">
+                              <span class="quote__brand"><span class="quote__brand__dot"></span><span x-text="b"></span></span>
+                            </template>
+                            <template x-if="row.totalNamed > row.namedBrands.length">
+                              <span class="quote__brand__more" x-text="'+' + (row.totalNamed - row.namedBrands.length) + ' more'"></span>
+                            </template>
+                          </span>
+                        </div>
+                      </template>
                     </div>
                     <div class="detail-side">
                       <div class="src">

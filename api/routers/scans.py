@@ -2542,6 +2542,60 @@ def _maybe_judge_response_sentiment(brand_analysis: dict, overlaid_brand_mention
     }
 
 
+def _normalize_citation_domain(d: str) -> str:
+    """Match the normalization rule of migration 033 / domain_classifications.domain :
+    lowercase, no scheme, no www, no path. Citations carry just the domain already
+    in 90% of cases ; this is a defensive belt for the rest."""
+    s = (d or "").strip().lower()
+    if "://" in s:
+        s = s.split("://", 1)[1]
+    s = s.split("/", 1)[0]
+    if s.startswith("www."):
+        s = s[4:]
+    return s
+
+
+def _build_site_type_lookup(results, db):
+    """Batch-fetch the site_type column of domain_classifications for every
+    unique citation domain appearing in `results`. Returns {domain: site_type}.
+    One SQL query regardless of citation count - safe to call on big scans.
+
+    Used to surface the canonical source category (Brand / News / Forum / ...)
+    on the Citations tab. Missing domains -> not in the dict ; the consumer
+    treats absence as 'unclassified' and falls back to a heuristic."""
+    domains: set[str] = set()
+    for r in results:
+        for c in (getattr(r, "citations", None) or []):
+            dom = _normalize_citation_domain(
+                c.get("domaine") or c.get("domain") or ""
+            )
+            if dom:
+                domains.add(dom)
+    if not domains:
+        return {}
+    from sqlalchemy import text as _text
+    rows = db.execute(
+        _text("SELECT domain, site_type FROM domain_classifications "
+              "WHERE domain = ANY(:domains)"),
+        {"domains": list(domains)},
+    ).fetchall()
+    return {row.domain: row.site_type for row in rows}
+
+
+def _enrich_citations_with_site_type(citations, lookup):
+    """Inject 'site_type' on each citation dict in-place-friendly way (returns
+    a fresh list, leaves the source list untouched). site_type=None when the
+    domain has no row in domain_classifications yet (worker will classify on
+    next on-demand pass)."""
+    out = []
+    for c in citations or []:
+        dom = _normalize_citation_domain(
+            c.get("domaine") or c.get("domain") or ""
+        )
+        out.append({**c, "site_type": lookup.get(dom)})
+    return out
+
+
 @router.get("/{scan_id}/results")
 async def get_results(scan_id: str, provider: str | None = Query(None), user=Depends(get_current_user), db: Session = Depends(get_db)):
     """Get scan results: overview, per-persona, competitors. Optional provider filter."""
@@ -2702,6 +2756,13 @@ async def get_results(scan_id: str, provider: str | None = Query(None), user=Dep
 
     from services.composite_scores import compute_scores
 
+    # Batch-fetch the canonical site_type for every citation domain of this
+    # scan. Used to render Source chips on the Citations tab with the same
+    # 10-category taxonomy as worker/services/domain_classifier.SITE_CATEGORIES.
+    # Single query, no N+1 ; unclassified domains stay None and the front
+    # falls back to a heuristic.
+    site_type_lookup = _build_site_type_lookup(results, db)
+
     details = []
     for r in results:
         q = db.query(ScanQuestion).filter(ScanQuestion.id == r.question_id).first()
@@ -2743,7 +2804,7 @@ async def get_results(scan_id: str, provider: str | None = Query(None), user=Dep
             "target_cited": r.target_cited,
             "target_position": r.target_position,
             "total_citations": r.total_citations,
-            "citations": r.citations or [],
+            "citations": _enrich_citations_with_site_type(r.citations, site_type_lookup),
             "brand_mentions": [
                 {**bm, "classification": _classify_brand_mention(
                     bm.get("brand_name_groupby") or bm.get("brand_name", ""),
@@ -2868,6 +2929,10 @@ async def get_results_aggregated(
         q_results = q_results.filter(ScanLLMResult.provider == provider)
     all_results = q_results.all()
 
+    # Canonical site_type for every citation domain (cf. /results docstring
+    # on _build_site_type_lookup). One batch query across the whole lineage.
+    site_type_lookup = _build_site_type_lookup(all_results, db)
+
     # Sentiment Judge overlay across the whole lineage (migration 057).
     sentiment_overlay = _build_sentiment_overlay(db, [str(sid) for sid in scan_ids])
 
@@ -2948,7 +3013,7 @@ async def get_results_aggregated(
             "model": r.model,
             "brand_mentions": overlaid_mentions,
             "brand_analysis": _maybe_judge_response_sentiment(r.brand_analysis or {}, overlaid_mentions),
-            "citations": r.citations or [],
+            "citations": _enrich_citations_with_site_type(r.citations, site_type_lookup),
             "response_text": r.response_text or "",
             "duration_ms": r.duration_ms,
         })
@@ -3875,6 +3940,8 @@ async def get_llm_result(
         if q:
             question_text = q.question
 
+    # Single-row site_type enrichment ; cheap even without batching.
+    single_lookup = _build_site_type_lookup([row], db)
     return {
         "slr_id": str(row.id),
         "scan_id": str(row.scan_id),
@@ -3883,7 +3950,7 @@ async def get_llm_result(
         "question_id": str(row.question_id) if row.question_id else None,
         "question": question_text,
         "response_text": row.response_text or "",
-        "citations": row.citations or [],
+        "citations": _enrich_citations_with_site_type(row.citations, single_lookup),
     }
 
 

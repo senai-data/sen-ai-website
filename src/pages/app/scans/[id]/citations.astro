@@ -551,8 +551,8 @@ rows.forEach(r => { if (!surfaceSwatch[r.surface]) surfaceSwatch[r.surface] = r.
                         </a>
                       </div>
                       <div style="display:flex;flex-direction:column;gap:8px">
-                        <a class="btn btn--ghost btn--sm" :href="'/app/scans/' + scanId + '/questions?q=' + encodeURIComponent(row.question)" @click.stop>
-                          See the full AI answer
+                        <a class="btn btn--ghost btn--sm" :href="'/app/scans/' + scanId + '/questions?q=' + encodeURIComponent(row.question) + '&provider=' + encodeURIComponent(row.provider)" @click.stop>
+                          See the full <span x-text="provLabel(row.provider)"></span> answer
                         </a>
                       </div>
                     </div>

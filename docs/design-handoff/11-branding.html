@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>sen-ai.fr - White-label branding</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="components.css">
+<style>
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:var(--font-sans); color:var(--color-text-primary); background:var(--color-surface-sunken); -webkit-font-smoothing:antialiased; line-height:1.5; }
+  .app { display:grid; grid-template-columns:236px 1fr; min-height:100vh; }
+
+  /* sidebar */
+  .side { position:sticky; top:0; align-self:start; height:100vh; background:var(--color-surface); border-right:1px solid var(--color-border); display:flex; flex-direction:column; padding:var(--space-4) var(--space-3); }
+  .wl { display:flex; align-items:center; gap:10px; padding:6px 8px 16px; }
+  .wl__logo { width:30px; height:30px; border-radius:var(--radius-md); background:linear-gradient(135deg,#3B4252,#1F2937); color:#fff; display:grid; place-items:center; font-weight:750; font-size:14px; flex:none; }
+  .wl__name { font-size:14px; font-weight:680; letter-spacing:-.01em; }
+  .wl__tag { font-size:11px; color:var(--color-text-muted); }
+  .navg { margin-bottom:14px; }
+  .navg__l { font-size:10.5px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; color:var(--color-text-muted); padding:0 8px; margin-bottom:4px; }
+  .navi { display:flex; align-items:center; gap:9px; padding:7px 8px; border-radius:var(--radius-md); font-size:13.5px; color:var(--color-text-secondary); cursor:pointer; transition:.12s; text-decoration:none; }
+  .navi:hover { background:var(--color-surface-sunken); color:var(--color-text-primary); }
+  .navi.active { background:var(--color-primary-subtle); color:var(--coral-700); font-weight:600; }
+  .navi .ic { width:17px; height:17px; flex:none; }
+  .side__powered { margin-top:auto; padding:12px 8px 4px; border-top:1px solid var(--color-border); font-size:11px; color:var(--color-text-muted); display:flex; align-items:center; gap:6px; }
+  .side__powered .m { width:14px; height:14px; border-radius:4px; background:var(--color-primary); position:relative; }
+  .side__powered .m::after { content:""; position:absolute; inset:4px; border-radius:50%; border:1.5px solid #fff; }
+
+  /* top */
+  .top { background:var(--color-surface); border-bottom:1px solid var(--color-border); padding:0 var(--space-6); height:60px; display:flex; align-items:center; gap:16px; }
+  .crumb { display:flex; align-items:center; gap:8px; font-size:13px; color:var(--color-text-muted); }
+  .crumb a { color:var(--color-text-muted); text-decoration:none; } .crumb a:hover { color:var(--color-text-primary); }
+  .crumb .sep { color:var(--color-border-strong); } .crumb .here { color:var(--color-text-primary); font-weight:600; }
+  .top__right { margin-left:auto; display:flex; align-items:center; gap:14px; }
+  .avatar { width:32px; height:32px; border-radius:50%; background:linear-gradient(135deg,var(--coral-400),var(--coral-600)); color:#fff; display:grid; place-items:center; font-size:12px; font-weight:700; }
+
+  .view { padding:var(--space-6); max-width:1240px; }
+  .phead { margin-bottom:var(--space-5); }
+  .phead h1 { font-size:24px; font-weight:700; letter-spacing:-.025em; }
+  .phead p { font-size:13.5px; color:var(--color-text-secondary); margin-top:5px; max-width:64ch; }
+
+  .wrap { display:grid; grid-template-columns:1fr 1fr; gap:20px; align-items:start; }
+
+  /* settings card */
+  .card2 { background:var(--color-surface); border:1px solid var(--color-border); border-radius:var(--radius-lg); box-shadow:var(--shadow-xs); }
+  .card2__head { padding:16px 20px; border-bottom:1px solid var(--color-border); font-size:14px; font-weight:680; }
+  .card2__body { padding:20px; display:flex; flex-direction:column; gap:22px; }
+  .fld__label { font-size:13px; font-weight:600; display:block; margin-bottom:8px; }
+  .fld__help { font-size:12px; color:var(--color-text-muted); margin-top:7px; }
+
+  /* logo uploader */
+  .logo-up { display:flex; align-items:center; gap:16px; }
+  .logo-drop { width:120px; height:72px; border:1.5px dashed var(--color-border-strong); border-radius:var(--radius-md); display:grid; place-items:center; background:var(--color-surface-sunken); flex:none; overflow:hidden; position:relative; }
+  .logo-drop img { max-width:90%; max-height:80%; object-fit:contain; }
+  .logo-drop .ph { text-align:center; color:var(--neutral-400); font:600 10px var(--font-mono); }
+  .logo-up__side { flex:1; }
+  .logo-up__btns { display:flex; gap:8px; }
+  .seg-mini { display:flex; gap:2px; padding:3px; background:var(--color-surface-muted); border-radius:var(--radius-md); margin-top:9px; width:max-content; }
+  .seg-mini button { border:0; background:transparent; font:600 11.5px var(--font-sans); color:var(--color-text-secondary); padding:5px 10px; border-radius:var(--radius-sm); cursor:pointer; }
+  .seg-mini button.on { background:var(--color-surface); color:var(--color-text-primary); box-shadow:var(--shadow-xs); }
+
+  /* accent swatches */
+  .swatches { display:flex; gap:10px; flex-wrap:wrap; }
+  .swatch { width:40px; height:40px; border-radius:var(--radius-md); cursor:pointer; position:relative; border:2px solid transparent; transition:.12s; }
+  .swatch:hover { transform:translateY(-1px); }
+  .swatch.on { border-color:var(--color-surface); box-shadow:0 0 0 2px var(--color-text-primary); }
+  .swatch.on::after { content:""; position:absolute; inset:0; display:grid; place-items:center; background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='none' stroke='%23fff' stroke-width='2.4'%3E%3Cpath d='M3 8.5l3.5 3.5L13 5'/%3E%3C/svg%3E") center no-repeat; }
+
+  /* toggle */
+  .toggle-row { display:flex; align-items:center; justify-content:space-between; gap:16px; }
+  .toggle-row__t { font-size:13.5px; font-weight:600; }
+  .toggle-row__d { font-size:12px; color:var(--color-text-muted); margin-top:2px; max-width:42ch; }
+  .switch { width:40px; height:24px; border-radius:var(--radius-full); background:var(--color-border-strong); position:relative; cursor:pointer; transition:background .15s; flex:none; }
+  .switch.on { background:var(--accent, var(--color-primary)); }
+  .switch::after { content:""; position:absolute; top:3px; left:3px; width:18px; height:18px; border-radius:50%; background:#fff; box-shadow:var(--shadow-sm); transition:transform .15s; }
+  .switch.on::after { transform:translateX(16px); }
+
+  .save-bar { display:flex; align-items:center; justify-content:space-between; padding:16px 20px; border-top:1px solid var(--color-border); }
+  .save-bar__s { font-size:12.5px; color:var(--color-text-muted); display:flex; align-items:center; gap:7px; }
+
+  /* PREVIEW */
+  .preview-card { position:sticky; top:var(--space-6); }
+  .preview-card__head { display:flex; align-items:center; justify-content:space-between; padding:16px 20px; border-bottom:1px solid var(--color-border); }
+  .preview-card__head .t { font-size:14px; font-weight:680; }
+  .preview-card__head .badge { font-size:11px; font-weight:600; color:var(--color-text-muted); background:var(--color-surface-muted); padding:3px 9px; border-radius:var(--radius-full); }
+  .preview-stage { padding:20px; background:var(--color-surface-sunken); }
+
+  /* mini app preview */
+  .mini { display:grid; grid-template-columns:120px 1fr; background:#fff; border:1px solid var(--color-border); border-radius:var(--radius-md); overflow:hidden; box-shadow:var(--shadow-md); height:300px; }
+  .mini__side { background:#fff; border-right:1px solid var(--color-border); padding:12px 10px; }
+  .mini__brand { display:flex; align-items:center; gap:8px; padding:2px 4px 14px; }
+  .mini__logo { width:24px; height:24px; border-radius:6px; flex:none; display:grid; place-items:center; overflow:hidden; color:#fff; font-weight:750; font-size:11px; }
+  .mini__logo img { max-width:100%; max-height:100%; object-fit:contain; }
+  .mini__name { font-size:12px; font-weight:700; letter-spacing:-.01em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .mini__nav { display:flex; flex-direction:column; gap:3px; }
+  .mini__ni { font-size:11px; color:var(--color-text-secondary); padding:6px 8px; border-radius:6px; display:flex; align-items:center; gap:7px; }
+  .mini__ni .dot { width:11px; height:11px; border-radius:3px; background:var(--color-surface-muted); flex:none; }
+  .mini__ni.on { font-weight:650; }
+  .mini__main { padding:14px; display:flex; flex-direction:column; gap:11px; }
+  .mini__h { font-size:14px; font-weight:700; letter-spacing:-.02em; }
+  .mini__row { display:flex; gap:8px; }
+  .mini__stat { flex:1; border:1px solid var(--color-border); border-radius:7px; padding:9px 10px; }
+  .mini__stat .l { font-size:8px; font-weight:600; text-transform:uppercase; letter-spacing:.04em; color:var(--color-text-muted); }
+  .mini__stat .v { font-size:15px; font-weight:750; margin-top:3px; }
+  .mini__cta { align-self:flex-start; color:#fff; font-size:11px; font-weight:650; padding:7px 13px; border-radius:7px; }
+  .mini__pill { display:inline-flex; align-items:center; gap:5px; font-size:10px; font-weight:600; padding:3px 8px; border-radius:var(--radius-full); width:max-content; }
+  .mini__powered { font-size:9px; color:var(--color-text-muted); margin-top:auto; padding-top:10px; }
+
+  .preview-foot { padding:14px 20px; font-size:12px; color:var(--color-text-muted); border-top:1px solid var(--color-border); display:flex; gap:8px; align-items:flex-start; }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="side">
+    <div class="wl"><div class="wl__logo">M</div><div><div class="wl__name">Meridian</div><div class="wl__tag">Agency workspace</div></div></div>
+    <div class="navg">
+      <div class="navg__l">Agency</div>
+      <a class="navi" href="03-flagship.html"><svg class="ic" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2.5" y="2.5" width="5.5" height="5.5" rx="1.2"/><rect x="10" y="2.5" width="5.5" height="5.5" rx="1.2"/><rect x="2.5" y="10" width="5.5" height="5.5" rx="1.2"/><rect x="10" y="10" width="5.5" height="5.5" rx="1.2"/></svg>Overview</a>
+      <a class="navi"><svg class="ic" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 9h12M9 3v12"/></svg>Bulk create</a>
+      <a class="navi active"><svg class="ic" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="9" cy="9" r="6.5"/><path d="M9 5.5v3.5l2.5 1.5"/></svg>Branding</a>
+    </div>
+    <div class="navg">
+      <div class="navg__l">Workspace</div>
+      <a class="navi" href="10-dashboard.html"><svg class="ic" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 15V8l6-4.5L15 8v7"/><path d="M7 15v-4h4v4"/></svg>Dashboard</a>
+      <a class="navi" href="06-citations.html"><svg class="ic" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="8" r="5"/><path d="M12 12l3 3"/></svg>Scans</a>
+      <a class="navi" href="09-content.html"><svg class="ic" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="3" width="12" height="12" rx="1.5"/><path d="M6 7h6M6 10h4"/></svg>Content</a>
+      <a class="navi" href="08-compliance.html"><svg class="ic" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M9 2.5l5.5 2.5v4c0 3.2-2.3 5.6-5.5 6.5C5.8 14.6 3.5 12.2 3.5 9V5z"/></svg>Compliance</a>
+    </div>
+    <div class="side__powered"><span class="m"></span>Powered by sen-ai.fr</div>
+  </aside>
+
+  <div>
+    <div class="top">
+      <div class="crumb"><a href="03-flagship.html">Meridian</a><span class="sep">/</span><a href="03-flagship.html">Agency</a><span class="sep">/</span><span class="here">Branding</span></div>
+      <div class="top__right"><div class="avatar">SK</div></div>
+    </div>
+
+    <div class="view">
+      <div class="phead">
+        <h1>White-label branding</h1>
+        <p>How your clients see the platform. Your logo, name and accent replace ours across every workspace you manage and on the reports you export.</p>
+      </div>
+
+      <div class="wrap">
+        <!-- SETTINGS -->
+        <div class="card2">
+          <div class="card2__head">Brand settings</div>
+          <div class="card2__body">
+            <!-- logo -->
+            <div>
+              <label class="fld__label">Logo</label>
+              <div class="logo-up">
+                <div class="logo-drop" id="logoDrop"><div class="ph" id="logoPh">SVG / PNG<br>drop here</div></div>
+                <div class="logo-up__side">
+                  <div class="logo-up__btns">
+                    <button class="btn btn--secondary btn--sm" id="useSample">Use sample</button>
+                    <button class="btn btn--ghost btn--sm" id="clearLogo">Clear</button>
+                  </div>
+                  <div class="fld__help">PNG or SVG, transparent background, at least 120 x 72px.</div>
+                  <div class="seg-mini" id="logoBgSeg">
+                    <button class="on" data-bg="dark">On dark</button>
+                    <button data-bg="light">On light</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- display name -->
+            <div>
+              <label class="fld__label">Display name</label>
+              <input class="input" id="nameInput" value="Meridian" maxlength="28">
+              <div class="fld__help">Shown beside the logo and in the browser tab. <span id="nameCount">7</span>/28 characters.</div>
+            </div>
+
+            <!-- accent -->
+            <div>
+              <label class="fld__label">Accent colour</label>
+              <div class="swatches" id="swatches"></div>
+              <div class="fld__help">Used for the active nav, primary buttons and links inside your clients' workspaces.</div>
+            </div>
+
+            <!-- powered-by toggle -->
+            <div class="toggle-row">
+              <div>
+                <div class="toggle-row__t">Show "Powered by sen-ai.fr"</div>
+                <div class="toggle-row__d">A small footer credit. Turning it off requires the agency plan.</div>
+              </div>
+              <div class="switch on" id="poweredSwitch"></div>
+            </div>
+          </div>
+          <div class="save-bar">
+            <span class="save-bar__s" id="saveState"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="8" cy="8" r="6.5"/><path d="M8 5v3.5"/></svg>Unsaved changes</span>
+            <button class="btn btn--primary btn--md" id="saveBtn">Save branding</button>
+          </div>
+        </div>
+
+        <!-- PREVIEW -->
+        <div class="card2 preview-card">
+          <div class="preview-card__head"><span class="t">Live preview</span><span class="badge">What your clients see</span></div>
+          <div class="preview-stage">
+            <div class="mini" id="mini">
+              <div class="mini__side">
+                <div class="mini__brand">
+                  <div class="mini__logo" id="mLogo">M</div>
+                  <div class="mini__name" id="mName">Meridian</div>
+                </div>
+                <div class="mini__nav">
+                  <div class="mini__ni on" id="mNav"><span class="dot" id="mNavDot"></span>Dashboard</div>
+                  <div class="mini__ni"><span class="dot"></span>Scans</div>
+                  <div class="mini__ni"><span class="dot"></span>Content</div>
+                  <div class="mini__ni"><span class="dot"></span>Reports</div>
+                </div>
+                <div class="mini__powered" id="mPowered">Powered by sen-ai.fr</div>
+              </div>
+              <div class="mini__main">
+                <div class="mini__h">Aurelis Skincare</div>
+                <div class="mini__row">
+                  <div class="mini__stat"><div class="l">Mention</div><div class="v">74%</div></div>
+                  <div class="mini__stat"><div class="l">Citations</div><div class="v">312</div></div>
+                </div>
+                <span class="mini__pill" id="mPill">&#9650; Stable</span>
+                <div class="mini__cta" id="mCta">Run new scan</div>
+              </div>
+            </div>
+          </div>
+          <div class="preview-foot">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="var(--status-info)" stroke-width="1.6" style="flex:none;margin-top:1px"><circle cx="8" cy="8" r="6.5"/><path d="M8 7.5v3.5M8 5v.1"/></svg>
+            <span>The accent recolours interactive elements only. Greys, text and status colours stay fixed so reports remain legible and audit-grade.</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  const ACCENTS = [
+    { id:'coral',  c:'#F06A5C', name:'sen-ai coral' },
+    { id:'indigo', c:'#4F46E5', name:'Indigo' },
+    { id:'teal',   c:'#0D9488', name:'Teal' },
+    { id:'violet', c:'#7C3AED', name:'Violet' },
+    { id:'blue',   c:'#2563EB', name:'Blue' },
+    { id:'slate',  c:'#334155', name:'Slate' },
+    { id:'amber',  c:'#D97706', name:'Amber' },
+  ];
+
+  let st = { name:'Meridian', accent:'#F06A5C', logo:null, logoBg:'dark', powered:true, saved:false };
+
+  /* swatches */
+  const swEl = document.getElementById('swatches');
+  swEl.innerHTML = ACCENTS.map(a=>`<div class="swatch ${a.c===st.accent?'on':''}" data-c="${a.c}" title="${a.name}" style="background:${a.c}"></div>`).join('');
+  swEl.querySelectorAll('.swatch').forEach(s=>s.onclick=()=>{
+    swEl.querySelectorAll('.swatch').forEach(x=>x.classList.remove('on')); s.classList.add('on');
+    st.accent = s.dataset.c; dirty(); apply();
+  });
+
+  /* logo uploader (sample swatch / drop) */
+  const SAMPLE_LOGO = "data:image/svg+xml," + encodeURIComponent(
+    `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 36'><rect width='120' height='36' rx='6' fill='none'/><circle cx='18' cy='18' r='9' fill='#fff'/><circle cx='18' cy='18' r='4.5' fill='%231F2937'/><text x='34' y='24' font-family='Helvetica,Arial' font-size='17' font-weight='700' fill='#fff'>meridian</text></svg>`);
+  function setLogo(data){ st.logo = data; renderLogoDrop(); dirty(); apply(); }
+  document.getElementById('useSample').onclick = ()=>setLogo(SAMPLE_LOGO);
+  document.getElementById('clearLogo').onclick = ()=>setLogo(null);
+
+  const drop = document.getElementById('logoDrop');
+  drop.addEventListener('dragover', e=>{ e.preventDefault(); drop.style.borderColor='var(--accent,#F06A5C)'; });
+  drop.addEventListener('dragleave', ()=>{ drop.style.borderColor=''; });
+  drop.addEventListener('drop', e=>{ e.preventDefault(); drop.style.borderColor=''; const f=e.dataTransfer.files[0]; if(f){ const r=new FileReader(); r.onload=()=>setLogo(r.result); r.readAsDataURL(f); } });
+
+  function renderLogoDrop(){
+    const bgDark = st.logoBg==='dark';
+    drop.style.background = bgDark ? 'var(--neutral-800)' : 'var(--color-surface-sunken)';
+    if(st.logo){ drop.innerHTML = `<img src="${st.logo}" alt="logo">`; }
+    else { drop.innerHTML = `<div class="ph" style="color:${bgDark?'#9CA3AF':'var(--neutral-400)'}">SVG / PNG<br>drop here</div>`; }
+  }
+  document.querySelectorAll('#logoBgSeg button').forEach(b=>b.onclick=()=>{
+    document.querySelectorAll('#logoBgSeg button').forEach(x=>x.classList.remove('on')); b.classList.add('on');
+    st.logoBg=b.dataset.bg; renderLogoDrop();
+  });
+
+  /* name */
+  const nameInput = document.getElementById('nameInput');
+  nameInput.oninput = ()=>{ st.name=nameInput.value; document.getElementById('nameCount').textContent=nameInput.value.length; dirty(); apply(); };
+
+  /* powered toggle */
+  const pwSwitch = document.getElementById('poweredSwitch');
+  pwSwitch.onclick = ()=>{ st.powered=!st.powered; pwSwitch.classList.toggle('on', st.powered); dirty(); apply(); };
+
+  /* save */
+  function dirty(){ st.saved=false; const s=document.getElementById('saveState'); s.innerHTML=`<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="8" cy="8" r="6.5"/><path d="M8 5v3.5"/></svg>Unsaved changes`; s.style.color='var(--color-text-muted)'; }
+  document.getElementById('saveBtn').onclick = ()=>{
+    st.saved=true; const s=document.getElementById('saveState');
+    s.innerHTML=`<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="var(--status-positive)" stroke-width="1.9"><path d="M3 8.5l3.5 3.5L13 5"/></svg>Branding saved`; s.style.color='var(--status-positive)';
+  };
+
+  /* apply branding to the live preview */
+  function apply(){
+    const mini = document.getElementById('mini');
+    mini.style.setProperty('--accent', st.accent);
+    // name
+    document.getElementById('mName').textContent = st.name || 'Your agency';
+    // logo
+    const mLogo = document.getElementById('mLogo');
+    if(st.logo){ mLogo.style.background='transparent'; mLogo.innerHTML=`<img src="${st.logo}" alt="">`; }
+    else { mLogo.style.background=st.accent; mLogo.innerHTML=(st.name||'A').trim().charAt(0).toUpperCase(); }
+    // active nav + dot tinted with accent
+    const navDot = document.getElementById('mNavDot');
+    const navOn = document.getElementById('mNav');
+    navDot.style.background = st.accent;
+    navOn.style.background = hexA(st.accent, .10);
+    navOn.style.color = st.accent;
+    // primary cta
+    document.getElementById('mCta').style.background = st.accent;
+    // pill stays neutral (status colour fixed) - demonstrates the rule
+    const pill = document.getElementById('mPill');
+    pill.style.background='var(--status-neutral-bg)'; pill.style.color='var(--status-neutral)';
+    // powered
+    document.getElementById('mPowered').style.display = st.powered ? 'block':'none';
+  }
+  function hexA(hex,a){ const h=hex.replace('#',''); const r=parseInt(h.slice(0,2),16),g=parseInt(h.slice(2,4),16),b=parseInt(h.slice(4,6),16); return `rgba(${r},${g},${b},${a})`; }
+
+  renderLogoDrop(); apply(); st.saved=true;
+  document.getElementById('saveState').innerHTML = `<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="var(--status-positive)" stroke-width="1.9"><path d="M3 8.5l3.5 3.5L13 5"/></svg>All changes saved`;
+  document.getElementById('saveState').style.color='var(--status-positive)';
+</script>
+</body>
+</html>

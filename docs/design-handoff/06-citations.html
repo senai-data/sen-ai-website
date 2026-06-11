@@ -1,0 +1,638 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>sen-ai.fr - Citations</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="components.css">
+<style>
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:var(--font-sans); color:var(--color-text-primary); background:var(--color-surface-sunken); -webkit-font-smoothing:antialiased; line-height:1.5; }
+  .app { display:grid; grid-template-columns:236px 1fr; min-height:100vh; }
+
+  /* ---------- SIDEBAR ---------- */
+  .side { position:sticky; top:0; align-self:start; height:100vh; background:var(--color-surface); border-right:1px solid var(--color-border); display:flex; flex-direction:column; padding:var(--space-4) var(--space-3); }
+  .wl { display:flex; align-items:center; gap:10px; padding:6px 8px 16px; }
+  .wl__logo { width:30px; height:30px; border-radius:var(--radius-md); background:linear-gradient(135deg,#3B4252,#1F2937); color:#fff; display:grid; place-items:center; font-weight:750; font-size:14px; flex:none; }
+  .wl__name { font-size:14px; font-weight:680; letter-spacing:-.01em; }
+  .wl__tag { font-size:11px; color:var(--color-text-muted); }
+  .side__powered { margin-top:auto; padding:12px 8px 4px; border-top:1px solid var(--color-border); font-size:11px; color:var(--color-text-muted); display:flex; align-items:center; gap:6px; }
+  .side__powered .m { width:14px; height:14px; border-radius:4px; background:var(--color-primary); position:relative; }
+  .side__powered .m::after { content:""; position:absolute; inset:4px; border-radius:50%; border:1.5px solid #fff; }
+  .navg { margin-bottom:14px; }
+  .navg__l { font-size:10.5px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; color:var(--color-text-muted); padding:0 8px; margin-bottom:4px; }
+  .navi { display:flex; align-items:center; gap:9px; padding:7px 8px; border-radius:var(--radius-md); font-size:13.5px; color:var(--color-text-secondary); cursor:pointer; transition:.12s; text-decoration:none; }
+  .navi:hover { background:var(--color-surface-sunken); color:var(--color-text-primary); }
+  .navi.active { background:var(--color-primary-subtle); color:var(--coral-700); font-weight:600; }
+  .navi .ic { width:17px; height:17px; flex:none; }
+
+  /* ---------- TOP BAR ---------- */
+  .top { position:sticky; top:0; z-index:30; background:rgba(255,255,255,.86); backdrop-filter:blur(8px); border-bottom:1px solid var(--color-border); padding:0 var(--space-6); height:60px; display:flex; align-items:center; gap:16px; }
+  .crumb { display:flex; align-items:center; gap:8px; font-size:13px; color:var(--color-text-muted); }
+  .crumb a { color:var(--color-text-muted); text-decoration:none; cursor:pointer; }
+  .crumb a:hover { color:var(--color-text-primary); }
+  .crumb .sep { color:var(--color-border-strong); }
+  .crumb .here { color:var(--color-text-primary); font-weight:600; }
+  .top__right { margin-left:auto; display:flex; align-items:center; gap:14px; }
+  .credits { display:flex; align-items:center; gap:7px; font-size:12.5px; color:var(--color-text-secondary); background:var(--color-surface-sunken); border:1px solid var(--color-border); padding:6px 11px; border-radius:var(--radius-full); }
+  .credits b { color:var(--color-text-primary); font-weight:700; }
+  .avatar { width:32px; height:32px; border-radius:50%; background:linear-gradient(135deg,var(--coral-400),var(--coral-600)); color:#fff; display:grid; place-items:center; font-size:12px; font-weight:700; }
+
+  /* ---------- SCAN HEADER ---------- */
+  .srhead { background:var(--color-surface); border-bottom:1px solid var(--color-border); padding:18px var(--space-6) 0; position:sticky; top:60px; z-index:20; }
+  .srhead__top { display:flex; align-items:center; gap:16px; }
+  .srhead__id h1 { font-size:21px; font-weight:700; letter-spacing:-.02em; }
+  .srhead__id .dom { font-size:13px; color:var(--color-text-muted); margin-top:2px; display:flex; align-items:center; gap:8px; }
+  .srhead__rate { display:flex; align-items:center; gap:20px; margin-left:8px; padding-left:24px; border-left:1px solid var(--color-border); }
+  .srhead__ratev { font-size:30px; font-weight:740; letter-spacing:-.03em; line-height:1; }
+  .srhead__ratel { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.05em; color:var(--color-text-muted); margin-bottom:5px; }
+  .srhead__controls { margin-left:auto; display:flex; align-items:center; gap:10px; }
+  .ctl { display:flex; align-items:center; gap:7px; height:36px; padding:0 12px; border:1px solid var(--color-border-strong); border-radius:var(--radius-md); font-size:13px; font-weight:500; color:var(--color-text-secondary); background:var(--color-surface); cursor:pointer; transition:.12s; }
+  .ctl:hover { background:var(--color-surface-sunken); }
+  .ctl .ic { width:15px; height:15px; color:var(--color-text-muted); }
+  .srhead__tabs { margin-top:18px; }
+  .wscard__vert { display:inline-block; font-size:10.5px; font-weight:600; color:var(--color-text-muted); background:var(--color-surface-sunken); border:1px solid var(--color-border); padding:2px 7px; border-radius:var(--radius-full); }
+
+  /* ---------- BODY ---------- */
+  .body { padding:var(--space-6); max-width:1320px; }
+  .intro { display:flex; align-items:flex-end; justify-content:space-between; gap:20px; margin-bottom:var(--space-5); }
+  .intro h2 { font-size:18px; font-weight:680; letter-spacing:-.015em; }
+  .intro p { font-size:13.5px; color:var(--color-text-secondary); margin-top:4px; max-width:60ch; }
+
+  /* summary */
+  .csum { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:var(--space-5); }
+  .csum__c { background:var(--color-surface); border:1px solid var(--color-border); border-radius:var(--radius-lg); padding:16px 18px; box-shadow:var(--shadow-xs); }
+  .csum__l { font-size:11px; font-weight:600; letter-spacing:.05em; text-transform:uppercase; color:var(--color-text-muted); }
+  .csum__v { font-size:27px; font-weight:720; letter-spacing:-.025em; margin-top:8px; line-height:1; display:flex; align-items:baseline; gap:8px; }
+  .csum__v small { font-size:13px; font-weight:600; color:var(--color-text-muted); }
+  .csum__m { font-size:12px; color:var(--color-text-muted); margin-top:9px; }
+  .mixbar { display:flex; height:8px; border-radius:var(--radius-full); overflow:hidden; margin-top:13px; }
+  .mixbar span { height:100%; }
+  .csum__legend { display:flex; gap:12px; margin-top:9px; font-size:11.5px; color:var(--color-text-secondary); }
+  .csum__legend i { display:inline-block; width:8px; height:8px; border-radius:2px; margin-right:5px; vertical-align:middle; }
+
+  /* toolbar */
+  .ctoolbar { display:flex; align-items:center; gap:10px; margin-bottom:14px; flex-wrap:wrap; }
+  .search { position:relative; width:260px; }
+  .search input { width:100%; height:36px; border:1px solid var(--color-border-strong); border-radius:var(--radius-md); padding:0 12px 0 34px; font-size:13px; font-family:var(--font-sans); background:var(--color-surface); }
+  .search input:focus { outline:none; border-color:var(--color-primary); box-shadow:0 0 0 3px var(--coral-100); }
+  .search .si { position:absolute; left:11px; top:50%; transform:translateY(-50%); color:var(--color-text-muted); }
+  .seg { display:flex; gap:2px; padding:3px; background:var(--color-surface-muted); border-radius:var(--radius-md); }
+  .seg button { border:0; background:transparent; font:600 12.5px var(--font-sans); color:var(--color-text-secondary); padding:6px 11px; border-radius:var(--radius-sm); cursor:pointer; transition:.12s; display:flex; align-items:center; gap:6px; }
+  .seg button.on { background:var(--color-surface); color:var(--color-text-primary); box-shadow:var(--shadow-xs); }
+  .seg button .pd { width:7px; height:7px; border-radius:50%; }
+  .ctoolbar__right { margin-left:auto; display:flex; align-items:center; gap:10px; }
+  .selnote { font-size:12.5px; color:var(--color-text-muted); }
+  .selnote b { color:var(--color-text-primary); font-weight:650; }
+
+  /* dropdown filters */
+  .fdrop { position:relative; }
+  .fdrop__btn { display:inline-flex; align-items:center; gap:8px; height:36px; padding:0 11px; font:600 12.5px var(--font-sans); color:var(--color-text-secondary); background:var(--color-surface); border:1px solid var(--color-border-strong); border-radius:var(--radius-md); cursor:pointer; transition:.12s; white-space:nowrap; }
+  .fdrop__btn:hover { border-color:var(--neutral-400); }
+  .fdrop.open .fdrop__btn, .fdrop__btn.active { border-color:var(--color-primary); color:var(--color-text-primary); }
+  .fdrop__btn .k { color:var(--color-text-muted); font-weight:600; }
+  .fdrop__btn .v { color:var(--color-text-primary); }
+  .fdrop__btn .cv { color:var(--coral-700); }
+  .fdrop__btn .car { color:var(--color-text-muted); transition:transform .14s; }
+  .fdrop.open .fdrop__btn .car { transform:rotate(180deg); }
+  .fdrop__menu { position:absolute; top:calc(100% + 6px); left:0; min-width:190px; max-height:300px; overflow-y:auto; background:var(--color-surface); border:1px solid var(--color-border); border-radius:var(--radius-md); box-shadow:var(--shadow-lg); padding:5px; z-index:50; display:none; }
+  .fdrop.open .fdrop__menu { display:block; }
+  .fdrop__item { display:flex; align-items:center; gap:9px; padding:8px 10px; border-radius:var(--radius-sm); font-size:13px; color:var(--color-text-primary); cursor:pointer; transition:background .1s; }
+  .fdrop__item:hover { background:var(--color-surface-sunken); }
+  .fdrop__item.sel { color:var(--coral-700); font-weight:600; }
+  .fdrop__item .ck { margin-left:auto; opacity:0; }
+  .fdrop__item.sel .ck { opacity:1; }
+  .fdrop__item .sw { width:8px; height:8px; border-radius:2px; flex:none; }
+
+  /* active filter chips */
+  .activef { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:14px; }
+  .activef__l { font-size:11.5px; font-weight:600; color:var(--color-text-muted); text-transform:uppercase; letter-spacing:.04em; }
+  .afchip { display:inline-flex; align-items:center; gap:7px; font-size:12px; font-weight:600; color:var(--color-text-primary); background:var(--color-surface); border:1px solid var(--color-border-strong); padding:4px 6px 4px 11px; border-radius:var(--radius-full); }
+  .afchip .x { width:17px; height:17px; border-radius:50%; display:grid; place-items:center; background:var(--color-surface-muted); color:var(--color-text-muted); cursor:pointer; transition:.12s; }
+  .afchip .x:hover { background:var(--status-critical-bg); color:var(--status-critical); }
+  .afclear { font-size:12px; font-weight:600; color:var(--coral-700); cursor:pointer; background:none; border:0; padding:4px 6px; }
+  .afclear:hover { text-decoration:underline; }
+
+  /* table */
+  .ctable-wrap { background:var(--color-surface); border:1px solid var(--color-border); border-radius:var(--radius-lg); box-shadow:var(--shadow-xs); overflow:hidden; }
+  table.ct { width:100%; border-collapse:separate; border-spacing:0; font-size:13.5px; }
+  table.ct th { text-align:left; font-size:11px; font-weight:600; letter-spacing:.04em; text-transform:uppercase; color:var(--color-text-muted); padding:11px 16px; border-bottom:1px solid var(--color-border); background:var(--color-surface-sunken); white-space:nowrap; position:sticky; top:calc(60px + 0px); }
+  table.ct th.sortable { cursor:pointer; user-select:none; transition:color .12s; }
+  table.ct th.sortable:hover { color:var(--color-text-secondary); }
+  table.ct th .arr { color:var(--color-primary); margin-left:3px; font-size:9px; }
+  table.ct td { padding:13px 16px; border-bottom:1px solid var(--color-border); color:var(--color-text-secondary); vertical-align:middle; }
+  table.ct tbody tr.main { cursor:pointer; transition:background .1s; }
+  table.ct tbody tr.main:hover { background:var(--color-surface-sunken); }
+  table.ct tbody tr.main.open { background:var(--coral-50); }
+  table.ct tbody tr.main.open td { border-bottom-color:transparent; }
+  .qcell { display:flex; align-items:center; gap:11px; max-width:380px; }
+  .caret { color:var(--color-text-muted); transition:transform .16s; flex:none; }
+  tr.main.open .caret { transform:rotate(90deg); color:var(--coral-700); }
+  .qtext { color:var(--color-text-primary); font-weight:550; line-height:1.35; }
+  .prov { display:inline-flex; align-items:center; gap:8px; white-space:nowrap; font-weight:600; color:var(--color-text-primary); }
+  .prov__ic { width:20px; height:20px; border-radius:5px; display:grid; place-items:center; color:#fff; font-size:10px; font-weight:700; flex:none; }
+  .surface-chip { display:inline-flex; align-items:center; gap:6px; font-size:12px; font-weight:600; color:var(--color-text-secondary); background:var(--color-surface-sunken); border:1px solid var(--color-border); padding:3px 9px; border-radius:var(--radius-full); white-space:nowrap; }
+  .surface-chip .sd { width:7px; height:7px; border-radius:2px; flex:none; }
+  .rank { display:inline-flex; align-items:baseline; gap:4px; font-weight:600; color:var(--color-text-primary); }
+  .rank small { font-size:11px; color:var(--color-text-muted); font-weight:500; }
+  .rank.weak { color:var(--color-text-muted); }
+  .datecell { white-space:nowrap; color:var(--color-text-muted); font-size:12.5px; }
+
+  /* sentiment text - quiet positive, loud negative (colour earns attention) */
+  .sent { display:inline-flex; align-items:center; gap:6px; font-size:12.5px; font-weight:600; white-space:nowrap; }
+  .sent .sdot { width:7px; height:7px; border-radius:50%; flex:none; }
+  .sent--pos { color:var(--color-text-secondary); } .sent--pos .sdot { background:var(--status-positive); }
+  .sent--neu { color:var(--color-text-muted); }     .sent--neu .sdot { background:var(--neutral-400); }
+  .sent--neg { color:var(--status-critical); }       .sent--neg .sdot { background:var(--status-critical); }
+
+  /* expanded detail */
+  tr.detail td { padding:0; border-bottom:1px solid var(--color-border); }
+  .detail-inner { padding:4px 16px 22px 43px; background:var(--coral-50); display:grid; grid-template-columns:1fr 300px; gap:24px; animation:slideIn .18s ease; }
+  @keyframes slideIn { from { transform:translateY(-5px); } to { transform:translateY(0); } }
+  .quote { background:var(--color-surface); border:1px solid var(--color-border); border-radius:var(--radius-md); padding:16px 18px; box-shadow:var(--shadow-xs); }
+  .quote__l { font-size:10.5px; font-weight:600; letter-spacing:.05em; text-transform:uppercase; color:var(--color-text-muted); margin-bottom:9px; display:flex; align-items:center; gap:8px; }
+  .quote__l .ans-prov { display:inline-flex; align-items:center; gap:6px; color:var(--color-text-secondary); }
+  .quote__text { font-size:14px; line-height:1.65; color:var(--color-text-primary); }
+  .quote__text mark { background:var(--coral-100); color:var(--coral-800); padding:1px 3px; border-radius:3px; font-weight:600; }
+  .quote__meta { display:flex; gap:18px; margin-top:14px; padding-top:14px; border-top:1px solid var(--color-border); font-size:12px; color:var(--color-text-muted); }
+  .quote__meta b { color:var(--color-text-primary); font-weight:600; display:block; margin-top:2px; font-size:13px; }
+  .detail-side { display:flex; flex-direction:column; gap:14px; }
+  .src { background:var(--color-surface); border:1px solid var(--color-border); border-radius:var(--radius-md); padding:14px 16px; }
+  .src__l { font-size:10.5px; font-weight:600; letter-spacing:.05em; text-transform:uppercase; color:var(--color-text-muted); margin-bottom:10px; }
+  .src__row { display:flex; align-items:center; gap:10px; }
+  .src__fav { width:32px; height:32px; border-radius:var(--radius-sm); display:grid; place-items:center; flex:none; }
+  .src__name { font-size:13px; font-weight:650; color:var(--color-text-primary); }
+  .src__url { font:500 11.5px var(--font-mono); color:var(--color-text-muted); margin-top:1px; word-break:break-all; }
+  .detail-actions { display:flex; flex-direction:column; gap:8px; }
+
+  /* footer */
+  .ctfoot { display:flex; align-items:center; justify-content:space-between; padding:14px 16px; border-top:1px solid var(--color-border); background:var(--color-surface-sunken); }
+  .ctfoot__n { font-size:12.5px; color:var(--color-text-muted); }
+  .pager { display:flex; gap:4px; }
+  .pager button { min-width:30px; height:30px; padding:0 8px; border:1px solid var(--color-border-strong); background:var(--color-surface); border-radius:var(--radius-sm); font-size:12.5px; font-weight:600; color:var(--color-text-secondary); cursor:pointer; }
+  .pager button.on { background:var(--color-text-primary); color:#fff; border-color:var(--color-text-primary); }
+  .pager button:disabled { opacity:.4; cursor:default; }
+
+  .emptyrow td { padding:48px 16px; text-align:center; color:var(--color-text-muted); font-size:14px; }
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- SIDEBAR -->
+  <aside class="side">
+    <div class="wl">
+      <div class="wl__logo">M</div>
+      <div><div class="wl__name">Meridian</div><div class="wl__tag">Agency workspace</div></div>
+    </div>
+    <div class="navg">
+      <div class="navg__l">Agency</div>
+      <a class="navi" href="03-flagship.html"><svg class="ic" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2.5" y="2.5" width="5.5" height="5.5" rx="1.2"/><rect x="10" y="2.5" width="5.5" height="5.5" rx="1.2"/><rect x="2.5" y="10" width="5.5" height="5.5" rx="1.2"/><rect x="10" y="10" width="5.5" height="5.5" rx="1.2"/></svg>Overview</a>
+    </div>
+    <div class="navg">
+      <div class="navg__l">Workspace</div>
+      <a class="navi"><svg class="ic" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 15V8l6-4.5L15 8v7"/><path d="M7 15v-4h4v4"/></svg>Dashboard</a>
+      <a class="navi active"><svg class="ic" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="8" r="5"/><path d="M12 12l3 3"/></svg>Scans</a>
+      <a class="navi"><svg class="ic" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="3" width="12" height="12" rx="1.5"/><path d="M6 7h6M6 10h4"/></svg>Content</a>
+      <a class="navi"><svg class="ic" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 3h7l3 3v9H4z"/><path d="M7 9h4M7 11.5h4"/></svg>Reports</a>
+      <a class="navi"><svg class="ic" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M9 2.5l5.5 2.5v4c0 3.2-2.3 5.6-5.5 6.5C5.8 14.6 3.5 12.2 3.5 9V5z"/></svg>Compliance</a>
+      <a class="navi"><svg class="ic" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="9" cy="9" r="2.5"/><path d="M9 2v2M9 14v2M2 9h2M14 9h2"/></svg>Settings</a>
+    </div>
+    <div class="side__powered"><span class="m"></span>Powered by sen-ai.fr</div>
+  </aside>
+
+  <div>
+    <!-- TOP BAR -->
+    <div class="top">
+      <div class="crumb">
+        <a href="03-flagship.html">Meridian</a><span class="sep">/</span><a href="03-flagship.html">Workspaces</a><span class="sep">/</span><a href="03-flagship.html">Northwind Logistics</a><span class="sep">/</span><span class="here">Citations</span>
+      </div>
+      <div class="top__right">
+        <div class="credits"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6"/><path d="M8 5v6M5.5 8h5"/></svg><b>2,140</b> credits</div>
+        <div class="avatar">SK</div>
+      </div>
+    </div>
+
+    <!-- SCAN HEADER -->
+    <div class="srhead">
+      <div class="srhead__top">
+        <div class="score score--lg score--c">C</div>
+        <div class="srhead__id">
+          <h1>Northwind Logistics</h1>
+          <div class="dom"><span>northwind.io</span><span class="wscard__vert">B2B services</span></div>
+        </div>
+        <div class="srhead__rate">
+          <div><div class="srhead__ratel">Mention rate</div><div class="srhead__ratev">41%</div></div>
+          <div><div class="srhead__ratel">Trend (8w)</div><div class="spark" data-vals="30,33,31,36,38,37,40,41" style="width:120px"></div></div>
+          <div><div class="srhead__ratel">vs last</div><div style="font-size:18px;font-weight:700;color:var(--status-positive)">&#9650; 4 pts</div></div>
+        </div>
+        <div class="srhead__controls">
+          <div class="ctl"><svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2.5" y="3" width="11" height="10" rx="1.5"/><path d="M2.5 6h11M6 1.5v3M10 1.5v3"/></svg>Last 30 days</div>
+          <span class="chip chip--md chip--neutral"><span class="chip__dot"></span>Weekly</span>
+          <button class="btn btn--primary btn--md"><svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M13 8a5 5 0 1 1-1.5-3.5M13 2v3h-3"/></svg>Rescan</button>
+        </div>
+      </div>
+      <div class="srhead__tabs">
+        <div class="tabs__macro" style="max-width:520px">
+          <button aria-selected="true">Visibility <span class="count">6</span></button>
+          <button aria-selected="false">Sources <span class="count">7</span></button>
+          <button aria-selected="false">Act <span class="count">3</span></button>
+        </div>
+        <div class="tabs__leaf">
+          <button aria-selected="false">Overview</button>
+          <button aria-selected="false">Topics</button>
+          <button aria-selected="false">Personas</button>
+          <button aria-selected="false">Questions</button>
+          <button aria-selected="true">Citations</button>
+          <button aria-selected="false">Competitors</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- BODY -->
+    <div class="body">
+      <div class="intro">
+        <div>
+          <h2>Citations</h2>
+          <p>Every time a provider named this brand across 10 prompts x 4 providers this period. Click a row to read the verbatim answer and trace its source.</p>
+        </div>
+        <button class="btn btn--secondary btn--md"><svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M8 2v8M4.5 6.5L8 10l3.5-3.5M3 13h10"/></svg>Export CSV</button>
+      </div>
+
+      <!-- SUMMARY -->
+      <div class="csum">
+        <div class="csum__c">
+          <div class="csum__l">Total citations</div>
+          <div class="csum__v">128 <small>this period</small></div>
+          <div class="csum__m"><span style="color:var(--status-positive);font-weight:650">&#9650; 12%</span> vs previous 30 days</div>
+        </div>
+        <div class="csum__c">
+          <div class="csum__l">Sentiment mix</div>
+          <div class="mixbar" style="margin-top:18px">
+            <span style="width:55%;background:var(--status-positive)"></span>
+            <span style="width:33%;background:var(--neutral-300)"></span>
+            <span style="width:12%;background:var(--status-critical)"></span>
+          </div>
+          <div class="csum__legend">
+            <span><i style="background:var(--status-positive)"></i>71 pos</span>
+            <span><i style="background:var(--neutral-300)"></i>42 neu</span>
+            <span><i style="background:var(--status-critical)"></i>15 neg</span>
+          </div>
+        </div>
+        <div class="csum__c">
+          <div class="csum__l">Top source surface</div>
+          <div class="csum__v" style="font-size:20px;margin-top:11px"><span class="surface-chip" style="font-size:13px"><span class="sd" style="background:var(--status-info)"></span>Wikipedia</span></div>
+          <div class="csum__m">fed 38 citations (30% of total)</div>
+        </div>
+        <div class="csum__c">
+          <div class="csum__l">Avg. position in answer</div>
+          <div class="csum__v">#2.4 <small>of named brands</small></div>
+          <div class="csum__m"><span style="color:var(--status-critical);font-weight:650">&#9660; 0.3</span> - slipped vs last period</div>
+        </div>
+      </div>
+
+      <!-- TOOLBAR -->
+      <div class="ctoolbar">
+        <div class="search">
+          <svg class="si" width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="7" cy="7" r="4.5"/><path d="M11 11l3 3"/></svg>
+          <input id="search" placeholder="Search question or quote...">
+        </div>
+        <div class="seg" id="provSeg">
+          <button class="on" data-p="all">All providers</button>
+          <button data-p="OpenAI">OpenAI</button>
+          <button data-p="Gemini">Gemini</button>
+          <button data-p="Claude">Claude</button>
+          <button data-p="Mistral">Mistral</button>
+        </div>
+        <div class="seg" id="sentSeg">
+          <button class="on" data-s="all">All</button>
+          <button data-s="pos"><span class="pd" style="background:var(--status-positive)"></span>Positive</button>
+          <button data-s="neu"><span class="pd" style="background:var(--neutral-400)"></span>Neutral</button>
+          <button data-s="neg"><span class="pd" style="background:var(--status-critical)"></span>Negative</button>
+        </div>
+        <div class="fdrop" data-dim="source"></div>
+        <div class="fdrop" data-dim="topic"></div>
+        <div class="ctoolbar__right">
+          <span class="selnote"><b id="resCount">0</b> citations</span>
+        </div>
+      </div>
+
+      <!-- ACTIVE FILTERS -->
+      <div class="activef" id="activeFilters"></div>
+
+      <!-- TABLE -->
+      <div class="ctable-wrap">
+        <table class="ct">
+          <thead>
+            <tr>
+              <th style="width:34px"></th>
+              <th class="sortable" data-sort="question">Buyer question</th>
+              <th class="sortable" data-sort="provider" style="width:130px">Provider</th>
+              <th class="sortable" data-sort="surface" style="width:150px">Source surface</th>
+              <th class="sortable" data-sort="rank" style="width:120px">Position</th>
+              <th class="sortable" data-sort="sentiment" style="width:130px">Sentiment</th>
+              <th class="sortable" data-sort="date" style="width:110px">Captured <span class="arr">&#9660;</span></th>
+            </tr>
+          </thead>
+          <tbody id="tbody"></tbody>
+        </table>
+        <div class="ctfoot">
+          <span class="ctfoot__n" id="footNote">Showing 1-8 of 128</span>
+          <div class="pager">
+            <button disabled>&#8249;</button>
+            <button class="on">1</button><button>2</button><button>3</button>
+            <button style="pointer-events:none;border:0;background:transparent">...</button>
+            <button>16</button>
+            <button>&#8250;</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  /* ---------- provider visual identity ---------- */
+  const PROV = {
+    OpenAI:  { bg:'#10A37F', ab:'AI' },
+    Gemini:  { bg:'#4285F4', ab:'G' },
+    Claude:  { bg:'#D97757', ab:'C' },
+    Mistral: { bg:'#FF7000', ab:'M' },
+  };
+  const SURFACE = {
+    'Wikipedia':     { c:'var(--status-info)' },
+    'Owned page':    { c:'var(--coral-500)' },
+    'Reddit':        { c:'#FF4500' },
+    'PR / Media':    { c:'var(--neutral-500)' },
+    'YouTube':       { c:'#FF0000' },
+    'Directory':     { c:'var(--neutral-400)' },
+  };
+
+  /* ---------- citations data (Northwind Logistics - B2B logistics) ---------- */
+  const DATA = [
+    { id:1, question:'Which logistics providers handle cross-border shipping best?', provider:'OpenAI', surface:'Wikipedia', rank:2, sentiment:'pos', date:'2d', dateN:2,
+      quote:'For cross-border freight, established names include Meridian Freight, <mark>Northwind Logistics</mark>, and Helios Group. Northwind is frequently noted for its customs-clearance network across the EU.',
+      src:'en.wikipedia.org/wiki/Northwind_Logistics' },
+    { id:2, question:'Who offers the most reliable last-mile delivery?', provider:'Gemini', surface:'Reddit', rank:4, sentiment:'neg', date:'2d', dateN:2,
+      quote:'Reliability varies a lot. Some users report that <mark>Northwind Logistics</mark> last-mile tracking can be inconsistent in rural areas, though their hub network is strong.',
+      src:'reddit.com/r/logistics/comments/last_mile_2026' },
+    { id:3, question:'Best B2B freight platforms for mid-market companies?', provider:'Claude', surface:'Owned page', rank:1, sentiment:'pos', date:'3d', dateN:3,
+      quote:'<mark>Northwind Logistics</mark> positions itself for mid-market shippers, offering tiered freight brokerage with transparent per-lane pricing - a frequent differentiator in this segment.',
+      src:'northwind.io/solutions/mid-market' },
+    { id:4, question:'Which carriers have the best sustainability record?', provider:'Mistral', surface:'PR / Media', rank:5, sentiment:'neu', date:'3d', dateN:3,
+      quote:'Several carriers publish ESG targets. <mark>Northwind Logistics</mark> announced a fleet-electrification pilot, though independent verification is still limited.',
+      src:'supplychaindive.com/news/northwind-ev-pilot' },
+    { id:5, question:'What freight brokers integrate with major ERPs?', provider:'OpenAI', surface:'Owned page', rank:2, sentiment:'pos', date:'4d', dateN:4,
+      quote:'Integration-friendly brokers include <mark>Northwind Logistics</mark>, which lists native connectors for common ERP systems on its developer portal.',
+      src:'northwind.io/developers/integrations' },
+    { id:6, question:'Who handles refrigerated cross-border transport in Europe?', provider:'Gemini', surface:'Wikipedia', rank:3, sentiment:'neu', date:'4d', dateN:4,
+      quote:'Cold-chain specialists vary by region. <mark>Northwind Logistics</mark> is listed among providers offering temperature-controlled cross-border lanes within the EU.',
+      src:'en.wikipedia.org/wiki/Cold_chain_logistics' },
+    { id:7, question:'Most trusted logistics brands for e-commerce fulfilment?', provider:'Claude', surface:'Reddit', rank:6, sentiment:'neg', date:'5d', dateN:5,
+      quote:'Opinions are mixed. A few threads mention delays with <mark>Northwind Logistics</mark> during peak season, while others praise their dashboard.',
+      src:'reddit.com/r/ecommerce/comments/fulfilment_2026' },
+    { id:8, question:'Which providers offer real-time freight visibility?', provider:'OpenAI', surface:'Owned page', rank:1, sentiment:'pos', date:'5d', dateN:5,
+      quote:'<mark>Northwind Logistics</mark> highlights real-time shipment visibility as a core feature, with an API and live map for tracked freight.',
+      src:'northwind.io/platform/visibility' },
+    { id:9, question:'Best logistics companies for hazardous materials?', provider:'Mistral', surface:'Directory', rank:4, sentiment:'neu', date:'6d', dateN:6,
+      quote:'Directory listings include <mark>Northwind Logistics</mark> under certified hazmat carriers, with the relevant ADR credentials noted.',
+      src:'freightdirectory.com/carriers/northwind' },
+    { id:10, question:'Which freight brokers have the strongest customer support?', provider:'Gemini', surface:'YouTube', rank:3, sentiment:'pos', date:'6d', dateN:6,
+      quote:'A review channel rated <mark>Northwind Logistics</mark> support highly for responsiveness, citing a dedicated account-manager model.',
+      src:'youtube.com/watch?v=northwind-review' },
+    { id:11, question:'Who offers volume discounts on LTL shipping?', provider:'Claude', surface:'Owned page', rank:2, sentiment:'pos', date:'7d', dateN:7,
+      quote:'Brokers with tiered LTL pricing include <mark>Northwind Logistics</mark>, which publishes volume-based discount bands for recurring shippers.',
+      src:'northwind.io/pricing/ltl' },
+    { id:12, question:'Which carriers had service disruptions recently?', provider:'OpenAI', surface:'PR / Media', rank:5, sentiment:'neg', date:'7d', dateN:7,
+      quote:'Recent reporting referenced a port-strike disruption affecting several carriers, including <mark>Northwind Logistics</mark> on its northern routes.',
+      src:'theloadstar.com/port-strike-impact-2026' },
+    { id:13, question:'Best logistics partners for sustainable packaging?', provider:'Gemini', surface:'Wikipedia', rank:4, sentiment:'neu', date:'8d', dateN:8,
+      quote:'Coverage of packaging initiatives names <mark>Northwind Logistics</mark> among providers piloting recyclable transit packaging.',
+      src:'en.wikipedia.org/wiki/Sustainable_packaging' },
+    { id:14, question:'Which freight platforms are best for SMB exporters?', provider:'Mistral', surface:'Owned page', rank:1, sentiment:'pos', date:'8d', dateN:8,
+      quote:'<mark>Northwind Logistics</mark> markets an SMB-export package bundling customs paperwork and consolidated shipping - cited as a fit for first-time exporters.',
+      src:'northwind.io/solutions/smb-export' },
+  ];
+
+  // topic per citation (keyed by id - avoids editing every row)
+  const TOPIC_BY_ID = {1:'Cross-border',2:'Last-mile',3:'Platforms',4:'Sustainability',5:'Integrations',6:'Cross-border',7:'E-commerce',8:'Visibility',9:'Hazmat',10:'Support',11:'Pricing',12:'Disruptions',13:'Sustainability',14:'Platforms'};
+  DATA.forEach(r=>r.topic = TOPIC_BY_ID[r.id]);
+
+  const SENT = {
+    pos:{ cls:'sent--pos', label:'Positive' },
+    neu:{ cls:'sent--neu', label:'Neutral' },
+    neg:{ cls:'sent--neg', label:'Negative' },
+  };
+
+  let state = { prov:'all', sent:'all', source:'all', topic:'all', q:'', sort:'date', dir:1, open:new Set() };
+
+  // dropdown dimension config
+  const SENT_LABEL = { pos:'Positive', neu:'Neutral', neg:'Negative' };
+  const DIMS = {
+    source: { label:'Source', opts:()=>[...new Set(DATA.map(r=>r.surface))], swatch:o=>SURFACE[o]?.c },
+    topic:  { label:'Topic',  opts:()=>[...new Set(DATA.map(r=>r.topic))].sort() },
+  };
+
+  const tbody = document.getElementById('tbody');
+
+  function filtered(){
+    let rows = DATA.filter(r=>{
+      if(state.prov!=='all' && r.provider!==state.prov) return false;
+      if(state.sent!=='all' && r.sentiment!==state.sent) return false;
+      if(state.source!=='all' && r.surface!==state.source) return false;
+      if(state.topic!=='all' && r.topic!==state.topic) return false;
+      if(state.q){
+        const t=(r.question+' '+r.quote).toLowerCase();
+        if(!t.includes(state.q.toLowerCase())) return false;
+      }
+      return true;
+    });
+    const k = state.sort;
+    rows.sort((a,b)=>{
+      let av,bv;
+      if(k==='date'){ av=a.dateN; bv=b.dateN; }
+      else if(k==='rank'){ av=a.rank; bv=b.rank; }
+      else if(k==='sentiment'){ const o={neg:0,neu:1,pos:2}; av=o[a.sentiment]; bv=o[b.sentiment]; }
+      else { av=(a[k]||'').toString().toLowerCase(); bv=(b[k]||'').toString().toLowerCase(); }
+      if(av<bv) return -1*state.dir; if(av>bv) return 1*state.dir; return 0;
+    });
+    return rows;
+  }
+
+  function rankCell(r){
+    const weak = r.rank>=4;
+    return `<span class="rank ${weak?'weak':''}">#${r.rank}<small>of named</small></span>`;
+  }
+
+  function render(){
+    const rows = filtered();
+    document.getElementById('resCount').textContent = rows.length;
+    document.getElementById('footNote').textContent = `Showing 1-${rows.length} of 128`;
+    renderDropdowns();
+    renderActiveFilters();
+    syncSegs();
+    if(!rows.length){
+      tbody.innerHTML = `<tr class="emptyrow"><td colspan="7">No citations match these filters. <span style="color:var(--coral-700);font-weight:600;cursor:pointer" id="clearF">Clear filters</span></td></tr>`;
+      document.getElementById('clearF').onclick = clearFilters;
+      return;
+    }
+    tbody.innerHTML = rows.map(r=>{
+      const p = PROV[r.provider], sf = SURFACE[r.surface], st = SENT[r.sentiment];
+      const isOpen = state.open.has(r.id);
+      const main = `<tr class="main ${isOpen?'open':''}" data-id="${r.id}">
+        <td><svg class="caret" width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 4l4 4-4 4"/></svg></td>
+        <td><div class="qcell"><span class="qtext">${r.question}</span></div></td>
+        <td><span class="prov"><span class="prov__ic" style="background:${p.bg}">${p.ab}</span>${r.provider}</span></td>
+        <td><span class="surface-chip"><span class="sd" style="background:${sf.c}"></span>${r.surface}</span></td>
+        <td>${rankCell(r)}</td>
+        <td><span class="sent ${st.cls}"><span class="sdot"></span>${st.label}</span></td>
+        <td><span class="datecell">${r.date} ago</span></td>
+      </tr>`;
+      if(!isOpen) return main;
+      const detail = `<tr class="detail" data-detail="${r.id}"><td colspan="7"><div class="detail-inner">
+        <div class="quote">
+          <div class="quote__l">Verbatim answer <span class="ans-prov"><span class="prov__ic" style="width:16px;height:16px;font-size:9px;background:${p.bg}">${p.ab}</span>${r.provider}</span></div>
+          <div class="quote__text">${r.quote}</div>
+          <div class="quote__meta">
+            <div>Position<b>#${r.rank} of named brands</b></div>
+            <div>Prompt run<b>${r.date} ago &middot; 1 of 10</b></div>
+            <div>Sentiment<b style="color:${r.sentiment==='neg'?'var(--status-critical)':'inherit'}">${st.label}</b></div>
+          </div>
+        </div>
+        <div class="detail-side">
+          <div class="src">
+            <div class="src__l">Traced source</div>
+            <div class="src__row">
+              <span class="src__fav" style="background:${sf.c}1A;color:${sf.c}"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 4.5h10M3 8h10M3 11.5h7"/></svg></span>
+              <div><div class="src__name">${r.surface}</div><div class="src__url">${r.src}</div></div>
+            </div>
+          </div>
+          <div class="detail-actions">
+            <button class="btn btn--secondary btn--sm"><svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M9 3H3v10h10V7M11 2h3v3M7 9l7-7"/></svg>Open source</button>
+            <button class="btn btn--ghost btn--sm">View full answer transcript</button>
+          </div>
+        </div>
+      </div></td></tr>`;
+      return main + detail;
+    }).join('');
+    bindRows();
+  }
+
+  function bindRows(){
+    tbody.querySelectorAll('tr.main').forEach(tr=>{
+      tr.onclick = ()=>{
+        const id = +tr.dataset.id;
+        if(state.open.has(id)) state.open.delete(id); else state.open.add(id);
+        render();
+      };
+    });
+  }
+
+  /* ---------- dropdown filters ---------- */
+  function renderDropdowns(){
+    document.querySelectorAll('.fdrop').forEach(dd=>{
+      const dim = dd.dataset.dim, cfg = DIMS[dim], cur = state[dim], active = cur!=='all';
+      dd.innerHTML = `
+        <button class="fdrop__btn ${active?'active':''}">
+          <span class="k">${cfg.label}:</span> <span class="${active?'cv':'v'}">${active?cur:'All'}</span>
+          <svg class="car" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6l4 4 4-4"/></svg>
+        </button>
+        <div class="fdrop__menu">
+          <div class="fdrop__item ${cur==='all'?'sel':''}" data-v="all">All ${cfg.label.toLowerCase()}s<svg class="ck" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 8.5l3.5 3.5L13 5"/></svg></div>
+          ${cfg.opts().map(o=>{
+            const sw = cfg.swatch?cfg.swatch(o):null;
+            return `<div class="fdrop__item ${cur===o?'sel':''}" data-v="${o}">${sw?`<span class="sw" style="background:${sw}"></span>`:''}${o}<svg class="ck" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 8.5l3.5 3.5L13 5"/></svg></div>`;
+          }).join('')}
+        </div>`;
+      dd.querySelector('.fdrop__btn').onclick = e=>{
+        e.stopPropagation();
+        const wasOpen = dd.classList.contains('open');
+        document.querySelectorAll('.fdrop').forEach(x=>x.classList.remove('open'));
+        if(!wasOpen) dd.classList.add('open');
+      };
+      dd.querySelectorAll('.fdrop__item').forEach(it=>it.onclick=e=>{
+        e.stopPropagation(); state[dim]=it.dataset.v; dd.classList.remove('open'); render();
+      });
+    });
+  }
+
+  /* ---------- active filter chips ---------- */
+  function renderActiveFilters(){
+    const el = document.getElementById('activeFilters');
+    const active = [];
+    if(state.prov!=='all')   active.push(['prov', `Provider: ${state.prov}`]);
+    if(state.sent!=='all')   active.push(['sent', `Sentiment: ${SENT_LABEL[state.sent]}`]);
+    if(state.source!=='all') active.push(['source', `Source: ${state.source}`]);
+    if(state.topic!=='all')  active.push(['topic', `Topic: ${state.topic}`]);
+    if(state.q)              active.push(['q', `Search: "${state.q}"`]);
+    if(!active.length){ el.style.display='none'; el.innerHTML=''; return; }
+    el.style.display='flex';
+    el.innerHTML = `<span class="activef__l">Filters</span>` +
+      active.map(([dim,txt])=>`<span class="afchip">${txt}<span class="x" data-clear="${dim}"><svg width="9" height="9" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M4 4l8 8M12 4l-8 8"/></svg></span></span>`).join('') +
+      `<button class="afclear" id="clearAllF">Clear all</button>`;
+    el.querySelectorAll('.x').forEach(x=>x.onclick=()=>{
+      const dim = x.dataset.clear;
+      if(dim==='q'){ state.q=''; document.getElementById('search').value=''; }
+      else if(dim==='prov') state.prov='all';
+      else if(dim==='sent') state.sent='all';
+      else state[dim]='all';
+      render();
+    });
+    document.getElementById('clearAllF').onclick = clearFilters;
+  }
+
+  function syncSegs(){
+    document.querySelectorAll('#provSeg button').forEach(b=>b.classList.toggle('on', b.dataset.p===state.prov));
+    document.querySelectorAll('#sentSeg button').forEach(b=>b.classList.toggle('on', b.dataset.s===state.sent));
+  }
+
+  function clearFilters(){
+    state.prov='all'; state.sent='all'; state.source='all'; state.topic='all'; state.q='';
+    document.getElementById('search').value='';
+    render();
+  }
+
+  /* filters */
+  document.querySelectorAll('#provSeg button').forEach(b=>b.onclick=()=>{
+    document.querySelectorAll('#provSeg button').forEach(x=>x.classList.remove('on')); b.classList.add('on');
+    state.prov=b.dataset.p; render();
+  });
+  document.querySelectorAll('#sentSeg button').forEach(b=>b.onclick=()=>{
+    document.querySelectorAll('#sentSeg button').forEach(x=>x.classList.remove('on')); b.classList.add('on');
+    state.sent=b.dataset.s; render();
+  });
+  document.getElementById('search').oninput = (e)=>{ state.q=e.target.value; render(); };
+
+  /* close dropdowns on outside click */
+  document.addEventListener('click', ()=>document.querySelectorAll('.fdrop.open').forEach(d=>d.classList.remove('open')));
+
+  /* sorting */
+  document.querySelectorAll('th.sortable').forEach(th=>{
+    th.onclick = ()=>{
+      const k = th.dataset.sort;
+      if(state.sort===k) state.dir*=-1; else { state.sort=k; state.dir = (k==='date'||k==='rank')?1:1; }
+      document.querySelectorAll('th .arr').forEach(a=>a.remove());
+      const arr=document.createElement('span'); arr.className='arr'; arr.innerHTML = state.dir>0?'&#9660;':'&#9650;';
+      th.appendChild(arr);
+      render();
+    };
+  });
+
+  /* sparkline (header) */
+  function renderSpark(el){
+    const vals=el.dataset.vals.split(',').map(Number); const W=el.clientWidth||120,H=34,pad=3;
+    const min=Math.min(...vals),max=Math.max(...vals),rng=(max-min)||1;
+    const x=i=>pad+i*(W-2*pad)/(vals.length-1),y=v=>H-pad-(v-min)/rng*(H-2*pad);
+    const pts=vals.map((v,i)=>[x(i),y(v)]);
+    const d=pts.map((p,i)=>(i?'L':'M')+p[0].toFixed(1)+' '+p[1].toFixed(1)).join(' ');
+    const color='var(--status-positive)';
+    const area=d+` L${pts.at(-1)[0].toFixed(1)} ${H-pad} L${pts[0][0].toFixed(1)} ${H-pad} Z`;
+    const last=pts.at(-1),id='g'+Math.random().toString(36).slice(2,7);
+    el.innerHTML=`<svg width="${W}" height="${H}" style="display:block"><defs><linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${color}" stop-opacity=".16"/><stop offset="1" stop-color="${color}" stop-opacity="0"/></linearGradient></defs><path d="${area}" fill="url(#${id})"/><path d="${d}" fill="none" stroke="${color}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><circle cx="${last[0].toFixed(1)}" cy="${last[1].toFixed(1)}" r="2.6" fill="${color}" stroke="#fff" stroke-width="1.5"/></svg>`;
+  }
+  document.querySelectorAll('.spark').forEach(renderSpark);
+
+  render();
+</script>
+</body>
+</html>

@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>sen-ai.fr - Redesign system</title>
+<link rel="stylesheet" href="tokens.css">
+<style>
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:var(--font-sans); color:var(--color-text-primary); background:var(--color-surface-sunken); -webkit-font-smoothing:antialiased; line-height:1.5; }
+  .wrap { max-width:920px; margin:0 auto; padding:var(--space-8) var(--space-6) var(--space-9); }
+  .brand { display:flex; align-items:center; gap:11px; margin-bottom:var(--space-7); }
+  .brand-mark { width:32px; height:32px; border-radius:var(--radius-md); background:var(--color-primary); position:relative; }
+  .brand-mark::after { content:""; position:absolute; inset:9px; border-radius:50%; border:3px solid #fff; }
+  .brand-name { font-size:17px; font-weight:700; letter-spacing:-.01em; }
+  .brand-name span { color:var(--color-text-muted); font-weight:500; }
+  h1 { font-size:32px; font-weight:700; letter-spacing:-.03em; line-height:1.1; }
+  .lede { margin-top:var(--space-3); font-size:16px; color:var(--color-text-secondary); max-width:62ch; }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:var(--space-7); }
+  a.card { display:block; text-decoration:none; color:inherit; background:var(--color-surface); border:1px solid var(--color-border); border-radius:var(--radius-lg); box-shadow:var(--shadow-xs); padding:var(--space-5); transition:box-shadow .14s, transform .14s; }
+  a.card:hover { box-shadow:var(--shadow-md); transform:translateY(-2px); }
+  a.card.wide { grid-column:1/3; }
+  .num { font:700 12px var(--font-mono); color:var(--coral-700); }
+  .ct { font-size:18px; font-weight:680; letter-spacing:-.015em; margin-top:8px; display:flex; align-items:center; gap:8px; }
+  .cd { font-size:13.5px; color:var(--color-text-secondary); margin-top:6px; line-height:1.5; }
+  .arrow { margin-top:14px; font-size:13px; font-weight:600; color:var(--coral-700); display:flex; align-items:center; gap:5px; }
+  .files { margin-top:var(--space-7); padding-top:var(--space-5); border-top:1px solid var(--color-border); font-size:13px; color:var(--color-text-muted); }
+  .files b { color:var(--color-text-primary); }
+  .files code { font:600 12px var(--font-mono); color:var(--coral-700); background:var(--color-primary-subtle); padding:1px 6px; border-radius:4px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="brand"><div class="brand-mark"></div><div class="brand-name">sen-ai<span>.fr</span></div></div>
+  <h1>Redesign system</h1>
+  <p class="lede">Five deliverables, one token foundation. Built for a developer to translate into Astro + Tailwind + Alpine without re-guessing intent. Coral kept; colour spent only where attention is earned.</p>
+
+  <div class="grid">
+    <a class="card wide" href="01-tokens.html">
+      <div class="num">DELIVERABLE 01</div>
+      <div class="ct">Design tokens</div>
+      <div class="cd">Colour ramps, semantic roles, status &amp; severity, type scale, spacing, radius, shadow tiers - plus copy-ready <code style="font-size:12px">tokens.css</code> and a <code style="font-size:12px">tailwind.config.js</code> theme extension. The single source of truth.</div>
+      <div class="arrow">Open &rarr;</div>
+    </a>
+    <a class="card" href="02-components.html">
+      <div class="num">DELIVERABLE 02</div>
+      <div class="ct">Component inventory</div>
+      <div class="cd">18 framework-free primitives - button, card, stat, chip, score, severity, inputs, table, tabs, sparkline, workspace card and more - live on the shipped component CSS.</div>
+      <div class="arrow">Open &rarr;</div>
+    </a>
+    <a class="card" href="03-flagship.html">
+      <div class="num">DELIVERABLE 03</div>
+      <div class="ct">Flagship pages</div>
+      <div class="cd">Agency cross-workspace overview (12 verticals, crisis-first) and the scan-results Overview - one clickable prototype. Click any workspace card to drill in.</div>
+      <div class="arrow">Open &rarr;</div>
+    </a>
+    <a class="card" href="04-navigation.html">
+      <div class="num">DELIVERABLE 04</div>
+      <div class="ct">Navigation restructure</div>
+      <div class="cd">16 flat tabs to 3 honest macros, the working 2-level nav, and click-through predictions for the top-3 user flows.</div>
+      <div class="arrow">Open &rarr;</div>
+    </a>
+    <a class="card" href="05-mobile.html">
+      <div class="num">DELIVERABLE 05</div>
+      <div class="ct">Mobile strategy</div>
+      <div class="cd">Hybrid: mobile-first marketing &amp; auth, desktop-class app with a graceful mobile gate. Defended, with the gate mocked on a phone.</div>
+      <div class="arrow">Open &rarr;</div>
+    </a>
+    <a class="card wide" href="06-citations.html">
+      <div class="num">HI-FI SCREEN</div>
+      <div class="ct">Citations tab <span class="chip chip--sm chip--neutral" style="font-weight:600">new</span></div>
+      <div class="cd">The densest real surface taken to full fidelity: sortable citations table with inline verbatim-answer expansion (no modal), source tracing, provider / sentiment segments plus Source &amp; Topic dropdown filters with a unified active-filter chip row. Proves the system holds under real data density.</div>
+      <div class="arrow">Open &rarr;</div>
+    </a>
+    <a class="card wide" href="07-create-scan.html">
+      <div class="num">HI-FI SCREEN</div>
+      <div class="ct">Create-scan wizard <span class="chip chip--sm chip--neutral" style="font-weight:600">new</span></div>
+      <div class="cd">The full input flow taken to fidelity: 4-step wizard with inline validation (no modal), live credit-cost estimate, editable question list with vertical-aware suggestions, provider selection, and a launch-to-success state. Exercises every form primitive end to end.</div>
+      <div class="arrow">Open &rarr;</div>
+    </a>
+    <a class="card wide" href="08-compliance.html">
+      <div class="num">HI-FI SCREEN</div>
+      <div class="ct">Compliance hub <span class="chip chip--sm chip--neutral" style="font-weight:600">new</span></div>
+      <div class="cd">The AI Act compliance record: attributable audit log (filterable), DPIA summary, sub-processors table with DPA status, and a versioned methodology log - with print CSS so the PDF renders from the same HTML. Use the browser print dialog to preview the document export.</div>
+      <div class="arrow">Open &rarr;</div>
+    </a>
+    <a class="card wide" href="09-content.html">
+      <div class="num">HI-FI SCREEN</div>
+      <div class="ct">Content pipeline <span class="chip chip--sm chip--neutral" style="font-weight:600">new</span></div>
+      <div class="cd">The product loop as a board: scan gaps become suggested content, drafted (with AI), reviewed, then published. Drag-and-drop between columns with live counts, multi-dimension filters (brand, type, topic, assignee) with active-filter chips, AI-draft progress, and gap accents. A fourth interaction pattern - the kanban - on the same tokens.</div>
+      <div class="arrow">Open &rarr;</div>
+    </a>
+    <a class="card wide" href="10-dashboard.html">
+      <div class="num">HI-FI SCREEN</div>
+      <div class="ct">Workspace dashboard <span class="chip chip--sm chip--neutral" style="font-weight:600">new</span></div>
+      <div class="cd">The single-brand cockpit (distinct from the agency overview): hero with grade + mention rate + trend, a 4-up KPI row, recent-scans history table, provider breakdown, next scheduled scan, top gaps that deep-link into the content pipeline, and quick actions. The workspace switcher ties it to the agency layer.</div>
+      <div class="arrow">Open &rarr;</div>
+    </a>
+    <a class="card wide" href="11-branding.html">
+      <div class="num">HI-FI SCREEN</div>
+      <div class="ct">White-label branding <span class="chip chip--sm chip--neutral" style="font-weight:600">new</span></div>
+      <div class="cd">The multi-tenant proof: agencies set logo (drag-drop), display name, and a curated accent, with a live client-facing preview that recolours in real time. The accent recolours interactive elements only - greys, text and status colours stay fixed so reports remain audit-grade. Shows how the token system re-skins without touching components.</div>
+      <div class="arrow">Open &rarr;</div>
+    </a>
+    <a class="card wide" href="12-marketing.html">
+      <div class="num">HI-FI SCREEN</div>
+      <div class="ct">Marketing &amp; auth <span class="chip chip--sm chip--neutral" style="font-weight:600">new</span></div>
+      <div class="cd">The anonymous tier, mobile-first per the mobile decision: a landing page (hero, live sample result, how-it-works, sticky CTA) and a register screen (SSO + email, 48px+ tap targets) shown in device frames. Same tokens as the app, fluid up to desktop.</div>
+      <div class="arrow">Open &rarr;</div>
+    </a>
+  </div>
+
+  <div class="files">
+    <b>Shipped assets:</b> &nbsp;<code>tokens.css</code> &nbsp;<code>components.css</code> &nbsp;- imported by every page above and ready to drop into the Astro root layout.
+  </div>
+</div>
+</body>
+</html>

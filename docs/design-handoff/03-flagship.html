@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>sen-ai.fr - Flagship pages</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="components.css">
+<style>
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:var(--font-sans); color:var(--color-text-primary); background:var(--color-surface-sunken); -webkit-font-smoothing:antialiased; line-height:1.5; }
+  .app { display:grid; grid-template-columns:236px 1fr; min-height:100vh; }
+
+  /* ---------- SIDEBAR (white-label) ---------- */
+  .side { position:sticky; top:0; align-self:start; height:100vh; background:var(--color-surface); border-right:1px solid var(--color-border); display:flex; flex-direction:column; padding:var(--space-4) var(--space-3); }
+  .wl { display:flex; align-items:center; gap:10px; padding:6px 8px 16px; }
+  .wl__logo { width:30px; height:30px; border-radius:var(--radius-md); background:linear-gradient(135deg,#3B4252,#1F2937); color:#fff; display:grid; place-items:center; font-weight:750; font-size:14px; flex:none; }
+  .wl__name { font-size:14px; font-weight:680; letter-spacing:-.01em; }
+  .wl__tag { font-size:11px; color:var(--color-text-muted); }
+  .side__powered { margin-top:auto; padding:12px 8px 4px; border-top:1px solid var(--color-border); font-size:11px; color:var(--color-text-muted); display:flex; align-items:center; gap:6px; }
+  .side__powered .m { width:14px; height:14px; border-radius:4px; background:var(--color-primary); position:relative; }
+  .side__powered .m::after { content:""; position:absolute; inset:4px; border-radius:50%; border:1.5px solid #fff; }
+  .navg { margin-bottom:14px; }
+  .navg__l { font-size:10.5px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; color:var(--color-text-muted); padding:0 8px; margin-bottom:4px; }
+  .navi { display:flex; align-items:center; gap:9px; padding:7px 8px; border-radius:var(--radius-md); font-size:13.5px; color:var(--color-text-secondary); cursor:pointer; transition:.12s; text-decoration:none; }
+  .navi:hover { background:var(--color-surface-sunken); color:var(--color-text-primary); }
+  .navi.active { background:var(--color-primary-subtle); color:var(--coral-700); font-weight:600; }
+  .navi .ic { width:17px; height:17px; flex:none; }
+  .navi .badge { margin-left:auto; font-size:10.5px; font-weight:700; color:#fff; background:var(--status-critical); border-radius:var(--radius-full); padding:1px 6px; }
+
+  /* ---------- TOP BAR ---------- */
+  .top { position:sticky; top:0; z-index:20; background:rgba(255,255,255,.86); backdrop-filter:blur(8px); border-bottom:1px solid var(--color-border); padding:0 var(--space-6); height:60px; display:flex; align-items:center; gap:16px; }
+  .crumb { display:flex; align-items:center; gap:8px; font-size:13px; color:var(--color-text-muted); }
+  .crumb a { color:var(--color-text-muted); text-decoration:none; cursor:pointer; }
+  .crumb a:hover { color:var(--color-text-primary); }
+  .crumb .sep { color:var(--color-border-strong); }
+  .crumb .here { color:var(--color-text-primary); font-weight:600; }
+  .top__search { margin-left:8px; flex:1; max-width:300px; position:relative; }
+  .top__search input { width:100%; height:36px; border:1px solid var(--color-border-strong); border-radius:var(--radius-md); padding:0 12px 0 34px; font-size:13px; font-family:var(--font-sans); background:var(--color-surface-sunken); }
+  .top__search input:focus { outline:none; border-color:var(--color-primary); box-shadow:0 0 0 3px var(--coral-100); background:#fff; }
+  .top__search .si { position:absolute; left:11px; top:50%; transform:translateY(-50%); color:var(--color-text-muted); }
+  .top__right { margin-left:auto; display:flex; align-items:center; gap:14px; }
+  .credits { display:flex; align-items:center; gap:7px; font-size:12.5px; color:var(--color-text-secondary); background:var(--color-surface-sunken); border:1px solid var(--color-border); padding:6px 11px; border-radius:var(--radius-full); }
+  .credits b { color:var(--color-text-primary); font-weight:700; }
+  .avatar { width:32px; height:32px; border-radius:50%; background:linear-gradient(135deg,var(--coral-400),var(--coral-600)); color:#fff; display:grid; place-items:center; font-size:12px; font-weight:700; }
+
+  .view { padding:var(--space-6); max-width:1280px; }
+  .hidden { display:none !important; }
+
+  /* ---------- page head ---------- */
+  .ph { display:flex; align-items:flex-end; justify-content:space-between; gap:20px; margin-bottom:var(--space-5); }
+  .ph h1 { font-size:24px; font-weight:680; letter-spacing:-.025em; }
+  .ph p { font-size:13.5px; color:var(--color-text-secondary); margin-top:4px; }
+
+  /* ---------- summary strip ---------- */
+  .summary { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:var(--space-5); }
+  .sumcard { background:var(--color-surface); border:1px solid var(--color-border); border-radius:var(--radius-lg); padding:16px 18px; box-shadow:var(--shadow-xs); }
+  .sumcard.alert { border-color:#FAD9D5; background:linear-gradient(180deg,var(--status-critical-bg),#fff 60%); }
+  .sumcard__l { font-size:11px; font-weight:600; letter-spacing:.05em; text-transform:uppercase; color:var(--color-text-muted); }
+  .sumcard__v { font-size:28px; font-weight:720; letter-spacing:-.025em; margin-top:7px; line-height:1; }
+  .sumcard.alert .sumcard__v { color:var(--status-critical); }
+  .sumcard__m { font-size:12px; color:var(--color-text-muted); margin-top:7px; display:flex; align-items:center; gap:5px; }
+
+  /* ---------- toolbar ---------- */
+  .toolbar { display:flex; align-items:center; gap:12px; margin-bottom:16px; }
+  .toolbar__title { font-size:13px; font-weight:650; color:var(--color-text-secondary); }
+  .seg { display:flex; gap:2px; padding:3px; background:var(--color-surface-muted); border-radius:var(--radius-md); }
+  .seg button { border:0; background:transparent; font:600 12.5px var(--font-sans); color:var(--color-text-secondary); padding:6px 11px; border-radius:var(--radius-sm); cursor:pointer; transition:.12s; }
+  .seg button.on { background:var(--color-surface); color:var(--color-text-primary); box-shadow:var(--shadow-xs); }
+  .toolbar__right { margin-left:auto; display:flex; align-items:center; gap:10px; }
+  .viewtoggle { display:flex; border:1px solid var(--color-border-strong); border-radius:var(--radius-md); overflow:hidden; }
+  .viewtoggle button { width:34px; height:34px; display:grid; place-items:center; border:0; background:var(--color-surface); color:var(--color-text-muted); cursor:pointer; }
+  .viewtoggle button.on { background:var(--color-surface-muted); color:var(--color-text-primary); }
+
+  /* ---------- workspace grid ---------- */
+  .wsgrid { display:grid; grid-template-columns:repeat(3,1fr); gap:16px; }
+  .wscard { background:var(--color-surface); border:1px solid var(--color-border); border-radius:var(--radius-lg); padding:18px; box-shadow:var(--shadow-xs); cursor:pointer; transition:box-shadow .14s, transform .14s, border-color .14s; position:relative; }
+  .wscard:hover { box-shadow:var(--shadow-md); transform:translateY(-2px); }
+  .wscard.crisis { border-left:3px solid var(--status-critical); }
+  .wscard.warn { border-left:3px solid var(--sev-medium); }
+  .wscard__head { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; }
+  .wscard__head > div:first-child { min-width:0; }
+  .wscard__name { font-size:15px; font-weight:680; letter-spacing:-.01em; line-height:1.25; }
+  .wscard__domain { font-size:12px; color:var(--color-text-muted); margin-top:3px; line-height:1.3; }
+  .wscard__vert { display:inline-block; font-size:10.5px; font-weight:600; color:var(--color-text-muted); background:var(--color-surface-sunken); border:1px solid var(--color-border); padding:2px 7px; border-radius:var(--radius-full); margin-top:8px; }
+  .wscard__chips { display:flex; flex-wrap:wrap; gap:7px; margin:14px 0; min-height:24px; }
+  .wscard__stats { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; padding-top:14px; border-top:1px solid var(--color-border); }
+  .wsm__v { font-size:18px; font-weight:720; letter-spacing:-.02em; }
+  .wsm__v.neg { color:var(--status-critical); }
+  .wsm__l { font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:.04em; color:var(--color-text-muted); margin-top:1px; }
+  .wscard__foot { display:flex; align-items:center; justify-content:space-between; margin-top:14px; }
+  .wscard__time { font-size:11.5px; color:var(--color-text-muted); }
+  .wscard__open { font-size:12px; font-weight:600; color:var(--coral-700); display:flex; align-items:center; gap:4px; opacity:0; transition:.14s; }
+  .wscard:hover .wscard__open { opacity:1; }
+
+  /* ============ SCAN RESULTS ============ */
+  .srhead { background:var(--color-surface); border-bottom:1px solid var(--color-border); padding:18px var(--space-6) 0; position:sticky; top:60px; z-index:15; }
+  .srhead__top { display:flex; align-items:center; gap:16px; }
+  .srhead__grade { flex:none; }
+  .srhead__id h1 { font-size:21px; font-weight:700; letter-spacing:-.02em; display:flex; align-items:center; gap:10px; }
+  .srhead__id .dom { font-size:13px; color:var(--color-text-muted); margin-top:2px; display:flex; align-items:center; gap:8px; }
+  .srhead__rate { display:flex; align-items:center; gap:20px; margin-left:8px; padding-left:24px; border-left:1px solid var(--color-border); }
+  .srhead__ratev { font-size:30px; font-weight:740; letter-spacing:-.03em; line-height:1; }
+  .srhead__ratel { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.05em; color:var(--color-text-muted); margin-bottom:5px; }
+  .srhead__controls { margin-left:auto; display:flex; align-items:center; gap:10px; }
+  .ctl { display:flex; align-items:center; gap:7px; height:36px; padding:0 12px; border:1px solid var(--color-border-strong); border-radius:var(--radius-md); font-size:13px; font-weight:500; color:var(--color-text-secondary); background:var(--color-surface); cursor:pointer; transition:.12s; }
+  .ctl:hover { background:var(--color-surface-sunken); }
+  .ctl .ic { width:15px; height:15px; color:var(--color-text-muted); }
+  .srhead__tabs { margin-top:18px; }
+
+  .srbody { padding:var(--space-6); max-width:1280px; }
+  .ovl { display:grid; grid-template-columns:1fr 1fr 1fr 1fr; gap:16px; margin-bottom:16px; }
+  .panel { background:var(--color-surface); border:1px solid var(--color-border); border-radius:var(--radius-lg); box-shadow:var(--shadow-xs); }
+  .panel__head { display:flex; align-items:center; justify-content:space-between; padding:14px 18px; border-bottom:1px solid var(--color-border); }
+  .panel__title { font-size:14px; font-weight:650; }
+  .panel__act { font-size:12px; font-weight:600; color:var(--coral-700); cursor:pointer; }
+  .panel__body { padding:18px; }
+  .grid-12 { display:grid; grid-template-columns:repeat(12,1fr); gap:16px; }
+  .col-7 { grid-column:span 7; } .col-5 { grid-column:span 5; } .col-8 { grid-column:span 8; } .col-4 { grid-column:span 4; } .col-6 { grid-column:span 6; }
+
+  /* provider bars */
+  .prov { display:flex; flex-direction:column; gap:14px; }
+  .prov__row { display:grid; grid-template-columns:96px 1fr 42px; align-items:center; gap:12px; }
+  .prov__name { font-size:13px; font-weight:600; display:flex; align-items:center; gap:7px; }
+  .prov__ic { width:18px; height:18px; border-radius:5px; display:grid; place-items:center; color:#fff; font-size:10px; font-weight:700; flex:none; }
+  .prov__track { height:8px; background:var(--color-surface-muted); border-radius:var(--radius-full); overflow:hidden; }
+  .prov__fill { height:100%; border-radius:var(--radius-full); }
+  .prov__val { font-size:13px; font-weight:700; text-align:right; }
+
+  /* question list */
+  .qlist { display:flex; flex-direction:column; }
+  .qrow { display:flex; align-items:center; gap:12px; padding:12px 0; border-bottom:1px solid var(--color-border); }
+  .qrow:last-child { border-bottom:0; }
+  .qrow__q { font-size:13.5px; color:var(--color-text-primary); flex:1; }
+  .qrow__cited { font-size:12px; font-weight:600; color:var(--color-text-secondary); white-space:nowrap; }
+
+  .clist { display:flex; flex-direction:column; }
+  .crow { display:flex; align-items:center; gap:12px; padding:11px 0; border-bottom:1px solid var(--color-border); }
+  .crow:last-child { border-bottom:0; }
+  .crow__rank { width:20px; font-size:13px; font-weight:700; color:var(--color-text-muted); }
+  .crow__name { font-size:13.5px; font-weight:600; flex:1; }
+  .crow__name.you { color:var(--coral-700); }
+  .crow__bar { width:120px; height:7px; background:var(--color-surface-muted); border-radius:var(--radius-full); overflow:hidden; }
+  .crow__fill { height:100%; background:var(--color-text-secondary); border-radius:var(--radius-full); }
+  .crow__fill.you { background:var(--color-primary); }
+  .crow__val { width:38px; text-align:right; font-size:13px; font-weight:700; }
+
+  .actlist { display:flex; flex-direction:column; gap:2px; }
+  .actrow { display:flex; gap:11px; padding:11px 0; border-bottom:1px solid var(--color-border); align-items:flex-start; }
+  .actrow:last-child { border-bottom:0; }
+  .actrow__dot { width:8px; height:8px; border-radius:50%; margin-top:5px; flex:none; }
+  .actrow__t { font-size:13px; color:var(--color-text-primary); }
+  .actrow__time { font-size:11.5px; color:var(--color-text-muted); margin-top:1px; }
+
+  .bignum { display:flex; align-items:baseline; gap:8px; }
+  .bignum b { font-size:26px; font-weight:730; letter-spacing:-.02em; }
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- ============ SIDEBAR ============ -->
+  <aside class="side">
+    <div class="wl">
+      <div class="wl__logo">M</div>
+      <div><div class="wl__name">Meridian</div><div class="wl__tag">Agency workspace</div></div>
+    </div>
+    <div class="navg">
+      <div class="navg__l">Agency</div>
+      <a class="navi active" data-go="agency"><svg class="ic" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2.5" y="2.5" width="5.5" height="5.5" rx="1.2"/><rect x="10" y="2.5" width="5.5" height="5.5" rx="1.2"/><rect x="2.5" y="10" width="5.5" height="5.5" rx="1.2"/><rect x="10" y="10" width="5.5" height="5.5" rx="1.2"/></svg>Overview <span class="badge">1</span></a>
+      <a class="navi" data-go="agency"><svg class="ic" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 9h12M9 3v12"/></svg>Bulk create</a>
+      <a class="navi"><svg class="ic" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="9" cy="9" r="6.5"/><path d="M9 5.5v3.5l2.5 1.5"/></svg>Branding</a>
+    </div>
+    <div class="navg">
+      <div class="navg__l">Workspace</div>
+      <a class="navi"><svg class="ic" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 15V8l6-4.5L15 8v7"/><path d="M7 15v-4h4v4"/></svg>Dashboard</a>
+      <a class="navi" data-go="scan"><svg class="ic" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="8" r="5"/><path d="M12 12l3 3"/></svg>Scans</a>
+      <a class="navi"><svg class="ic" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="3" width="12" height="12" rx="1.5"/><path d="M6 7h6M6 10h4"/></svg>Content</a>
+      <a class="navi"><svg class="ic" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 3h7l3 3v9H4z"/><path d="M7 9h4M7 11.5h4"/></svg>Reports</a>
+      <a class="navi"><svg class="ic" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M9 2.5l5.5 2.5v4c0 3.2-2.3 5.6-5.5 6.5C5.8 14.6 3.5 12.2 3.5 9V5z"/></svg>Compliance</a>
+      <a class="navi"><svg class="ic" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="9" cy="9" r="2.5"/><path d="M9 2v2M9 14v2M2 9h2M14 9h2"/></svg>Settings</a>
+    </div>
+    <div class="side__powered"><span class="m"></span>Powered by sen-ai.fr</div>
+  </aside>
+
+  <!-- ============ MAIN ============ -->
+  <div>
+    <!-- TOP BAR -->
+    <div class="top">
+      <div class="crumb" id="crumb">
+        <a data-go="agency">Meridian</a><span class="sep">/</span><span class="here">Cross-workspace overview</span>
+      </div>
+      <div class="top__search">
+        <svg class="si" width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="7" cy="7" r="4.5"/><path d="M11 11l3 3"/></svg>
+        <input placeholder="Search workspaces, brands, domains...">
+      </div>
+      <div class="top__right">
+        <div class="credits"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6"/><path d="M8 5v6M5.5 8h5"/></svg><b>2,140</b> credits</div>
+        <button class="btn btn--primary btn--md" data-go="scan"><svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 3v10M3 8h10"/></svg>New scan</button>
+        <div class="avatar">SK</div>
+      </div>
+    </div>
+
+    <!-- ===== VIEW: AGENCY OVERVIEW ===== -->
+    <div class="view" id="view-agency">
+      <div class="ph">
+        <div>
+          <h1>Cross-workspace overview</h1>
+          <p>12 client brands - sorted by crisis severity, then weakest mention rate. One brand needs attention now.</p>
+        </div>
+        <button class="btn btn--secondary btn--md"><svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M8 2v8M4.5 6.5L8 10l3.5-3.5M3 13h10"/></svg>Export all (PDF)</button>
+      </div>
+
+      <div class="summary">
+        <div class="sumcard alert">
+          <div class="sumcard__l">In crisis</div>
+          <div class="sumcard__v">1</div>
+          <div class="sumcard__m"><span class="sev sev--critical" style="padding:2px 8px"><span class="sev__dot"></span>Voltaic Motors</span></div>
+        </div>
+        <div class="sumcard">
+          <div class="sumcard__l">Avg. mention rate</div>
+          <div class="sumcard__v">54%</div>
+          <div class="sumcard__m"><span style="color:var(--status-positive);font-weight:650">&#9650; 3 pts</span> vs last week</div>
+        </div>
+        <div class="sumcard">
+          <div class="sumcard__l">Needs attention</div>
+          <div class="sumcard__v">4</div>
+          <div class="sumcard__m">grade C or below</div>
+        </div>
+        <div class="sumcard">
+          <div class="sumcard__l">Citations this week</div>
+          <div class="sumcard__v">3,418</div>
+          <div class="sumcard__m">across 4 providers</div>
+        </div>
+      </div>
+
+      <div class="toolbar">
+        <span class="toolbar__title">Sort</span>
+        <div class="seg">
+          <button class="on">Crisis severity</button>
+          <button>Weakest mention</button>
+          <button>Name</button>
+          <button>Recently scanned</button>
+        </div>
+        <div class="toolbar__right">
+          <div class="seg"><button class="on">All</button><button>Crisis</button><button>Needs work</button><button>Healthy</button></div>
+          <div class="viewtoggle"><button class="on"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="5" height="5" rx="1"/><rect x="9" y="2" width="5" height="5" rx="1"/><rect x="2" y="9" width="5" height="5" rx="1"/><rect x="9" y="9" width="5" height="5" rx="1"/></svg></button><button><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4h12M2 8h12M2 12h12"/></svg></button></div>
+        </div>
+      </div>
+
+      <div class="wsgrid" id="wsgrid"></div>
+    </div>
+
+    <!-- ===== VIEW: SCAN RESULTS ===== -->
+    <div class="view hidden" id="view-scan" style="padding:0;max-width:none">
+      <!-- sticky results header -->
+      <div class="srhead">
+        <div class="srhead__top">
+          <div class="srhead__grade"><div class="score score--lg score--c" id="sr-grade">C</div></div>
+          <div class="srhead__id">
+            <h1 id="sr-name">Northwind Logistics</h1>
+            <div class="dom"><span id="sr-dom">northwind.io</span><span class="wscard__vert" style="margin:0" id="sr-vert">B2B services</span></div>
+          </div>
+          <div class="srhead__rate">
+            <div><div class="srhead__ratel">Mention rate</div><div class="srhead__ratev" id="sr-rate">41%</div></div>
+            <div><div class="srhead__ratel">Trend (8w)</div><div class="spark" id="sr-spark" data-vals="30,33,31,36,38,37,40,41" style="width:120px"></div></div>
+            <div><div class="srhead__ratel">vs last</div><div style="font-size:18px;font-weight:700;color:var(--status-positive)">&#9650; 4 pts</div></div>
+          </div>
+          <div class="srhead__controls">
+            <div class="ctl"><svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2.5" y="3" width="11" height="10" rx="1.5"/><path d="M2.5 6h11M6 1.5v3M10 1.5v3"/></svg>Last 30 days</div>
+            <div class="ctl"><svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6"/></svg>All providers</div>
+            <span class="chip chip--md chip--neutral"><span class="chip__dot"></span>Weekly</span>
+            <button class="btn btn--primary btn--md"><svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M13 8a5 5 0 1 1-1.5-3.5M13 2v3h-3"/></svg>Rescan</button>
+          </div>
+        </div>
+        <!-- 2-level tabs -->
+        <div class="srhead__tabs">
+          <div class="tabs__macro" style="max-width:560px">
+            <button aria-selected="true">Visibility <span class="count">5</span></button>
+            <button aria-selected="false">Investigation <span class="count">8</span></button>
+            <button aria-selected="false">Action <span class="count">3</span></button>
+          </div>
+          <div class="tabs__leaf">
+            <button aria-selected="true">Overview</button>
+            <button aria-selected="false">Topics</button>
+            <button aria-selected="false">Personas</button>
+            <button aria-selected="false">Questions</button>
+            <button aria-selected="false">Citations</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- overview body -->
+      <div class="srbody">
+        <!-- KPI row -->
+        <div class="ovl">
+          <div class="card card--flat stat"><div class="stat__label">Mention rate</div><div class="stat__row"><div class="stat__value">41%</div><span class="stat__delta stat__delta--up">&#9650; 4</span></div><div class="spark" data-vals="30,33,31,36,38,37,40,41"></div></div>
+          <div class="card card--flat stat"><div class="stat__label">Citations</div><div class="stat__row"><div class="stat__value">128</div><span class="stat__delta stat__delta--up">&#9650; 12%</span></div><div class="spark" data-vals="80,85,90,98,104,112,120,128"></div></div>
+          <div class="card card--flat stat"><div class="stat__label">Avg. sentiment</div><div class="stat__row"><div class="stat__value">+0.18</div><span class="stat__delta stat__delta--flat">&middot; flat</span></div><div class="spark" data-vals="18,16,20,17,19,18,17,18" data-tone="flat"></div></div>
+          <div class="card card--flat stat"><div class="stat__label">Share of voice</div><div class="stat__row"><div class="stat__value">18%</div><span class="stat__delta stat__delta--down">&#9660; 2</span></div><div class="spark" data-vals="24,23,22,21,20,19,19,18" data-tone="down"></div></div>
+        </div>
+
+        <div class="grid-12">
+          <!-- providers -->
+          <div class="panel col-5">
+            <div class="panel__head"><div class="panel__title">Citation rate by provider</div><div class="panel__act">Details</div></div>
+            <div class="panel__body"><div class="prov">
+              <div class="prov__row"><div class="prov__name"><span class="prov__ic" style="background:#10A37F">AI</span>OpenAI</div><div class="prov__track"><div class="prov__fill" style="width:52%;background:var(--status-positive)"></div></div><div class="prov__val">52%</div></div>
+              <div class="prov__row"><div class="prov__name"><span class="prov__ic" style="background:#4285F4">G</span>Gemini</div><div class="prov__track"><div class="prov__fill" style="width:44%;background:var(--sev-low)"></div></div><div class="prov__val">44%</div></div>
+              <div class="prov__row"><div class="prov__name"><span class="prov__ic" style="background:#D97757">C</span>Claude</div><div class="prov__track"><div class="prov__fill" style="width:38%;background:var(--sev-medium)"></div></div><div class="prov__val">38%</div></div>
+              <div class="prov__row"><div class="prov__name"><span class="prov__ic" style="background:#FF7000">M</span>Mistral</div><div class="prov__track"><div class="prov__fill" style="width:29%;background:var(--sev-high)"></div></div><div class="prov__val">29%</div></div>
+            </div></div>
+          </div>
+
+          <!-- competitors -->
+          <div class="panel col-4">
+            <div class="panel__head"><div class="panel__title">Share of voice</div><div class="panel__act">Competitors</div></div>
+            <div class="panel__body"><div class="clist">
+              <div class="crow"><span class="crow__rank">1</span><span class="crow__name">Meridian Freight</span><span class="crow__bar"><span class="crow__fill" style="width:100%"></span></span><span class="crow__val">31%</span></div>
+              <div class="crow"><span class="crow__rank">2</span><span class="crow__name">Helios Group</span><span class="crow__bar"><span class="crow__fill" style="width:71%"></span></span><span class="crow__val">22%</span></div>
+              <div class="crow"><span class="crow__rank">3</span><span class="crow__name you">Northwind</span><span class="crow__bar"><span class="crow__fill you" style="width:58%"></span></span><span class="crow__val">18%</span></div>
+              <div class="crow"><span class="crow__rank">4</span><span class="crow__name">Cascade Lines</span><span class="crow__bar"><span class="crow__fill" style="width:42%"></span></span><span class="crow__val">13%</span></div>
+              <div class="crow"><span class="crow__rank">5</span><span class="crow__name">Other</span><span class="crow__bar"><span class="crow__fill" style="width:52%"></span></span><span class="crow__val">16%</span></div>
+            </div></div>
+          </div>
+
+          <!-- sentiment + actions -->
+          <div class="panel col-3">
+            <div class="panel__head"><div class="panel__title">Sentiment</div></div>
+            <div class="panel__body" style="display:flex;flex-direction:column;gap:14px">
+              <span class="sentiment" style="align-self:flex-start"><span class="pos">&#9650; 71</span><span class="neu">42</span><span class="neg">&#9660; 15</span></span>
+              <div style="font-size:12.5px;color:var(--color-text-secondary);line-height:1.5">Net positive. Two recurring complaints about delivery tracking surfaced in 6 answers.</div>
+              <div class="bignum"><b>+0.18</b><span class="chip chip--sm chip--neutral">stable</span></div>
+            </div>
+          </div>
+
+          <!-- top questions -->
+          <div class="panel col-7">
+            <div class="panel__head"><div class="panel__title">Top buyer questions</div><div class="panel__act">All questions</div></div>
+            <div class="panel__body"><div class="qlist">
+              <div class="qrow"><span class="sev sev--low" style="padding:3px 9px"><span class="sev__dot"></span>Cited</span><span class="qrow__q">Which logistics providers handle cross-border shipping best?</span><span class="qrow__cited">8 / 10</span></div>
+              <div class="qrow"><span class="sev sev--medium" style="padding:3px 9px"><span class="sev__dot"></span>Weak</span><span class="qrow__q">Who offers the most reliable last-mile delivery?</span><span class="qrow__cited">4 / 10</span></div>
+              <div class="qrow"><span class="sev sev--low" style="padding:3px 9px"><span class="sev__dot"></span>Cited</span><span class="qrow__q">Best B2B freight platforms for mid-market companies?</span><span class="qrow__cited">7 / 10</span></div>
+              <div class="qrow"><span class="sev sev--high" style="padding:3px 9px"><span class="sev__dot"></span>Missing</span><span class="qrow__q">Which carriers have the best sustainability record?</span><span class="qrow__cited">1 / 10</span></div>
+            </div></div>
+          </div>
+
+          <!-- recent activity -->
+          <div class="panel col-5">
+            <div class="panel__head"><div class="panel__title">Recent activity</div></div>
+            <div class="panel__body"><div class="actlist">
+              <div class="actrow"><span class="actrow__dot" style="background:var(--status-positive)"></span><div><div class="actrow__t">Weekly scan completed - 10 prompts, 4 providers</div><div class="actrow__time">2 hours ago</div></div></div>
+              <div class="actrow"><span class="actrow__dot" style="background:var(--sev-medium)"></span><div><div class="actrow__t">Mention rate dipped on Mistral (-5 pts)</div><div class="actrow__time">2 hours ago</div></div></div>
+              <div class="actrow"><span class="actrow__dot" style="background:var(--status-info)"></span><div><div class="actrow__t">New competitor detected: Cascade Lines</div><div class="actrow__time">Yesterday</div></div></div>
+              <div class="actrow"><span class="actrow__dot" style="background:var(--status-positive)"></span><div><div class="actrow__t">Wikipedia citation gained on "freight brokerage"</div><div class="actrow__time">3 days ago</div></div></div>
+            </div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  /* ---------- workspace data (multi-vertical, sorted crisis-first) ---------- */
+  const WS = [
+    { name:'Voltaic Motors', dom:'voltaic.com', vert:'Automotive', grade:'D', status:'crisis', mention:19, sent:'-0.42', cites:87, sched:'Auto', time:'4 hours ago', sentNeg:true },
+    { name:'Northwind Logistics', dom:'northwind.io', vert:'B2B services', grade:'C', status:'warn', mention:41, sent:'+0.18', cites:128, sched:'Weekly', time:'2 hours ago' },
+    { name:'Cendrar Travel', dom:'cendrar.fr', vert:'Travel', grade:'C', status:'warn', mention:44, sent:'+0.10', cites:152, sched:'Monthly', time:'1 day ago' },
+    { name:'Lumen Finance', dom:'lumen.com', vert:'Finance', grade:'C', status:'warn', mention:47, sent:'+0.22', cites:174, sched:'Weekly', time:'6 hours ago' },
+    { name:'Aurelis Skincare', dom:'aurelis.com', vert:'Cosmetics', grade:'A', status:'ok', mention:74, sent:'+0.51', cites:312, sched:'Weekly', time:'3 hours ago' },
+    { name:'Cobalt Home', dom:'cobalthome.com', vert:'Consumer goods', grade:'B', status:'ok', mention:63, sent:'+0.34', cites:241, sched:'Weekly', time:'5 hours ago' },
+    { name:'Ferro Tools', dom:'ferrotools.de', vert:'Industrial', grade:'B', status:'ok', mention:61, sent:'+0.29', cites:198, sched:'Monthly', time:'2 days ago' },
+    { name:'Verda Foods', dom:'verda.co', vert:'Food &amp; bev', grade:'B', status:'ok', mention:59, sent:'+0.31', cites:220, sched:'Weekly', time:'8 hours ago' },
+    { name:'Halcyon Health', dom:'halcyon.io', vert:'Healthcare', grade:'B', status:'ok', mention:57, sent:'+0.27', cites:186, sched:'Weekly', time:'1 day ago' },
+    { name:'Orion Software', dom:'orion.dev', vert:'SaaS', grade:'A', status:'ok', mention:78, sent:'+0.55', cites:354, sched:'Weekly', time:'4 hours ago' },
+    { name:'Maelle Beauty', dom:'maelle.fr', vert:'Cosmetics', grade:'A', status:'ok', mention:71, sent:'+0.48', cites:298, sched:'Monthly', time:'1 day ago' },
+    { name:'Pylon Energy', dom:'pylon.com', vert:'Energy', grade:'B', status:'ok', mention:60, sent:'+0.30', cites:205, sched:'Weekly', time:'7 hours ago' },
+  ];
+
+  function chipsFor(w){
+    let chips = '';
+    if(w.status==='crisis') chips += '<span class="chip chip--sm chip--critical"><span class="chip__dot"></span>Crisis</span>';
+    else if(w.status==='warn') chips += '<span class="chip chip--sm chip--warning"><span class="chip__dot"></span>Weak mention</span>';
+    else chips += '<span class="chip chip--sm chip--neutral"><span class="chip__dot"></span>Stable</span>';
+    chips += `<span class="chip chip--sm chip--neutral">${w.sched}</span>`;
+    return chips;
+  }
+  function renderWS(){
+    document.getElementById('wsgrid').innerHTML = WS.map((w,i)=>`
+      <div class="wscard ${w.status==='crisis'?'crisis':w.status==='warn'?'warn':''}" data-i="${i}">
+        <div class="wscard__head">
+          <div>
+            <div class="wscard__name">${w.name}</div>
+            <div class="wscard__domain">${w.dom}</div>
+            <span class="wscard__vert">${w.vert}</span>
+          </div>
+          <div class="score score--${w.grade.toLowerCase()}">${w.grade}</div>
+        </div>
+        <div class="wscard__chips">${chipsFor(w)}</div>
+        <div class="wscard__stats">
+          <div><div class="wsm__v">${w.mention}%</div><div class="wsm__l">Mention</div></div>
+          <div><div class="wsm__v ${w.sentNeg?'neg':''}">${w.sent}</div><div class="wsm__l">Sentiment</div></div>
+          <div><div class="wsm__v">${w.cites}</div><div class="wsm__l">Citations</div></div>
+        </div>
+        <div class="wscard__foot">
+          <span class="wscard__time">Scanned ${w.time}</span>
+          <span class="wscard__open">Open scan &rarr;</span>
+        </div>
+      </div>`).join('');
+    document.querySelectorAll('.wscard').forEach(c=>c.addEventListener('click',()=>openScan(WS[+c.dataset.i])));
+  }
+
+  /* ---------- sparkline ---------- */
+  function renderSpark(el){
+    const vals = el.dataset.vals.split(',').map(Number);
+    const tone = el.dataset.tone || 'up';
+    const W = el.clientWidth || 120, H = 34, pad = 3;
+    const min = Math.min(...vals), max = Math.max(...vals), rng=(max-min)||1;
+    const x=i=>pad+i*(W-2*pad)/(vals.length-1), y=v=>H-pad-(v-min)/rng*(H-2*pad);
+    const pts=vals.map((v,i)=>[x(i),y(v)]);
+    const d=pts.map((p,i)=>(i?'L':'M')+p[0].toFixed(1)+' '+p[1].toFixed(1)).join(' ');
+    const color=tone==='down'?'var(--status-critical)':tone==='flat'?'var(--color-text-muted)':'var(--status-positive)';
+    const area=d+` L${pts.at(-1)[0].toFixed(1)} ${H-pad} L${pts[0][0].toFixed(1)} ${H-pad} Z`;
+    const last=pts.at(-1), id='g'+Math.random().toString(36).slice(2,7);
+    el.innerHTML=`<svg width="${W}" height="${H}" style="display:block"><defs><linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${color}" stop-opacity=".16"/><stop offset="1" stop-color="${color}" stop-opacity="0"/></linearGradient></defs><path d="${area}" fill="url(#${id})"/><path d="${d}" fill="none" stroke="${color}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><circle cx="${last[0].toFixed(1)}" cy="${last[1].toFixed(1)}" r="2.6" fill="${color}" stroke="#fff" stroke-width="1.5"/></svg>`;
+  }
+  const drawSparks=()=>document.querySelectorAll('.spark').forEach(renderSpark);
+
+  /* ---------- nav ---------- */
+  function show(view){
+    document.getElementById('view-agency').classList.toggle('hidden', view!=='agency');
+    document.getElementById('view-scan').classList.toggle('hidden', view!=='scan');
+    if(view==='agency'){
+      document.getElementById('crumb').innerHTML='<a data-go="agency">Meridian</a><span class="sep">/</span><span class="here">Cross-workspace overview</span>';
+    }
+    bindGo();
+    requestAnimationFrame(drawSparks);
+    window.scrollTo(0,0);
+  }
+  function openScan(w){
+    document.getElementById('sr-name').textContent=w.name;
+    document.getElementById('sr-dom').textContent=w.dom;
+    document.getElementById('sr-vert').innerHTML=w.vert;
+    document.getElementById('sr-rate').textContent=w.mention+'%';
+    const g=document.getElementById('sr-grade'); g.textContent=w.grade; g.className='score score--lg score--'+w.grade.toLowerCase();
+    document.getElementById('crumb').innerHTML=`<a data-go="agency">Meridian</a><span class="sep">/</span><a data-go="agency">Workspaces</a><span class="sep">/</span><span class="here">${w.name}</span>`;
+    show('scan');
+  }
+  function bindGo(){
+    document.querySelectorAll('[data-go]').forEach(el=>{
+      el.onclick=(e)=>{ e.preventDefault();
+        document.querySelectorAll('.navi').forEach(n=>n.classList.remove('active'));
+        show(el.dataset.go);
+        if(el.dataset.go==='agency') document.querySelector('.navi[data-go="agency"]')?.classList.add('active');
+      };
+    });
+  }
+
+  renderWS(); bindGo(); drawSparks();
+  window.addEventListener('resize', drawSparks);
+</script>
+</body>
+</html>

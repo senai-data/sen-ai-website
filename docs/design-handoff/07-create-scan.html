@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>sen-ai.fr - New scan</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="components.css">
+<style>
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:var(--font-sans); color:var(--color-text-primary); background:var(--color-surface-sunken); -webkit-font-smoothing:antialiased; line-height:1.5; }
+  .app { display:grid; grid-template-columns:236px 1fr; min-height:100vh; }
+
+  /* sidebar */
+  .side { position:sticky; top:0; align-self:start; height:100vh; background:var(--color-surface); border-right:1px solid var(--color-border); display:flex; flex-direction:column; padding:var(--space-4) var(--space-3); }
+  .wl { display:flex; align-items:center; gap:10px; padding:6px 8px 16px; }
+  .wl__logo { width:30px; height:30px; border-radius:var(--radius-md); background:linear-gradient(135deg,#3B4252,#1F2937); color:#fff; display:grid; place-items:center; font-weight:750; font-size:14px; flex:none; }
+  .wl__name { font-size:14px; font-weight:680; letter-spacing:-.01em; }
+  .wl__tag { font-size:11px; color:var(--color-text-muted); }
+  .navg { margin-bottom:14px; }
+  .navg__l { font-size:10.5px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; color:var(--color-text-muted); padding:0 8px; margin-bottom:4px; }
+  .navi { display:flex; align-items:center; gap:9px; padding:7px 8px; border-radius:var(--radius-md); font-size:13.5px; color:var(--color-text-secondary); cursor:pointer; transition:.12s; text-decoration:none; }
+  .navi:hover { background:var(--color-surface-sunken); color:var(--color-text-primary); }
+  .navi.active { background:var(--color-primary-subtle); color:var(--coral-700); font-weight:600; }
+  .navi .ic { width:17px; height:17px; flex:none; }
+  .side__powered { margin-top:auto; padding:12px 8px 4px; border-top:1px solid var(--color-border); font-size:11px; color:var(--color-text-muted); display:flex; align-items:center; gap:6px; }
+  .side__powered .m { width:14px; height:14px; border-radius:4px; background:var(--color-primary); position:relative; }
+  .side__powered .m::after { content:""; position:absolute; inset:4px; border-radius:50%; border:1.5px solid #fff; }
+
+  /* top */
+  .top { background:var(--color-surface); border-bottom:1px solid var(--color-border); padding:0 var(--space-6); height:60px; display:flex; align-items:center; gap:16px; }
+  .crumb { display:flex; align-items:center; gap:8px; font-size:13px; color:var(--color-text-muted); }
+  .crumb a { color:var(--color-text-muted); text-decoration:none; }
+  .crumb a:hover { color:var(--color-text-primary); }
+  .crumb .sep { color:var(--color-border-strong); }
+  .crumb .here { color:var(--color-text-primary); font-weight:600; }
+  .top__right { margin-left:auto; display:flex; align-items:center; gap:14px; }
+  .credits { display:flex; align-items:center; gap:7px; font-size:12.5px; color:var(--color-text-secondary); background:var(--color-surface-sunken); border:1px solid var(--color-border); padding:6px 11px; border-radius:var(--radius-full); }
+  .credits b { color:var(--color-text-primary); font-weight:700; }
+  .avatar { width:32px; height:32px; border-radius:50%; background:linear-gradient(135deg,var(--coral-400),var(--coral-600)); color:#fff; display:grid; place-items:center; font-size:12px; font-weight:700; }
+
+  /* wizard layout */
+  .wrap { padding:var(--space-7) var(--space-6) var(--space-9); max-width:1080px; margin:0 auto; }
+  .whead { margin-bottom:var(--space-6); }
+  .whead h1 { font-size:26px; font-weight:700; letter-spacing:-.025em; }
+  .whead p { font-size:14px; color:var(--color-text-secondary); margin-top:5px; }
+  .wgrid { display:grid; grid-template-columns:1fr 296px; gap:24px; align-items:start; }
+
+  /* steps rail (horizontal) */
+  .stepsbar { display:flex; align-items:center; margin-bottom:var(--space-5); padding:16px 20px; background:var(--color-surface); border:1px solid var(--color-border); border-radius:var(--radius-lg); box-shadow:var(--shadow-xs); }
+  .stepnode { display:flex; align-items:center; gap:10px; cursor:default; }
+  .stepnode.clickable { cursor:pointer; }
+  .stepnum { width:26px; height:26px; border-radius:50%; display:grid; place-items:center; font-size:12px; font-weight:700; flex:none; transition:.15s; }
+  .stepnode.done .stepnum { background:var(--status-positive); color:#fff; }
+  .stepnode.active .stepnum { background:var(--color-primary); color:#fff; box-shadow:0 0 0 4px var(--coral-100); }
+  .stepnode.todo .stepnum { background:var(--color-surface-muted); color:var(--color-text-muted); }
+  .steplbl { font-size:13px; font-weight:600; }
+  .stepnode.todo .steplbl { color:var(--color-text-muted); font-weight:500; }
+  .stepline { flex:1; height:2px; background:var(--color-border); margin:0 14px; }
+  .stepline.done { background:var(--coral-300); }
+
+  /* step card */
+  .stepcard { background:var(--color-surface); border:1px solid var(--color-border); border-radius:var(--radius-lg); box-shadow:var(--shadow-xs); padding:var(--space-6); min-height:340px; }
+  .stepcard__title { font-size:18px; font-weight:680; letter-spacing:-.015em; }
+  .stepcard__desc { font-size:13.5px; color:var(--color-text-secondary); margin-top:5px; margin-bottom:var(--space-5); max-width:62ch; }
+  .form2 { display:grid; grid-template-columns:1fr 1fr; gap:18px; }
+  .span2 { grid-column:1/3; }
+  .field__label { font-size:13px; font-weight:600; }
+  .field__label .opt { font-weight:400; color:var(--color-text-muted); }
+
+  /* questions */
+  .qlist { display:flex; flex-direction:column; gap:10px; margin-bottom:18px; }
+  .qitem { display:flex; align-items:center; gap:12px; padding:11px 14px; background:var(--color-surface-sunken); border:1px solid var(--color-border); border-radius:var(--radius-md); }
+  .qitem__n { width:22px; height:22px; border-radius:50%; background:var(--color-surface); border:1px solid var(--color-border-strong); display:grid; place-items:center; font-size:11px; font-weight:700; color:var(--color-text-muted); flex:none; }
+  .qitem__t { flex:1; font-size:13.5px; color:var(--color-text-primary); border:0; background:transparent; font-family:var(--font-sans); }
+  .qitem__t:focus { outline:none; }
+  .qitem__del { width:28px; height:28px; border-radius:var(--radius-sm); border:0; background:transparent; color:var(--color-text-muted); cursor:pointer; display:grid; place-items:center; flex:none; transition:.12s; }
+  .qitem__del:hover { background:var(--status-critical-bg); color:var(--status-critical); }
+  .qadd { display:flex; gap:10px; }
+  .qadd input { flex:1; }
+  .suggest { margin-top:18px; }
+  .suggest__l { font-size:12px; font-weight:600; color:var(--color-text-secondary); margin-bottom:10px; display:flex; align-items:center; gap:7px; }
+  .suggest__chips { display:flex; flex-wrap:wrap; gap:8px; }
+  .schip { display:inline-flex; align-items:center; gap:7px; font-size:12.5px; font-weight:500; color:var(--color-text-secondary); background:var(--color-surface); border:1px dashed var(--color-border-strong); padding:6px 11px; border-radius:var(--radius-full); cursor:pointer; transition:.12s; }
+  .schip:hover { border-color:var(--color-primary); color:var(--coral-700); border-style:solid; background:var(--color-primary-subtle); }
+  .schip .plus { font-size:14px; font-weight:700; line-height:1; }
+
+  /* providers */
+  .provgrid { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  .provcard { display:flex; align-items:center; gap:12px; padding:14px 16px; border:1.5px solid var(--color-border); border-radius:var(--radius-md); cursor:pointer; transition:.12s; position:relative; }
+  .provcard:hover { border-color:var(--color-border-strong); background:var(--color-surface-sunken); }
+  .provcard.on { border-color:var(--color-primary); background:var(--color-primary-subtle); }
+  .provcard__ic { width:34px; height:34px; border-radius:var(--radius-sm); display:grid; place-items:center; color:#fff; font-size:13px; font-weight:700; flex:none; }
+  .provcard__name { font-size:14px; font-weight:650; }
+  .provcard__meta { font-size:12px; color:var(--color-text-muted); margin-top:1px; }
+  .provcard__check { margin-left:auto; width:22px; height:22px; border-radius:50%; border:1.5px solid var(--color-border-strong); display:grid; place-items:center; flex:none; transition:.12s; }
+  .provcard.on .provcard__check { background:var(--color-primary); border-color:var(--color-primary); }
+  .provcard__check svg { opacity:0; transition:.12s; }
+  .provcard.on .provcard__check svg { opacity:1; }
+  .sched { display:flex; gap:10px; margin-top:6px; }
+  .schedopt { flex:1; padding:14px 16px; border:1.5px solid var(--color-border); border-radius:var(--radius-md); cursor:pointer; transition:.12s; }
+  .schedopt:hover { border-color:var(--color-border-strong); }
+  .schedopt.on { border-color:var(--color-primary); background:var(--color-primary-subtle); }
+  .schedopt__name { font-size:14px; font-weight:650; display:flex; align-items:center; gap:8px; }
+  .schedopt__meta { font-size:12px; color:var(--color-text-muted); margin-top:4px; }
+  .schedopt__radio { width:16px; height:16px; border-radius:50%; border:1.5px solid var(--color-border-strong); display:inline-grid; place-items:center; }
+  .schedopt.on .schedopt__radio { border-color:var(--color-primary); }
+  .schedopt.on .schedopt__radio::after { content:""; width:8px; height:8px; border-radius:50%; background:var(--color-primary); }
+
+  /* review */
+  .review { display:flex; flex-direction:column; gap:2px; }
+  .revrow { display:flex; align-items:flex-start; gap:16px; padding:14px 0; border-bottom:1px solid var(--color-border); }
+  .revrow:last-child { border-bottom:0; }
+  .revrow__l { width:140px; font-size:12.5px; font-weight:600; color:var(--color-text-muted); text-transform:uppercase; letter-spacing:.04em; flex:none; padding-top:2px; }
+  .revrow__v { flex:1; font-size:14px; color:var(--color-text-primary); }
+  .revrow__edit { font-size:12.5px; font-weight:600; color:var(--coral-700); cursor:pointer; background:none; border:0; }
+  .revq { font-size:13.5px; color:var(--color-text-secondary); padding:3px 0; }
+
+  /* footer nav */
+  .wnav { display:flex; align-items:center; justify-content:space-between; margin-top:var(--space-5); }
+  .wnav__hint { font-size:12.5px; color:var(--color-text-muted); display:flex; align-items:center; gap:7px; }
+
+  /* summary rail */
+  .summary { position:sticky; top:var(--space-6); background:var(--color-surface); border:1px solid var(--color-border); border-radius:var(--radius-lg); box-shadow:var(--shadow-sm); overflow:hidden; }
+  .summary__head { padding:16px 18px; border-bottom:1px solid var(--color-border); font-size:14px; font-weight:680; }
+  .summary__body { padding:18px; display:flex; flex-direction:column; gap:14px; }
+  .srow { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; font-size:13px; }
+  .srow__k { color:var(--color-text-muted); }
+  .srow__v { font-weight:600; text-align:right; color:var(--color-text-primary); }
+  .srow__v.muted { color:var(--color-text-muted); font-weight:500; font-style:italic; }
+  .cost { background:var(--color-surface-sunken); border-top:1px solid var(--color-border); padding:16px 18px; }
+  .cost__row { display:flex; align-items:baseline; justify-content:space-between; }
+  .cost__l { font-size:12.5px; color:var(--color-text-secondary); }
+  .cost__v { font-size:22px; font-weight:730; letter-spacing:-.02em; }
+  .cost__after { font-size:11.5px; color:var(--color-text-muted); margin-top:6px; }
+  .cost__warn { font-size:11.5px; color:var(--status-critical); font-weight:600; margin-top:6px; display:none; align-items:center; gap:5px; }
+  .formula { font-size:11px; color:var(--color-text-muted); margin-top:10px; padding-top:10px; border-top:1px dashed var(--color-border); font-family:var(--font-mono); }
+
+  .hidden { display:none !important; }
+
+  /* success */
+  .success { background:var(--color-surface); border:1px solid var(--color-border); border-radius:var(--radius-lg); box-shadow:var(--shadow-md); padding:var(--space-8) var(--space-7); text-align:center; max-width:520px; margin:var(--space-7) auto; }
+  .success__ic { width:64px; height:64px; border-radius:50%; background:var(--status-positive-bg); color:var(--status-positive); display:grid; place-items:center; margin:0 auto var(--space-5); }
+  .success h2 { font-size:22px; font-weight:700; letter-spacing:-.02em; }
+  .success p { font-size:14px; color:var(--color-text-secondary); margin-top:8px; line-height:1.55; }
+  .success__actions { display:flex; gap:10px; justify-content:center; margin-top:var(--space-6); }
+  .success__prog { display:flex; align-items:center; gap:10px; justify-content:center; margin-top:var(--space-5); font-size:13px; color:var(--color-text-secondary); }
+  .spin { width:16px; height:16px; border:2px solid var(--color-border); border-top-color:var(--color-primary); border-radius:50%; animation:spin .7s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="side">
+    <div class="wl"><div class="wl__logo">M</div><div><div class="wl__name">Meridian</div><div class="wl__tag">Agency workspace</div></div></div>
+    <div class="navg">
+      <div class="navg__l">Agency</div>
+      <a class="navi" href="03-flagship.html"><svg class="ic" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2.5" y="2.5" width="5.5" height="5.5" rx="1.2"/><rect x="10" y="2.5" width="5.5" height="5.5" rx="1.2"/><rect x="2.5" y="10" width="5.5" height="5.5" rx="1.2"/><rect x="10" y="10" width="5.5" height="5.5" rx="1.2"/></svg>Overview</a>
+    </div>
+    <div class="navg">
+      <div class="navg__l">Workspace</div>
+      <a class="navi"><svg class="ic" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 15V8l6-4.5L15 8v7"/><path d="M7 15v-4h4v4"/></svg>Dashboard</a>
+      <a class="navi active"><svg class="ic" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="8" r="5"/><path d="M12 12l3 3"/></svg>Scans</a>
+      <a class="navi"><svg class="ic" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="3" width="12" height="12" rx="1.5"/><path d="M6 7h6M6 10h4"/></svg>Content</a>
+      <a class="navi"><svg class="ic" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 3h7l3 3v9H4z"/><path d="M7 9h4M7 11.5h4"/></svg>Reports</a>
+      <a class="navi"><svg class="ic" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="9" cy="9" r="2.5"/><path d="M9 2v2M9 14v2M2 9h2M14 9h2"/></svg>Settings</a>
+    </div>
+    <div class="side__powered"><span class="m"></span>Powered by sen-ai.fr</div>
+  </aside>
+
+  <div>
+    <div class="top">
+      <div class="crumb"><a href="03-flagship.html">Meridian</a><span class="sep">/</span><a href="03-flagship.html">Scans</a><span class="sep">/</span><span class="here">New scan</span></div>
+      <div class="top__right">
+        <div class="credits"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6"/><path d="M8 5v6M5.5 8h5"/></svg><b>2,140</b> credits</div>
+        <div class="avatar">SK</div>
+      </div>
+    </div>
+
+    <div class="wrap" id="wizardWrap">
+      <div class="whead">
+        <h1>New scan</h1>
+        <p>Set up what we ask each AI, then how often. We run every question 10 times per provider and aggregate the citations.</p>
+      </div>
+
+      <!-- steps -->
+      <div class="stepsbar" id="stepsbar"></div>
+
+      <div class="wgrid">
+        <!-- LEFT: step content -->
+        <div>
+          <div class="stepcard" id="stepcard"></div>
+          <div class="wnav">
+            <button class="btn btn--ghost btn--md" id="backBtn">Back</button>
+            <div style="display:flex;align-items:center;gap:16px">
+              <span class="wnav__hint" id="navHint"></span>
+              <button class="btn btn--primary btn--md" id="nextBtn">Continue</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- RIGHT: live summary -->
+        <div class="summary">
+          <div class="summary__head">Scan summary</div>
+          <div class="summary__body">
+            <div class="srow"><span class="srow__k">Brand</span><span class="srow__v" id="sumBrand">-</span></div>
+            <div class="srow"><span class="srow__k">Domain</span><span class="srow__v" id="sumDomain">-</span></div>
+            <div class="srow"><span class="srow__k">Industry</span><span class="srow__v" id="sumVert">-</span></div>
+            <div class="srow"><span class="srow__k">Questions</span><span class="srow__v" id="sumQ">0</span></div>
+            <div class="srow"><span class="srow__k">Providers</span><span class="srow__v" id="sumProv">0</span></div>
+            <div class="srow"><span class="srow__k">Schedule</span><span class="srow__v" id="sumSched">Weekly</span></div>
+          </div>
+          <div class="cost">
+            <div class="cost__row"><span class="cost__l">Est. cost per run</span><span class="cost__v" id="costV">0</span></div>
+            <div class="cost__after" id="costAfter">2,140 credits remaining</div>
+            <div class="cost__warn" id="costWarn"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 1l7 13H1z"/><path d="M8 6v3.5M8 11.5v.1"/></svg>Not enough credits for this run.</div>
+            <div class="formula" id="formula">0 questions x 0 providers x 10 prompts</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  const STEPS = ['Brand','Questions','Providers &amp; schedule','Review'];
+  const PROVIDERS = [
+    { id:'OpenAI', bg:'#10A37F', ab:'AI', meta:'GPT-4 class' },
+    { id:'Gemini', bg:'#4285F4', ab:'G', meta:'Google' },
+    { id:'Claude', bg:'#D97757', ab:'C', meta:'Anthropic' },
+    { id:'Mistral', bg:'#FF7000', ab:'M', meta:'Mistral Le Chat' },
+  ];
+  const VERTICALS = ['Cosmetics','Pharma','Automotive','B2B services','Finance','Travel','Consumer goods','SaaS','Energy','Food & bev','Healthcare','Industrial','Other'];
+  // generic, multi-vertical suggested questions
+  const SUGGESTIONS = [
+    'Which brands are most recommended in this category?',
+    'What are the best options for a mid-market buyer?',
+    'Which providers do experts trust most?',
+    'What brands lead on sustainability in this space?',
+    'Which companies offer the best customer support?',
+    'What are the most reliable brands for first-time buyers?',
+  ];
+  const BALANCE = 2140;
+
+  let state = {
+    step: 0,
+    brand: '',
+    domain: '',
+    vertical: '',
+    region: '',
+    questions: ['Which brands are most recommended in this category?'],
+    providers: ['OpenAI','Gemini'],
+    schedule: 'Weekly',
+    errors: {},
+    launched: false,
+  };
+
+  const $ = s => document.querySelector(s);
+  const esc = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+
+  /* ---------- steps bar ---------- */
+  function renderSteps(){
+    let html='';
+    STEPS.forEach((s,i)=>{
+      const cls = i<state.step?'done':i===state.step?'active':'todo';
+      const clickable = i<state.step ? 'clickable' : '';
+      const inner = i<state.step ? '&#10003;' : (i+1);
+      html += `<div class="stepnode ${cls} ${clickable}" data-step="${i}"><div class="stepnum">${inner}</div><div class="steplbl">${s}</div></div>`;
+      if(i<STEPS.length-1) html += `<div class="stepline ${i<state.step?'done':''}"></div>`;
+    });
+    $('#stepsbar').innerHTML = html;
+    $('#stepsbar').querySelectorAll('.stepnode.clickable').forEach(n=>n.onclick=()=>{ state.step=+n.dataset.step; render(); });
+  }
+
+  /* ---------- step content ---------- */
+  function stepBrand(){
+    const e = state.errors;
+    return `<div class="stepcard__title">About the brand</div>
+      <div class="stepcard__desc">The brand you want to measure. This appears in reports and the workspace sidebar.</div>
+      <div class="form2">
+        <div class="field ${e.brand?'field--error':''}">
+          <label class="field__label">Brand name</label>
+          <input class="input" id="f-brand" value="${esc(state.brand)}" placeholder="e.g. Northwind Logistics">
+          ${e.brand?`<span class="field__error"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="8" cy="8" r="6.2"/><path d="M8 5v3.5M8 10.6v.1"/></svg>${e.brand}</span>`:`<span class="field__help">As buyers would name it to an AI.</span>`}
+        </div>
+        <div class="field ${e.domain?'field--error':''}">
+          <label class="field__label">Domain</label>
+          <input class="input" id="f-domain" value="${esc(state.domain)}" placeholder="e.g. northwind.io">
+          ${e.domain?`<span class="field__error"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="8" cy="8" r="6.2"/><path d="M8 5v3.5M8 10.6v.1"/></svg>${e.domain}</span>`:`<span class="field__help">Used to detect owned-page citations.</span>`}
+        </div>
+        <div class="field">
+          <label class="field__label">Industry</label>
+          <select class="select" id="f-vert">
+            <option value="" ${!state.vertical?'selected':''} disabled>Select an industry...</option>
+            ${VERTICALS.map(v=>`<option ${state.vertical===v?'selected':''}>${v}</option>`).join('')}
+          </select>
+          <span class="field__help">Tailors the suggested buyer questions.</span>
+        </div>
+        <div class="field">
+          <label class="field__label">Market <span class="opt">- optional</span></label>
+          <input class="input" id="f-region" value="${esc(state.region)}" placeholder="e.g. EU, France, Global">
+          <span class="field__help">Leave blank to scan globally.</span>
+        </div>
+      </div>`;
+  }
+
+  function stepQuestions(){
+    const e = state.errors;
+    const added = state.questions.map(q=>q.toLowerCase());
+    const avail = SUGGESTIONS.filter(s=>!added.includes(s.toLowerCase()));
+    return `<div class="stepcard__title">Buyer questions</div>
+      <div class="stepcard__desc">The questions we put to each AI. Keep them to how a real buyer would ask - 3 to 7 works best. Each runs 10 times per provider.</div>
+      ${e.questions?`<div class="field__error" style="margin-bottom:14px"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="8" cy="8" r="6.2"/><path d="M8 5v3.5M8 10.6v.1"/></svg>${e.questions}</div>`:''}
+      <div class="qlist" id="qlist">
+        ${state.questions.map((q,i)=>`<div class="qitem">
+          <span class="qitem__n">${i+1}</span>
+          <input class="qitem__t" data-qi="${i}" value="${esc(q)}">
+          <button class="qitem__del" data-del="${i}" title="Remove"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 4h10M6 4V2.5h4V4M5 4l.5 9h5L11 4"/></svg></button>
+        </div>`).join('')}
+      </div>
+      <div class="qadd">
+        <input class="input" id="qNew" placeholder="Add a custom question..." maxlength="140">
+        <button class="btn btn--secondary btn--md" id="qAddBtn"><svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 3v10M3 8h10"/></svg>Add</button>
+      </div>
+      ${avail.length?`<div class="suggest">
+        <div class="suggest__l"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="var(--coral-600)" stroke-width="1.6"><path d="M8 1.5l1.6 4.2 4.4.2-3.5 2.7 1.3 4.2L8 10.4 4.2 13l1.3-4.2L2 6.1l4.4-.2z"/></svg>Suggested for ${state.vertical||'this industry'}</div>
+        <div class="suggest__chips">
+          ${avail.map((s,i)=>`<span class="schip" data-sg="${i}"><span class="plus">+</span>${s}</span>`).join('')}
+        </div>
+      </div>`:''}`;
+  }
+
+  function stepProviders(){
+    return `<div class="stepcard__title">Providers &amp; schedule</div>
+      <div class="stepcard__desc">Pick which AI systems to query and how often the scan repeats. More providers means broader coverage and higher credit cost.</div>
+      <label class="field__label" style="display:block;margin-bottom:10px">AI providers</label>
+      <div class="provgrid">
+        ${PROVIDERS.map(p=>`<div class="provcard ${state.providers.includes(p.id)?'on':''}" data-prov="${p.id}">
+          <span class="provcard__ic" style="background:${p.bg}">${p.ab}</span>
+          <div><div class="provcard__name">${p.id}</div><div class="provcard__meta">${p.meta}</div></div>
+          <span class="provcard__check"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="#fff" stroke-width="2.2"><path d="M3 8.5l3.5 3.5L13 5"/></svg></span>
+        </div>`).join('')}
+      </div>
+      <label class="field__label" style="display:block;margin:24px 0 10px">Schedule</label>
+      <div class="sched">
+        ${[['Manual','Run once, on demand'],['Weekly','Every Monday - 1 credit/run'],['Monthly','1st of the month']].map(([n,m])=>`
+          <div class="schedopt ${state.schedule===n?'on':''}" data-sched="${n}">
+            <div class="schedopt__name"><span class="schedopt__radio"></span>${n}</div>
+            <div class="schedopt__meta">${m}</div>
+          </div>`).join('')}
+      </div>`;
+  }
+
+  function stepReview(){
+    return `<div class="stepcard__title">Review &amp; launch</div>
+      <div class="stepcard__desc">Confirm the setup. You can jump back to any step to edit before launching.</div>
+      <div class="review">
+        <div class="revrow"><div class="revrow__l">Brand</div><div class="revrow__v">${esc(state.brand)}<div style="font-size:12.5px;color:var(--color-text-muted);margin-top:2px">${esc(state.domain)} &middot; ${esc(state.vertical)}${state.region?' &middot; '+esc(state.region):''}</div></div><button class="revrow__edit" data-edit="0">Edit</button></div>
+        <div class="revrow"><div class="revrow__l">Questions (${state.questions.length})</div><div class="revrow__v">${state.questions.map(q=>`<div class="revq">&bull; ${esc(q)}</div>`).join('')}</div><button class="revrow__edit" data-edit="1">Edit</button></div>
+        <div class="revrow"><div class="revrow__l">Providers</div><div class="revrow__v" style="display:flex;gap:8px;flex-wrap:wrap">${state.providers.map(p=>{const pr=PROVIDERS.find(x=>x.id===p);return `<span class="chip chip--sm chip--neutral"><span class="provcard__ic" style="width:14px;height:14px;font-size:8px;background:${pr.bg}">${pr.ab}</span>${p}</span>`;}).join('')}</div><button class="revrow__edit" data-edit="2">Edit</button></div>
+        <div class="revrow"><div class="revrow__l">Schedule</div><div class="revrow__v">${state.schedule}</div><button class="revrow__edit" data-edit="2">Edit</button></div>
+        <div class="revrow"><div class="revrow__l">Cost per run</div><div class="revrow__v">${cost()} credits <span style="color:var(--color-text-muted);font-weight:500">(${BALANCE-cost()} remaining after)</span></div><div></div></div>
+      </div>`;
+  }
+
+  const RENDERERS = [stepBrand, stepQuestions, stepProviders, stepReview];
+
+  /* ---------- cost ---------- */
+  function cost(){ return state.questions.length * state.providers.length * 10; }
+
+  function renderSummary(){
+    $('#sumBrand').textContent = state.brand || '-';
+    $('#sumDomain').textContent = state.domain || '-';
+    $('#sumVert').textContent = state.vertical || '-';
+    $('#sumQ').textContent = state.questions.length;
+    $('#sumProv').textContent = state.providers.length;
+    $('#sumSched').textContent = state.schedule;
+    const c = cost();
+    $('#costV').textContent = c.toLocaleString();
+    $('#formula').textContent = `${state.questions.length} questions x ${state.providers.length} providers x 10 prompts`;
+    const after = BALANCE - c;
+    const over = after < 0;
+    $('#costAfter').textContent = `${after.toLocaleString()} credits remaining`;
+    $('#costAfter').style.display = over ? 'none':'block';
+    $('#costWarn').style.display = over ? 'flex':'none';
+    $('#costV').style.color = over ? 'var(--status-critical)' : 'var(--color-text-primary)';
+  }
+
+  /* ---------- validation ---------- */
+  function validate(step){
+    const e = {};
+    if(step===0){
+      if(!state.brand.trim()) e.brand = 'Brand name is required.';
+      const d = state.domain.trim();
+      if(!d) e.domain = 'Domain is required.';
+      else if(!/^([a-z0-9-]+\.)+[a-z]{2,}$/i.test(d)) e.domain = 'Enter a valid domain, e.g. example.com';
+    }
+    if(step===1){
+      if(state.questions.filter(q=>q.trim()).length < 1) e.questions = 'Add at least one buyer question.';
+    }
+    if(step===2){
+      if(state.providers.length < 1) e.providers = 'Pick at least one provider.';
+    }
+    return e;
+  }
+
+  /* ---------- render ---------- */
+  function render(){
+    renderSteps();
+    $('#stepcard').innerHTML = RENDERERS[state.step]();
+    bindStep();
+    renderSummary();
+
+    // nav buttons
+    $('#backBtn').style.visibility = state.step===0 ? 'hidden':'visible';
+    const next = $('#nextBtn');
+    const hint = $('#navHint');
+    if(state.step===STEPS.length-1){
+      const over = (BALANCE-cost())<0;
+      next.innerHTML = '<svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M13 8a5 5 0 1 1-1.5-3.5M13 2v3h-3"/></svg>Launch scan';
+      next.className = 'btn btn--primary btn--md';
+      next.disabled = over || state.providers.length<1;
+      hint.innerHTML = over ? '' : `Uses <b style="color:var(--color-text-primary)">${cost()}</b>&nbsp;credits now`;
+    } else {
+      next.textContent = 'Continue';
+      next.className = 'btn btn--primary btn--md';
+      next.disabled = false;
+      hint.textContent = `Step ${state.step+1} of ${STEPS.length}`;
+    }
+  }
+
+  function bindStep(){
+    if(state.step===0){
+      $('#f-brand').oninput = e=>{ state.brand=e.target.value; if(state.errors.brand){ delete state.errors.brand; } liveSummary(); };
+      $('#f-domain').oninput = e=>{ state.domain=e.target.value; if(state.errors.domain){ delete state.errors.domain; } liveSummary(); };
+      $('#f-vert').onchange = e=>{ state.vertical=e.target.value; liveSummary(); };
+      $('#f-region').oninput = e=>{ state.region=e.target.value; liveSummary(); };
+    }
+    if(state.step===1){
+      $('#qlist').querySelectorAll('.qitem__t').forEach(inp=>{
+        inp.oninput = e=>{ state.questions[+e.target.dataset.qi]=e.target.value; };
+      });
+      $('#qlist').querySelectorAll('.qitem__del').forEach(btn=>{
+        btn.onclick = ()=>{ state.questions.splice(+btn.dataset.del,1); delete state.errors.questions; render(); };
+      });
+      const addQ = ()=>{ const v=$('#qNew').value.trim(); if(v){ state.questions.push(v); delete state.errors.questions; render(); $('#qNew')?.focus(); } };
+      $('#qAddBtn').onclick = addQ;
+      $('#qNew').onkeydown = e=>{ if(e.key==='Enter'){ e.preventDefault(); addQ(); } };
+      $('#stepcard').querySelectorAll('.schip').forEach(c=>{
+        c.onclick = ()=>{ const avail=SUGGESTIONS.filter(s=>!state.questions.map(q=>q.toLowerCase()).includes(s.toLowerCase())); state.questions.push(avail[+c.dataset.sg]); delete state.errors.questions; render(); };
+      });
+    }
+    if(state.step===2){
+      $('#stepcard').querySelectorAll('.provcard').forEach(c=>{
+        c.onclick = ()=>{ const id=c.dataset.prov; const i=state.providers.indexOf(id); if(i>=0) state.providers.splice(i,1); else state.providers.push(id); render(); };
+      });
+      $('#stepcard').querySelectorAll('.schedopt').forEach(o=>{
+        o.onclick = ()=>{ state.schedule=o.dataset.sched; render(); };
+      });
+    }
+    if(state.step===3){
+      $('#stepcard').querySelectorAll('.revrow__edit').forEach(b=>{
+        b.onclick = ()=>{ state.step=+b.dataset.edit; render(); };
+      });
+    }
+  }
+
+  // light summary update without full re-render (preserves input focus)
+  function liveSummary(){ renderSummary(); }
+
+  /* ---------- nav ---------- */
+  $('#backBtn').onclick = ()=>{ if(state.step>0){ state.step--; render(); window.scrollTo({top:0,behavior:'smooth'}); } };
+  $('#nextBtn').onclick = ()=>{
+    if(state.step===STEPS.length-1){ launch(); return; }
+    const e = validate(state.step);
+    state.errors = e;
+    if(Object.keys(e).length){ render(); return; }
+    state.step++; render(); window.scrollTo({top:0,behavior:'smooth'});
+  };
+
+  function launch(){
+    const c = cost();
+    $('#wizardWrap').innerHTML = `<div class="success" id="successCard">
+      <div class="success__prog" id="prog"><span class="spin"></span>Launching scan across ${state.providers.length} providers...</div>
+    </div>`;
+    setTimeout(()=>{
+      $('#successCard').innerHTML = `
+        <div class="success__ic"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M8 12.5l2.5 2.5L16 9"/></svg></div>
+        <h2>Scan launched</h2>
+        <p><b>${esc(state.brand)}</b> is now being queried with ${state.questions.length} question${state.questions.length>1?'s':''} across ${state.providers.length} providers. We will aggregate the citations and notify you when the first results land - usually within a few minutes.</p>
+        <p style="font-size:13px;color:var(--color-text-muted)">${c} credits used &middot; ${(BALANCE-c).toLocaleString()} remaining &middot; repeats ${state.schedule.toLowerCase()}</p>
+        <div class="success__actions">
+          <a class="btn btn--secondary btn--md" href="03-flagship.html">Back to scans</a>
+          <a class="btn btn--primary btn--md" href="06-citations.html">View live results</a>
+        </div>`;
+    }, 1600);
+  }
+
+  render();
+</script>
+</body>
+</html>

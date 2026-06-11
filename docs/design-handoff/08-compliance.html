@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>sen-ai.fr - AI Act compliance</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="components.css">
+<style>
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:var(--font-sans); color:var(--color-text-primary); background:var(--color-surface-sunken); -webkit-font-smoothing:antialiased; line-height:1.5; }
+  .app { display:grid; grid-template-columns:236px 1fr; min-height:100vh; }
+
+  /* sidebar */
+  .side { position:sticky; top:0; align-self:start; height:100vh; background:var(--color-surface); border-right:1px solid var(--color-border); display:flex; flex-direction:column; padding:var(--space-4) var(--space-3); }
+  .wl { display:flex; align-items:center; gap:10px; padding:6px 8px 16px; }
+  .wl__logo { width:30px; height:30px; border-radius:var(--radius-md); background:linear-gradient(135deg,#3B4252,#1F2937); color:#fff; display:grid; place-items:center; font-weight:750; font-size:14px; flex:none; }
+  .wl__name { font-size:14px; font-weight:680; letter-spacing:-.01em; }
+  .wl__tag { font-size:11px; color:var(--color-text-muted); }
+  .navg { margin-bottom:14px; }
+  .navg__l { font-size:10.5px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; color:var(--color-text-muted); padding:0 8px; margin-bottom:4px; }
+  .navi { display:flex; align-items:center; gap:9px; padding:7px 8px; border-radius:var(--radius-md); font-size:13.5px; color:var(--color-text-secondary); cursor:pointer; transition:.12s; text-decoration:none; }
+  .navi:hover { background:var(--color-surface-sunken); color:var(--color-text-primary); }
+  .navi.active { background:var(--color-primary-subtle); color:var(--coral-700); font-weight:600; }
+  .navi .ic { width:17px; height:17px; flex:none; }
+  .side__powered { margin-top:auto; padding:12px 8px 4px; border-top:1px solid var(--color-border); font-size:11px; color:var(--color-text-muted); display:flex; align-items:center; gap:6px; }
+  .side__powered .m { width:14px; height:14px; border-radius:4px; background:var(--color-primary); position:relative; }
+  .side__powered .m::after { content:""; position:absolute; inset:4px; border-radius:50%; border:1.5px solid #fff; }
+
+  /* top */
+  .top { position:sticky; top:0; z-index:30; background:rgba(255,255,255,.86); backdrop-filter:blur(8px); border-bottom:1px solid var(--color-border); padding:0 var(--space-6); height:60px; display:flex; align-items:center; gap:16px; }
+  .crumb { display:flex; align-items:center; gap:8px; font-size:13px; color:var(--color-text-muted); }
+  .crumb a { color:var(--color-text-muted); text-decoration:none; } .crumb a:hover { color:var(--color-text-primary); }
+  .crumb .sep { color:var(--color-border-strong); } .crumb .here { color:var(--color-text-primary); font-weight:600; }
+  .top__right { margin-left:auto; display:flex; align-items:center; gap:14px; }
+  .avatar { width:32px; height:32px; border-radius:50%; background:linear-gradient(135deg,var(--coral-400),var(--coral-600)); color:#fff; display:grid; place-items:center; font-size:12px; font-weight:700; }
+
+  /* layout: doc + jump nav */
+  .wrap { display:grid; grid-template-columns:200px 1fr; gap:32px; max-width:1180px; padding:var(--space-7) var(--space-6) var(--space-9); }
+  .jump { position:sticky; top:84px; align-self:start; }
+  .jump__l { font-size:10.5px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; color:var(--color-text-muted); padding:0 10px; margin-bottom:8px; }
+  .jump a { display:block; padding:7px 10px; border-radius:var(--radius-md); font-size:13px; color:var(--color-text-secondary); text-decoration:none; transition:.12s; border-left:2px solid transparent; }
+  .jump a:hover { background:var(--color-surface); color:var(--color-text-primary); }
+  .jump a.active { color:var(--coral-700); font-weight:600; border-left-color:var(--color-primary); background:var(--color-primary-subtle); }
+
+  .doc { min-width:0; }
+
+  /* page head */
+  .phead { display:flex; align-items:flex-start; justify-content:space-between; gap:24px; margin-bottom:var(--space-5); }
+  .phead h1 { font-size:26px; font-weight:700; letter-spacing:-.025em; display:flex; align-items:center; gap:12px; }
+  .phead .reg { font-size:11px; font-weight:600; color:var(--color-text-secondary); background:var(--color-surface-muted); border:1px solid var(--color-border); padding:3px 9px; border-radius:var(--radius-full); }
+  .phead p { font-size:14px; color:var(--color-text-secondary); margin-top:7px; max-width:64ch; }
+  .phead__meta { font-size:12.5px; color:var(--color-text-muted); margin-top:10px; display:flex; gap:16px; flex-wrap:wrap; }
+  .phead__meta b { color:var(--color-text-secondary); font-weight:600; }
+
+  /* status cards */
+  .status { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:var(--space-7); }
+  .stc { background:var(--color-surface); border:1px solid var(--color-border); border-radius:var(--radius-lg); padding:16px 18px; box-shadow:var(--shadow-xs); }
+  .stc.attn { border-color:#FCDFA6; background:linear-gradient(180deg,var(--status-warning-bg),#fff 65%); }
+  .stc__l { font-size:11px; font-weight:600; letter-spacing:.05em; text-transform:uppercase; color:var(--color-text-muted); }
+  .stc__v { font-size:18px; font-weight:700; letter-spacing:-.015em; margin-top:10px; display:flex; align-items:center; gap:8px; }
+  .stc.attn .stc__v { color:var(--status-warning); }
+  .stc__m { font-size:12px; color:var(--color-text-muted); margin-top:7px; }
+  .ckdot { width:16px; height:16px; border-radius:50%; background:var(--color-surface-muted); display:grid; place-items:center; flex:none; }
+  .ckdot svg { stroke:var(--color-text-secondary); }
+
+  /* section */
+  section { margin-bottom:var(--space-7); scroll-margin-top:84px; }
+  .shead { display:flex; align-items:flex-end; justify-content:space-between; gap:16px; margin-bottom:var(--space-4); padding-bottom:12px; border-bottom:1px solid var(--color-border); }
+  .shead h2 { font-size:18px; font-weight:680; letter-spacing:-.015em; }
+  .shead p { font-size:13px; color:var(--color-text-muted); margin-top:3px; }
+  .shead__r { font-size:12.5px; color:var(--color-text-muted); }
+
+  .panel { background:var(--color-surface); border:1px solid var(--color-border); border-radius:var(--radius-lg); box-shadow:var(--shadow-xs); overflow:hidden; }
+  .panel--pad { padding:var(--space-5); }
+
+  /* audit log */
+  .logfilter { display:flex; align-items:center; gap:10px; margin-bottom:14px; }
+  .seg { display:flex; gap:2px; padding:3px; background:var(--color-surface-muted); border-radius:var(--radius-md); }
+  .seg button { border:0; background:transparent; font:600 12.5px var(--font-sans); color:var(--color-text-secondary); padding:6px 11px; border-radius:var(--radius-sm); cursor:pointer; transition:.12s; }
+  .seg button.on { background:var(--color-surface); color:var(--color-text-primary); box-shadow:var(--shadow-xs); }
+  .logfilter__r { margin-left:auto; font-size:12.5px; color:var(--color-text-muted); }
+  table.tbl { width:100%; border-collapse:separate; border-spacing:0; font-size:13px; }
+  table.tbl th { text-align:left; font-size:11px; font-weight:600; letter-spacing:.04em; text-transform:uppercase; color:var(--color-text-muted); padding:10px 16px; border-bottom:1px solid var(--color-border); background:var(--color-surface-sunken); white-space:nowrap; }
+  table.tbl td { padding:11px 16px; border-bottom:1px solid var(--color-border); color:var(--color-text-secondary); vertical-align:middle; }
+  table.tbl tbody tr:last-child td { border-bottom:0; }
+  table.tbl tbody tr:hover { background:var(--color-surface-sunken); }
+  .actor { display:flex; align-items:center; gap:9px; }
+  .actor__av { width:26px; height:26px; border-radius:50%; display:grid; place-items:center; font-size:10px; font-weight:700; color:#fff; flex:none; }
+  .actor__n { font-weight:600; color:var(--color-text-primary); }
+  .actor__r { font-size:11.5px; color:var(--color-text-muted); }
+  .ev { font-weight:550; color:var(--color-text-primary); }
+  .mono { font-family:var(--font-mono); font-size:12px; color:var(--color-text-muted); white-space:nowrap; }
+  .evtag { display:inline-flex; align-items:center; gap:6px; font-size:11.5px; font-weight:600; padding:2px 8px; border-radius:var(--radius-full); }
+  .evtag.sys { background:var(--color-surface-muted); color:var(--color-text-secondary); }
+  .evtag.data { background:var(--status-info-bg); color:var(--status-info); }
+  .evtag.member { background:var(--status-neutral-bg); color:var(--status-neutral); }
+
+  /* DPIA */
+  .dpia { display:grid; grid-template-columns:1fr 1fr; gap:0; }
+  .dpia__row { padding:16px 18px; border-bottom:1px solid var(--color-border); }
+  .dpia__row:nth-child(odd) { border-right:1px solid var(--color-border); }
+  .dpia__l { font-size:11px; font-weight:600; letter-spacing:.04em; text-transform:uppercase; color:var(--color-text-muted); margin-bottom:7px; }
+  .dpia__v { font-size:13.5px; color:var(--color-text-primary); line-height:1.55; }
+  .dpia__v .chips { display:flex; flex-wrap:wrap; gap:6px; }
+  .tagn { font-size:12px; font-weight:500; color:var(--color-text-secondary); background:var(--color-surface-sunken); border:1px solid var(--color-border); padding:3px 9px; border-radius:var(--radius-full); }
+
+  /* sub-processors */
+  .dpa-signed { display:inline-flex; align-items:center; gap:6px; font-size:12px; font-weight:600; color:var(--color-text-secondary); }
+  .dpa-signed .d { width:7px; height:7px; border-radius:50%; background:var(--status-positive); }
+  .dpa-pending { display:inline-flex; align-items:center; gap:6px; font-size:12px; font-weight:600; color:var(--status-warning); }
+  .dpa-pending .d { width:7px; height:7px; border-radius:50%; background:var(--status-warning); }
+
+  /* changelog */
+  .changelog { display:flex; flex-direction:column; }
+  .clog { display:grid; grid-template-columns:120px 1fr; gap:18px; padding:16px 0; border-bottom:1px solid var(--color-border); }
+  .changelog .clog:last-child { border-bottom:0; }
+  .clog__date { font-size:12.5px; color:var(--color-text-muted); }
+  .clog__ver { display:inline-block; font:600 11px var(--font-mono); color:var(--coral-700); background:var(--color-primary-subtle); padding:2px 7px; border-radius:var(--radius-sm); margin-top:6px; }
+  .clog__t { font-size:14px; font-weight:650; }
+  .clog__d { font-size:13px; color:var(--color-text-secondary); margin-top:4px; line-height:1.5; }
+
+  /* print header (screen-hidden) */
+  .printhead { display:none; }
+
+  /* ============ PRINT ============ */
+  @media print {
+    @page { margin:18mm 16mm; }
+    body { background:#fff; }
+    .side, .top, .jump, .phead__actions, .logfilter, .shead__r .btn { display:none !important; }
+    .app { display:block; }
+    .wrap { display:block; max-width:none; padding:0; }
+    .doc { width:100%; }
+    .printhead { display:block; margin-bottom:14px; padding-bottom:14px; border-bottom:2px solid var(--color-text-primary); }
+    .printhead__row { display:flex; justify-content:space-between; align-items:flex-end; }
+    .printhead__org { font-size:15px; font-weight:700; }
+    .printhead__doc { font-size:12px; color:#444; margin-top:2px; }
+    .printhead__date { font-size:11px; color:#444; text-align:right; }
+    .status { grid-template-columns:repeat(4,1fr); gap:8px; }
+    .stc { box-shadow:none; border:1px solid #ccc; }
+    .stc.attn { background:#fff; }
+    section { page-break-inside:auto; margin-bottom:22px; }
+    .shead { page-break-after:avoid; }
+    .panel { box-shadow:none; border:1px solid #ccc; page-break-inside:avoid; }
+    table.tbl tbody tr { page-break-inside:avoid; }
+    .phead h1 { font-size:20px; }
+    .clog { page-break-inside:avoid; }
+    a[href] { color:inherit; text-decoration:none; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="side">
+    <div class="wl"><div class="wl__logo">M</div><div><div class="wl__name">Meridian</div><div class="wl__tag">Agency workspace</div></div></div>
+    <div class="navg">
+      <div class="navg__l">Agency</div>
+      <a class="navi" href="03-flagship.html"><svg class="ic" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2.5" y="2.5" width="5.5" height="5.5" rx="1.2"/><rect x="10" y="2.5" width="5.5" height="5.5" rx="1.2"/><rect x="2.5" y="10" width="5.5" height="5.5" rx="1.2"/><rect x="10" y="10" width="5.5" height="5.5" rx="1.2"/></svg>Overview</a>
+    </div>
+    <div class="navg">
+      <div class="navg__l">Workspace</div>
+      <a class="navi"><svg class="ic" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 15V8l6-4.5L15 8v7"/><path d="M7 15v-4h4v4"/></svg>Dashboard</a>
+      <a class="navi" href="06-citations.html"><svg class="ic" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="8" r="5"/><path d="M12 12l3 3"/></svg>Scans</a>
+      <a class="navi"><svg class="ic" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="3" width="12" height="12" rx="1.5"/><path d="M6 7h6M6 10h4"/></svg>Content</a>
+      <a class="navi"><svg class="ic" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 3h7l3 3v9H4z"/><path d="M7 9h4M7 11.5h4"/></svg>Reports</a>
+      <a class="navi active"><svg class="ic" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M9 2.5l5.5 2.5v4c0 3.2-2.3 5.6-5.5 6.5C5.8 14.6 3.5 12.2 3.5 9V5z"/></svg>Compliance</a>
+      <a class="navi"><svg class="ic" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="9" cy="9" r="2.5"/><path d="M9 2v2M9 14v2M2 9h2M14 9h2"/></svg>Settings</a>
+    </div>
+    <div class="side__powered"><span class="m"></span>Powered by sen-ai.fr</div>
+  </aside>
+
+  <div>
+    <div class="top">
+      <div class="crumb"><a href="03-flagship.html">Meridian</a><span class="sep">/</span><span class="here">Compliance</span></div>
+      <div class="top__right"><div class="avatar">SK</div></div>
+    </div>
+
+    <div class="wrap">
+      <!-- JUMP NAV -->
+      <nav class="jump">
+        <div class="jump__l">On this page</div>
+        <a href="#audit" class="active">Audit log</a>
+        <a href="#dpia">DPIA summary</a>
+        <a href="#subproc">Sub-processors</a>
+        <a href="#changelog">Methodology log</a>
+      </nav>
+
+      <!-- DOCUMENT -->
+      <div class="doc">
+        <!-- print-only header -->
+        <div class="printhead">
+          <div class="printhead__row">
+            <div><div class="printhead__org">Meridian - sen-ai.fr workspace</div><div class="printhead__doc">AI Act compliance record</div></div>
+            <div class="printhead__date">Generated 8 June 2026<br>Record version 2.4</div>
+          </div>
+        </div>
+
+        <div class="phead">
+          <div>
+            <h1>AI Act compliance <span class="reg">EU 2024/1689</span></h1>
+            <p>The org-level record of how this workspace uses generative-AI providers, what data it processes, and every auditable action. Built to attach to a procurement or DPO file in any industry.</p>
+            <div class="phead__meta">
+              <span>Last reviewed <b>2 June 2026</b></span>
+              <span>Owner <b>S. Kerr, Data Lead</b></span>
+              <span>Record version <b>2.4</b></span>
+            </div>
+          </div>
+          <div class="phead__actions" style="display:flex;gap:10px;flex:none">
+            <button class="btn btn--secondary btn--md" id="dpaBtn"><svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 2h6l3 3v9H4z"/><path d="M7 8h4M7 11h3"/></svg>DPIA template</button>
+            <button class="btn btn--primary btn--md" id="printBtn"><svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 6V2h8v4M4 12H2V6h12v6h-2M5 10h6v4H5z"/></svg>Export PDF</button>
+          </div>
+        </div>
+
+        <!-- STATUS -->
+        <div class="status">
+          <div class="stc">
+            <div class="stc__l">Posture</div>
+            <div class="stc__v"><span class="ckdot"><svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke-width="2.2"><path d="M3 8.5l3.5 3.5L13 5"/></svg></span>Audit-ready</div>
+            <div class="stc__m">All required records present</div>
+          </div>
+          <div class="stc">
+            <div class="stc__l">DPIA</div>
+            <div class="stc__v"><span class="ckdot"><svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke-width="2.2"><path d="M3 8.5l3.5 3.5L13 5"/></svg></span>Reviewed</div>
+            <div class="stc__m">Residual risk: low</div>
+          </div>
+          <div class="stc">
+            <div class="stc__l">Sub-processors</div>
+            <div class="stc__v">6 active</div>
+            <div class="stc__m">5 under DPA, 1 pending</div>
+          </div>
+          <div class="stc attn">
+            <div class="stc__l">Open obligations</div>
+            <div class="stc__v"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 1l7 13H1z"/><path d="M8 6v3.5M8 11.5v.1"/></svg>1 item</div>
+            <div class="stc__m">Transparency notice update due 30 Jun</div>
+          </div>
+        </div>
+
+        <!-- AUDIT LOG -->
+        <section id="audit">
+          <div class="shead">
+            <div><h2>Audit log</h2><p>Immutable record of every action in this workspace. Exportable, timestamped, attributable.</p></div>
+            <div class="shead__r"><button class="btn btn--secondary btn--sm"><svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M8 2v8M4.5 6.5L8 10l3.5-3.5M3 13h10"/></svg>Export log (CSV)</button></div>
+          </div>
+          <div class="logfilter">
+            <div class="seg" id="logSeg">
+              <button class="on" data-f="all">All events</button>
+              <button data-f="data">Data</button>
+              <button data-f="member">Members</button>
+              <button data-f="sys">System</button>
+            </div>
+            <span class="logfilter__r" id="logCount"></span>
+          </div>
+          <div class="panel">
+            <table class="tbl">
+              <thead><tr><th>Actor</th><th>Event</th><th>Detail</th><th>Category</th><th>Timestamp (UTC)</th></tr></thead>
+              <tbody id="logBody"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- DPIA -->
+        <section id="dpia">
+          <div class="shead">
+            <div><h2>DPIA summary</h2><p>Data Protection Impact Assessment - the processing this workspace performs and its safeguards.</p></div>
+            <div class="shead__r">Reviewed 2 Jun 2026</div>
+          </div>
+          <div class="panel">
+            <div class="dpia">
+              <div class="dpia__row"><div class="dpia__l">Processing purpose</div><div class="dpia__v">Measure how generative-AI systems cite a brand in response to buyer questions, and aggregate the resulting citations and sentiment.</div></div>
+              <div class="dpia__row"><div class="dpia__l">Data subjects</div><div class="dpia__v">No personal data of end users is processed. Inputs are brand and product queries; outputs are public AI responses.</div></div>
+              <div class="dpia__row"><div class="dpia__l">Data categories</div><div class="dpia__v"><div class="chips"><span class="tagn">Brand metadata</span><span class="tagn">Public web content</span><span class="tagn">AI response text</span><span class="tagn">Workspace account data</span></div></div></div>
+              <div class="dpia__row"><div class="dpia__l">Legal basis</div><div class="dpia__v">Legitimate interest (Art. 6(1)(f)) for brand-visibility measurement. No special-category data involved.</div></div>
+              <div class="dpia__row"><div class="dpia__l">Retention</div><div class="dpia__v">Scan results retained 24 months, then aggregated. Raw provider responses purged after 90 days.</div></div>
+              <div class="dpia__row"><div class="dpia__l">Residual risk</div><div class="dpia__v"><span class="chip chip--md chip--neutral"><span class="chip__dot"></span>Low</span> &nbsp; Mitigated by data minimisation and provider DPAs.</div></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- SUB-PROCESSORS -->
+        <section id="subproc">
+          <div class="shead">
+            <div><h2>Sub-processors</h2><p>Third parties that process data on behalf of this workspace, with their role and contract status.</p></div>
+            <div class="shead__r">6 active</div>
+          </div>
+          <div class="panel">
+            <table class="tbl">
+              <thead><tr><th>Sub-processor</th><th>Purpose</th><th>Data region</th><th>DPA status</th></tr></thead>
+              <tbody>
+                <tr><td class="ev">OpenAI</td><td>Generative-AI query provider</td><td>United States (SCCs)</td><td><span class="dpa-signed"><span class="d"></span>Signed</span></td></tr>
+                <tr><td class="ev">Google (Gemini)</td><td>Generative-AI query provider</td><td>EU / United States (SCCs)</td><td><span class="dpa-signed"><span class="d"></span>Signed</span></td></tr>
+                <tr><td class="ev">Anthropic (Claude)</td><td>Generative-AI query provider</td><td>United States (SCCs)</td><td><span class="dpa-signed"><span class="d"></span>Signed</span></td></tr>
+                <tr><td class="ev">Mistral</td><td>Generative-AI query provider</td><td>European Union</td><td><span class="dpa-signed"><span class="d"></span>Signed</span></td></tr>
+                <tr><td class="ev">Cloud hosting</td><td>Application &amp; database hosting</td><td>European Union (Frankfurt)</td><td><span class="dpa-signed"><span class="d"></span>Signed</span></td></tr>
+                <tr><td class="ev">Email delivery</td><td>Transactional notifications</td><td>European Union</td><td><span class="dpa-pending"><span class="d"></span>Renewal pending</span></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- CHANGELOG -->
+        <section id="changelog">
+          <div class="shead">
+            <div><h2>Methodology log</h2><p>Versioned record of changes to how scans are run and scored - so a report can always be traced to the method that produced it.</p></div>
+          </div>
+          <div class="panel panel--pad">
+            <div class="changelog">
+              <div class="clog"><div><div class="clog__date">2 Jun 2026</div><div class="clog__ver">v2.4</div></div><div><div class="clog__t">Added Mistral as a fourth provider</div><div class="clog__d">Scans now query four providers. Historical comparisons before this date are normalised to three for continuity.</div></div></div>
+              <div class="clog"><div><div class="clog__date">14 Apr 2026</div><div class="clog__ver">v2.3</div></div><div><div class="clog__t">Sentiment model recalibrated</div><div class="clog__d">Neutral band widened to reduce false-positive negatives. No change to citation counting.</div></div></div>
+              <div class="clog"><div><div class="clog__date">3 Mar 2026</div><div class="clog__ver">v2.2</div></div><div><div class="clog__t">Raw-response retention reduced to 90 days</div><div class="clog__d">Aligns with the data-minimisation commitment in the DPIA. Aggregates are unaffected.</div></div></div>
+              <div class="clog"><div><div class="clog__date">19 Jan 2026</div><div class="clog__ver">v2.1</div></div><div><div class="clog__t">Prompt set expanded to 10 runs per question</div><div class="clog__d">Increased from 5 to 10 runs per provider to improve statistical stability of the mention rate.</div></div></div>
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  /* ---------- audit log data ---------- */
+  const ACTORS = {
+    'S. Kerr':   { bg:'var(--coral-500)', role:'Data Lead' },
+    'System':    { bg:'var(--neutral-500)', role:'Automated' },
+    'A. Roux':   { bg:'#4285F4', role:'Analyst' },
+    'M. Haas':   { bg:'#10A37F', role:'Admin' },
+  };
+  const LOG = [
+    { actor:'System', ev:'Weekly scan completed', detail:'Northwind Logistics - 4 providers', cat:'sys', ts:'2026-06-08 06:00' },
+    { actor:'S. Kerr', ev:'Report exported (PDF)', detail:'Voltaic Motors - crisis report', cat:'data', ts:'2026-06-07 16:42' },
+    { actor:'A. Roux', ev:'Scan created', detail:'Cobalt Home - 5 questions', cat:'data', ts:'2026-06-07 11:18' },
+    { actor:'M. Haas', ev:'Member invited', detail:'analyst@meridian.example', cat:'member', ts:'2026-06-06 09:30' },
+    { actor:'System', ev:'Sub-processor flagged', detail:'Email delivery - DPA renewal due', cat:'sys', ts:'2026-06-05 00:00' },
+    { actor:'S. Kerr', ev:'DPIA reviewed', detail:'Residual risk confirmed: low', cat:'data', ts:'2026-06-02 14:05' },
+    { actor:'M. Haas', ev:'Role changed', detail:'A. Roux promoted to Analyst', cat:'member', ts:'2026-05-29 10:12' },
+    { actor:'System', ev:'Methodology updated', detail:'v2.4 - Mistral added', cat:'sys', ts:'2026-06-02 08:00' },
+    { actor:'S. Kerr', ev:'Data export requested', detail:'Full workspace archive', cat:'data', ts:'2026-05-26 17:55' },
+  ];
+  const CATLABEL = { data:['Data','data'], member:['Member','member'], sys:['System','sys'] };
+
+  let logFilter = 'all';
+  const initials = n => n.replace(/[^A-Za-z. ]/g,'').split(/[. ]/).filter(Boolean).map(s=>s[0]).join('').slice(0,2).toUpperCase();
+
+  function renderLog(){
+    const rows = LOG.filter(r=>logFilter==='all'||r.cat===logFilter);
+    document.getElementById('logCount').textContent = `${rows.length} of ${LOG.length} events`;
+    document.getElementById('logBody').innerHTML = rows.map(r=>{
+      const a = ACTORS[r.actor] || {bg:'var(--neutral-500)',role:''};
+      const [lbl,cls] = CATLABEL[r.cat];
+      return `<tr>
+        <td><div class="actor"><span class="actor__av" style="background:${a.bg}">${initials(r.actor)}</span><div><div class="actor__n">${r.actor}</div><div class="actor__r">${a.role}</div></div></div></td>
+        <td><span class="ev">${r.ev}</span></td>
+        <td>${r.detail}</td>
+        <td><span class="evtag ${cls}">${lbl}</span></td>
+        <td><span class="mono">${r.ts}</span></td>
+      </tr>`;
+    }).join('');
+  }
+  document.querySelectorAll('#logSeg button').forEach(b=>b.onclick=()=>{
+    document.querySelectorAll('#logSeg button').forEach(x=>x.classList.remove('on')); b.classList.add('on');
+    logFilter=b.dataset.f; renderLog();
+  });
+  renderLog();
+
+  /* print */
+  document.getElementById('printBtn').onclick = ()=>window.print();
+  document.getElementById('dpaBtn').onclick = ()=>document.getElementById('dpia').scrollIntoView({behavior:'smooth'});
+
+  /* jump nav scroll-spy */
+  const jlinks = [...document.querySelectorAll('.jump a')];
+  const jmap={}; jlinks.forEach(l=>{ const id=l.getAttribute('href').slice(1); if(document.getElementById(id)) jmap[id]=l; });
+  jlinks.forEach(l=>l.onclick=e=>{ e.preventDefault(); document.getElementById(l.getAttribute('href').slice(1)).scrollIntoView({behavior:'smooth'}); });
+  const obs = new IntersectionObserver(es=>es.forEach(e=>{ if(e.isIntersecting){ jlinks.forEach(l=>l.classList.remove('active')); jmap[e.target.id]?.classList.add('active'); }}), { rootMargin:'-15% 0px -75% 0px' });
+  Object.keys(jmap).forEach(id=>obs.observe(document.getElementById(id)));
+</script>
+</body>
+</html>

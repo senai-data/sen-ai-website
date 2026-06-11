@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>sen-ai.fr - Design Tokens v1</title>
+<style>
+  /* ============================================================
+     SEN-AI.FR  -  TOKEN SOURCE OF TRUTH  (v1, 2026-06)
+     Drop these into :root, then map them in tailwind.config.js
+     ============================================================ */
+  :root {
+    /* --- Coral primary ramp (brand asset, kept) --- */
+    --coral-50:  #FEF3F1;
+    --coral-100: #FCE3DE;
+    --coral-200: #F9C6BD;
+    --coral-300: #F4A294;
+    --coral-400: #F4897A;
+    --coral-500: #F06A5C;   /* PRIMARY */
+    --coral-600: #DC4F40;
+    --coral-700: #B83C30;
+    --coral-800: #8F3128;
+    --coral-900: #6B2620;
+
+    /* --- Neutral ramp (cool-charcoal, sober) --- */
+    --neutral-0:   #FFFFFF;
+    --neutral-25:  #FCFCFD;
+    --neutral-50:  #F9FAFB;
+    --neutral-100: #F3F4F6;
+    --neutral-200: #E5E7EB;
+    --neutral-300: #D1D5DB;
+    --neutral-400: #9CA3AF;
+    --neutral-500: #6B7280;
+    --neutral-600: #4B5563;
+    --neutral-700: #374151;
+    --neutral-800: #1F2937;
+    --neutral-900: #1A1A1A;
+
+    /* --- Semantic colour roles --- */
+    --color-primary:          var(--coral-500);
+    --color-primary-hover:    var(--coral-600);
+    --color-primary-subtle:   var(--coral-50);
+    --color-surface:          var(--neutral-0);
+    --color-surface-elevated: var(--neutral-0);
+    --color-surface-sunken:   var(--neutral-50);
+    --color-surface-muted:    var(--neutral-100);
+    --color-border:           var(--neutral-200);
+    --color-border-strong:    var(--neutral-300);
+    --color-text-primary:     var(--neutral-900);
+    --color-text-secondary:   var(--neutral-600);
+    --color-text-muted:       var(--neutral-500);
+
+    /* --- Status roles (role + tint surface) --- */
+    --status-positive:        #047857;  --status-positive-bg: #ECFDF3;
+    --status-warning:         #B54708;  --status-warning-bg:  #FFFAEB;
+    --status-critical:        #D92D20;  --status-critical-bg: #FEF3F2;
+    --status-info:            #175CD3;  --status-info-bg:     #EFF6FF;
+    --status-neutral:         #475569;  --status-neutral-bg:  #F1F5F9;
+    --status-auto:            #0284C7;  --status-auto-bg:     #F0F9FF;
+
+    /* --- Severity scale (AI Act sentiment, perceptual escalation) --- */
+    --sev-none:     #94A3B8;  --sev-none-bg:     #F1F5F9;
+    --sev-low:      #2E90FA;  --sev-low-bg:      #EFF8FF;
+    --sev-medium:   #F79009;  --sev-medium-bg:   #FFFAEB;
+    --sev-high:     #EF6820;  --sev-high-bg:     #FFF4ED;
+    --sev-critical: #D92D20;  --sev-critical-bg: #FEF3F2;
+
+    /* --- Spacing scale (4px base) --- */
+    --space-0: 0;      --space-1: 4px;   --space-2: 8px;   --space-3: 12px;
+    --space-4: 16px;   --space-5: 24px;  --space-6: 32px;  --space-7: 48px;
+    --space-8: 64px;   --space-9: 96px;
+
+    /* --- Radius scale --- */
+    --radius-sm: 6px;  --radius-md: 8px;  --radius-lg: 12px;
+    --radius-xl: 16px; --radius-full: 9999px;
+
+    /* --- Shadow tiers (cool-tinted, real depth hierarchy) --- */
+    --shadow-xs: 0 1px 2px rgba(16,24,40,0.05);
+    --shadow-sm: 0 1px 3px rgba(16,24,40,0.07), 0 1px 2px rgba(16,24,40,0.04);
+    --shadow-md: 0 4px 8px -2px rgba(16,24,40,0.08), 0 2px 4px -2px rgba(16,24,40,0.04);
+    --shadow-lg: 0 12px 16px -4px rgba(16,24,40,0.10), 0 4px 6px -2px rgba(16,24,40,0.04);
+    --shadow-xl: 0 20px 24px -4px rgba(16,24,40,0.12), 0 8px 8px -4px rgba(16,24,40,0.04);
+
+    /* --- Type --- */
+    --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --font-mono: ui-monospace, "SF Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  }
+
+  /* ---------- doc chrome ---------- */
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: var(--font-sans);
+    color: var(--color-text-primary);
+    background: var(--color-surface-sunken);
+    -webkit-font-smoothing: antialiased;
+    line-height: 1.5;
+  }
+  .layout { display: grid; grid-template-columns: 248px 1fr; min-height: 100vh; }
+
+  /* sidebar */
+  .nav {
+    position: sticky; top: 0; align-self: start; height: 100vh;
+    border-right: 1px solid var(--color-border);
+    background: var(--color-surface);
+    padding: var(--space-5) var(--space-4);
+    overflow-y: auto;
+  }
+  .brand { display: flex; align-items: center; gap: 10px; padding: 0 8px var(--space-5); }
+  .brand-mark {
+    width: 26px; height: 26px; border-radius: var(--radius-md);
+    background: var(--color-primary); position: relative; flex: none;
+  }
+  .brand-mark::after {
+    content: ""; position: absolute; inset: 7px; border-radius: var(--radius-full);
+    border: 2.5px solid var(--neutral-0);
+  }
+  .brand-name { font-size: 14px; font-weight: 650; letter-spacing: -0.01em; white-space: nowrap; }
+  .brand-name span { color: var(--color-text-muted); font-weight: 500; }
+  .nav-group { margin-bottom: var(--space-5); }
+  .nav-label {
+    font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--color-text-muted); padding: 0 8px; margin-bottom: 6px;
+  }
+  .nav a {
+    display: block; padding: 7px 8px; border-radius: var(--radius-md);
+    font-size: 13.5px; color: var(--color-text-secondary); text-decoration: none;
+    transition: background .12s, color .12s;
+  }
+  .nav a:hover { background: var(--color-surface-sunken); color: var(--color-text-primary); }
+  .nav a.active { background: var(--color-primary-subtle); color: var(--coral-700); font-weight: 550; }
+
+  /* main */
+  main { padding: var(--space-7) var(--space-8) var(--space-9); max-width: 1080px; }
+  .page-head { margin-bottom: var(--space-7); }
+  .eyebrow {
+    display: inline-flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 600;
+    color: var(--coral-700); background: var(--color-primary-subtle);
+    padding: 4px 10px; border-radius: var(--radius-full); margin-bottom: var(--space-4);
+  }
+  .eyebrow .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--color-primary); }
+  h1.title { font-size: 30px; font-weight: 680; letter-spacing: -0.025em; line-height: 1.15; }
+  .lede { margin-top: var(--space-3); font-size: 16px; color: var(--color-text-secondary); max-width: 64ch; }
+
+  section { margin-bottom: var(--space-8); scroll-margin-top: var(--space-5); }
+  .sec-head { margin-bottom: var(--space-5); padding-bottom: var(--space-3); border-bottom: 1px solid var(--color-border); }
+  .sec-head h2 { font-size: 22px; font-weight: 640; letter-spacing: -0.02em; }
+  .sec-head p { margin-top: 6px; font-size: 14px; color: var(--color-text-secondary); max-width: 70ch; }
+
+  .card {
+    background: var(--color-surface); border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg); padding: var(--space-5); box-shadow: var(--shadow-xs);
+  }
+  .grid { display: grid; gap: var(--space-4); }
+
+  /* colour swatches */
+  .ramp { display: grid; grid-template-columns: repeat(12, 1fr); border-radius: var(--radius-md); overflow: hidden; border: 1px solid var(--color-border); }
+  .ramp .step { height: 64px; position: relative; }
+  .ramp .step .k { position: absolute; bottom: 6px; left: 0; right: 0; text-align: center; font: 600 10px var(--font-mono); }
+  .roles { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px,1fr)); gap: var(--space-3); }
+  .role {
+    border: 1px solid var(--color-border); border-radius: var(--radius-md); overflow: hidden; background: var(--color-surface);
+  }
+  .role .chip { height: 56px; border-bottom: 1px solid var(--color-border); }
+  .role .meta { padding: 10px 12px; }
+  .role .name { font-size: 13px; font-weight: 600; }
+  .role .var { font: 500 11px/1.5 var(--font-mono); color: var(--color-text-muted); margin-top: 2px; }
+  .role .hex { font: 500 11px/1.5 var(--font-mono); color: var(--color-text-secondary); }
+
+  /* status / severity rows */
+  .pill-row { display: flex; flex-wrap: wrap; gap: 10px; }
+  .pill { display: inline-flex; align-items: center; gap: 7px; padding: 5px 11px 5px 9px; border-radius: var(--radius-full); font-size: 12.5px; font-weight: 600; }
+  .pill .d { width: 7px; height: 7px; border-radius: 50%; }
+  .sev-track { display: grid; grid-template-columns: repeat(5,1fr); gap: 8px; }
+  .sev-cell { border-radius: var(--radius-md); padding: 12px; border: 1px solid var(--color-border); }
+  .sev-cell .bar { height: 6px; border-radius: var(--radius-full); margin-bottom: 10px; }
+  .sev-cell .lbl { font-size: 12px; font-weight: 650; text-transform: capitalize; }
+  .sev-cell .use { font-size: 11px; color: var(--color-text-muted); margin-top: 2px; }
+
+  /* type specimens */
+  .type-row { display: grid; grid-template-columns: 110px 1fr 150px; align-items: baseline; gap: var(--space-4); padding: var(--space-4) 0; border-bottom: 1px solid var(--color-border); }
+  .type-row:last-child { border-bottom: 0; }
+  .type-row .tk { font: 600 12px var(--font-mono); color: var(--color-text-muted); }
+  .type-row .spec { font: 500 11px var(--font-mono); color: var(--color-text-muted); text-align: right; }
+
+  /* spacing */
+  .space-row { display: flex; align-items: center; gap: var(--space-4); padding: 9px 0; }
+  .space-row .tk { width: 90px; font: 600 12px var(--font-mono); color: var(--color-text-secondary); }
+  .space-row .val { width: 56px; font: 500 12px var(--font-mono); color: var(--color-text-muted); }
+  .space-row .bar { height: 14px; background: var(--coral-200); border-radius: 3px; }
+
+  /* radius */
+  .radius-row { display: flex; gap: var(--space-5); flex-wrap: wrap; }
+  .radius-demo { text-align: center; }
+  .radius-demo .box { width: 88px; height: 64px; background: var(--color-surface-muted); border: 1.5px solid var(--color-border-strong); }
+  .radius-demo .tk { margin-top: 8px; font: 600 11px var(--font-mono); color: var(--color-text-secondary); }
+  .radius-demo .v { font: 500 10px var(--font-mono); color: var(--color-text-muted); }
+
+  /* shadow */
+  .shadow-row { display: grid; grid-template-columns: repeat(5,1fr); gap: var(--space-5); }
+  .shadow-demo { text-align: center; }
+  .shadow-demo .box { height: 72px; background: var(--color-surface); border-radius: var(--radius-md); }
+  .shadow-demo .tk { margin-top: 14px; font: 600 11px var(--font-mono); color: var(--color-text-secondary); }
+  .shadow-demo .use { font-size: 11px; color: var(--color-text-muted); margin-top: 2px; }
+
+  /* code block */
+  .code {
+    background: #16181D; border-radius: var(--radius-lg); overflow: hidden; box-shadow: var(--shadow-md);
+  }
+  .code-bar { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; border-bottom: 1px solid #2A2D35; }
+  .code-bar .fn { font: 600 12px var(--font-mono); color: #C7CBD4; }
+  .copy { font: 600 11px var(--font-mono); color: #8A8F9C; background: #23262E; border: 1px solid #33373F; border-radius: var(--radius-sm); padding: 4px 9px; cursor: pointer; transition: .12s; }
+  .copy:hover { color: #fff; background: #2D313A; }
+  pre { padding: 16px 18px; overflow-x: auto; }
+  code { font: 500 12.5px/1.7 var(--font-mono); color: #D5D8E0; white-space: pre; }
+  .c-key { color: #E59A6C; } .c-val { color: #9DD0A0; } .c-com { color: #6B7180; font-style: italic; } .c-punc { color: #8A8F9C; }
+
+  .callout {
+    display: flex; gap: 12px; padding: 14px 16px; border-radius: var(--radius-md);
+    background: var(--status-info-bg); border: 1px solid #C3DBFF; margin-top: var(--space-4);
+  }
+  .callout .q { flex: none; width: 22px; height: 22px; border-radius: 50%; background: var(--status-info); color: #fff; display: grid; place-items: center; font-size: 13px; font-weight: 700; }
+  .callout .t { font-size: 13px; color: #1A3D7C; }
+  .callout .t b { color: #0F2E63; }
+
+  .footnav { display: flex; justify-content: space-between; align-items: center; margin-top: var(--space-7); padding-top: var(--space-5); border-top: 1px solid var(--color-border); }
+  .footnav .next { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; color: var(--coral-700); }
+  .muted { color: var(--color-text-muted); font-size: 13px; }
+</style>
+</head>
+<body>
+<div class="layout">
+  <!-- ============ SIDEBAR ============ -->
+  <aside class="nav">
+    <div class="brand">
+      <div class="brand-mark"></div>
+      <div class="brand-name">sen-ai<span>.fr</span></div>
+    </div>
+    <div class="nav-group">
+      <div class="nav-label">Tokens v1</div>
+      <a href="#color" class="active">Colour ramps</a>
+      <a href="#roles">Semantic roles</a>
+      <a href="#status">Status &amp; severity</a>
+      <a href="#type">Type scale</a>
+      <a href="#spacing">Spacing</a>
+      <a href="#radius">Radius</a>
+      <a href="#shadow">Shadow tiers</a>
+    </div>
+    <div class="nav-group">
+      <div class="nav-label">Ship</div>
+      <a href="#css">CSS variables</a>
+      <a href="#tailwind">tailwind.config.js</a>
+    </div>
+  </aside>
+
+  <!-- ============ MAIN ============ -->
+  <main>
+    <div class="page-head">
+      <div class="eyebrow"><span class="dot"></span>Deliverable 1 of 5 - Foundation</div>
+      <h1 class="title">Design tokens</h1>
+      <p class="lede">One source of truth for colour, type, spacing, radius and depth. Everything downstream - components, the agency dashboard, the scan-results pages - is built from these and nothing else. Coral stays as the primary brand asset; the rest is tightened into a real scale.</p>
+    </div>
+
+    <!-- COLOUR RAMPS -->
+    <section id="color">
+      <div class="sec-head">
+        <h2>Colour ramps</h2>
+        <p>Two ramps only. Coral carries brand and primary action. A cool-charcoal neutral carries 90% of the surface - sober and trustworthy, the way any procurement or brand team expects an audit tool to look, in any vertical.</p>
+      </div>
+      <div class="card grid" style="gap: var(--space-5);">
+        <div>
+          <div style="font-size:13px;font-weight:600;margin-bottom:10px;">Coral <span class="muted">- primary, kept from current brand</span></div>
+          <div class="ramp" id="coralRamp"></div>
+        </div>
+        <div>
+          <div style="font-size:13px;font-weight:600;margin-bottom:10px;">Neutral <span class="muted">- cool-charcoal, surfaces + text</span></div>
+          <div class="ramp" id="neutralRamp"></div>
+        </div>
+      </div>
+      <div class="callout">
+        <div class="q">?</div>
+        <div class="t"><b>Decision to confirm:</b> I darkened coral-600 (<code>#DC4F40</code>) to give buttons a legible hover/active state - the current single coral fails WCAG AA on white for text. Primary stays exactly <code>#F06A5C</code> for fills. OK to keep this two-step coral for interaction states?</div>
+      </div>
+    </section>
+
+    <!-- SEMANTIC ROLES -->
+    <section id="roles">
+      <div class="sec-head">
+        <h2>Semantic roles</h2>
+        <p>Components reference these names, never raw hexes. Re-skinning for white-label agencies means swapping the role, not hunting inline classes across 35 pages.</p>
+      </div>
+      <div class="roles" id="roleGrid"></div>
+    </section>
+
+    <!-- STATUS + SEVERITY -->
+    <section id="status">
+      <div class="sec-head">
+        <h2>Status &amp; severity</h2>
+        <p>Status roles are categorical (one of six). Severity is an ordered scale of five with a deliberate perceptual escalation - grey to blue to amber to orange to red - so a crisis reads as more urgent than a warning at a glance.</p>
+      </div>
+      <div class="card" style="margin-bottom: var(--space-4);">
+        <div style="font-size:13px;font-weight:600;margin-bottom:14px;">Status roles</div>
+        <div class="pill-row" id="statusRow"></div>
+      </div>
+      <div class="card">
+        <div style="font-size:13px;font-weight:600;margin-bottom:14px;">Severity scale <span class="muted">- AI Act sentiment / crisis</span></div>
+        <div class="sev-track" id="sevTrack"></div>
+      </div>
+    </section>
+
+    <!-- TYPE -->
+    <section id="type">
+      <div class="sec-head">
+        <h2>Type scale</h2>
+        <p>System stack only (no new licence). A data-dense 14px body anchors the scale, matching the reference density of Ahrefs and Linear. Tight tracking on headings, generous line-height on body.</p>
+      </div>
+      <div class="card" id="typeSpecimen"></div>
+    </section>
+
+    <!-- SPACING -->
+    <section id="spacing">
+      <div class="sec-head">
+        <h2>Spacing</h2>
+        <p>A 4px-based scale. The current p-4 / p-5 / p-6 / p-8 chaos collapses to two component rules: <b>cards pad at space-5 (24px)</b>, <b>compact controls at space-3 (12px)</b>. Everything else snaps to the scale.</p>
+      </div>
+      <div class="card" id="spaceScale"></div>
+    </section>
+
+    <!-- RADIUS -->
+    <section id="radius">
+      <div class="sec-head">
+        <h2>Radius</h2>
+        <p>Five steps, each with one job. The mixed rounded-md / lg / xl usage maps to: inputs &amp; chips = md, cards = lg, modals = xl, pills &amp; avatars = full.</p>
+      </div>
+      <div class="card"><div class="radius-row" id="radiusRow"></div></div>
+    </section>
+
+    <!-- SHADOW -->
+    <section id="shadow">
+      <div class="sec-head">
+        <h2>Shadow tiers</h2>
+        <p>Real depth hierarchy replaces shadow-sm-on-everything. Flat cards rest on a border (xs), interactive surfaces lift on hover (sm to md), overlays float (lg to xl).</p>
+      </div>
+      <div class="card"><div class="shadow-row" id="shadowRow"></div></div>
+    </section>
+
+    <!-- CSS VARS -->
+    <section id="css">
+      <div class="sec-head">
+        <h2>Ship it: CSS variables</h2>
+        <p>Paste into a global stylesheet imported by the Astro root layout. These are the canonical values - the visuals above are generated from exactly this block.</p>
+      </div>
+      <div class="code">
+        <div class="code-bar"><span class="fn">src/styles/tokens.css</span><button class="copy" data-target="cssBlock">Copy</button></div>
+        <pre><code id="cssBlock"></code></pre>
+      </div>
+    </section>
+
+    <!-- TAILWIND -->
+    <section id="tailwind">
+      <div class="sec-head">
+        <h2>Ship it: tailwind.config.js</h2>
+        <p>Theme extension mapping the variables to Tailwind tokens. After this, <code>bg-primary</code>, <code>text-secondary</code>, <code>rounded-lg</code>, <code>shadow-md</code> all resolve to the system - no more arbitrary values.</p>
+      </div>
+      <div class="code">
+        <div class="code-bar"><span class="fn">tailwind.config.js</span><button class="copy" data-target="twBlock">Copy</button></div>
+        <pre><code id="twBlock"></code></pre>
+      </div>
+    </section>
+
+    <div class="footnav">
+      <span class="muted">sen-ai.fr design tokens - v1 - 2026-06</span>
+      <span class="next">Next: component inventory &rarr;</span>
+    </div>
+  </main>
+</div>
+
+<script>
+  /* ---- read the real token values from :root so the doc can't drift ---- */
+  const cs = getComputedStyle(document.documentElement);
+  const v = n => cs.getPropertyValue(n).trim();
+
+  /* colour ramps */
+  function buildRamp(el, prefix, steps){
+    el.innerHTML = steps.map(s => {
+      const c = v(`--${prefix}-${s}`);
+      const dark = ['500','600','700','800','900'].includes(String(s)) || s===500;
+      return `<div class="step" style="background:${c}"><span class="k" style="color:${dark?'#fff':'#1A1A1A'}">${s}</span></div>`;
+    }).join('');
+  }
+  buildRamp(document.getElementById('coralRamp'),'coral',[50,100,200,300,400,500,600,700,800,900]);
+  buildRamp(document.getElementById('neutralRamp'),'neutral',[0,25,50,100,200,300,400,500,600,700,800,900]);
+
+  /* semantic roles */
+  const roles = [
+    ['Primary','--color-primary'], ['Primary hover','--color-primary-hover'], ['Primary subtle','--color-primary-subtle'],
+    ['Surface','--color-surface'], ['Surface elevated','--color-surface-elevated'], ['Surface sunken','--color-surface-sunken'],
+    ['Surface muted','--color-surface-muted'], ['Border','--color-border'], ['Border strong','--color-border-strong'],
+    ['Text primary','--color-text-primary'], ['Text secondary','--color-text-secondary'], ['Text muted','--color-text-muted'],
+  ];
+  document.getElementById('roleGrid').innerHTML = roles.map(([n,k])=>{
+    const c = v(k); const border = ['--color-surface','--color-surface-elevated','--color-primary-subtle'].includes(k);
+    return `<div class="role"><div class="chip" style="background:${c};${border?'box-shadow:inset 0 0 0 1px var(--color-border)':''}"></div>
+      <div class="meta"><div class="name">${n}</div><div class="var">${k.replace('--color-','')}</div><div class="hex">${c.toUpperCase()}</div></div></div>`;
+  }).join('');
+
+  /* status pills */
+  const statuses = [['Positive','positive'],['Warning','warning'],['Critical','critical'],['Info','info'],['Neutral','neutral'],['Auto','auto']];
+  document.getElementById('statusRow').innerHTML = statuses.map(([n,k])=>{
+    return `<span class="pill" style="background:var(--status-${k}-bg);color:var(--status-${k})">
+      <span class="d" style="background:var(--status-${k})"></span>${n}</span>`;
+  }).join('');
+
+  /* severity */
+  const sev = [['none','Stable'],['low','Watch'],['medium','Concern'],['high','Risk'],['critical','Crisis']];
+  document.getElementById('sevTrack').innerHTML = sev.map(([k,use])=>{
+    return `<div class="sev-cell" style="background:var(--sev-${k}-bg)">
+      <div class="bar" style="background:var(--sev-${k})"></div>
+      <div class="lbl" style="color:var(--sev-${k})">${k}</div><div class="use">${use}</div></div>`;
+  }).join('');
+
+  /* type specimen */
+  const type = [
+    ['h1','30 / 36 / 680','Brand visibility, audited','font-size:30px;font-weight:680;letter-spacing:-0.025em;line-height:1.15'],
+    ['h2','24 / 32 / 640','Cross-workspace overview','font-size:24px;font-weight:640;letter-spacing:-0.02em'],
+    ['h3','20 / 28 / 620','Citations by provider','font-size:20px;font-weight:620;letter-spacing:-0.015em'],
+    ['h4','16 / 24 / 600','Competitor share of voice','font-size:16px;font-weight:600'],
+    ['h5','14 / 20 / 600','Trust sources','font-size:14px;font-weight:600'],
+    ['body','14 / 22 / 400','The brand was cited in 7 of 10 generative answers across four providers this week.','font-size:14px;line-height:1.57'],
+    ['small','13 / 18 / 400','Last scanned 2 hours ago by the weekly schedule.','font-size:13px;color:var(--color-text-secondary)'],
+    ['micro','11 / 16 / 600','BRAND MENTION RATE','font-size:11px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:var(--color-text-muted)'],
+    ['code','13 mono','schedule: "weekly"','font-family:var(--font-mono);font-size:13px;color:var(--coral-700)'],
+  ];
+  document.getElementById('typeSpecimen').innerHTML = type.map(([tk,spec,sample,style])=>
+    `<div class="type-row"><div class="tk">${tk}</div><div style="${style}">${sample}</div><div class="spec">${spec}</div></div>`).join('');
+
+  /* spacing */
+  const spaces = [['space-1','4px'],['space-2','8px'],['space-3','12px'],['space-4','16px'],['space-5','24px'],['space-6','32px'],['space-7','48px'],['space-8','64px'],['space-9','96px']];
+  document.getElementById('spaceScale').innerHTML = spaces.map(([tk,val])=>
+    `<div class="space-row"><div class="tk">${tk}</div><div class="val">${val}</div><div class="bar" style="width:${val}"></div></div>`).join('');
+
+  /* radius */
+  const radii = [['sm','6px'],['md','8px'],['lg','12px'],['xl','16px'],['full','pill']];
+  document.getElementById('radiusRow').innerHTML = radii.map(([tk,val])=>
+    `<div class="radius-demo"><div class="box" style="border-radius:var(--radius-${tk})"></div><div class="tk">radius-${tk}</div><div class="v">${val}</div></div>`).join('');
+
+  /* shadow */
+  const shadows = [['xs','flat card'],['sm','hover lift'],['md','dropdown'],['lg','popover'],['xl','modal']];
+  document.getElementById('shadowRow').innerHTML = shadows.map(([tk,use])=>
+    `<div class="shadow-demo"><div class="box" style="box-shadow:var(--shadow-${tk})"></div><div class="tk">shadow-${tk}</div><div class="use">${use}</div></div>`).join('');
+
+  /* ---- code blocks ---- */
+  const css = `<span class="c-com">/* sen-ai.fr tokens v1 */</span>
+<span class="c-key">:root</span> <span class="c-punc">{</span>
+  <span class="c-com">/* primary (brand asset) */</span>
+  <span class="c-key">--color-primary</span>: <span class="c-val">#F06A5C</span>;
+  <span class="c-key">--color-primary-hover</span>: <span class="c-val">#DC4F40</span>;
+  <span class="c-key">--color-primary-subtle</span>: <span class="c-val">#FEF3F1</span>;
+
+  <span class="c-com">/* surfaces + text (cool-charcoal) */</span>
+  <span class="c-key">--color-surface</span>: <span class="c-val">#FFFFFF</span>;
+  <span class="c-key">--color-surface-sunken</span>: <span class="c-val">#F9FAFB</span>;
+  <span class="c-key">--color-surface-muted</span>: <span class="c-val">#F3F4F6</span>;
+  <span class="c-key">--color-border</span>: <span class="c-val">#E5E7EB</span>;
+  <span class="c-key">--color-border-strong</span>: <span class="c-val">#D1D5DB</span>;
+  <span class="c-key">--color-text-primary</span>: <span class="c-val">#1A1A1A</span>;
+  <span class="c-key">--color-text-secondary</span>: <span class="c-val">#4B5563</span>;
+  <span class="c-key">--color-text-muted</span>: <span class="c-val">#6B7280</span>;
+
+  <span class="c-com">/* status */</span>
+  <span class="c-key">--status-positive</span>: <span class="c-val">#047857</span>;  <span class="c-key">--status-positive-bg</span>: <span class="c-val">#ECFDF3</span>;
+  <span class="c-key">--status-warning</span>:  <span class="c-val">#B54708</span>;  <span class="c-key">--status-warning-bg</span>:  <span class="c-val">#FFFAEB</span>;
+  <span class="c-key">--status-critical</span>: <span class="c-val">#D92D20</span>;  <span class="c-key">--status-critical-bg</span>: <span class="c-val">#FEF3F2</span>;
+  <span class="c-key">--status-info</span>:     <span class="c-val">#175CD3</span>;  <span class="c-key">--status-info-bg</span>:     <span class="c-val">#EFF6FF</span>;
+  <span class="c-key">--status-neutral</span>:  <span class="c-val">#475569</span>;  <span class="c-key">--status-neutral-bg</span>:  <span class="c-val">#F1F5F9</span>;
+
+  <span class="c-com">/* severity (none-low-medium-high-critical) */</span>
+  <span class="c-key">--sev-none</span>: <span class="c-val">#94A3B8</span>; <span class="c-key">--sev-low</span>: <span class="c-val">#2E90FA</span>; <span class="c-key">--sev-medium</span>: <span class="c-val">#F79009</span>;
+  <span class="c-key">--sev-high</span>: <span class="c-val">#EF6820</span>; <span class="c-key">--sev-critical</span>: <span class="c-val">#D92D20</span>;
+
+  <span class="c-com">/* spacing - 4px base */</span>
+  <span class="c-key">--space-1</span>: <span class="c-val">4px</span>;  <span class="c-key">--space-2</span>: <span class="c-val">8px</span>;  <span class="c-key">--space-3</span>: <span class="c-val">12px</span>;
+  <span class="c-key">--space-4</span>: <span class="c-val">16px</span>; <span class="c-key">--space-5</span>: <span class="c-val">24px</span>; <span class="c-key">--space-6</span>: <span class="c-val">32px</span>;
+  <span class="c-key">--space-7</span>: <span class="c-val">48px</span>; <span class="c-key">--space-8</span>: <span class="c-val">64px</span>; <span class="c-key">--space-9</span>: <span class="c-val">96px</span>;
+
+  <span class="c-com">/* radius */</span>
+  <span class="c-key">--radius-sm</span>: <span class="c-val">6px</span>; <span class="c-key">--radius-md</span>: <span class="c-val">8px</span>; <span class="c-key">--radius-lg</span>: <span class="c-val">12px</span>;
+  <span class="c-key">--radius-xl</span>: <span class="c-val">16px</span>; <span class="c-key">--radius-full</span>: <span class="c-val">9999px</span>;
+
+  <span class="c-com">/* shadow tiers */</span>
+  <span class="c-key">--shadow-xs</span>: <span class="c-val">0 1px 2px rgba(16,24,40,.05)</span>;
+  <span class="c-key">--shadow-sm</span>: <span class="c-val">0 1px 3px rgba(16,24,40,.07), 0 1px 2px rgba(16,24,40,.04)</span>;
+  <span class="c-key">--shadow-md</span>: <span class="c-val">0 4px 8px -2px rgba(16,24,40,.08), 0 2px 4px -2px rgba(16,24,40,.04)</span>;
+  <span class="c-key">--shadow-lg</span>: <span class="c-val">0 12px 16px -4px rgba(16,24,40,.10), 0 4px 6px -2px rgba(16,24,40,.04)</span>;
+  <span class="c-key">--shadow-xl</span>: <span class="c-val">0 20px 24px -4px rgba(16,24,40,.12), 0 8px 8px -4px rgba(16,24,40,.04)</span>;
+<span class="c-punc">}</span>`;
+
+  const tw = `<span class="c-com">// tailwind.config.js - theme extension</span>
+<span class="c-key">module.exports</span> = <span class="c-punc">{</span>
+  <span class="c-key">theme</span>: <span class="c-punc">{</span> <span class="c-key">extend</span>: <span class="c-punc">{</span>
+    <span class="c-key">colors</span>: <span class="c-punc">{</span>
+      <span class="c-key">primary</span>: <span class="c-punc">{</span> <span class="c-key">DEFAULT</span>:<span class="c-val">'var(--color-primary)'</span>, <span class="c-key">hover</span>:<span class="c-val">'var(--color-primary-hover)'</span>, <span class="c-key">subtle</span>:<span class="c-val">'var(--color-primary-subtle)'</span> <span class="c-punc">}</span>,
+      <span class="c-key">surface</span>: <span class="c-punc">{</span> <span class="c-key">DEFAULT</span>:<span class="c-val">'var(--color-surface)'</span>, <span class="c-key">sunken</span>:<span class="c-val">'var(--color-surface-sunken)'</span>, <span class="c-key">muted</span>:<span class="c-val">'var(--color-surface-muted)'</span> <span class="c-punc">}</span>,
+      <span class="c-key">border</span>: <span class="c-punc">{</span> <span class="c-key">DEFAULT</span>:<span class="c-val">'var(--color-border)'</span>, <span class="c-key">strong</span>:<span class="c-val">'var(--color-border-strong)'</span> <span class="c-punc">}</span>,
+      <span class="c-key">text</span>: <span class="c-punc">{</span> <span class="c-key">primary</span>:<span class="c-val">'var(--color-text-primary)'</span>, <span class="c-key">secondary</span>:<span class="c-val">'var(--color-text-secondary)'</span>, <span class="c-key">muted</span>:<span class="c-val">'var(--color-text-muted)'</span> <span class="c-punc">}</span>,
+      <span class="c-key">status</span>: <span class="c-punc">{</span> <span class="c-key">positive</span>:<span class="c-val">'var(--status-positive)'</span>, <span class="c-key">warning</span>:<span class="c-val">'var(--status-warning)'</span>, <span class="c-key">critical</span>:<span class="c-val">'var(--status-critical)'</span>, <span class="c-key">info</span>:<span class="c-val">'var(--status-info)'</span>, <span class="c-key">neutral</span>:<span class="c-val">'var(--status-neutral)'</span> <span class="c-punc">}</span>,
+      <span class="c-key">sev</span>: <span class="c-punc">{</span> <span class="c-key">none</span>:<span class="c-val">'var(--sev-none)'</span>, <span class="c-key">low</span>:<span class="c-val">'var(--sev-low)'</span>, <span class="c-key">medium</span>:<span class="c-val">'var(--sev-medium)'</span>, <span class="c-key">high</span>:<span class="c-val">'var(--sev-high)'</span>, <span class="c-key">critical</span>:<span class="c-val">'var(--sev-critical)'</span> <span class="c-punc">}</span>,
+    <span class="c-punc">}</span>,
+    <span class="c-key">spacing</span>: <span class="c-punc">{</span> <span class="c-val">1</span>:<span class="c-val">'4px'</span>,<span class="c-val">2</span>:<span class="c-val">'8px'</span>,<span class="c-val">3</span>:<span class="c-val">'12px'</span>,<span class="c-val">4</span>:<span class="c-val">'16px'</span>,<span class="c-val">5</span>:<span class="c-val">'24px'</span>,<span class="c-val">6</span>:<span class="c-val">'32px'</span>,<span class="c-val">7</span>:<span class="c-val">'48px'</span>,<span class="c-val">8</span>:<span class="c-val">'64px'</span>,<span class="c-val">9</span>:<span class="c-val">'96px'</span> <span class="c-punc">}</span>,
+    <span class="c-key">borderRadius</span>: <span class="c-punc">{</span> <span class="c-key">sm</span>:<span class="c-val">'6px'</span>, <span class="c-key">md</span>:<span class="c-val">'8px'</span>, <span class="c-key">lg</span>:<span class="c-val">'12px'</span>, <span class="c-key">xl</span>:<span class="c-val">'16px'</span> <span class="c-punc">}</span>,
+    <span class="c-key">boxShadow</span>: <span class="c-punc">{</span> <span class="c-key">xs</span>:<span class="c-val">'var(--shadow-xs)'</span>, <span class="c-key">sm</span>:<span class="c-val">'var(--shadow-sm)'</span>, <span class="c-key">md</span>:<span class="c-val">'var(--shadow-md)'</span>, <span class="c-key">lg</span>:<span class="c-val">'var(--shadow-lg)'</span>, <span class="c-key">xl</span>:<span class="c-val">'var(--shadow-xl)'</span> <span class="c-punc">}</span>,
+    <span class="c-key">fontSize</span>: <span class="c-punc">{</span> <span class="c-key">micro</span>:<span class="c-punc">[</span><span class="c-val">'11px'</span>,<span class="c-val">'16px'</span><span class="c-punc">]</span>, <span class="c-key">small</span>:<span class="c-punc">[</span><span class="c-val">'13px'</span>,<span class="c-val">'18px'</span><span class="c-punc">]</span>, <span class="c-key">body</span>:<span class="c-punc">[</span><span class="c-val">'14px'</span>,<span class="c-val">'22px'</span><span class="c-punc">]</span> <span class="c-punc">}</span>,
+  <span class="c-punc">}</span> <span class="c-punc">}</span>
+<span class="c-punc">}</span>`;
+
+  document.getElementById('cssBlock').innerHTML = css;
+  document.getElementById('twBlock').innerHTML = tw;
+
+  /* copy buttons */
+  document.querySelectorAll('.copy').forEach(b=>{
+    b.addEventListener('click', ()=>{
+      const t = document.getElementById(b.dataset.target);
+      navigator.clipboard.writeText(t.textContent).then(()=>{
+        const o = b.textContent; b.textContent='Copied'; setTimeout(()=>b.textContent=o,1200);
+      });
+    });
+  });
+
+  /* scroll-spy */
+  const links = [...document.querySelectorAll('.nav a')];
+  const map = {}; links.forEach(l=>{ const id=l.getAttribute('href').slice(1); if(document.getElementById(id)) map[id]=l; });
+  const obs = new IntersectionObserver(es=>{
+    es.forEach(e=>{ if(e.isIntersecting){ links.forEach(l=>l.classList.remove('active')); map[e.target.id]?.classList.add('active'); }});
+  }, { rootMargin: '-10% 0px -80% 0px' });
+  Object.keys(map).forEach(id=>obs.observe(document.getElementById(id)));
+</script>
+</body>
+</html>

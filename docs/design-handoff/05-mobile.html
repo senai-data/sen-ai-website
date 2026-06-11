@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>sen-ai.fr - Mobile decision</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="components.css">
+<style>
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:var(--font-sans); color:var(--color-text-primary); background:var(--color-surface-sunken); -webkit-font-smoothing:antialiased; line-height:1.5; }
+  .wrap { max-width:1080px; margin:0 auto; padding:var(--space-7) var(--space-6) var(--space-9); }
+  .eyebrow { display:inline-flex; align-items:center; gap:7px; font-size:12px; font-weight:600; color:var(--coral-700); background:var(--color-primary-subtle); padding:4px 10px; border-radius:var(--radius-full); margin-bottom:var(--space-4); }
+  .eyebrow .dot { width:6px; height:6px; border-radius:50%; background:var(--color-primary); }
+  h1.title { font-size:30px; font-weight:680; letter-spacing:-.025em; line-height:1.15; }
+  .lede { margin-top:var(--space-3); font-size:16px; color:var(--color-text-secondary); max-width:66ch; }
+  section { margin-top:var(--space-7); }
+  .sec-head h2 { font-size:21px; font-weight:650; letter-spacing:-.02em; }
+  .sec-head p { margin-top:6px; font-size:14px; color:var(--color-text-secondary); max-width:74ch; }
+  .sec-head { margin-bottom:var(--space-5); }
+
+  /* decision banner */
+  .decision { background:var(--color-surface); border:1px solid var(--color-border); border-left:3px solid var(--color-primary); border-radius:var(--radius-lg); box-shadow:var(--shadow-sm); padding:var(--space-5) var(--space-6); }
+  .decision__tag { font:700 11px var(--font-mono); letter-spacing:.06em; color:var(--coral-700); }
+  .decision__h { font-size:20px; font-weight:700; letter-spacing:-.015em; margin-top:6px; }
+  .decision__body { font-size:14px; color:var(--color-text-secondary); margin-top:10px; max-width:72ch; line-height:1.6; }
+  .decision__body b { color:var(--color-text-primary); }
+
+  /* split: choice cards */
+  .choices { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  .choice { background:var(--color-surface); border:1px solid var(--color-border); border-radius:var(--radius-lg); box-shadow:var(--shadow-xs); padding:var(--space-5); position:relative; }
+  .choice.picked { border-color:var(--color-primary); box-shadow:var(--shadow-md); }
+  .choice__pick { position:absolute; top:16px; right:16px; font-size:11px; font-weight:700; color:#fff; background:var(--color-primary); padding:3px 9px; border-radius:var(--radius-full); }
+  .choice.rejected { opacity:.72; }
+  .choice__opt { font:700 12px var(--font-mono); color:var(--color-text-muted); }
+  .choice__name { font-size:16px; font-weight:680; margin-top:6px; }
+  .choice__list { margin-top:14px; display:flex; flex-direction:column; gap:9px; }
+  .choice__li { display:flex; gap:9px; font-size:13px; color:var(--color-text-secondary); line-height:1.45; }
+  .choice__li svg { flex:none; margin-top:2px; }
+
+  /* matrix */
+  .matrix { width:100%; border-collapse:collapse; background:var(--color-surface); border:1px solid var(--color-border); border-radius:var(--radius-lg); overflow:hidden; box-shadow:var(--shadow-xs); }
+  .matrix th { text-align:left; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.04em; color:var(--color-text-muted); padding:12px 16px; background:var(--color-surface-sunken); border-bottom:1px solid var(--color-border); }
+  .matrix td { padding:13px 16px; border-bottom:1px solid var(--color-border); font-size:13.5px; color:var(--color-text-secondary); }
+  .matrix tr:last-child td { border-bottom:0; }
+  .matrix .surface { font-weight:600; color:var(--color-text-primary); }
+  .tag-resp { display:inline-flex; align-items:center; gap:6px; font-size:12px; font-weight:600; color:var(--status-positive); }
+  .tag-desk { display:inline-flex; align-items:center; gap:6px; font-size:12px; font-weight:600; color:var(--status-info); }
+
+  /* device preview */
+  .preview { display:flex; gap:28px; align-items:center; flex-wrap:wrap; }
+  .phone { width:230px; flex:none; background:var(--neutral-900); border-radius:32px; padding:9px; box-shadow:var(--shadow-xl); }
+  .phone__screen { background:var(--color-surface); border-radius:24px; overflow:hidden; height:480px; position:relative; }
+  .phone__notch { position:absolute; top:8px; left:50%; transform:translateX(-50%); width:80px; height:5px; border-radius:3px; background:var(--neutral-300); z-index:2; }
+  .gate { height:100%; display:flex; flex-direction:column; }
+  .gate__bar { padding:20px 16px 14px; display:flex; align-items:center; gap:8px; border-bottom:1px solid var(--color-border); }
+  .gate__logo { width:24px; height:24px; border-radius:7px; background:var(--color-primary); position:relative; }
+  .gate__logo::after { content:""; position:absolute; inset:6px; border-radius:50%; border:2px solid #fff; }
+  .gate__brand { font-size:13px; font-weight:700; }
+  .gate__body { flex:1; display:flex; flex-direction:column; justify-content:center; align-items:center; text-align:center; padding:24px 22px; gap:14px; }
+  .gate__art { width:64px; height:64px; border-radius:18px; background:var(--color-surface-muted); display:grid; place-items:center; }
+  .gate__h { font-size:16px; font-weight:680; letter-spacing:-.01em; }
+  .gate__p { font-size:12.5px; color:var(--color-text-secondary); line-height:1.5; }
+  .gate__mini { width:100%; background:var(--color-surface-sunken); border:1px solid var(--color-border); border-radius:var(--radius-md); padding:12px; margin-top:4px; text-align:left; }
+  .gate__mini-l { font-size:9.5px; font-weight:600; text-transform:uppercase; letter-spacing:.05em; color:var(--color-text-muted); }
+  .gate__mini-row { display:flex; align-items:center; justify-content:space-between; margin-top:8px; }
+  .gate__mini-name { font-size:12px; font-weight:600; }
+  .gate__cta { width:100%; }
+  .preview__note { flex:1; min-width:280px; }
+  .preview__note h3 { font-size:15px; font-weight:650; }
+  .preview__note ul { margin-top:12px; list-style:none; display:flex; flex-direction:column; gap:10px; }
+  .preview__note li { display:flex; gap:9px; font-size:13.5px; color:var(--color-text-secondary); line-height:1.5; }
+  .preview__note li svg { flex:none; margin-top:3px; }
+  .preview__note b { color:var(--color-text-primary); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="eyebrow"><span class="dot"></span>Deliverable 5 of 5 - Mobile</div>
+  <h1 class="title">Mobile strategy</h1>
+  <p class="lede">A clear call on where responsive effort goes, defended in three lines, with the graceful small-screen fallback for the in-app surfaces that stay desktop-class.</p>
+
+  <!-- DECISION -->
+  <section>
+    <div class="decision">
+      <div class="decision__tag">DECISION - OPTION C (HYBRID)</div>
+      <div class="decision__h">Mobile-first marketing &amp; auth. Desktop-class app with a graceful mobile gate.</div>
+      <div class="decision__body">
+        <b>One.</b> The money decisions - read a landing page, register, verify email, reset a password, accept an invite - happen on phones, so the marketing and auth tier is fully mobile-first.<br>
+        <b>Two.</b> The in-app dashboards are dense, multi-tenant, audit-grade tables built for triage across 30 brands - cramming a 12-column share-of-voice grid onto 375px would lie about the data, so they stay desktop-class at &ge;1024px.<br>
+        <b>Three.</b> Below 1024px the app does not 404 or break - it shows a calm <b>"continue on a wider screen"</b> gate that still surfaces the one thing a phone user needs: which brands are in crisis, with a deep link to email themselves the report.
+      </div>
+    </div>
+  </section>
+
+  <!-- CHOICES -->
+  <section>
+    <div class="sec-head"><h2>Why not the other two</h2><p>The brief offered (a) full mobile-first everywhere and (b) desktop-only with a dead-end gate. Both lose.</p></div>
+    <div class="choices">
+      <div class="choice rejected">
+        <div class="choice__opt">OPTION A - rejected</div>
+        <div class="choice__name">Full mobile-first, every surface</div>
+        <div class="choice__list">
+          <div class="choice__li"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="var(--status-critical)" stroke-width="1.8"><path d="M4 4l8 8M12 4l-8 8"/></svg>A 16-column citations table has no honest 375px form - you either hide columns (data loss) or scroll-trap the user.</div>
+          <div class="choice__li"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="var(--status-critical)" stroke-width="1.8"><path d="M4 4l8 8M12 4l-8 8"/></svg>Doubles the layout surface to QA across 35 pages before paying clients arrive. Wrong order of work.</div>
+        </div>
+      </div>
+      <div class="choice rejected">
+        <div class="choice__opt">OPTION B - rejected</div>
+        <div class="choice__name">Desktop-only, hard dead-end</div>
+        <div class="choice__list">
+          <div class="choice__li"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="var(--status-critical)" stroke-width="1.8"><path d="M4 4l8 8M12 4l-8 8"/></svg>An agency owner gets a crisis email on her phone, taps through, and hits a wall. That is the worst possible moment to fail.</div>
+          <div class="choice__li"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="var(--status-critical)" stroke-width="1.8"><path d="M4 4l8 8M12 4l-8 8"/></svg>Marketing &amp; registration also break on mobile - killing the top of the funnel.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- MATRIX -->
+  <section>
+    <div class="sec-head"><h2>Surface-by-surface</h2></div>
+    <table class="matrix">
+      <thead><tr><th>Surface</th><th style="width:170px">Treatment</th><th>Why</th></tr></thead>
+      <tbody>
+        <tr><td class="surface">Landing, /agency, /pricing, /methodology</td><td><span class="tag-resp"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 8.5l3.5 3.5L13 5"/></svg>Mobile-first</span></td><td>Top of funnel. Read and shared on phones.</td></tr>
+        <tr><td class="surface">Register, login, verify, reset, invite</td><td><span class="tag-resp"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 8.5l3.5 3.5L13 5"/></svg>Mobile-first</span></td><td>Auth happens wherever the email lands.</td></tr>
+        <tr><td class="surface">Compliance report (read + print)</td><td><span class="tag-resp"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 8.5l3.5 3.5L13 5"/></svg>Mobile-readable</span></td><td>SSR + print CSS already reflows. DPOs open it anywhere.</td></tr>
+        <tr><td class="surface">Agency overview (crisis triage)</td><td><span class="tag-desk"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2" y="3" width="12" height="9" rx="1.5"/><path d="M6 14h4"/></svg>Desktop + gate</span></td><td>Gate still shows who is in crisis + a deep link.</td></tr>
+        <tr><td class="surface">Scan results (16 leaves), settings, content kanban</td><td><span class="tag-desk"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2" y="3" width="12" height="9" rx="1.5"/><path d="M6 14h4"/></svg>Desktop only</span></td><td>Dense, audit-grade. Honest at width.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- GATE PREVIEW -->
+  <section>
+    <div class="sec-head"><h2>The graceful gate</h2><p>What a phone user sees on a desktop-class page. Not a dead end - a calm redirect that still answers the one urgent question.</p></div>
+    <div class="preview">
+      <div class="phone">
+        <div class="phone__screen">
+          <div class="phone__notch"></div>
+          <div class="gate">
+            <div class="gate__bar"><span class="gate__logo"></span><span class="gate__brand">Meridian</span></div>
+            <div class="gate__body">
+              <div class="gate__art"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="var(--color-text-muted)" stroke-width="1.6"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg></div>
+              <div class="gate__h">Best viewed on a wider screen</div>
+              <div class="gate__p">The full triage dashboard needs at least 1024px. Here is what needs you right now:</div>
+              <div class="gate__mini">
+                <div class="gate__mini-l">Needs attention</div>
+                <div class="gate__mini-row"><span class="gate__mini-name">Voltaic Motors</span><span class="sev sev--critical" style="padding:2px 8px"><span class="sev__dot"></span>Crisis</span></div>
+                <div class="gate__mini-row"><span class="gate__mini-name">Northwind Logistics</span><span class="sev sev--medium" style="padding:2px 8px"><span class="sev__dot"></span>Weak</span></div>
+              </div>
+              <button class="btn btn--primary btn--md gate__cta">Email me the report</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="preview__note">
+        <h3>What the gate does right</h3>
+        <ul>
+          <li><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="var(--status-positive)" stroke-width="1.8"><path d="M3 8.5l3.5 3.5L13 5"/></svg><span><b>Answers the urgent question.</b> Surfaces crisis + weak brands without the full grid - the only thing a phone user truly needs.</span></li>
+          <li><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="var(--status-positive)" stroke-width="1.8"><path d="M3 8.5l3.5 3.5L13 5"/></svg><span><b>Keeps the white-label frame.</b> The agency's logo stays - the client never sees a broken sen-ai.fr page.</span></li>
+          <li><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="var(--status-positive)" stroke-width="1.8"><path d="M3 8.5l3.5 3.5L13 5"/></svg><span><b>Offers one action.</b> Email the report (Hick) - no dead end, no apology page.</span></li>
+          <li><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="var(--status-positive)" stroke-width="1.8"><path d="M3 8.5l3.5 3.5L13 5"/></svg><span><b>Costs ~1 day.</b> One breakpoint + one query, not a parallel mobile app.</span></li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-top:var(--space-7);padding-top:var(--space-5);border-top:1px solid var(--color-border)">
+    <span style="color:var(--color-text-muted);font-size:13px">sen-ai.fr mobile strategy - v1</span>
+    <span style="font-size:14px;font-weight:600;color:var(--coral-700)">All 5 deliverables complete</span>
+  </div>
+</div>
+</body>
+</html>

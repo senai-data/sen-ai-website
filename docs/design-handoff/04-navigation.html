@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>sen-ai.fr - Navigation restructure</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="components.css">
+<style>
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:var(--font-sans); color:var(--color-text-primary); background:var(--color-surface-sunken); -webkit-font-smoothing:antialiased; line-height:1.5; }
+  .wrap { max-width:1080px; margin:0 auto; padding:var(--space-7) var(--space-6) var(--space-9); }
+  .eyebrow { display:inline-flex; align-items:center; gap:7px; font-size:12px; font-weight:600; color:var(--coral-700); background:var(--color-primary-subtle); padding:4px 10px; border-radius:var(--radius-full); margin-bottom:var(--space-4); }
+  .eyebrow .dot { width:6px; height:6px; border-radius:50%; background:var(--color-primary); }
+  h1.title { font-size:30px; font-weight:680; letter-spacing:-.025em; line-height:1.15; }
+  .lede { margin-top:var(--space-3); font-size:16px; color:var(--color-text-secondary); max-width:66ch; }
+  section { margin-top:var(--space-8); }
+  .sec-head h2 { font-size:21px; font-weight:650; letter-spacing:-.02em; }
+  .sec-head p { margin-top:6px; font-size:14px; color:var(--color-text-secondary); max-width:74ch; }
+  .sec-head { margin-bottom:var(--space-5); }
+  .panel { background:var(--color-surface); border:1px solid var(--color-border); border-radius:var(--radius-lg); box-shadow:var(--shadow-xs); padding:var(--space-5); }
+  code.k { font:600 12px var(--font-mono); color:var(--coral-700); background:var(--color-primary-subtle); padding:1px 5px; border-radius:4px; }
+
+  /* problem strip */
+  .oldstrip { display:flex; gap:0; overflow:hidden; border:1px solid var(--color-border); border-radius:var(--radius-md); background:var(--color-surface); position:relative; }
+  .oldstrip__inner { display:flex; gap:0; padding:0; }
+  .oldtab { font-size:13px; font-weight:550; color:var(--color-text-secondary); padding:11px 14px; white-space:nowrap; border-right:1px solid var(--color-border); }
+  .oldtab.on { color:var(--coral-700); box-shadow:inset 0 -2px 0 var(--color-primary); }
+  .oldstrip::after { content:""; position:absolute; right:0; top:0; bottom:0; width:56px; background:linear-gradient(90deg,transparent,var(--color-surface)); pointer-events:none; }
+  .problem-note { display:flex; align-items:center; gap:8px; margin-top:12px; font-size:13px; color:var(--status-critical); font-weight:550; }
+
+  /* macro grouping cards */
+  .macros { display:grid; grid-template-columns:repeat(3,1fr); gap:16px; align-items:start; }
+  .macro { background:var(--color-surface); border:1px solid var(--color-border); border-radius:var(--radius-lg); box-shadow:var(--shadow-xs); overflow:hidden; }
+  .macro__head { padding:16px 18px; border-bottom:1px solid var(--color-border); }
+  .macro__num { font:700 11px var(--font-mono); color:var(--color-text-muted); }
+  .macro__name { font-size:17px; font-weight:700; letter-spacing:-.01em; margin-top:3px; display:flex; align-items:center; gap:9px; }
+  .macro__ico { width:24px; height:24px; border-radius:var(--radius-sm); display:grid; place-items:center; flex:none; }
+  .macro__intent { font-size:12.5px; color:var(--color-text-secondary); margin-top:8px; font-style:italic; }
+  .macro__leaves { padding:8px; }
+  .leaf { display:flex; align-items:center; gap:10px; padding:8px 10px; border-radius:var(--radius-sm); font-size:13.5px; color:var(--color-text-primary); }
+  .leaf:hover { background:var(--color-surface-sunken); }
+  .leaf__dot { width:6px; height:6px; border-radius:50%; background:var(--color-border-strong); flex:none; }
+  .leaf .moved { margin-left:auto; font-size:10px; font-weight:700; color:var(--status-info); background:var(--status-info-bg); padding:1px 6px; border-radius:var(--radius-full); }
+  .subgroup { font-size:10.5px; font-weight:600; letter-spacing:.05em; text-transform:uppercase; color:var(--color-text-muted); padding:10px 10px 4px; }
+  .macro__count { margin-left:auto; font-size:11px; font-weight:700; color:var(--color-text-muted); background:var(--color-surface-sunken); border:1px solid var(--color-border); padding:2px 8px; border-radius:var(--radius-full); }
+
+  .reasoning { display:grid; grid-template-columns:repeat(3,1fr); gap:14px; margin-top:18px; }
+  .reason { background:var(--color-surface); border:1px solid var(--color-border); border-left:3px solid var(--status-info); border-radius:var(--radius-md); padding:14px 16px; }
+  .reason b { font-size:13px; } .reason p { font-size:12.5px; color:var(--color-text-secondary); margin-top:4px; line-height:1.5; }
+
+  /* live nav demo */
+  .demo { background:var(--color-surface); border:1px solid var(--color-border); border-radius:var(--radius-lg); box-shadow:var(--shadow-sm); overflow:hidden; }
+  .demo__bar { padding:18px 22px 0; }
+  .demo__body { padding:26px 22px 30px; background:var(--color-surface-sunken); border-top:1px solid var(--color-border); margin-top:18px; min-height:130px; }
+  .demo__leaf-label { font-size:11px; font-weight:600; letter-spacing:.05em; text-transform:uppercase; color:var(--color-text-muted); }
+  .demo__leaf-title { font-size:20px; font-weight:680; letter-spacing:-.02em; margin-top:6px; }
+  .demo__leaf-desc { font-size:13.5px; color:var(--color-text-secondary); margin-top:8px; max-width:60ch; }
+
+  /* flow predictions */
+  .flows { display:flex; flex-direction:column; gap:16px; }
+  .flow { background:var(--color-surface); border:1px solid var(--color-border); border-radius:var(--radius-lg); box-shadow:var(--shadow-xs); padding:18px 20px; }
+  .flow__head { display:flex; align-items:center; gap:12px; margin-bottom:16px; }
+  .flow__n { width:26px; height:26px; border-radius:50%; background:var(--color-text-primary); color:#fff; display:grid; place-items:center; font-size:13px; font-weight:700; flex:none; }
+  .flow__title { font-size:15px; font-weight:650; }
+  .flow__meta { margin-left:auto; font-size:12px; color:var(--color-text-muted); display:flex; gap:14px; }
+  .flow__meta b { color:var(--color-text-primary); font-weight:650; }
+  .flow__steps { display:flex; align-items:stretch; gap:0; flex-wrap:wrap; }
+  .fstep { flex:1; min-width:130px; background:var(--color-surface-sunken); border:1px solid var(--color-border); border-radius:var(--radius-md); padding:11px 13px; position:relative; }
+  .fstep__k { font:600 10px var(--font-mono); color:var(--color-text-muted); }
+  .fstep__t { font-size:12.5px; font-weight:600; margin-top:3px; }
+  .fstep__s { font-size:11.5px; color:var(--color-text-muted); margin-top:2px; }
+  .farrow { display:grid; place-items:center; width:26px; color:var(--color-border-strong); flex:none; }
+  .flow__click { margin-top:12px; font-size:12px; color:var(--color-text-muted); display:flex; align-items:center; gap:7px; }
+  .flow__click b { color:var(--status-positive); }
+
+  .table-cmp { width:100%; border-collapse:collapse; font-size:13px; }
+  .table-cmp th { text-align:left; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.04em; color:var(--color-text-muted); padding:8px 12px; border-bottom:1px solid var(--color-border); }
+  .table-cmp td { padding:9px 12px; border-bottom:1px solid var(--color-border); color:var(--color-text-secondary); }
+  .table-cmp .old { color:var(--color-text-muted); text-decoration:line-through; }
+  .table-cmp .new { color:var(--color-text-primary); font-weight:600; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="eyebrow"><span class="dot"></span>Deliverable 4 of 5 - Navigation</div>
+  <h1 class="title">Tab restructure: 16 flat to 3 honest</h1>
+  <p class="lede">The 16-tab strip is the highest-impact target. It overflows on every screen below 1440px and treats a YouTube check and a compliance export as peers. Here is the honest regroup, the working 2-level nav, and the top-3 user flows.</p>
+
+  <!-- PROBLEM -->
+  <section>
+    <div class="sec-head"><h2>The problem</h2><p>Sixteen equally-weighted tabs in one horizontal strip. It scrolls sideways, hides the last 5 behind an overflow, and gives no sense of <i>where am I</i> in the workflow.</p></div>
+    <div class="panel">
+      <div class="oldstrip"><div class="oldstrip__inner">
+        <div class="oldtab on">Overview</div><div class="oldtab">Topics</div><div class="oldtab">Personas</div><div class="oldtab">Questions</div><div class="oldtab">Citations</div><div class="oldtab">Wikipedia</div><div class="oldtab">Page Audit</div><div class="oldtab">Schema</div><div class="oldtab">Competitors</div><div class="oldtab">Reddit</div><div class="oldtab">PR / Media</div><div class="oldtab">Internal links</div><div class="oldtab">YouTube</div><div class="oldtab">Crisis</div><div class="oldtab">Actions</div><div class="oldtab">Compliance</div>
+      </div></div>
+      <div class="problem-note"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M8 1l7 13H1z"/><path d="M8 6v3.5M8 11.5v.1"/></svg>5 tabs clipped off the right edge - and no two-level hierarchy to anchor the user.</div>
+    </div>
+  </section>
+
+  <!-- HONEST GROUPING -->
+  <section>
+    <div class="sec-head"><h2>The honest regroup</h2><p>I rejected the strawman's 8-tab "Investigation" bucket - it breaks Miller (5-7) and lumps off-site sources with owned-property audits. My grouping splits on <b>user intent</b>, not data type, and moves Competitors where it belongs.</p></div>
+    <div class="macros">
+      <!-- Visibility -->
+      <div class="macro">
+        <div class="macro__head">
+          <div class="macro__num">MACRO 01</div>
+          <div class="macro__name"><span class="macro__ico" style="background:var(--color-surface-muted)"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="var(--color-text-primary)" stroke-width="1.6"><path d="M1 8s2.5-4.5 7-4.5S15 8 15 8s-2.5 4.5-7 4.5S1 8 1 8z"/><circle cx="8" cy="8" r="2"/></svg></span>Visibility<span class="macro__count">6</span></div>
+          <div class="macro__intent">"How does AI see me, and against whom?"</div>
+        </div>
+        <div class="macro__leaves">
+          <div class="leaf"><span class="leaf__dot"></span>Overview</div>
+          <div class="leaf"><span class="leaf__dot"></span>Topics</div>
+          <div class="leaf"><span class="leaf__dot"></span>Personas</div>
+          <div class="leaf"><span class="leaf__dot"></span>Questions</div>
+          <div class="leaf"><span class="leaf__dot"></span>Citations</div>
+          <div class="leaf"><span class="leaf__dot"></span>Competitors<span class="moved">moved in</span></div>
+        </div>
+      </div>
+      <!-- Sources -->
+      <div class="macro">
+        <div class="macro__head">
+          <div class="macro__num">MACRO 02</div>
+          <div class="macro__name"><span class="macro__ico" style="background:var(--color-surface-muted)"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="var(--color-text-primary)" stroke-width="1.6"><path d="M6 10l4-4M5.5 4.5l1-1a3 3 0 0 1 4 4l-1 1M10.5 11.5l-1 1a3 3 0 0 1-4-4l1-1"/></svg></span>Sources<span class="macro__count">7</span></div>
+          <div class="macro__intent">"Which surfaces feed the answers - and which can I edit?"</div>
+        </div>
+        <div class="macro__leaves">
+          <div class="subgroup">Off-site</div>
+          <div class="leaf"><span class="leaf__dot"></span>Wikipedia</div>
+          <div class="leaf"><span class="leaf__dot"></span>Reddit</div>
+          <div class="leaf"><span class="leaf__dot"></span>PR / Media</div>
+          <div class="leaf"><span class="leaf__dot"></span>YouTube</div>
+          <div class="subgroup">Owned</div>
+          <div class="leaf"><span class="leaf__dot"></span>Page Audit</div>
+          <div class="leaf"><span class="leaf__dot"></span>Schema</div>
+          <div class="leaf"><span class="leaf__dot"></span>Internal links</div>
+        </div>
+      </div>
+      <!-- Act -->
+      <div class="macro">
+        <div class="macro__head">
+          <div class="macro__num">MACRO 03</div>
+          <div class="macro__name"><span class="macro__ico" style="background:var(--coral-100)"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="var(--coral-700)" stroke-width="1.7"><path d="M8 1l1.8 4.6L14.5 6l-3.5 3 1 4.7L8 11.2 4 13.7l1-4.7L1.5 6l4.7-.4z"/></svg></span>Act<span class="macro__count">3</span></div>
+          <div class="macro__intent">"What do I do now - and prove it?"</div>
+        </div>
+        <div class="macro__leaves">
+          <div class="leaf"><span class="leaf__dot" style="background:var(--status-critical)"></span>Crisis</div>
+          <div class="leaf"><span class="leaf__dot"></span>Actions</div>
+          <div class="leaf"><span class="leaf__dot"></span>Compliance</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="reasoning">
+      <div class="reason"><b>Competitors moved to Visibility</b><p>Share of voice is a measurement, not an investigation. An agency owner reads it next to her mention rate, so it lives beside Citations.</p></div>
+      <div class="reason"><b>Sources splits Off-site vs Owned</b><p>Reddit and Wikipedia are surfaces you influence indirectly. Page Audit, Schema and Internal links are things you directly fix. The sub-label keeps the honest distinction without a 4th macro.</p></div>
+      <div class="reason"><b>Crisis leads Act</b><p>Serial position - the most urgent leaf sits first and carries the only coloured dot. Everything else in the strip stays quiet until it needs eyes.</p></div>
+    </div>
+  </section>
+
+  <!-- LIVE NAV -->
+  <section>
+    <div class="sec-head"><h2>The working nav</h2><p>A macro segmented control over a contextual leaf row. Click a macro to swap its leaves; click a leaf to load. Max visible choices at once stays within Hick's comfortable range.</p></div>
+    <div class="demo">
+      <div class="demo__bar">
+        <div class="tabs__macro" id="macroNav" style="max-width:560px">
+          <button data-m="0" aria-selected="true">Visibility <span class="count">6</span></button>
+          <button data-m="1" aria-selected="false">Sources <span class="count">7</span></button>
+          <button data-m="2" aria-selected="false">Act <span class="count">3</span></button>
+        </div>
+        <div class="tabs__leaf" id="leafNav"></div>
+      </div>
+      <div class="demo__body" id="demoBody"></div>
+    </div>
+  </section>
+
+  <!-- FLOWS -->
+  <section>
+    <div class="sec-head"><h2>Top-3 flow predictions</h2><p>How the new nav routes the three journeys that matter most, with a click-count prediction for each. Fewer steps, every one signposted.</p></div>
+    <div class="flows">
+      <!-- flow 1 -->
+      <div class="flow">
+        <div class="flow__head"><div class="flow__n">1</div><div class="flow__title">Open a scan</div><div class="flow__meta"><span><b>2</b> clicks</span><span><b>&lt;400ms</b> Doherty</span></div></div>
+        <div class="flow__steps">
+          <div class="fstep"><div class="fstep__k">START</div><div class="fstep__t">Agency overview</div><div class="fstep__s">12 client cards, crisis-first</div></div>
+          <div class="farrow">&rarr;</div>
+          <div class="fstep"><div class="fstep__k">CLICK 1</div><div class="fstep__t">Workspace card</div><div class="fstep__s">Card lifts, "Open scan"</div></div>
+          <div class="farrow">&rarr;</div>
+          <div class="fstep"><div class="fstep__k">LAND</div><div class="fstep__t">Scan / Visibility / Overview</div><div class="fstep__s">Default leaf, grade in header</div></div>
+        </div>
+        <div class="flow__click"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="var(--status-positive)" stroke-width="1.8"><path d="M3 8.5l3.5 3.5L13 5"/></svg><b>Prediction:</b>&nbsp;the grade badge in the sticky header confirms arrival before the body paints.</div>
+      </div>
+      <!-- flow 2 -->
+      <div class="flow">
+        <div class="flow__head"><div class="flow__n">2</div><div class="flow__title">Drill into a competitor</div><div class="flow__meta"><span><b>3</b> clicks</span><span><b>0</b> macro switches</span></div></div>
+        <div class="flow__steps">
+          <div class="fstep"><div class="fstep__k">START</div><div class="fstep__t">Scan / Visibility / Overview</div><div class="fstep__s">Share-of-voice panel visible</div></div>
+          <div class="farrow">&rarr;</div>
+          <div class="fstep"><div class="fstep__k">CLICK 1</div><div class="fstep__t">Competitors leaf</div><div class="fstep__s">Same macro - no context loss</div></div>
+          <div class="farrow">&rarr;</div>
+          <div class="fstep"><div class="fstep__k">CLICK 2</div><div class="fstep__t">Expand a competitor row</div><div class="fstep__s">Inline, not a modal</div></div>
+          <div class="farrow">&rarr;</div>
+          <div class="fstep"><div class="fstep__k">CLICK 3</div><div class="fstep__t">Open cited answer</div><div class="fstep__s">Provider + verbatim quote</div></div>
+        </div>
+        <div class="flow__click"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="var(--status-positive)" stroke-width="1.8"><path d="M3 8.5l3.5 3.5L13 5"/></svg><b>Prediction:</b>&nbsp;because Competitors is now in Visibility, the user never leaves the macro she started in.</div>
+      </div>
+      <!-- flow 3 -->
+      <div class="flow">
+        <div class="flow__head"><div class="flow__n">3</div><div class="flow__title">Download a compliance PDF</div><div class="flow__meta"><span><b>2</b> clicks</span><span><b>SSR</b> print path</span></div></div>
+        <div class="flow__steps">
+          <div class="fstep"><div class="fstep__k">START</div><div class="fstep__t">Scan / any leaf</div><div class="fstep__s">Macro strip always visible</div></div>
+          <div class="farrow">&rarr;</div>
+          <div class="fstep"><div class="fstep__k">CLICK 1</div><div class="fstep__t">Act / Compliance</div><div class="fstep__s">Crisis-adjacent, expected</div></div>
+          <div class="farrow">&rarr;</div>
+          <div class="fstep"><div class="fstep__k">CLICK 2</div><div class="fstep__t">Export PDF</div><div class="fstep__s">Server-rendered from same HTML</div></div>
+          <div class="farrow">&rarr;</div>
+          <div class="fstep"><div class="fstep__k">LAND</div><div class="fstep__t">Print-CSS document</div><div class="fstep__s">URL unchanged - email links hold</div></div>
+        </div>
+        <div class="flow__click"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="var(--status-positive)" stroke-width="1.8"><path d="M3 8.5l3.5 3.5L13 5"/></svg><b>Prediction:</b>&nbsp;Compliance under Act (not buried mid-strip) is where a DPO instinctively looks.</div>
+      </div>
+    </div>
+  </section>
+
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-top:var(--space-7);padding-top:var(--space-5);border-top:1px solid var(--color-border)">
+    <span style="color:var(--color-text-muted);font-size:13px">sen-ai.fr navigation - v1</span>
+    <a href="05-mobile.html" style="font-size:14px;font-weight:600;color:var(--coral-700);text-decoration:none">Next: mobile decision &rarr;</a>
+  </div>
+</div>
+
+<script>
+  const MACROS = [
+    { name:'Visibility', leaves:[
+      ['Overview','The at-a-glance state of this brand in generative answers.'],
+      ['Topics','Themes and subjects the brand is cited on, ranked by frequency.'],
+      ['Personas','Which buyer personas trigger a citation, and which do not.'],
+      ['Questions','The buyer questions asked, with cited / weak / missing status.'],
+      ['Citations','Every captured citation, by provider and source surface.'],
+      ['Competitors','Share of voice against the brands AI names instead of you.'],
+    ]},
+    { name:'Sources', leaves:[
+      ['Wikipedia','Wikipedia presence and how it feeds model answers.'],
+      ['Reddit','Community mentions and sentiment that models pull from.'],
+      ['PR / Media','Press and earned media surfaces cited in answers.'],
+      ['YouTube','Video sources referenced by generative systems.'],
+      ['Page Audit','Your own pages - what AI can and cannot read.'],
+      ['Schema','Structured-data coverage on owned properties.'],
+      ['Internal links','Internal linking that shapes crawl and citation.'],
+    ]},
+    { name:'Act', leaves:[
+      ['Crisis','Negative-sentiment spikes and reputation signals needing action now.'],
+      ['Actions','The prioritised to-do list generated from this scan.'],
+      ['Compliance','AI Act audit log, DPIA and the exportable report PDF.'],
+    ]},
+  ];
+  let curM = 0, curL = 0;
+  const leafNav = document.getElementById('leafNav');
+  const body = document.getElementById('demoBody');
+  function renderLeaves(){
+    leafNav.innerHTML = MACROS[curM].leaves.map((l,i)=>`<button data-l="${i}" aria-selected="${i===curL}">${l[0]}</button>`).join('');
+    leafNav.querySelectorAll('button').forEach(b=>b.onclick=()=>{ curL=+b.dataset.l; renderLeaves(); renderBody(); });
+  }
+  function renderBody(){
+    const l = MACROS[curM].leaves[curL];
+    body.innerHTML = `<div class="demo__leaf-label">${MACROS[curM].name}</div><div class="demo__leaf-title">${l[0]}</div><div class="demo__leaf-desc">${l[1]}</div>`;
+  }
+  document.querySelectorAll('#macroNav button').forEach(b=>{
+    b.onclick=()=>{
+      document.querySelectorAll('#macroNav button').forEach(x=>x.setAttribute('aria-selected','false'));
+      b.setAttribute('aria-selected','true');
+      curM=+b.dataset.m; curL=0; renderLeaves(); renderBody();
+    };
+  });
+  renderLeaves(); renderBody();
+</script>
+</body>
+</html>

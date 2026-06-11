@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>sen-ai.fr - Component inventory</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="components.css">
+<style>
+  * { box-sizing:border-box; margin:0; padding:0; }
+  html { scroll-behavior:smooth; }
+  body { font-family:var(--font-sans); color:var(--color-text-primary); background:var(--color-surface-sunken); -webkit-font-smoothing:antialiased; line-height:1.5; }
+  .layout { display:grid; grid-template-columns:248px 1fr; min-height:100vh; }
+  .nav { position:sticky; top:0; align-self:start; height:100vh; border-right:1px solid var(--color-border); background:var(--color-surface); padding:var(--space-5) var(--space-4); overflow-y:auto; }
+  .brand { display:flex; align-items:center; gap:10px; padding:0 8px var(--space-5); }
+  .brand-mark { width:26px; height:26px; border-radius:var(--radius-md); background:var(--color-primary); position:relative; flex:none; }
+  .brand-mark::after { content:""; position:absolute; inset:7px; border-radius:var(--radius-full); border:2.5px solid #fff; }
+  .brand-name { font-size:14px; font-weight:650; letter-spacing:-.01em; white-space:nowrap; }
+  .brand-name span { color:var(--color-text-muted); font-weight:500; }
+  .nav-label { font-size:11px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; color:var(--color-text-muted); padding:0 8px; margin-bottom:6px; }
+  .nav a { display:block; padding:7px 8px; border-radius:var(--radius-md); font-size:13.5px; color:var(--color-text-secondary); text-decoration:none; transition:.12s; }
+  .nav a:hover { background:var(--color-surface-sunken); color:var(--color-text-primary); }
+  .nav a.active { background:var(--color-primary-subtle); color:var(--coral-700); font-weight:550; }
+  main { padding:var(--space-7) var(--space-8) var(--space-9); max-width:1120px; }
+  .eyebrow { display:inline-flex; align-items:center; gap:7px; font-size:12px; font-weight:600; color:var(--coral-700); background:var(--color-primary-subtle); padding:4px 10px; border-radius:var(--radius-full); margin-bottom:var(--space-4); }
+  .eyebrow .dot { width:6px; height:6px; border-radius:50%; background:var(--color-primary); }
+  h1.title { font-size:30px; font-weight:680; letter-spacing:-.025em; line-height:1.15; }
+  .lede { margin-top:var(--space-3); font-size:16px; color:var(--color-text-secondary); max-width:64ch; }
+  section { margin-bottom:var(--space-7); scroll-margin-top:var(--space-5); }
+  .sec-head { margin:var(--space-6) 0 var(--space-4); }
+  .sec-head h2 { font-size:20px; font-weight:640; letter-spacing:-.02em; }
+  .sec-head p { margin-top:5px; font-size:13.5px; color:var(--color-text-secondary); max-width:74ch; }
+  .sec-head code, .note code { font:600 12px var(--font-mono); color:var(--coral-700); background:var(--color-primary-subtle); padding:1px 5px; border-radius:4px; }
+  .stage { background:var(--color-surface); border:1px solid var(--color-border); border-radius:var(--radius-lg); padding:var(--space-5); box-shadow:var(--shadow-xs); }
+  .stage--sunken { background:var(--color-surface-sunken); }
+  .row { display:flex; flex-wrap:wrap; gap:14px; align-items:center; }
+  .col { display:flex; flex-direction:column; gap:14px; }
+  .label-mini { font:600 10px var(--font-mono); color:var(--color-text-muted); text-transform:uppercase; letter-spacing:.05em; margin-bottom:10px; }
+  .divider { height:1px; background:var(--color-border); margin:var(--space-5) 0; }
+  .grid-2 { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+  .grid-3 { display:grid; grid-template-columns:repeat(3,1fr); gap:14px; }
+  .note { font-size:12.5px; color:var(--color-text-muted); margin-top:12px; }
+</style>
+</head>
+<body>
+<div class="layout">
+  <aside class="nav">
+    <div class="brand"><div class="brand-mark"></div><div class="brand-name">sen-ai<span>.fr</span></div></div>
+    <div class="nav-label">Components</div>
+    <a href="#buttons" class="active">Button</a>
+    <a href="#cards">Card</a>
+    <a href="#stat">Stat / KPI</a>
+    <a href="#chips">Chip</a>
+    <a href="#score">Score &amp; severity</a>
+    <a href="#sentiment">Sentiment chip</a>
+    <a href="#sparkline">Sparkline</a>
+    <a href="#inputs">Inputs</a>
+    <a href="#table">Table</a>
+    <a href="#tabs">2-level tabs</a>
+    <a href="#steps">Steps &amp; dots</a>
+    <a href="#feedback">Empty / toast / tip</a>
+    <a href="#modal">Modal</a>
+    <a href="#workspace">Workspace card</a>
+  </aside>
+
+  <main>
+    <div class="eyebrow"><span class="dot"></span>Deliverable 2 of 5 - Components</div>
+    <h1 class="title">Component inventory</h1>
+    <p class="lede">Eighteen primitives, all class-based and framework-free, every value sourced from the tokens. This page imports the same <code style="font-size:13px">components.css</code> a developer ships - it is a live library, not a mockup.</p>
+
+    <!-- BUTTON -->
+    <section id="buttons">
+      <div class="sec-head"><h2>Button</h2><p>Five intents, three sizes. One <code>btn--primary</code> per page (Von Restorff) - the coral is loud, so spend it once. Targets meet Fitts at 32 / 40 / 48px heights.</p></div>
+      <div class="stage col">
+        <div><div class="label-mini">Intents (md)</div><div class="row">
+          <button class="btn btn--primary btn--md">Run new scan</button>
+          <button class="btn btn--secondary btn--md">Export report</button>
+          <button class="btn btn--tertiary btn--md">View methodology</button>
+          <button class="btn btn--danger btn--md">Delete workspace</button>
+          <button class="btn btn--ghost btn--md">Cancel</button>
+        </div></div>
+        <div class="divider"></div>
+        <div><div class="label-mini">Sizes &middot; icon &middot; disabled</div><div class="row">
+          <button class="btn btn--primary btn--sm">Small</button>
+          <button class="btn btn--primary btn--md">Medium</button>
+          <button class="btn btn--primary btn--lg">Large</button>
+          <button class="btn btn--secondary btn--md"><svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M8 3v10M3 8h10"/></svg>With icon</button>
+          <button class="btn btn--primary btn--md" disabled>Disabled</button>
+        </div></div>
+      </div>
+    </section>
+
+    <!-- CARD -->
+    <section id="cards">
+      <div class="sec-head"><h2>Card</h2><p>Three depths map to three jobs: <code>flat</code> rests on a border, <code>elevated</code> floats (menus, hovered items), <code>highlighted</code> carries a status accent via <code>--card-accent</code>.</p></div>
+      <div class="stage--sunken stage grid-3">
+        <div class="card card--flat"><div class="card__title">Flat</div><div class="card__sub">Default content surface. shadow-xs on a border.</div></div>
+        <div class="card card--elevated"><div class="card__title">Elevated</div><div class="card__sub">Lifts off the page. shadow-md, no border.</div></div>
+        <div class="card card--highlighted" style="--card-accent:var(--status-critical)"><div class="card__title">Highlighted</div><div class="card__sub">Status accent rail. Used for the brand in crisis.</div></div>
+      </div>
+    </section>
+
+    <!-- STAT -->
+    <section id="stat">
+      <div class="sec-head"><h2>Stat / KPI tile</h2><p>Large number, micro label, delta arrow, and an optional inline sparkline. Serial-position: the number is biggest and first.</p></div>
+      <div class="stage--sunken stage grid-3">
+        <div class="card card--flat stat"><div class="stat__label">Brand mention rate</div><div class="stat__row"><div class="stat__value">72%</div><span class="stat__delta stat__delta--up">&#9650; 8 pts</span></div><div class="spark" data-vals="40,44,42,50,55,53,62,66,72"></div></div>
+        <div class="card card--flat stat"><div class="stat__label">Citations captured</div><div class="stat__row"><div class="stat__value">1,284</div><span class="stat__delta stat__delta--up">&#9650; 14%</span></div><div class="spark" data-vals="20,30,28,35,40,48,55,60,72"></div></div>
+        <div class="card card--flat stat"><div class="stat__label">Avg. sentiment</div><div class="stat__row"><div class="stat__value">+0.41</div><span class="stat__delta stat__delta--down">&#9660; 0.06</span></div><div class="spark" data-vals="60,58,62,55,50,52,48,45,41" data-tone="down"></div></div>
+      </div>
+    </section>
+
+    <!-- CHIP -->
+    <section id="chips">
+      <div class="sec-head"><h2>Chip</h2><p>Six colour roles, three sizes, optional dot or icon. Use for filters, providers, schedule states, and inline status.</p></div>
+      <div class="stage col">
+        <div><div class="label-mini">Roles (md, with dot)</div><div class="row">
+          <span class="chip chip--md chip--positive"><span class="chip__dot"></span>Cited</span>
+          <span class="chip chip--md chip--warning"><span class="chip__dot"></span>Weak mention</span>
+          <span class="chip chip--md chip--critical"><span class="chip__dot"></span>Not cited</span>
+          <span class="chip chip--md chip--info"><span class="chip__dot"></span>Weekly</span>
+          <span class="chip chip--md chip--neutral"><span class="chip__dot"></span>Manual</span>
+          <span class="chip chip--md chip--auto"><span class="chip__dot"></span>Auto</span>
+        </div></div>
+        <div class="divider"></div>
+        <div><div class="label-mini">Sizes &middot; with icon</div><div class="row">
+          <span class="chip chip--sm chip--neutral">sm</span>
+          <span class="chip chip--md chip--neutral">md</span>
+          <span class="chip chip--lg chip--neutral">lg</span>
+          <span class="chip chip--md chip--info"><svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="8" r="6"/><path d="M8 5v3l2 1.5"/></svg>Gemini</span>
+          <span class="chip chip--md chip--positive"><svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 8.5l3.5 3.5L13 5"/></svg>OpenAI</span>
+        </div></div>
+      </div>
+    </section>
+
+    <!-- SCORE + SEVERITY -->
+    <section id="score">
+      <div class="sec-head"><h2>Score badge &amp; severity</h2><p>Letter grade (A-D) anchors the scan header. Severity is the ordered AI-Act scale used on crisis and sentiment surfaces.</p></div>
+      <div class="stage--sunken stage grid-2">
+        <div class="card card--flat">
+          <div class="label-mini">Score badge - 3 sizes</div>
+          <div class="row" style="align-items:flex-end">
+            <div class="score score--lg score--a">A</div>
+            <div class="score score--b">B</div>
+            <div class="score score--c">C</div>
+            <div class="score score--sm score--d">D</div>
+          </div>
+        </div>
+        <div class="card card--flat">
+          <div class="label-mini">Severity badge</div>
+          <div class="row">
+            <span class="sev sev--none"><span class="sev__dot"></span>None</span>
+            <span class="sev sev--low"><span class="sev__dot"></span>Low</span>
+            <span class="sev sev--medium"><span class="sev__dot"></span>Medium</span>
+            <span class="sev sev--high"><span class="sev__dot"></span>High</span>
+            <span class="sev sev--critical"><span class="sev__dot"></span>Critical</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SENTIMENT -->
+    <section id="sentiment">
+      <div class="sec-head"><h2>Sentiment chip</h2><p>Tri-segment positive / neutral / negative with counts. One component, used on Citations, Reddit, and PR / Media.</p></div>
+      <div class="stage row">
+        <span class="sentiment"><span class="pos">&#9650; 64</span><span class="neu">28</span><span class="neg">&#9660; 9</span></span>
+        <span class="sentiment"><span class="pos">&#9650; 12</span><span class="neu">5</span><span class="neg">&#9660; 31</span></span>
+      </div>
+    </section>
+
+    <!-- SPARKLINE -->
+    <section id="sparkline">
+      <div class="sec-head"><h2>Sparkline</h2><p>Inline SVG, 0-100 range, last point highlighted. Tones to positive or critical. No chart library - one small render function.</p></div>
+      <div class="stage row" style="gap:32px">
+        <div class="spark" data-vals="30,34,32,40,44,50,58,64,70" style="width:160px"></div>
+        <div class="spark" data-vals="70,66,60,58,50,44,40,33,28" data-tone="down" style="width:160px"></div>
+        <div class="spark" data-vals="50,52,48,51,49,53,50,52,51" data-tone="flat" style="width:160px"></div>
+      </div>
+    </section>
+
+    <!-- INPUTS -->
+    <section id="inputs">
+      <div class="sec-head"><h2>Input / Select / Textarea</h2><p>One focus ring (coral), one error treatment, helper text below. Inline error feedback, never a modal.</p></div>
+      <div class="stage--sunken stage grid-3" style="align-items:start">
+        <div class="field"><label class="field__label">Brand name</label><input class="input" value="Northwind Logistics"><span class="field__help">Shown in reports and the sidebar.</span></div>
+        <div class="field"><label class="field__label">Scan frequency</label><select class="select"><option>Manual</option><option>Weekly</option><option>Monthly</option></select><span class="field__help">Weekly uses 1 credit per run.</span></div>
+        <div class="field field--error"><label class="field__label">Domain</label><input class="input" value="northwind,io"><span class="field__error"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="8" cy="8" r="6.2"/><path d="M8 5v3.5M8 10.6v.1"/></svg>Enter a valid domain (a dot is missing).</span></div>
+        <div class="field" style="grid-column:1/3"><label class="field__label">Buyer question <span class="opt">- optional</span></label><textarea class="textarea">Which providers do buyers trust most in this category?</textarea></div>
+        <div class="field"><label class="field__label">Provider</label><select class="select"><option>All providers</option><option>Gemini</option><option>OpenAI</option></select></div>
+      </div>
+    </section>
+
+    <!-- TABLE -->
+    <section id="table">
+      <div class="sec-head"><h2>Table</h2><p>Sortable headers, row hover, optional expand. Quiet zebra-free styling - density without noise (Aesthetic-Usability).</p></div>
+      <div class="stage" style="padding:0; overflow:hidden">
+        <table class="table">
+          <thead><tr><th style="width:30px"></th><th class="sortable">Competitor <span class="arr">&#9660;</span></th><th class="sortable">Share of voice</th><th>Sentiment</th><th>Trend</th></tr></thead>
+          <tbody>
+            <tr><td><span class="table__expand">&#9656;</span></td><td class="cell-strong">Meridian</td><td>31%</td><td><span class="sev sev--none"><span class="sev__dot"></span>Neutral</span></td><td><div class="spark" data-vals="20,24,28,30,31" style="width:90px"></div></td></tr>
+            <tr><td><span class="table__expand">&#9656;</span></td><td class="cell-strong">Helios Group</td><td>22%</td><td><span class="sev sev--low"><span class="sev__dot"></span>Positive lean</span></td><td><div class="spark" data-vals="30,28,26,24,22" data-tone="down" style="width:90px"></div></td></tr>
+            <tr><td><span class="table__expand">&#9656;</span></td><td class="cell-strong">Your brand</td><td>18%</td><td><span class="sev sev--medium"><span class="sev__dot"></span>Mixed</span></td><td><div class="spark" data-vals="10,12,14,16,18" style="width:90px"></div></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- TABS -->
+    <section id="tabs">
+      <div class="sec-head"><h2>2-level tabs</h2><p>The fix for the overflowing 16-tab strip: a macro segmented control over a contextual leaf row. Full restructure is Deliverable 4.</p></div>
+      <div class="stage col">
+        <div class="tabs__macro" style="max-width:520px">
+          <button aria-selected="true">Visibility <span class="count">5</span></button>
+          <button aria-selected="false">Investigation <span class="count">8</span></button>
+          <button aria-selected="false">Action <span class="count">3</span></button>
+        </div>
+        <div class="tabs__leaf">
+          <button aria-selected="true">Overview</button>
+          <button aria-selected="false">Topics</button>
+          <button aria-selected="false">Personas</button>
+          <button aria-selected="false">Questions</button>
+          <button aria-selected="false">Citations</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- STEPS -->
+    <section id="steps">
+      <div class="sec-head"><h2>Breadcrumb steps &amp; progress dots</h2><p>Two wizard indicators. Steps for labelled flows (create-scan), dots for compact mobile wizards.</p></div>
+      <div class="stage col">
+        <div class="steps">
+          <div class="steps__node is-done"><div class="steps__num">&#10003;</div><div class="steps__lbl">Brand</div></div>
+          <div class="steps__line is-done"></div>
+          <div class="steps__node is-active"><div class="steps__num">2</div><div class="steps__lbl">Questions</div></div>
+          <div class="steps__line"></div>
+          <div class="steps__node is-todo"><div class="steps__num">3</div><div class="steps__lbl">Schedule</div></div>
+        </div>
+        <div class="divider"></div>
+        <div class="dots"><span class="d is-done"></span><span class="d is-done"></span><span class="d is-active"></span><span class="d"></span><span class="d"></span></div>
+      </div>
+    </section>
+
+    <!-- FEEDBACK -->
+    <section id="feedback">
+      <div class="sec-head"><h2>Empty state, toast &amp; tooltip</h2><p>Empty states carry an illustration slot + one CTA (Hick). Toasts auto-dismiss in four status colours. Tip wraps any trigger.</p></div>
+      <div class="grid-2" style="align-items:start">
+        <div class="stage"><div class="empty">
+          <div class="empty__art"><span>illustration</span></div>
+          <div class="empty__title">No scans yet</div>
+          <div class="empty__body">Run your first scan to see how generative AI cites this brand across four providers.</div>
+          <button class="btn btn--primary btn--md">Run first scan</button>
+        </div></div>
+        <div class="stage col" style="gap:16px">
+          <div class="toast toast--positive"><div class="toast__bar"></div><svg class="toast__ic" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="10" cy="10" r="8"/><path d="M6.5 10.5l2.5 2.5 4.5-5"/></svg><div><div class="toast__title">Scan complete</div><div class="toast__body">10 prompts run across 4 providers. Citations aggregated.</div></div></div>
+          <div class="toast toast--critical"><div class="toast__bar"></div><svg class="toast__ic" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="10" cy="10" r="8"/><path d="M10 6v5M10 13.5v.1"/></svg><div><div class="toast__title">Crisis signal detected</div><div class="toast__body">Negative sentiment spike on 1 workspace. Review now.</div></div></div>
+          <div class="row" style="justify-content:center;padding-top:4px">
+            <span class="tip"><button class="btn btn--secondary btn--sm">Hover for Tip</button><span class="tip__bubble">Asks each AI 10 times, then aggregates.</span></span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- MODAL -->
+    <section id="modal">
+      <div class="sec-head"><h2>Modal <span style="font-weight:500;color:var(--color-text-muted);font-size:14px">- fallback only</span></h2><p>Inline editing is preferred everywhere. The modal exists for destructive confirmation and nothing else - capped, focused, one primary action.</p></div>
+      <div class="stage--sunken stage" style="display:grid;place-items:center;padding:var(--space-7)">
+        <div class="card card--elevated" style="max-width:400px;border-radius:var(--radius-xl)">
+          <div style="display:flex;gap:12px;align-items:flex-start">
+            <div style="width:40px;height:40px;border-radius:var(--radius-full);background:var(--status-critical-bg);color:var(--status-critical);display:grid;place-items:center;flex:none"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M10 6v5M10 13.5v.1"/><circle cx="10" cy="10" r="8"/></svg></div>
+            <div><div style="font-size:15px;font-weight:650">Delete this workspace?</div><div style="font-size:13px;color:var(--color-text-secondary);margin-top:4px;line-height:1.5">All scans, citations and reports for <b>Aurelis Skincare</b> will be permanently removed. This cannot be undone.</div></div>
+          </div>
+          <div class="row" style="justify-content:flex-end;margin-top:var(--space-5)">
+            <button class="btn btn--ghost btn--md">Cancel</button>
+            <button class="btn btn--danger btn--md">Delete workspace</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- WORKSPACE CARD -->
+    <section id="workspace">
+      <div class="sec-head"><h2>Workspace card</h2><p>The atom of the agency overview: name + domain, grade, status &amp; crisis chips, and a mini-stats grid. Composed entirely from the primitives above.</p></div>
+      <div class="stage--sunken stage grid-3">
+        <!-- healthy -->
+        <div class="card card--highlighted ws" style="--card-accent:var(--status-positive)">
+          <div class="ws__head"><div><div class="ws__name">Aurelis Skincare</div><div class="ws__domain">aurelis.com</div></div><div class="score score--a">A</div></div>
+          <div class="row" style="gap:8px;margin:14px 0"><span class="chip chip--sm chip--neutral"><span class="chip__dot"></span>Stable</span><span class="chip chip--sm chip--neutral">Weekly</span></div>
+          <div class="ws__stats"><div><div class="ws__sv">74%</div><div class="ws__sl">Mention</div></div><div><div class="ws__sv">+0.5</div><div class="ws__sl">Sentiment</div></div><div><div class="ws__sv">312</div><div class="ws__sl">Citations</div></div></div>
+        </div>
+        <!-- watch -->
+        <div class="card card--highlighted ws" style="--card-accent:var(--sev-medium)">
+          <div class="ws__head"><div><div class="ws__name">Northwind Logistics</div><div class="ws__domain">northwind.io</div></div><div class="score score--c">C</div></div>
+          <div class="row" style="gap:8px;margin:14px 0"><span class="chip chip--sm chip--warning"><span class="chip__dot"></span>Weak mention</span><span class="chip chip--sm chip--neutral">Monthly</span></div>
+          <div class="ws__stats"><div><div class="ws__sv">41%</div><div class="ws__sl">Mention</div></div><div><div class="ws__sv">+0.1</div><div class="ws__sl">Sentiment</div></div><div><div class="ws__sv">128</div><div class="ws__sl">Citations</div></div></div>
+        </div>
+        <!-- crisis -->
+        <div class="card card--highlighted ws" style="--card-accent:var(--status-critical)">
+          <div class="ws__head"><div><div class="ws__name">Voltaic Motors</div><div class="ws__domain">voltaic.com</div></div><div class="score score--d">D</div></div>
+          <div class="row" style="gap:8px;margin:14px 0"><span class="chip chip--sm chip--critical"><span class="chip__dot"></span>Crisis</span><span class="chip chip--sm chip--auto">Auto</span></div>
+          <div class="ws__stats"><div><div class="ws__sv">19%</div><div class="ws__sl">Mention</div></div><div><div class="ws__sv">-0.4</div><div class="ws__sl">Sentiment</div></div><div><div class="ws__sv">87</div><div class="ws__sl">Citations</div></div></div>
+        </div>
+      </div>
+    </section>
+
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:var(--space-7);padding-top:var(--space-5);border-top:1px solid var(--color-border)">
+      <span style="color:var(--color-text-muted);font-size:13px">sen-ai.fr components - v1 - built on tokens.css</span>
+      <span style="font-size:14px;font-weight:600;color:var(--coral-700)">Next: flagship pages &rarr;</span>
+    </div>
+  </main>
+</div>
+
+<style>
+  .ws__head { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; }
+  .ws__name { font-size:14.5px; font-weight:650; }
+  .ws__domain { font-size:12px; color:var(--color-text-muted); margin-top:2px; }
+  .ws__stats { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; padding-top:14px; border-top:1px solid var(--color-border); }
+  .ws__sv { font-size:17px; font-weight:700; letter-spacing:-.02em; }
+  .ws__sl { font-size:10.5px; font-weight:600; text-transform:uppercase; letter-spacing:.04em; color:var(--color-text-muted); margin-top:2px; }
+</style>
+
+<script>
+  /* sparkline renderer */
+  function renderSpark(el){
+    const vals = el.dataset.vals.split(',').map(Number);
+    const tone = el.dataset.tone || 'up';
+    const W = el.clientWidth || 120, H = 36, pad = 3;
+    const min = Math.min(...vals), max = Math.max(...vals), rng = (max-min)||1;
+    const x = i => pad + i*(W-2*pad)/(vals.length-1);
+    const y = vv => H-pad - (vv-min)/rng*(H-2*pad);
+    const pts = vals.map((vv,i)=>[x(i),y(vv)]);
+    const d = pts.map((p,i)=>(i?'L':'M')+p[0].toFixed(1)+' '+p[1].toFixed(1)).join(' ');
+    const color = tone==='down' ? 'var(--status-critical)' : tone==='flat' ? 'var(--color-text-muted)' : 'var(--status-positive)';
+    const area = d + ` L${pts[pts.length-1][0].toFixed(1)} ${H-pad} L${pts[0][0].toFixed(1)} ${H-pad} Z`;
+    const last = pts[pts.length-1];
+    const id = 'g'+Math.random().toString(36).slice(2,7);
+    el.innerHTML = `<svg width="${W}" height="${H}" style="display:block">
+      <defs><linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${color}" stop-opacity=".16"/><stop offset="1" stop-color="${color}" stop-opacity="0"/></linearGradient></defs>
+      <path d="${area}" fill="url(#${id})"/>
+      <path d="${d}" fill="none" stroke="${color}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="${last[0].toFixed(1)}" cy="${last[1].toFixed(1)}" r="2.6" fill="${color}" stroke="#fff" stroke-width="1.5"/>
+    </svg>`;
+  }
+  const sparks = [...document.querySelectorAll('.spark')];
+  const draw = () => sparks.forEach(renderSpark);
+  draw(); window.addEventListener('resize', draw);
+
+  /* scroll spy */
+  const links = [...document.querySelectorAll('.nav a')];
+  const map = {}; links.forEach(l=>{ const id=l.getAttribute('href').slice(1); if(document.getElementById(id)) map[id]=l; });
+  new IntersectionObserver(es=>es.forEach(e=>{ if(e.isIntersecting){ links.forEach(l=>l.classList.remove('active')); map[e.target.id]?.classList.add('active'); }}), { rootMargin:'-8% 0px -82% 0px' })
+    .observe ? Object.keys(map).forEach(id=>{}) : 0;
+  const obs = new IntersectionObserver(es=>es.forEach(e=>{ if(e.isIntersecting){ links.forEach(l=>l.classList.remove('active')); map[e.target.id]?.classList.add('active'); }}), { rootMargin:'-8% 0px -82% 0px' });
+  Object.keys(map).forEach(id=>obs.observe(document.getElementById(id)));
+</script>
+</body>
+</html>

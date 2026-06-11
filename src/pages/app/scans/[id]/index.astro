@@ -160,60 +160,56 @@ const isReviewing = effectiveView !== null && (
 ---
 
 <DashboardLayout title={`Scan — ${scan.domain}`} activeSection="scans">
+  <style is:global>
+    /* Pipeline steps bar - same .stepsbar vocabulary as the create-scan
+       page (07) so steps 1..N read as one continuous journey. */
+    .pipeline-stepsbar { display: flex; align-items: center; margin-bottom: var(--space-5); padding: 14px 18px; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); box-shadow: var(--shadow-xs); overflow-x: auto; }
+    .pipeline-stepsbar .steps { width: 100%; }
+    .pipeline-stepsbar .steps__line { flex: 1; width: auto; min-width: 12px; }
+    .pipeline-stepsbar a.steps__node { text-decoration: none; transition: opacity .12s; }
+    .pipeline-stepsbar a.steps__node:hover { opacity: .75; }
+    @media (max-width: 639px) { .pipeline-stepsbar .steps__lbl { display: none; } }
+  </style>
+
   <div class="p-8 max-w-3xl mx-auto">
 
     <!-- Stepper — completed steps AND the current step are clickable
          (current step clickable so user can return from a review view) -->
-    <div class="flex items-center gap-2 mb-8">
-      {steps.map((step, i) => {
-        const done = i < currentStep;
-        const current = i === currentStep;
-        // URLs for navigation:
-        // - `done` steps → go to their review view (?view=xxx)
-        // - `current` step → go to the live page without ?view (shows current status naturally)
-        // - future steps → not clickable
-        const stepHref =
-          step.key === 'topics' && done ? `/app/scans/${id}?view=topics` :
-          step.key === 'brands' && done ? `/app/scans/${id}?view=brands` :
-          step.key === 'personas' && done ? `/app/scans/${id}?view=personas` :
-          current ? `/app/scans/${id}` :
-          null;
-        const clickable = stepHref !== null;
-        const StepTag = clickable ? 'a' : 'div';
-        return (
-          <div class="flex items-center gap-2">
-            <StepTag
-              href={stepHref}
-              title={clickable
-                ? (done ? `Go back to ${step.label}` : `Go to ${step.label} (current step)`)
-                : undefined}
-              class:list={[
-                'flex items-center gap-2',
-                clickable ? 'cursor-pointer hover:opacity-80 transition-opacity group' : ''
-              ]}
-            >
-              <div class:list={[
-                'w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-all',
-                done ? 'bg-emerald-500 text-white' :
-                current ? 'bg-coral text-white' :
-                'bg-gray-200 text-gray-400',
-                clickable && done ? 'group-hover:ring-2 group-hover:ring-emerald-300 group-hover:ring-offset-2' : '',
-                clickable && current ? 'group-hover:ring-2 group-hover:ring-coral/40 group-hover:ring-offset-2' : ''
-              ]}>
-                {done ? '✓' : i + 1}
-              </div>
-              <span class:list={[
-                'text-sm hidden sm:inline',
-                current ? 'text-charcoal-dark font-medium' :
-                clickable ? 'text-charcoal-light group-hover:text-charcoal-dark' :
-                'text-charcoal-light'
-              ]}>{step.label}</span>
-            </StepTag>
-            {i < steps.length - 1 && <div class="w-8 h-px bg-gray-200 hidden sm:block"></div>}
-          </div>
-        );
-      })}
-
+    <div class="pipeline-stepsbar">
+      <div class="steps">
+        {steps.map((step, i) => {
+          const done = i < currentStep;
+          const current = i === currentStep;
+          // URLs for navigation:
+          // - `done` steps → go to their review view (?view=xxx)
+          // - `current` step → go to the live page without ?view (shows current status naturally)
+          // - future steps → not clickable
+          const stepHref =
+            step.key === 'topics' && done ? `/app/scans/${id}?view=topics` :
+            step.key === 'brands' && done ? `/app/scans/${id}?view=brands` :
+            step.key === 'personas' && done ? `/app/scans/${id}?view=personas` :
+            current ? `/app/scans/${id}` :
+            null;
+          const clickable = stepHref !== null;
+          const StepTag = clickable ? 'a' : 'div';
+          const stateCls = done ? 'is-done' : current ? 'is-active' : 'is-todo';
+          return (
+            <>
+              <StepTag
+                href={stepHref}
+                title={clickable
+                  ? (done ? `Go back to ${step.label}` : `Go to ${step.label} (current step)`)
+                  : undefined}
+                class={`steps__node ${stateCls}`}
+              >
+                <div class="steps__num">{done ? '✓' : i + 1}</div>
+                <div class="steps__lbl">{step.label}</div>
+              </StepTag>
+              {i < steps.length - 1 && <div class={`steps__line ${done ? 'is-done' : ''}`}></div>}
+            </>
+          );
+        })}
+      </div>
     </div>
 
     {/* Domain Brief — collapsible panel, always accessible.

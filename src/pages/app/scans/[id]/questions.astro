@@ -104,7 +104,7 @@ const typeRateColors = typeRates.map(r => r >= 30 ? '#10b981' : r > 0 ? '#f59e0b
     filterPersona: 'all',
     filterType: 'all',
     filterMentioned: 'all',
-    filterProvider: 'all',
+    filterProvider: ${JSON.stringify(providerParam)},
     get filtered() {
       return this.details.filter(d =>
         (this.filterText === '' || d.question.toLowerCase().includes(this.filterText.toLowerCase())) &&

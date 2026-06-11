@@ -504,7 +504,7 @@ rows.forEach(r => { if (!surfaceSwatch[r.surface]) surfaceSwatch[r.surface] = r.
                       <span class="qsub__chip qsub__chip--ok" title="This brand was named in the AI's answer">Brand named</span>
                     </template>
                     <template x-if="!row.brandMentioned">
-                      <span class="qsub__chip qsub__chip--off" title="The AI cited a web page but did not name this brand in the answer">Brand not named</span>
+                      <span class="qsub__chip qsub__chip--off" title="The AI cited a web page but did not name this brand in the answer">Brand missing</span>
                     </template>
                     <template x-if="row.isYourSite">
                       <span class="qsub__chip qsub__chip--own" title="The cited URL is on this brand's own domain">Your site</span>

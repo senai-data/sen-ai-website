@@ -97,28 +97,28 @@ const baseColumns = [
   {
     key: 'to_create',
     label: 'To create',
-    badge: 'bg-red-100 text-red-700',
+    dot: 'var(--sev-medium)',
     emptyMsg: 'Generated content suggestions will land here. Run a scan to discover opportunities.',
     helpMsg: 'Click Generate to create FAQ or article from an opportunity.',
   },
   {
     key: 'in_review',
     label: 'In review',
-    badge: 'bg-amber-100 text-amber-700',
+    dot: 'var(--status-info)',
     emptyMsg: 'Items move here once content is generated, awaiting your review.',
     helpMsg: 'Click a card to review and edit before approving.',
   },
   {
     key: 'approved',
     label: 'Approved',
-    badge: 'bg-blue-100 text-blue-700',
+    dot: 'var(--status-neutral)',
     emptyMsg: 'Approved items appear here, ready to publish.',
     helpMsg: 'Click a card to mark as published.',
   },
   {
     key: 'published',
     label: 'Published',
-    badge: 'bg-emerald-100 text-emerald-700',
+    dot: 'var(--status-positive)',
     emptyMsg: 'Published content with live URLs and tracking will be visible here.',
     helpMsg: 'Click a card to see latest position metrics.',
   },
@@ -126,7 +126,7 @@ const baseColumns = [
 const rejectedColumn = {
   key: 'rejected',
   label: 'Rejected',
-  badge: 'bg-gray-200 text-gray-600',
+  dot: 'var(--color-text-muted)',
   emptyMsg: 'No rejected items.',
   helpMsg: 'Click a card to regenerate (gives the LLM another shot) or leave as-is.',
 };
@@ -135,30 +135,24 @@ const columns = showRejected ? [...baseColumns, rejectedColumn] : baseColumns;
 const totalAcrossAll = (kanban.counts?.to_create || 0) + (kanban.counts?.in_review || 0)
   + (kanban.counts?.approved || 0) + (kanban.counts?.published || 0);
 
-// Priority pill colors
+// Priority chips (components.css .chip variants)
 function priorityClass(p: string): string {
-  if (p === 'critique') return 'bg-red-100 text-red-700';
-  if (p === 'haute') return 'bg-amber-100 text-amber-700';
-  if (p === 'moyenne') return 'bg-blue-100 text-blue-700';
-  return 'bg-gray-100 text-gray-600';
+  if (p === 'critique') return 'chip--critical';
+  if (p === 'haute') return 'chip--warning';
+  if (p === 'moyenne') return 'chip--info';
+  return 'chip--neutral';
 }
 function priorityLabel(p: string): string {
-  if (p === 'critique') return 'CRITICAL';
-  if (p === 'haute') return 'HIGH';
-  if (p === 'moyenne') return 'MEDIUM';
-  return p?.toUpperCase() || '—';
+  if (p === 'critique') return 'Critical';
+  if (p === 'haute') return 'High';
+  if (p === 'moyenne') return 'Medium';
+  return p || '-';
 }
 
-// Content type pill colors (FAQ = teal, Article = purple)
-function typeClass(t: string): string {
-  if (t === 'faq') return 'bg-teal-100 text-teal-700';
-  if (t === 'netlinking_article') return 'bg-purple-100 text-purple-700';
-  return 'bg-gray-100 text-gray-600';
-}
 function typeLabel(t: string): string {
   if (t === 'faq') return 'FAQ';
-  if (t === 'netlinking_article') return 'ARTICLE';
-  return t || '—';
+  if (t === 'netlinking_article') return 'Article';
+  return t || '-';
 }
 
 function ageLabel(iso: string | null): string {
@@ -175,31 +169,74 @@ function ageLabel(iso: string | null): string {
 ---
 
 <DashboardLayout title="Content" activeSection="content">
-  <div class="p-8 max-w-7xl">
+  <style is:global>
+    /* Page-local vocabulary from 09-content.html (.head .fchip .board .col
+       .ccard .typechip .lift). Chips from components.css. */
+    .ctp { padding: var(--space-6); max-width: 1440px; }
+    .ctp .head h1 { font-size: 24px; font-weight: 700; letter-spacing: -.025em; color: var(--color-text-primary); }
+    .ctp .head p { font-size: 13.5px; color: var(--color-text-secondary); margin-top: 5px; max-width: 64ch; }
 
+    .ctp .tools { display: flex; align-items: center; gap: 12px; margin: 18px 0 20px; flex-wrap: wrap; }
+    .ctp .fchip { font-size: 12.5px; font-weight: 600; color: var(--color-text-secondary); background: var(--color-surface); border: 1px solid var(--color-border-strong); padding: 6px 12px; border-radius: var(--radius-full); cursor: pointer; transition: .12s; text-decoration: none; }
+    .ctp .fchip:hover { border-color: var(--neutral-400); }
+    .ctp .fchip.on { background: var(--color-text-primary); color: #fff; border-color: var(--color-text-primary); }
+    .ctp .tools__label { font-size: 11.5px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--color-text-muted); }
+    .ctp .tools__note { font-size: 12.5px; color: var(--color-text-muted); margin-left: auto; white-space: nowrap; }
+    .ctp .tools .select { width: auto; max-width: 300px; height: 34px; padding-top: 0; padding-bottom: 0; font-size: 12.5px; }
+    .ctp .tools .input { width: auto; min-width: 220px; flex: 1; height: 34px; padding-top: 0; padding-bottom: 0; font-size: 12.5px; }
+
+    .ctp .board { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; align-items: start; }
+    .ctp .board--5 { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+    @media (max-width: 1199px) { .ctp .board, .ctp .board--5 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+    @media (max-width: 699px) { .ctp .board, .ctp .board--5 { grid-template-columns: 1fr; } }
+    .ctp .col { background: var(--color-surface-sunken); border: 1px solid var(--color-border); border-radius: var(--radius-lg); display: flex; flex-direction: column; min-height: 220px; }
+    .ctp .col__head { display: flex; align-items: center; gap: 9px; padding: 14px 16px 10px; }
+    .ctp .col__dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+    .ctp .col__title { font-size: 13px; font-weight: 680; color: var(--color-text-primary); }
+    .ctp .col__count { font-size: 11px; font-weight: 700; color: var(--color-text-muted); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-full); padding: 1px 8px; }
+    .ctp .col__body { padding: 4px 12px 14px; display: flex; flex-direction: column; gap: 10px; flex: 1; }
+    .ctp .col__empty { font-size: 12px; color: var(--color-text-muted); text-align: center; padding: 24px 12px; border: 1px dashed var(--color-border); border-radius: var(--radius-md); line-height: 1.5; }
+
+    .ctp .ccard { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); box-shadow: var(--shadow-xs); padding: 13px 14px; transition: box-shadow .12s, border-color .12s; }
+    .ctp .ccard:hover { box-shadow: var(--shadow-md); }
+    .ctp .ccard__top { display: flex; align-items: center; gap: 6px; margin-bottom: 9px; flex-wrap: wrap; }
+    .ctp .typechip { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: var(--radius-full); border: 1px solid var(--color-border); color: var(--color-text-secondary); background: var(--color-surface-sunken); }
+    .ctp .ccard__title { font-size: 13.5px; font-weight: 650; line-height: 1.35; color: var(--color-text-primary); }
+    .ctp .ccard__target { font-size: 12px; color: var(--color-text-secondary); margin-top: 6px; display: flex; gap: 6px; align-items: flex-start; line-height: 1.4; }
+    .ctp .ccard__target svg { flex: none; margin-top: 2px; color: var(--color-text-muted); }
+    .ctp .ccard__foot { margin-top: 11px; padding-top: 10px; border-top: 1px solid var(--color-border); }
+    .ctp .lift { font-size: 11px; font-weight: 700; color: var(--color-text-secondary); background: var(--color-surface-muted); padding: 2px 7px; border-radius: var(--radius-full); }
+    .ctp .ccard__domain { font-size: 11px; color: var(--color-text-muted); max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ctp .ccard__media { font-size: 11px; color: var(--coral-700); font-weight: 600; margin: 2px 0 6px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+
+    .ctp .btn-mini { font-size: 11px; font-weight: 600; border-radius: var(--radius-sm); padding: 5px 10px; border: 1px solid transparent; cursor: pointer; transition: .12s; font-family: var(--font-sans); }
+    .ctp .btn-mini--primary { background: var(--color-primary); color: #fff; }
+    .ctp .btn-mini--primary:hover { background: var(--color-primary-hover); }
+    .ctp .btn-mini--outline { background: var(--color-surface); border-color: var(--color-border-strong); color: var(--color-text-secondary); }
+    .ctp .btn-mini--outline:hover { background: var(--color-surface-sunken); color: var(--color-text-primary); }
+    .ctp .btn-mini--warn { background: var(--status-warning-bg); color: #8a5a00; }
+    .ctp .btn-mini--warn:hover { filter: brightness(.97); }
+  </style>
+
+  <div class="ctp">
     <!-- Header -->
-    <div class="flex items-center justify-between mb-6">
+    <div class="head flex items-center justify-between">
       <div>
-        <h1 class="text-2xl font-bold text-charcoal-dark">Content Pipeline</h1>
-        <p class="text-charcoal-light mt-1 text-sm">Track FAQ and articles from creation to publication</p>
+        <h1>Content pipeline</h1>
+        <p>Content that closes the gaps your scans found - the questions where AI does not yet cite the brand.</p>
       </div>
     </div>
 
     <!-- Filter bar (Fitts's Law: pills first for 1-click, dropdowns for less common) -->
-    <div class="bg-white rounded-xl border border-gray-200 px-4 py-3 mb-6 flex items-center gap-4 flex-wrap">
-      <div class="flex items-center gap-1.5">
-        <span class="text-[11px] uppercase tracking-wide font-semibold text-charcoal-light mr-1">Type:</span>
-        <a href={`?${scanParam ? `scan_id=${scanParam}` : ''}`}
-           class={`px-2.5 py-1 text-xs rounded-md font-medium ${ctParam === 'all' ? 'bg-coral text-white' : 'bg-gray-100 text-charcoal-light hover:bg-gray-200'}`}>All</a>
-        <a href={`?content_type=faq${scanParam ? `&scan_id=${scanParam}` : ''}`}
-           class={`px-2.5 py-1 text-xs rounded-md font-medium ${ctParam === 'faq' ? 'bg-coral text-white' : 'bg-gray-100 text-charcoal-light hover:bg-gray-200'}`}>FAQ</a>
-        <a href={`?content_type=netlinking_article${scanParam ? `&scan_id=${scanParam}` : ''}`}
-           class={`px-2.5 py-1 text-xs rounded-md font-medium ${ctParam === 'netlinking_article' ? 'bg-coral text-white' : 'bg-gray-100 text-charcoal-light hover:bg-gray-200'}`}>Articles</a>
-      </div>
+    <div class="tools">
+      <span class="tools__label">Type</span>
+      <a href={`?${scanParam ? `scan_id=${scanParam}` : ''}`} class={`fchip ${ctParam === 'all' ? 'on' : ''}`}>All</a>
+      <a href={`?content_type=faq${scanParam ? `&scan_id=${scanParam}` : ''}`} class={`fchip ${ctParam === 'faq' ? 'on' : ''}`}>FAQ</a>
+      <a href={`?content_type=netlinking_article${scanParam ? `&scan_id=${scanParam}` : ''}`} class={`fchip ${ctParam === 'netlinking_article' ? 'on' : ''}`}>Articles</a>
 
       {scans.length > 0 && (
         <div class="flex items-center gap-2">
-          <span class="text-[11px] uppercase tracking-wide font-semibold text-charcoal-light">Scan:</span>
+          <span class="tools__label">Scan</span>
           {/* Form-submit pattern: native GET form, hidden inputs preserve sibling
               filters (content_type / show_rejected) so changing scan_id never
               wipes them. onchange="this.form.submit()" is the most reliable
@@ -210,8 +247,7 @@ function ageLabel(iso: string | null): string {
           <form method="GET" class="flex items-center gap-2">
             {ctParam !== 'all' && <input type="hidden" name="content_type" value={ctParam} />}
             {showRejected && <input type="hidden" name="show_rejected" value="1" />}
-            <select name="scan_id" onchange="this.form.submit()"
-                    class="text-xs border border-gray-200 rounded-md px-2 py-1 bg-white max-w-[320px]">
+            <select name="scan_id" onchange="this.form.submit()" class="select">
               <option value="">All scans</option>
               {(() => {
                 // Disambiguate labels when multiple scans share the same name
@@ -238,10 +274,9 @@ function ageLabel(iso: string | null): string {
       )}
 
       <div class="flex-1 min-w-[200px]" x-data="{ q: '' }">
-        <input type="text" placeholder="Search topic, question, persona…"
+        <input type="text" placeholder="Search topic, question, persona..." class="input"
                x-model="q"
-               @input.debounce.200ms="document.querySelectorAll('[data-card]').forEach(c => { const haystack = c.getAttribute('data-haystack') || ''; c.style.display = haystack.toLowerCase().includes(q.toLowerCase()) ? '' : 'none'; })"
-               class="w-full text-sm border border-gray-200 rounded-md px-3 py-1.5 focus:outline-none focus:border-coral" />
+               @input.debounce.200ms="document.querySelectorAll('[data-card]').forEach(c => { const haystack = c.getAttribute('data-haystack') || ''; c.style.display = haystack.toLowerCase().includes(q.toLowerCase()) ? '' : 'none'; })" />
       </div>
 
       {/* Show rejected toggle — Postel's : let users opt into seeing the
@@ -254,74 +289,61 @@ function ageLabel(iso: string | null): string {
             return u.pathname + (u.searchParams.toString() ? '?' + u.searchParams.toString() : '');
           })()}
          title={showRejected ? 'Hide rejected items' : 'Show rejected items (regenerable from their detail page)'}
-         class={`text-[11px] px-2 py-1 rounded-md font-medium border transition-colors ${showRejected ? 'bg-gray-200 text-charcoal-dark border-gray-300' : 'bg-white text-charcoal-light border-gray-200 hover:border-gray-300'}`}>
+         class={`fchip ${showRejected ? 'on' : ''}`}>
         {showRejected ? '✓ Showing rejected' : 'Show rejected'}
       </a>
 
-      <div class="text-[11px] text-charcoal-light">
-        <strong class="text-charcoal-dark">{totalAcrossAll}</strong> total
-      </div>
+      <span class="tools__note"><strong style="color:var(--color-text-primary)">{totalAcrossAll}</strong> total</span>
     </div>
 
     {totalAcrossAll === 0 && !scanParam && ctParam === 'all' ? (
       <!-- Global empty state -->
-      <div class="bg-white rounded-xl border border-gray-200 p-12 text-center">
-        <svg class="w-16 h-16 mx-auto text-gray-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
-        </svg>
-        <p class="text-charcoal-dark font-medium mb-2">No content yet</p>
-        <p class="text-sm text-charcoal-light mb-6 max-w-md mx-auto">Run a scan to discover opportunities, then generate FAQ or articles to fill this pipeline.</p>
-        <a href="/app/scans/new" class="inline-flex items-center gap-2 px-5 py-2.5 bg-coral text-white rounded-lg font-medium hover:bg-coral-dark hover:shadow-md hover:scale-[1.02] transition-all">
-          Run a scan
-        </a>
+      <div class="empty" style="background:var(--color-surface);border:1px solid var(--color-border);border-radius:var(--radius-lg);max-width:none">
+        <div class="empty__art"><span>FAQ / ART</span></div>
+        <p class="empty__title">No content yet</p>
+        <p class="empty__body">Run a scan to discover opportunities, then generate FAQ or articles to fill this pipeline.</p>
+        <a href="/app/scans/new" class="btn btn--primary btn--md">Run a scan</a>
       </div>
     ) : (
       <!-- Kanban grid — 4 cols default, 5 when Rejected toggle is on -->
-      <div class={`grid grid-cols-1 md:grid-cols-2 ${showRejected ? 'lg:grid-cols-5' : 'lg:grid-cols-4'} gap-4`}>
+      <div class={`board ${showRejected ? 'board--5' : ''}`}>
         {columns.map(col => {
           const items = (kanban.by_column?.[col.key] || []) as any[];
           const count = items.length;
           return (
-            <div class="bg-white rounded-xl border border-gray-200 flex flex-col min-h-[400px]">
-              <!-- Column header -->
-              <div class="px-4 py-3 border-b border-gray-100 flex items-center justify-between sticky top-0 bg-white rounded-t-xl">
-                <h3 class="text-sm font-semibold text-charcoal-dark flex items-center gap-2">
-                  {col.label}
-                  <span class={`text-[10px] font-bold rounded-full px-1.5 py-0.5 ${col.badge}`}>{count}</span>
-                </h3>
+            <div class="col">
+              <div class="col__head">
+                <span class="col__dot" style={`background:${col.dot}`}></span>
+                <span class="col__title">{col.label}</span>
+                <span class="col__count">{count}</span>
               </div>
 
               <!-- Cards or empty state -->
-              <div class="p-3 space-y-2 flex-1 overflow-y-auto">
+              <div class="col__body">
                 {count === 0 ? (
-                  <div class="py-8 px-2 text-center">
-                    <p class="text-[11px] text-gray-400 leading-relaxed">{col.emptyMsg}</p>
-                  </div>
+                  <div class="col__empty">{col.emptyMsg}</div>
                 ) : items.map((item: any) => {
                   const haystack = [item.topic_name, item.persona_name, item.target_question, item.scan_domain].filter(Boolean).join(' ');
                   const isToCreate = col.key === 'to_create';
                   const isPublished = col.key === 'published';
                   return (
-                    <div data-card data-haystack={haystack}
-                         class="block bg-gray-50 hover:bg-white border border-gray-100 hover:border-gray-200 hover:shadow-sm rounded-lg p-3 transition-all">
+                    <div data-card data-haystack={haystack} class="ccard">
                       <!-- Top row: badges -->
-                      <div class="flex items-center gap-1.5 mb-2 flex-wrap">
-                        {item.priority && (
-                          <span class={`text-[9px] font-bold rounded px-1.5 py-0.5 ${priorityClass(item.priority)}`}>
-                            {priorityLabel(item.priority)}
-                          </span>
-                        )}
+                      <div class="ccard__top">
                         {item.content_type && (
-                          <span class={`text-[9px] font-bold rounded px-1.5 py-0.5 ${typeClass(item.content_type)}`}>
-                            {typeLabel(item.content_type)}
+                          <span class="typechip">{typeLabel(item.content_type)}</span>
+                        )}
+                        {item.priority && (
+                          <span class={`chip chip--sm ${priorityClass(item.priority)}`}>
+                            <span class="chip__dot"></span>{priorityLabel(item.priority)}
                           </span>
                         )}
                         {col.key === 'to_create' && !item.target_url && (
-                          <span class="text-[9px] font-bold rounded px-1.5 py-0.5 bg-amber-100 text-amber-800"
+                          <span class="chip chip--sm chip--warning"
                                 title={item.content_type === 'netlinking_article'
                                   ? 'Set the media partner URL where this article will be published (e.g. https://www.doctissimo.fr/...), then click Generate.'
                                   : 'Pick a URL on your site where this FAQ should live, then click Generate.'}>
-                            ⚠ {item.content_type === 'netlinking_article' ? 'NEEDS MEDIA URL' : 'NEEDS URL'}
+                            {item.content_type === 'netlinking_article' ? 'Needs media URL' : 'Needs URL'}
                           </span>
                         )}
                         {/* Phase B Tier A — intent chip from the Haiku
@@ -335,16 +357,16 @@ function ageLabel(iso: string | null): string {
                           const cat = item.content_metadata?.intent_category;
                           if (!cat || cat === 'promotional_fit' || cat === 'other') return null;
                           const map = {
-                            informational_neutral: { label: 'Informational', cls: 'bg-blue-100 text-blue-800' },
-                            safety_warning:        { label: 'Safety',        cls: 'bg-amber-100 text-amber-800' },
-                            side_effects:          { label: 'Side effects',  cls: 'bg-amber-100 text-amber-800' },
-                            contre_indication:     { label: 'Contre-indication', cls: 'bg-amber-100 text-amber-800' },
-                            complaint_sav:         { label: 'SAV',           cls: 'bg-amber-100 text-amber-800' },
+                            informational_neutral: { label: 'Informational', cls: 'chip--info' },
+                            safety_warning:        { label: 'Safety',        cls: 'chip--warning' },
+                            side_effects:          { label: 'Side effects',  cls: 'chip--warning' },
+                            contre_indication:     { label: 'Contre-indication', cls: 'chip--warning' },
+                            complaint_sav:         { label: 'SAV',           cls: 'chip--warning' },
                           } as const;
                           const m = (map as any)[cat];
                           if (!m) return null;
                           return (
-                            <span class={`text-[9px] font-medium rounded px-1.5 py-0.5 ${m.cls}`}
+                            <span class={`chip chip--sm ${m.cls}`}
                                   title={`Question intent: ${m.label}. Classified by the scan pipeline.`}>
                               {m.label}
                             </span>
@@ -357,7 +379,7 @@ function ageLabel(iso: string | null): string {
                             us identify this article need). Different mental
                             model, different prefix. */}
                         {item.scan_domain && (
-                          <span class="text-[10px] text-charcoal-light truncate max-w-[180px]"
+                          <span class="ccard__domain"
                                 title={item.content_type === 'netlinking_article'
                                   ? `Scanned (competitor): ${item.scan_domain} — article will publish on a media partner, not here.`
                                   : item.scan_domain}>
@@ -372,21 +394,18 @@ function ageLabel(iso: string | null): string {
                           without opening validation page. FAQ items show
                           target_url in the existing layout below. */}
                       {item.content_type === 'netlinking_article' && item.target_url && (item.target_url_source === 'media_picker' || item.target_url_source === 'media_replacement') && (
-                        <div class="mb-2 -mt-1 inline-flex items-center gap-1.5 text-[11px] text-purple-700 font-medium">
-                          <span>→ {(item.target_page_title || item.target_url.replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '').slice(0, 30))}</span>
+                        <div class="ccard__media">
+                          <span>&rarr; {(item.target_page_title || item.target_url.replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '').slice(0, 30))}</span>
                           {item.target_url_source === 'media_replacement' && (
-                            <span class="text-[9px] font-bold rounded px-1 py-0.5 bg-purple-100 text-purple-700"
-                                  title="You replaced the auto-picked media with this one via Find alternative.">
-                              ✓ Picked
-                            </span>
+                            <span class="chip chip--sm chip--positive" title="You replaced the auto-picked media with this one via Find alternative.">Picked</span>
                           )}
                           {Array.isArray(item.target_url_candidates) && item.target_url_candidates?.[0]?.price_eur != null && (
-                            <span class="text-amber-700 text-[10px]" title="LinkFinder published price (HT) for a sponsored placement">
-                              💰 €{Math.round(item.target_url_candidates[0].price_eur).toLocaleString('fr-FR')}
+                            <span style="color:var(--status-warning);font-size:10.5px" title="LinkFinder published price (HT) for a sponsored placement">
+                              €{Math.round(item.target_url_candidates[0].price_eur).toLocaleString('fr-FR')}
                             </span>
                           )}
                           {Array.isArray(item.target_url_candidates) && item.target_url_candidates?.[0]?.da != null && (
-                            <span class="text-charcoal-light text-[10px]" title="Domain Authority">
+                            <span style="color:var(--color-text-muted);font-size:10.5px" title="Domain Authority">
                               DA {item.target_url_candidates[0].da}
                             </span>
                           )}
@@ -394,22 +413,21 @@ function ageLabel(iso: string | null): string {
                       )}
 
                       <!-- Topic + question (clickable to detail) -->
-                      <a href={`/app/content/${item.id}`} class="block">
+                      <a href={`/app/content/${item.id}`} class="block" style="text-decoration:none;color:inherit">
                         {item.topic_name && (
-                          <p class="text-xs font-medium text-charcoal-dark mb-1 truncate" title={item.topic_name}>
-                            {item.topic_name}
-                          </p>
+                          <p class="ccard__title" title={item.topic_name}>{item.topic_name}</p>
                         )}
                         {item.target_question && (
-                          <p class="text-[11px] text-charcoal-light line-clamp-2 mb-2" title={item.target_question}>
-                            {item.target_question}
+                          <p class="ccard__target" title={item.target_question}>
+                            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="7" r="5"/><path d="M11 11l3 3"/></svg>
+                            <span>{item.target_question}</span>
                           </p>
                         )}
                       </a>
 
                       <!-- Per-status footer -->
                       {isToCreate && (
-                        <div class="mt-2 pt-2 border-t border-gray-100"
+                        <div class="ccard__foot"
                              x-data={`{
                                generating: ${item.status === 'generating' ? 'true' : 'false'},
                                error: '',
@@ -465,16 +483,16 @@ function ageLabel(iso: string | null): string {
                           <!-- Generating : show progress (phase + elapsed + bar) -->
                           <div x-show="generating" class="space-y-1.5">
                             <div class="flex items-center justify-between text-[10px]">
-                              <span class={item.content_type === 'netlinking_article' ? 'text-purple-700 font-medium' : 'text-coral-dark font-medium'}>
-                                ⚙️ <span x-text="progress().phase_num + '/' + progress().phase_total + ' — ' + progress().phase_label"></span>
+                              <span style="color:var(--coral-700);font-weight:600">
+                                <span x-text="progress().phase_num + '/' + progress().phase_total + ' - ' + progress().phase_label"></span>
                               </span>
-                              <span class="text-charcoal-light" x-text="progress().elapsed + 's / ~' + progress().total + 's'"></span>
+                              <span style="color:var(--color-text-muted)" x-text="progress().elapsed + 's / ~' + progress().total + 's'"></span>
                             </div>
-                            <div class="w-full bg-gray-100 h-1 rounded overflow-hidden">
-                              <div class={`h-1 transition-all ${item.content_type === 'netlinking_article' ? 'bg-purple-500' : 'bg-coral'}`}
+                            <div style="width:100%;height:4px;background:var(--color-surface-muted);border-radius:var(--radius-full);overflow:hidden">
+                              <div style="height:100%;background:var(--coral-400);border-radius:var(--radius-full);transition:width .3s"
                                    :style="'width: ' + progress().pct + '%'"></div>
                             </div>
-                            <p class="text-[9px] text-charcoal-light italic">
+                            <p class="text-[10px]" style="color:var(--color-text-muted);font-style:italic">
                               {item.content_type === 'netlinking_article'
                                 ? 'Article gen takes 5-15 min. You can leave this page.'
                                 : 'FAQ gen takes ~60s.'}
@@ -484,28 +502,25 @@ function ageLabel(iso: string | null): string {
                           <!-- Idle : score + Generate button + (article only) Find alternative -->
                           <div x-show="!generating" class="flex items-center justify-between gap-2 flex-wrap">
                             {item.opportunity_score != null && (
-                              <span class="text-[10px] text-charcoal-light">Score <strong class="text-charcoal-dark">{Math.round(item.opportunity_score)}</strong></span>
+                              <span class="lift" title="Opportunity score">{Math.round(item.opportunity_score)}</span>
                             )}
                             <div class="flex items-center gap-1.5 flex-wrap">
                               {item.target_url ? (
                                 item.content_type === 'faq' ? (
-                                  <button @click="startGen()" type="button"
-                                          class="text-[10px] rounded px-2 py-1 font-medium bg-coral text-white hover:bg-coral-dark transition-all"
+                                  <button @click="startGen()" type="button" class="btn-mini btn-mini--primary"
                                           title="Generate FAQ content (~60s, 1 content credit)">
-                                    ⚡ Generate FAQ
+                                    Generate FAQ
                                   </button>
                                 ) : item.content_type === 'netlinking_article' ? (
-                                  <button @click="startGen()" type="button"
-                                          class="text-[10px] rounded px-2 py-1 font-medium bg-purple-600 text-white hover:bg-purple-700 transition-all"
+                                  <button @click="startGen()" type="button" class="btn-mini btn-mini--primary"
                                           title="Generate netlinking article (~5-15 min, 3 content credits)">
-                                    ⚡ Generate Article
+                                    Generate article
                                   </button>
                                 ) : (
-                                  <span class="text-[10px] text-gray-400 italic">Unsupported content_type</span>
+                                  <span class="text-[10px]" style="color:var(--color-text-muted);font-style:italic">Unsupported content_type</span>
                                 )
                               ) : (
-                                <a href={`/app/content/${item.id}`}
-                                   class="text-[10px] rounded px-2 py-1 font-medium bg-amber-100 text-amber-800 hover:bg-amber-200 transition-all"
+                                <a href={`/app/content/${item.id}`} class="btn-mini btn-mini--warn" style="text-decoration:none"
                                    title={item.content_type === 'netlinking_article'
                                      ? 'Open validation page → set the media partner URL where the article will be published, then Generate.'
                                      : 'Open validation page → set a target URL on your site, then Generate.'}>
@@ -528,19 +543,19 @@ function ageLabel(iso: string | null): string {
                                       && item.target_url_candidates?.[0]?.price_eur == null)
                                 ) && (
                                 <button type="button" @click.stop={`$dispatch('open-suggest-media', { id: '${item.id}', target_question: ${JSON.stringify(item.target_question || '')}, topic: ${JSON.stringify(item.topic_name || '')} })`}
-                                        class="text-[10px] rounded px-2 py-1 font-medium bg-white border border-purple-300 text-purple-700 hover:bg-purple-50 transition-all"
+                                        class="btn-mini btn-mini--outline"
                                         title="Get up to 5 ranked alternative media partners based on LLM citations + Babbar + LinkFinder data.">
-                                  🔄 Find alternative
+                                  Find alternative
                                 </button>
                               )}
                             </div>
-                            <p x-show="error" x-text="error" class="text-[9px] text-red-600"></p>
+                            <p x-show="error" x-text="error" class="text-[10px]" style="color:var(--status-critical)"></p>
                           </div>
                         </div>
                       )}
 
                       {!isToCreate && !isPublished && (
-                        <div class="mt-2 pt-2 border-t border-gray-100 flex items-center justify-between text-[10px] text-charcoal-light">
+                        <div class="ccard__foot flex items-center justify-between text-[11px]" style="color:var(--color-text-muted)">
                           <span>{ageLabel(item.identified_at)}</span>
                           {item.promoted_brand_names?.length > 0 && (
                             <span class="truncate max-w-[120px]" title={item.promoted_brand_names.join(', ')}>
@@ -551,15 +566,15 @@ function ageLabel(iso: string | null): string {
                       )}
 
                       {isPublished && (
-                        <div class="mt-2 pt-2 border-t border-gray-100 flex items-center justify-between text-[10px]">
+                        <div class="ccard__foot flex items-center justify-between text-[11px]">
                           {item.published_url ? (
                             <a href={item.published_url} target="_blank" rel="noopener" @click.stop
-                               class="text-coral hover:underline truncate max-w-[150px]" title={item.published_url}>
-                              🔗 {item.published_url.replace(/^https?:\/\//, '').slice(0, 25)}…
+                               class="truncate max-w-[150px]" style="color:var(--coral-700);font-weight:600;text-decoration:none" title={item.published_url}>
+                              {item.published_url.replace(/^https?:\/\//, '').slice(0, 25)}…
                             </a>
-                          ) : <span class="text-gray-400">No URL set</span>}
+                          ) : <span style="color:var(--color-text-muted)">No URL set</span>}
                           {item.position_delta != null && (
-                            <span class={`font-medium ${item.position_delta > 0 ? 'text-emerald-600' : item.position_delta < 0 ? 'text-red-500' : 'text-charcoal-light'}`}>
+                            <span style={`font-weight:650;color:${item.position_delta > 0 ? 'var(--status-positive)' : item.position_delta < 0 ? 'var(--status-critical)' : 'var(--color-text-muted)'}`}>
                               {item.position_delta > 0 ? '+' : ''}{item.position_delta.toFixed(1)} pos
                             </span>
                           )}

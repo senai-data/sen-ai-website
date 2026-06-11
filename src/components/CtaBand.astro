@@ -1,0 +1,27 @@
+---
+/**
+ * Final CTA band - per 12-marketing.html (.band). Dark panel before the
+ * footer so the page ends on a conversion action (Peak-End) instead of
+ * trailing off after the Story section. Primary funnel : self-serve
+ * /register (decided 2026-06-11).
+ */
+---
+
+<section class="ctaband">
+  <div class="ctaband__panel">
+    <h2>Lancez votre premier scan gratuit</h2>
+    <p>Voyez votre marque à travers les yeux des IA en quelques minutes.</p>
+    <a href="/register" class="ctaband__btn">Commencer gratuitement</a>
+    <div class="ctaband__trust">Sans CB ni engagement &middot; 50 crédits offerts</div>
+  </div>
+</section>
+
+<style>
+  .ctaband { padding: 24px 22px 56px; }
+  .ctaband__panel { max-width: 720px; margin: 0 auto; background: var(--neutral-900); border-radius: var(--radius-lg); padding: 40px 28px; text-align: center; }
+  .ctaband__panel h2 { color: #fff; font-size: 24px; font-weight: 680; letter-spacing: -.02em; }
+  .ctaband__panel p { color: var(--neutral-400); font-size: 14px; margin-top: 8px; }
+  .ctaband__btn { display: inline-flex; align-items: center; justify-content: center; height: 50px; padding: 0 28px; margin-top: 20px; border-radius: var(--radius-md); font: 650 15px var(--font-sans); background: var(--color-primary); color: #fff; text-decoration: none; transition: .12s; }
+  .ctaband__btn:hover { background: var(--color-primary-hover); }
+  .ctaband__trust { color: var(--neutral-400); font-size: 12px; margin-top: 14px; }
+</style>

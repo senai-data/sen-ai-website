@@ -6,9 +6,12 @@ const { footer } = site;
 <footer class="bg-charcoal-dark text-white py-12 px-4">
   <div class="max-w-5xl mx-auto">
     <div class="flex flex-col md:flex-row items-center justify-between gap-8">
-      <!-- Logo + tagline -->
+      <!-- Brand lockup (docs/DESIGN_TOKENS.md) : lotus glyph + wordmark -->
       <div class="flex flex-col items-center md:items-start gap-2">
-        <img src="/logo-sen-ai-fr.png" alt="sen-ai.fr" class="h-8 w-auto brightness-0 invert" />
+        <span class="flex items-center gap-2">
+          <img src="/logo-mark.svg" alt="" class="h-7 w-7" />
+          <span class="text-[15px] font-bold tracking-tight text-white">sen-ai<span class="text-gray-400 font-medium">.fr</span></span>
+        </span>
         <p class="text-coral-light text-sm italic tracking-wide">
           {footer.tagline}
         </p>
@@ -20,6 +23,7 @@ const { footer } = site;
           {footer.email}
         </a>
         <div class="flex flex-wrap items-center justify-center md:justify-end gap-x-4 gap-y-1 text-gray-400">
+          <a href="/methodology" class="hover:text-gray-200 transition-colors">Methodology</a>
           <a href="/privacy" class="hover:text-gray-200 transition-colors">Privacy</a>
           <a href="/terms" class="hover:text-gray-200 transition-colors">Terms</a>
           <a href="/mentions-legales" class="hover:text-gray-200 transition-colors">Mentions légales</a>

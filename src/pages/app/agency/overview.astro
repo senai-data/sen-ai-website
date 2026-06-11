@@ -1,16 +1,17 @@
 ---
 /**
- * Agency workspace overview - S15.4
+ * Agency cross-workspace overview - redesign per 03-flagship.html (top half).
  *
- * Cross-workspace dashboard for agencies : one card per Client in the
- * active org with latest scan KPIs, schedule, and crisis severity.
- * Avoids the per-workspace click-through when an agency tracks 10+
- * brands.
+ * One card per Client in the active org (.wscard pattern) with latest scan
+ * KPIs + per-run mention-rate sparkline, a 4-sumcard summary strip and a
+ * sort / filter / view toolbar. Tokens via tokens.css, primitives via
+ * components.css (.chip .score .sev .btn) ; page-local layout styles below.
  *
  * UX Laws :
- *  - Jakob's Law : familiar SaaS dashboard card pattern
- *  - Hick's Law : 4 quick filters (all / scanned / scheduled / crisis)
- *  - Peak-End : crisis cards float to the top
+ *  - Peak-End : crisis cards float to the top (default sort)
+ *  - Hick's Law : 4 sorts + 4 filters, both as segmented controls
+ *  - Jakob's Law : familiar SaaS dashboard card grid
+ *  - Doherty : sort/filter is pure client-side reorder (CSS order), zero fetch
  */
 export const prerender = false;
 import DashboardLayout from '../../../layouts/DashboardLayout.astro';
@@ -31,6 +32,7 @@ try {
   }
 } catch {}
 
+type TrendPoint = { completed_at: string | null; brand_mention_rate: number; total_citations: number };
 type Workspace = {
   client_id: string;
   name: string;
@@ -48,6 +50,10 @@ type Workspace = {
     brand_mention_rate: number | null;
     target_cited: number | null;
     total_tests: number | null;
+    providers: string[] | null;
+    total_citations: number | null;
+    sentiment_score: number | null;
+    trend: TrendPoint[];
     critical_count: number;
     crisis_severity: number | null;
     crisis_severity_label: string | null;
@@ -62,7 +68,7 @@ if (activeOrg) {
   try {
     const r = await fetch(`http://api:8000/api/organizations/${activeOrg.id}/workspaces/overview`, {
       headers: { Cookie: upstreamCookie },
-      signal: AbortSignal.timeout(5000),
+      signal: AbortSignal.timeout(8000),
     });
     if (r.ok) {
       const data = await r.json();
@@ -76,196 +82,420 @@ if (activeOrg) {
   }
 }
 
-function statusChip(status: string | null): { label: string; cls: string } {
-  switch (status) {
-    case 'completed': return { label: 'Completed', cls: 'bg-emerald-50 text-emerald-700' };
-    case 'failed':    return { label: 'Failed',    cls: 'bg-red-50 text-red-700' };
-    case 'scanning':  return { label: 'Scanning',  cls: 'bg-blue-50 text-blue-700' };
-    case null:
-    case undefined:   return { label: 'No scan',   cls: 'bg-gray-100 text-charcoal-light' };
-    default:          return { label: 'In progress', cls: 'bg-amber-50 text-amber-700' };
-  }
-}
+const isAgencyOrg = !!activeOrg && !activeOrg.is_personal;
 
-function citationRateBadge(rate: number | null) {
-  if (rate === null || rate === undefined) return { letter: '-', cls: 'bg-gray-100 text-charcoal-light' };
-  if (rate >= 50) return { letter: 'A', cls: 'bg-emerald-100 text-emerald-700' };
-  if (rate >= 30) return { letter: 'B', cls: 'bg-blue-100 text-blue-700' };
-  if (rate >= 15) return { letter: 'C', cls: 'bg-amber-100 text-amber-700' };
-  return { letter: 'D', cls: 'bg-red-100 text-red-700' };
+// ─── Per-workspace derived fields ───
+function wsRate(ws: Workspace): number | null {
+  return ws.latest_scan?.brand_mention_rate ?? ws.latest_scan?.citation_rate ?? null;
 }
-
-function severityChip(label: string | null) {
-  switch (label) {
-    case 'critical': return { label: 'critical', cls: 'bg-red-100 text-red-700 font-semibold' };
-    case 'high':     return { label: 'high',     cls: 'bg-red-50 text-red-700' };
-    case 'medium':   return { label: 'medium',   cls: 'bg-amber-100 text-amber-800' };
-    case 'low':      return { label: 'low',      cls: 'bg-gray-100 text-charcoal-light' };
-    default:         return null;
-  }
+function gradeFor(rate: number | null): string | null {
+  if (rate === null || rate === undefined) return null;
+  if (rate >= 50) return 'a';
+  if (rate >= 30) return 'b';
+  if (rate >= 15) return 'c';
+  return 'd';
 }
-
+// Status bucket drives the left-border accent, the first chip and the
+// toolbar filter. crisis = focus-brand severity >= 36 (same gate the API
+// summary uses) ; warn = grade C or below ; ok = the rest with a scan.
+function bucketFor(ws: Workspace): 'crisis' | 'warn' | 'ok' | 'none' {
+  const ls = ws.latest_scan;
+  if (!ls) return 'none';
+  const sev = ls.crisis_severity ?? 0;
+  if (ls.crisis_severity_label && ls.crisis_severity_label !== 'none' && sev >= 36) return 'crisis';
+  const rate = wsRate(ws);
+  if (rate === null) return 'none';
+  if (rate < 30) return 'warn';
+  return 'ok';
+}
 function relTime(iso: string | null): string {
   if (!iso) return 'never';
   const ms = Date.now() - new Date(iso).getTime();
   if (ms < 0) {
     const fwd = Math.round(-ms / 86400000);
     if (fwd <= 0) return 'today';
-    if (fwd === 1) return 'in 1d';
-    return `in ${fwd}d`;
+    return fwd === 1 ? 'in 1 day' : `in ${fwd} days`;
   }
   const mins = Math.round(ms / 60000);
-  if (mins < 60) return `${mins}m ago`;
+  if (mins < 60) return `${mins} min ago`;
   const hrs = Math.round(mins / 60);
   if (hrs < 24) return `${hrs}h ago`;
   const days = Math.round(hrs / 24);
-  if (days < 30) return `${days}d ago`;
-  return new Date(iso).toISOString().slice(0, 10);
+  if (days < 30) return days === 1 ? 'yesterday' : `${days} days ago`;
+  return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+function fmtSent(v: number | null): string {
+  if (v === null || v === undefined) return '–';
+  return (v > 0 ? '+' : '') + v.toFixed(2);
 }
 
-const isAgencyOrg = !!activeOrg && !activeOrg.is_personal;
-
-// Sort : crisis severity DESC, then weakest brand-mention rate first, then
-// name. The sort key has to match the metric we render on each card (the
-// 'rate' below reads brand_mention_rate first, falls back to citation_rate),
-// otherwise the ranking and the visible number disagree.
-function _displayRate(ws: Workspace): number {
-  const ls = ws.latest_scan;
-  return ls?.brand_mention_rate ?? ls?.citation_rate ?? 999;
-}
+// Default SSR order = crisis severity DESC, then weakest mention rate ASC,
+// then name. The toolbar re-sorts client-side from the same data attributes.
 workspaces.sort((a, b) => {
   const sa = a.latest_scan?.crisis_severity ?? -1;
   const sb = b.latest_scan?.crisis_severity ?? -1;
   if (sa !== sb) return sb - sa;
-  const ra = _displayRate(a);
-  const rb = _displayRate(b);
+  const ra = wsRate(a) ?? 999;
+  const rb = wsRate(b) ?? 999;
   if (ra !== rb) return ra - rb;
   return a.name.localeCompare(b.name);
 });
+
+// ─── Summary strip ───
+const scanned = workspaces.filter(w => wsRate(w) !== null);
+const crisisList = workspaces.filter(w => bucketFor(w) === 'crisis');
+const rates = scanned.map(w => wsRate(w) as number);
+const avgRate = rates.length ? Math.round(rates.reduce((s, v) => s + v, 0) / rates.length) : null;
+// Avg delta vs previous run, over workspaces that have at least 2 runs.
+const deltas = workspaces
+  .map(w => w.latest_scan?.trend || [])
+  .filter(t => t.length >= 2)
+  .map(t => t[t.length - 1].brand_mention_rate - t[t.length - 2].brand_mention_rate);
+const avgDelta = deltas.length ? Math.round((deltas.reduce((s, v) => s + v, 0) / deltas.length) * 10) / 10 : null;
+const needsAttention = scanned.filter(w => (wsRate(w) as number) < 30).length;
+const totalCitations = workspaces.reduce((s, w) => s + (w.latest_scan?.total_citations || 0), 0);
+const aiSet = new Set<string>();
+for (const w of workspaces) for (const p of w.latest_scan?.providers || []) aiSet.add(p);
+
+const subtitle = workspaces.length
+  ? `${workspaces.length} client brand${workspaces.length > 1 ? 's' : ''} - sorted by crisis severity, then weakest mention rate.`
+    + (crisisList.length ? ` ${crisisList.length === 1 ? 'One brand needs' : crisisList.length + ' brands need'} attention now.` : '')
+  : activeOrg ? `Every workspace in ${activeOrg.name}.` : 'Sign in to see workspaces.';
+
+// ─── SVG sparkline (same helper as the scan Overview KPIs) ───
+// Per-run dots carry a native <title> tooltip "23 Mar : 41%" on a generous
+// invisible r=8 hit circle (Fitts) ; the last dot is the visual anchor.
+function sparkSvg(vals: number[], tone: 'up' | 'down' | 'flat' = 'up', labels: string[] = [], w = 120, h = 34): string {
+  if (!vals || vals.length < 2) return '';
+  const pad = 4;
+  const min = Math.min(...vals);
+  const max = Math.max(...vals);
+  const rng = max - min || 1;
+  const xf = (i: number) => pad + (i * (w - 2 * pad)) / (vals.length - 1);
+  const yf = (v: number) => h - pad - ((v - min) / rng) * (h - 2 * pad);
+  const pts = vals.map((v, i) => [xf(i), yf(v)] as [number, number]);
+  const d = pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ');
+  const colour = tone === 'down' ? 'var(--status-critical)' : tone === 'flat' ? 'var(--color-text-muted)' : 'var(--status-positive)';
+  const last = pts[pts.length - 1];
+  const id = 'g' + Math.random().toString(36).slice(2, 7);
+  const area = d + ` L${last[0].toFixed(1)} ${h - pad} L${pts[0][0].toFixed(1)} ${h - pad} Z`;
+  const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const dots = pts.map((p, i) => {
+    const isLast = i === pts.length - 1;
+    const title = labels[i] ? `<title>${esc(labels[i])}</title>` : '';
+    return `<g>${title}
+      <circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="8" fill="transparent" style="cursor:${labels[i] ? 'help' : 'default'}"/>
+      <circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="${isLast ? 2.6 : 1.8}" fill="${colour}" stroke="#fff" stroke-width="${isLast ? 1.5 : 1}" pointer-events="none"/>
+    </g>`;
+  }).join('');
+  return `<svg width="${w}" height="${h}" style="display:block;overflow:visible">
+    <defs><linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${colour}" stop-opacity=".16"/><stop offset="1" stop-color="${colour}" stop-opacity="0"/></linearGradient></defs>
+    <path d="${area}" fill="url(#${id})"/>
+    <path d="${d}" fill="none" stroke="${colour}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
+    ${dots}
+  </svg>`;
+}
+function trendLabels(t: TrendPoint[]): string[] {
+  return t.map(p => {
+    const d = p.completed_at ? new Date(p.completed_at) : null;
+    const day = d ? d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : '';
+    return `${day} : ${p.brand_mention_rate}%`;
+  });
+}
+function trendTone(vals: number[]): 'up' | 'down' | 'flat' {
+  if (vals.length < 2) return 'flat';
+  const d = vals[vals.length - 1] - vals[vals.length - 2];
+  return d > 0 ? 'up' : d < 0 ? 'down' : 'flat';
+}
 ---
 
-<DashboardLayout title="Workspace overview" activeSection="dashboard">
-  <main class="px-6 py-8 max-w-6xl mx-auto">
-    <div class="mb-6 flex items-end justify-between gap-4 flex-wrap">
+<DashboardLayout title="Cross-workspace overview" activeSection="dashboard">
+  <style is:global>
+    /* Page-local vocabulary from 03-flagship.html (.ph .summary .sumcard
+       .toolbar .seg .viewtoggle .wsgrid .wscard) so the design ref stays
+       the canonical reading. */
+    .aov { padding: var(--space-6); max-width: 1280px; margin: 0 auto; }
+
+    .aov .ph { display:flex; align-items:flex-end; justify-content:space-between; gap:20px; margin-bottom:var(--space-5); }
+    .aov .ph h1 { font-size:24px; font-weight:680; letter-spacing:-.025em; color:var(--color-text-primary); }
+    .aov .ph p { font-size:13.5px; color:var(--color-text-secondary); margin-top:4px; }
+    .aov .ph .back { font-size:12px; color:var(--color-text-muted); text-decoration:none; }
+    .aov .ph .back:hover { color:var(--color-text-primary); }
+
+    .aov .summary { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:var(--space-5); }
+    .aov .sumcard { background:var(--color-surface); border:1px solid var(--color-border); border-radius:var(--radius-lg); padding:16px 18px; box-shadow:var(--shadow-xs); }
+    .aov .sumcard.alert { border-color:#FAD9D5; background:linear-gradient(180deg,var(--status-critical-bg),#fff 60%); }
+    .aov .sumcard__l { font-size:11px; font-weight:600; letter-spacing:.05em; text-transform:uppercase; color:var(--color-text-muted); }
+    .aov .sumcard__v { font-size:28px; font-weight:720; letter-spacing:-.025em; margin-top:7px; line-height:1; color:var(--color-text-primary); }
+    .aov .sumcard.alert .sumcard__v { color:var(--status-critical); }
+    .aov .sumcard__m { font-size:12px; color:var(--color-text-muted); margin-top:7px; display:flex; align-items:center; gap:5px; min-height:20px; }
+
+    .aov .toolbar { display:flex; align-items:center; gap:12px; margin-bottom:16px; flex-wrap:wrap; }
+    .aov .toolbar__title { font-size:13px; font-weight:650; color:var(--color-text-secondary); }
+    .aov .seg { display:flex; gap:2px; padding:3px; background:var(--color-surface-muted); border-radius:var(--radius-md); }
+    .aov .seg button { border:0; background:transparent; font:600 12.5px var(--font-sans); color:var(--color-text-secondary); padding:6px 11px; border-radius:var(--radius-sm); cursor:pointer; transition:.12s; }
+    .aov .seg button.on { background:var(--color-surface); color:var(--color-text-primary); box-shadow:var(--shadow-xs); }
+    .aov .toolbar__right { margin-left:auto; display:flex; align-items:center; gap:10px; }
+    .aov .viewtoggle { display:flex; border:1px solid var(--color-border-strong); border-radius:var(--radius-md); overflow:hidden; }
+    .aov .viewtoggle button { width:34px; height:34px; display:grid; place-items:center; border:0; background:var(--color-surface); color:var(--color-text-muted); cursor:pointer; }
+    .aov .viewtoggle button.on { background:var(--color-surface-muted); color:var(--color-text-primary); }
+
+    .aov .wsgrid { display:grid; grid-template-columns:repeat(3,1fr); gap:16px; }
+    .aov .wsgrid--list { grid-template-columns:1fr; }
+    @media (max-width: 1023px) { .aov .wsgrid { grid-template-columns:repeat(2,1fr); } }
+    @media (max-width: 719px) { .aov .wsgrid { grid-template-columns:1fr; } .aov .summary { grid-template-columns:repeat(2,1fr); } }
+
+    .aov .wscard { display:block; text-decoration:none; color:inherit; background:var(--color-surface); border:1px solid var(--color-border); border-radius:var(--radius-lg); padding:18px; box-shadow:var(--shadow-xs); cursor:pointer; transition:box-shadow .14s, transform .14s, border-color .14s; position:relative; }
+    .aov .wscard:hover { box-shadow:var(--shadow-md); transform:translateY(-2px); }
+    .aov .wscard.crisis { border-left:3px solid var(--status-critical); }
+    .aov .wscard.warn { border-left:3px solid var(--sev-medium); }
+    .aov .wscard__head { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; }
+    .aov .wscard__head > div:first-child { min-width:0; }
+    .aov .wscard__name { font-size:15px; font-weight:680; letter-spacing:-.01em; line-height:1.25; color:var(--color-text-primary); }
+    .aov .wscard__domain { font-size:12px; color:var(--color-text-muted); margin-top:3px; line-height:1.3; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .aov .wscard__chips { display:flex; flex-wrap:wrap; gap:7px; margin:14px 0; min-height:24px; }
+    .aov .wscard__stats { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; padding-top:14px; border-top:1px solid var(--color-border); }
+    .aov .wsm__v { font-size:18px; font-weight:720; letter-spacing:-.02em; color:var(--color-text-primary); }
+    .aov .wsm__v.neg { color:var(--status-critical); }
+    .aov .wsm__l { font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:.04em; color:var(--color-text-muted); margin-top:1px; }
+    .aov .wscard__spark { margin-top:12px; height:30px; }
+    .aov .wscard__foot { display:flex; align-items:center; justify-content:space-between; margin-top:14px; }
+    .aov .wscard__time { font-size:11.5px; color:var(--color-text-muted); }
+    .aov .wscard__open { font-size:12px; font-weight:600; color:var(--coral-700); display:flex; align-items:center; gap:4px; opacity:0; transition:.14s; }
+    .aov .wscard:hover .wscard__open { opacity:1; }
+    .aov .wscard__empty { font-size:12px; color:var(--color-text-muted); font-style:italic; padding:6px 0 2px; }
+    .aov .score--none { width:34px; height:34px; border-radius:var(--radius-md); display:grid; place-items:center; background:var(--color-surface-muted); color:var(--color-text-muted); font-weight:700; }
+
+    .aov .notice { background:var(--color-surface); border:1px solid var(--color-border); border-radius:var(--radius-lg); padding:var(--space-6); text-align:center; }
+    .aov .notice--warn { background:var(--status-warning-bg); border-color:#F2E2C4; text-align:left; }
+    .aov .notice--error { background:var(--status-critical-bg); border-color:#FAD9D5; text-align:left; }
+  </style>
+
+  <main class="aov">
+    <div class="ph">
       <div>
-        <a href="/app/dashboard" class="text-xs text-charcoal-light hover:text-coral">&larr; Single-workspace dashboard</a>
-        <h1 class="text-2xl font-bold text-charcoal-dark mt-2">Workspace overview</h1>
-        <p class="text-sm text-charcoal-light mt-1">
-          {activeOrg ? `Every workspace in ${activeOrg.name}.` : 'Sign in to see workspaces.'}
-          {' '}Sorted by crisis severity, then weakest brand mention rate first.
-        </p>
+        <a href="/app/dashboard" class="back">&larr; Single-workspace dashboard</a>
+        <h1 style="margin-top:6px">Cross-workspace overview</h1>
+        <p>{subtitle}</p>
       </div>
-      <a href="/app/agency/bulk" class="text-sm font-medium text-coral hover:text-coral-dark whitespace-nowrap">Bulk add &rarr;</a>
+      <a href="/app/agency/bulk" class="btn btn--secondary btn--md" style="white-space:nowrap">Bulk add</a>
     </div>
 
     {!isAgencyOrg && (
-      <div class="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-6">
-        <p class="text-sm text-amber-800 font-medium mb-1">Agency org required</p>
-        <p class="text-xs text-amber-700">
-          The workspace overview only makes sense inside an agency organization. Switch via the header dropdown or
-          <a href="/agency" class="underline">read about agency mode</a>.
+      <div class="notice notice--warn" style="margin-bottom:var(--space-5)">
+        <p style="font-size:13px;font-weight:600;color:var(--color-text-primary);margin-bottom:4px">Agency org required</p>
+        <p style="font-size:12px;color:var(--color-text-secondary)">
+          The cross-workspace overview only makes sense inside an agency organization. Switch via the header dropdown or
+          <a href="/agency" style="text-decoration:underline">read about agency mode</a>.
         </p>
       </div>
     )}
 
     {fetchError && (
-      <div class="bg-red-50 border border-red-200 rounded-xl p-4 mb-6">
-        <p class="text-xs text-red-700">Failed to load overview : {fetchError}</p>
+      <div class="notice notice--error" style="margin-bottom:var(--space-5)">
+        <p style="font-size:12px;color:var(--status-critical)">Failed to load overview : {fetchError}</p>
       </div>
     )}
 
     {isAgencyOrg && workspaces.length === 0 && !fetchError && (
-      <div class="bg-white rounded-xl border border-gray-200 p-8 text-center">
-        <p class="text-sm text-charcoal-dark font-medium mb-2">No workspaces yet</p>
-        <p class="text-xs text-charcoal-light mb-4">Add a single workspace from the sidebar, or batch-create several at once.</p>
-        <a href="/app/agency/bulk" class="inline-flex items-center gap-2 px-4 py-2 bg-coral text-white text-sm font-medium rounded-lg hover:bg-coral-dark transition-all">Bulk add workspaces</a>
+      <div class="notice">
+        <p style="font-size:14px;font-weight:600;color:var(--color-text-primary);margin-bottom:6px">No workspaces yet</p>
+        <p style="font-size:12.5px;color:var(--color-text-secondary);margin-bottom:16px">Add a single workspace from the sidebar, or batch-create several at once.</p>
+        <a href="/app/agency/bulk" class="btn btn--primary btn--md">Bulk add workspaces</a>
       </div>
     )}
 
     {isAgencyOrg && workspaces.length > 0 && (
-      <>
-        {/* Org summary band */}
-        <div class="grid grid-cols-3 gap-3 mb-6">
-          <div class="bg-white rounded-xl border border-gray-200 p-4">
-            <p class="text-2xl font-bold text-charcoal-dark">{summary.total}</p>
-            <p class="text-[10px] uppercase tracking-wide text-charcoal-light mt-1">Workspaces</p>
+      <div x-data="wsOverview()">
+        {/* ── Summary strip ── */}
+        <div class="summary">
+          <div class={`sumcard ${crisisList.length > 0 ? 'alert' : ''}`}>
+            <div class="sumcard__l">In crisis</div>
+            <div class="sumcard__v">{crisisList.length}</div>
+            <div class="sumcard__m">
+              {crisisList.length > 0
+                ? <span class="sev sev--critical" style="padding:2px 8px"><span class="sev__dot"></span>{crisisList[0].name}{crisisList.length > 1 ? ` +${crisisList.length - 1}` : ''}</span>
+                : <span>All clear</span>}
+            </div>
           </div>
-          <div class="bg-white rounded-xl border border-gray-200 p-4">
-            <p class="text-2xl font-bold text-emerald-700">{summary.with_scan}</p>
-            <p class="text-[10px] uppercase tracking-wide text-charcoal-light mt-1">Have a completed scan</p>
+          <div class="sumcard">
+            <div class="sumcard__l">Avg. mention rate</div>
+            <div class="sumcard__v">{avgRate !== null ? `${avgRate}%` : '–'}</div>
+            <div class="sumcard__m">
+              {avgDelta !== null && avgDelta !== 0 && (
+                <span style={`color:${avgDelta > 0 ? 'var(--status-positive)' : 'var(--status-critical)'};font-weight:650`}>
+                  {avgDelta > 0 ? '▲' : '▼'} {Math.abs(avgDelta)} pts
+                </span>
+              )}
+              {avgDelta !== null && avgDelta === 0 && <span style="font-weight:650">&middot; flat</span>}
+              {avgDelta !== null ? <span>vs previous run</span> : <span>across {scanned.length} scanned brand{scanned.length > 1 ? 's' : ''}</span>}
+            </div>
           </div>
-          <div class={`rounded-xl border p-4 ${summary.with_crisis > 0 ? 'bg-red-50 border-red-200' : 'bg-white border-gray-200'}`}>
-            <p class={`text-2xl font-bold ${summary.with_crisis > 0 ? 'text-red-700' : 'text-charcoal-dark'}`}>{summary.with_crisis}</p>
-            <p class={`text-[10px] uppercase tracking-wide mt-1 ${summary.with_crisis > 0 ? 'text-red-600' : 'text-charcoal-light'}`}>In crisis (severity &ge; 36)</p>
+          <div class="sumcard">
+            <div class="sumcard__l">Needs attention</div>
+            <div class="sumcard__v">{needsAttention}</div>
+            <div class="sumcard__m">grade C or below</div>
+          </div>
+          <div class="sumcard">
+            <div class="sumcard__l">Citations</div>
+            <div class="sumcard__v">{totalCitations.toLocaleString('en-US')}</div>
+            <div class="sumcard__m">{aiSet.size > 0 ? `latest runs, across ${aiSet.size} AI${aiSet.size > 1 ? 's' : ''}` : 'latest runs'}</div>
           </div>
         </div>
 
-        {/* Workspace cards. Click activates the workspace cookie-side before
-            navigating, so the destination page (scan results or new-scan
-            wizard) inherits the right active client. */}
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {/* ── Toolbar ── */}
+        <div class="toolbar">
+          <span class="toolbar__title">Sort</span>
+          <div class="seg">
+            <button :class="sort === 'crisis' ? 'on' : ''" @click="setSort('crisis')">Crisis severity</button>
+            <button :class="sort === 'mention' ? 'on' : ''" @click="setSort('mention')">Weakest mention</button>
+            <button :class="sort === 'name' ? 'on' : ''" @click="setSort('name')">Name</button>
+            <button :class="sort === 'recent' ? 'on' : ''" @click="setSort('recent')">Recently scanned</button>
+          </div>
+          <div class="toolbar__right">
+            <div class="seg">
+              <button :class="filter === 'all' ? 'on' : ''" @click="setFilter('all')">All</button>
+              <button :class="filter === 'crisis' ? 'on' : ''" @click="setFilter('crisis')">Crisis</button>
+              <button :class="filter === 'warn' ? 'on' : ''" @click="setFilter('warn')">Needs work</button>
+              <button :class="filter === 'ok' ? 'on' : ''" @click="setFilter('ok')">Healthy</button>
+            </div>
+            <div class="viewtoggle">
+              <button :class="view === 'grid' ? 'on' : ''" @click="view = 'grid'" aria-label="Grid view">
+                <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="5" height="5" rx="1"/><rect x="9" y="2" width="5" height="5" rx="1"/><rect x="2" y="9" width="5" height="5" rx="1"/><rect x="9" y="9" width="5" height="5" rx="1"/></svg>
+              </button>
+              <button :class="view === 'list' ? 'on' : ''" @click="view = 'list'" aria-label="List view">
+                <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4h12M2 8h12M2 12h12"/></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* ── Workspace cards. SSR'd once ; the toolbar reorders via CSS
+            `order` and hides via display, driven by the data-* attributes.
+            Click activates the workspace cookie-side before navigating so
+            the destination inherits the right active client. ── */}
+        <div class="wsgrid" :class="view === 'list' ? 'wsgrid--list' : ''" x-ref="grid">
           {workspaces.map((w) => {
             const ls = w.latest_scan;
-            const sc = statusChip(ls?.status || null);
-            const rate = ls?.brand_mention_rate ?? ls?.citation_rate ?? null;
-            const badge = citationRateBadge(rate);
-            const crisis = severityChip(ls?.crisis_severity_label || null);
-            // 'No scan' cards send the user to the new-scan wizard ; existing
-            // cards land on results or on the in-progress pipeline view.
-            const scanPath = ls ? (ls.status === 'completed' ? `/app/scans/${ls.scan_id}/results` : `/app/scans/${ls.scan_id}`) : '/app/scans/new';
+            const rate = wsRate(w);
+            const grade = gradeFor(rate);
+            const bucket = bucketFor(w);
+            const trend = ls?.trend || [];
+            const vals = trend.map(t => t.brand_mention_rate);
             const isCompleted = ls?.status === 'completed';
+            const scanPath = ls ? (isCompleted ? `/app/scans/${ls.scan_id}/results` : `/app/scans/${ls.scan_id}`) : '/app/scans/new';
+            const ts = ls?.completed_at ? new Date(ls.completed_at).getTime() : 0;
+            const nextIn = ls?.next_run_at ? relTime(ls.next_run_at) : null;
             return (
               <a
                 href={scanPath}
+                data-ws
+                data-sev={ls?.crisis_severity ?? -1}
+                data-rate={rate ?? 999}
+                data-name={w.name}
+                data-ts={ts}
+                data-bucket={bucket}
                 data-client-id={w.client_id}
                 onclick={`event.preventDefault(); const h = this.href, c = this.dataset.clientId; fetch('/api/clients/active', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ client_id: c }) }).finally(() => { window.location.href = h; });`}
                 aria-label={`Open workspace ${w.name}`}
-                class={`block bg-white rounded-xl border p-5 hover:shadow-md hover:border-coral/40 transition-all ${crisis ? 'border-red-200' : 'border-gray-200'}`}
+                class={`wscard ${bucket === 'crisis' ? 'crisis' : bucket === 'warn' ? 'warn' : ''}`}
               >
-                <div class="flex items-start justify-between gap-3 mb-3">
-                  <div class="min-w-0">
-                    <h2 class="text-base font-semibold text-charcoal-dark truncate">{w.name}</h2>
-                    <p class="text-[11px] text-charcoal-light truncate mt-0.5">{ls?.domain || '—'}</p>
+                <div class="wscard__head">
+                  <div>
+                    <div class="wscard__name">{w.name}</div>
+                    <div class="wscard__domain">{ls?.domain || 'No domain yet'}</div>
                   </div>
-                  <div class={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${badge.cls}`}>
-                    <span class="text-lg font-black">{badge.letter}</span>
-                  </div>
+                  {grade
+                    ? <div class={`score score--${grade}`}>{grade.toUpperCase()}</div>
+                    : <div class="score--none">–</div>}
                 </div>
 
-                <div class="flex items-center gap-2 flex-wrap mb-3">
-                  <span class={`text-[10px] px-2 py-0.5 rounded uppercase tracking-wide ${sc.cls}`}>{sc.label}</span>
-                  {crisis && <span class={`text-[10px] px-2 py-0.5 rounded uppercase tracking-wide ${crisis.cls}`}>&#9888; {crisis.label}</span>}
-                  {ls?.schedule && ls.schedule !== 'manual' && (
-                    <span class="text-[10px] px-2 py-0.5 rounded uppercase tracking-wide bg-sky-50 text-sky-700">auto {ls.schedule}</span>
-                  )}
+                <div class="wscard__chips">
+                  {bucket === 'crisis' && <span class="chip chip--sm chip--critical"><span class="chip__dot"></span>Crisis</span>}
+                  {bucket === 'warn' && <span class="chip chip--sm chip--warning"><span class="chip__dot"></span>Weak mention</span>}
+                  {bucket === 'ok' && <span class="chip chip--sm chip--neutral"><span class="chip__dot"></span>Stable</span>}
+                  {ls && !isCompleted && ls.status !== 'failed' && <span class="chip chip--sm chip--info"><span class="chip__dot"></span>Scan in progress</span>}
+                  {ls?.status === 'failed' && <span class="chip chip--sm chip--critical"><span class="chip__dot"></span>Scan failed</span>}
+                  {ls?.schedule && ls.schedule !== 'manual' && <span class="chip chip--sm chip--neutral">Auto {ls.schedule}</span>}
                 </div>
 
                 {ls ? (
-                  <dl class="grid grid-cols-2 gap-y-1.5 gap-x-3 text-[11px]">
-                    <dt class="text-charcoal-light">Brand mention</dt>
-                    <dd class="text-charcoal-dark text-right tabular-nums">{rate !== null ? `${rate}%` : '—'}</dd>
-
-                    <dt class="text-charcoal-light">Critical gaps</dt>
-                    <dd class={`text-right tabular-nums ${isCompleted && (ls.critical_count || 0) > 0 ? 'text-red-600 font-medium' : 'text-charcoal-dark'}`}>{isCompleted ? ls.critical_count : '—'}</dd>
-
-                    <dt class="text-charcoal-light">Last scan</dt>
-                    <dd class="text-charcoal-dark text-right">{relTime(ls.completed_at)}</dd>
-
-                    {ls.next_run_at && (
-                      <>
-                        <dt class="text-charcoal-light">Next rescan</dt>
-                        <dd class="text-charcoal-dark text-right">{relTime(ls.next_run_at)}</dd>
-                      </>
-                    )}
-                  </dl>
+                  <div class="wscard__stats">
+                    <div>
+                      <div class="wsm__v">{rate !== null ? `${Math.round(rate)}%` : '–'}</div>
+                      <div class="wsm__l">Mention</div>
+                    </div>
+                    <div>
+                      <div class={`wsm__v ${(ls.sentiment_score ?? 0) < 0 ? 'neg' : ''}`}>{fmtSent(ls.sentiment_score)}</div>
+                      <div class="wsm__l">Sentiment</div>
+                    </div>
+                    <div>
+                      <div class="wsm__v">{ls.total_citations !== null ? ls.total_citations.toLocaleString('en-US') : '–'}</div>
+                      <div class="wsm__l">Citations</div>
+                    </div>
+                  </div>
                 ) : (
-                  <p class="text-[11px] text-charcoal-light italic">No scan yet &ndash; click to set up.</p>
+                  <p class="wscard__empty">No scan yet. Click to set one up.</p>
                 )}
+
+                {vals.length >= 2 && (
+                  <div class="wscard__spark" set:html={sparkSvg(vals, trendTone(vals), trendLabels(trend), 240, 30)} />
+                )}
+
+                <div class="wscard__foot">
+                  <span class="wscard__time">
+                    {ls ? `Scanned ${relTime(ls.completed_at)}` : 'Not scanned'}
+                    {nextIn ? ` · next ${nextIn}` : ''}
+                  </span>
+                  <span class="wscard__open">Open {ls ? 'scan' : 'setup'} &rarr;</span>
+                </div>
               </a>
             );
           })}
         </div>
-      </>
+
+        <div x-show="shown === 0" x-cloak class="notice" style="margin-top:16px">
+          <p style="font-size:13px;color:var(--color-text-secondary)">No workspaces match this filter.</p>
+        </div>
+      </div>
     )}
   </main>
+
+  <script is:inline>
+    // Sort + filter machinery for the SSR'd cards : reads the data-*
+    // attributes once, then reorders with CSS `order` and hides with
+    // display. No re-render, no fetch.
+    function wsOverview() {
+      return {
+        sort: 'crisis',
+        filter: 'all',
+        view: 'grid',
+        shown: 1,
+        cards: [],
+        init() {
+          this.cards = Array.from(this.$refs.grid.querySelectorAll('[data-ws]'));
+          this.shown = this.cards.length;
+        },
+        setSort(s) { this.sort = s; this.apply(); },
+        setFilter(f) { this.filter = f; this.apply(); },
+        apply() {
+          const byName = (a, b) => a.dataset.name.localeCompare(b.dataset.name);
+          const cmp = {
+            crisis: (a, b) => (+b.dataset.sev - +a.dataset.sev) || (+a.dataset.rate - +b.dataset.rate) || byName(a, b),
+            mention: (a, b) => (+a.dataset.rate - +b.dataset.rate) || byName(a, b),
+            name: byName,
+            recent: (a, b) => (+b.dataset.ts - +a.dataset.ts) || byName(a, b),
+          }[this.sort];
+          this.cards.slice().sort(cmp).forEach((el, i) => { el.style.order = i; });
+          let visible = 0;
+          this.cards.forEach((el) => {
+            const show = this.filter === 'all' || el.dataset.bucket === this.filter;
+            el.style.display = show ? '' : 'none';
+            if (show) visible++;
+          });
+          this.shown = visible;
+        },
+      };
+    }
+  </script>
 </DashboardLayout>

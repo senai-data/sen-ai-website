@@ -953,6 +953,7 @@ async def workspaces_overview(
         SELECT DISTINCT ON (s.client_id)
                s.client_id::text   AS cid,
                s.id::text          AS scan_id,
+               s.parent_scan_id::text AS parent_id,
                s.name              AS scan_name,
                s.domain,
                s.status,
@@ -998,6 +999,81 @@ async def workspaces_overview(
         ), {"sids": latest_scan_ids}).fetchall()
         crisis_by_scan = {r.sid: (r.severity, r.severity_label) for r in crisis_rows}
 
+    # Per-run trend across each latest scan's lineage (root + children) +
+    # latest-run citations count and raw sentiment. Same per-scan grouping
+    # the Overview KPI sparklines use (/results/aggregated per_run_stats)
+    # but as one GROUP BY instead of loading the rows, so the agency view
+    # stays cheap at 10+ workspaces x N runs. Counts ALL result rows per
+    # scan (no run_index filter) to match the aggregated endpoint.
+    root_ids = list({(r.parent_id or r.scan_id) for r in latest_rows if r.scan_id})
+    lineage_rows = []
+    agg_by_scan: dict[str, object] = {}
+    if root_ids:
+        lineage_rows = db.execute(_text(
+            """
+            SELECT s.id::text AS sid,
+                   COALESCE(s.parent_scan_id::text, s.id::text) AS root_id,
+                   s.completed_at
+              FROM scans s
+             WHERE s.status = 'completed'
+               AND (s.id::text = ANY(:roots) OR s.parent_scan_id::text = ANY(:roots))
+             ORDER BY s.created_at ASC
+            """
+        ), {"roots": root_ids}).fetchall()
+        lineage_sids = [r.sid for r in lineage_rows]
+        if lineage_sids:
+            agg_rows = db.execute(_text(
+                """
+                SELECT r.scan_id::text AS sid,
+                       COUNT(*) AS total,
+                       COUNT(*) FILTER (
+                           WHERE r.brand_analysis->>'marque_cible_mentionnee' = 'true'
+                       ) AS mentioned,
+                       COALESCE(SUM(CASE WHEN jsonb_typeof(r.citations) = 'array'
+                                         THEN jsonb_array_length(r.citations)
+                                         ELSE 0 END), 0) AS citations
+                  FROM scan_llm_results r
+                 WHERE r.scan_id::text = ANY(:sids)
+                 GROUP BY r.scan_id
+                """
+            ), {"sids": lineage_sids}).fetchall()
+            agg_by_scan = {r.sid: r for r in agg_rows}
+
+    # Raw sentiment over target-brand mentions, latest scans only. NOTE :
+    # this is the unjudged brand_mentions[].sentiment (no migration-057
+    # overlay) - fine for an agency-level glance, the per-scan Overview
+    # stays the judged source of truth.
+    sent_by_scan: dict[str, object] = {}
+    if latest_scan_ids:
+        sent_rows = db.execute(_text(
+            """
+            SELECT r.scan_id::text AS sid,
+                   COUNT(*) AS total,
+                   COUNT(*) FILTER (WHERE lower(bm->>'sentiment') LIKE 'pos%') AS pos,
+                   COUNT(*) FILTER (WHERE lower(bm->>'sentiment') LIKE 'neg%'
+                                       OR lower(bm->>'sentiment') LIKE 'nég%') AS neg
+              FROM scan_llm_results r
+             CROSS JOIN LATERAL jsonb_array_elements(
+                   CASE WHEN jsonb_typeof(r.brand_mentions) = 'array'
+                        THEN r.brand_mentions ELSE '[]'::jsonb END) bm
+             WHERE r.scan_id::text = ANY(:sids)
+               AND (bm->>'est_marque_cible' = 'true' OR bm->>'is_target_brand' = 'true')
+             GROUP BY r.scan_id
+            """
+        ), {"sids": latest_scan_ids}).fetchall()
+        sent_by_scan = {r.sid: r for r in sent_rows}
+
+    trend_by_root: dict[str, list] = {}
+    for lr in lineage_rows:
+        agg = agg_by_scan.get(lr.sid)
+        if agg is None or not agg.total:
+            continue
+        trend_by_root.setdefault(lr.root_id, []).append({
+            "completed_at": lr.completed_at.isoformat() + "Z" if lr.completed_at else None,
+            "brand_mention_rate": round(agg.mentioned / agg.total * 100, 1),
+            "total_citations": int(agg.citations or 0),
+        })
+
     workspaces = []
     with_scan = 0
     with_crisis = 0
@@ -1021,6 +1097,17 @@ async def workspaces_overview(
                 with_crisis += 1
             if latest.status == "completed":
                 with_scan += 1
+            latest_agg = agg_by_scan.get(latest.scan_id)
+            sent = sent_by_scan.get(latest.scan_id)
+            sentiment_score = (
+                round((sent.pos - sent.neg) / sent.total, 2)
+                if sent is not None and sent.total else None
+            )
+            mention_rate = summary.get("brand_mention_rate") if isinstance(summary, dict) else None
+            if mention_rate is None and latest_agg is not None and latest_agg.total:
+                # summary missing (e.g. imported history scans) - recompute
+                # from the same aggregate that feeds the trend.
+                mention_rate = round(latest_agg.mentioned / latest_agg.total * 100, 1)
             ws["latest_scan"] = {
                 "scan_id": latest.scan_id,
                 "name": latest.scan_name,
@@ -1030,9 +1117,13 @@ async def workspaces_overview(
                 "schedule": latest.schedule,
                 "next_run_at": latest.next_run_at.isoformat() + "Z" if latest.next_run_at else None,
                 "citation_rate": summary.get("citation_rate") if isinstance(summary, dict) else None,
-                "brand_mention_rate": summary.get("brand_mention_rate") if isinstance(summary, dict) else None,
+                "brand_mention_rate": mention_rate,
                 "target_cited": summary.get("target_cited") if isinstance(summary, dict) else None,
                 "total_tests": summary.get("total_tests") if isinstance(summary, dict) else None,
+                "providers": summary.get("providers") if isinstance(summary, dict) else None,
+                "total_citations": int(latest_agg.citations) if latest_agg is not None else None,
+                "sentiment_score": sentiment_score,
+                "trend": trend_by_root.get(latest.parent_id or latest.scan_id, []),
                 "critical_count": critical_count,
                 "crisis_severity": sev,
                 "crisis_severity_label": sev_label,

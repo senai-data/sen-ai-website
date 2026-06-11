@@ -158,8 +158,29 @@ function provVis(p: string) {
 }
 
 // ─── Panel B : Share of voice (top 4 competitors + your brand) ───
+// Case-insensitive merge first : the historical seo-llm runs emitted
+// "La Roche-Posay" / "Bioderma" while sen-ai's BrandAnalyzer lowercases,
+// so the API competitor list can carry the same brand twice. Merge on
+// lower(name), keep the casing variant with the most uppercase (usually
+// the brand's official spelling), sum the mentions.
 type SovRow = { name: string; mentions: number; you: boolean };
-const sovItemsRaw: SovRow[] = competitors.slice(0, 4).map((c: any) => ({ name: c.name, mentions: c.mentions || 0, you: false }));
+const merged: Record<string, { name: string; mentions: number }> = {};
+competitors.forEach((c: any) => {
+  const key = (c.name || '').trim().toLowerCase();
+  if (!key) return;
+  if (!merged[key]) {
+    merged[key] = { name: c.name, mentions: 0 };
+  } else if ((c.name.match(/[A-Z]/g) || []).length > (merged[key].name.match(/[A-Z]/g) || []).length) {
+    merged[key].name = c.name;
+  }
+  merged[key].mentions += c.mentions || 0;
+});
+const focusKey = (o?.focus_brand || '').trim().toLowerCase();
+const sovItemsRaw: SovRow[] = Object.entries(merged)
+  .filter(([k]) => k !== focusKey)
+  .map(([, v]) => ({ name: v.name, mentions: v.mentions, you: false }))
+  .sort((a, b) => b.mentions - a.mentions)
+  .slice(0, 4);
 sovItemsRaw.push({ name: o?.focus_brand || o?.domain || 'You', mentions: myMentions, you: true });
 sovItemsRaw.sort((a, b) => b.mentions - a.mentions);
 const sovMax = Math.max(1, ...sovItemsRaw.map(r => r.mentions));
@@ -249,9 +270,17 @@ const topActions = oppsItems.slice(0, 3);
 
 // SVG sparkline helper used by the 4 KPIs. Coral by default ; status colour
 // when a tone is forced (down=critical, flat=muted).
-function sparkSvg(vals: number[], tone: 'up' | 'down' | 'flat' = 'up', w = 120, h = 34): string {
+//
+// Hover detail (Laws of UX) :
+//  - each run gets a visible micro-dot + a generous invisible hit circle
+//    (r=8 >> r=2) carrying a native SVG <title> tooltip "23 Mar : 41%".
+//    Fitts : the touch target is 4x the visible dot. Doherty + SSR-first :
+//    browser-native tooltip, zero JS, zero chart lib.
+//  - the LAST dot stays the big one (Recency / Serial Position : the
+//    current value is the anchor).
+function sparkSvg(vals: number[], tone: 'up' | 'down' | 'flat' = 'up', labels: string[] = [], w = 120, h = 34): string {
   if (!vals || vals.length < 2) return '';
-  const pad = 3;
+  const pad = 4;
   const min = Math.min(...vals);
   const max = Math.max(...vals);
   const rng = max - min || 1;
@@ -263,13 +292,39 @@ function sparkSvg(vals: number[], tone: 'up' | 'down' | 'flat' = 'up', w = 120, 
   const last = pts[pts.length - 1];
   const id = 'g' + Math.random().toString(36).slice(2, 7);
   const area = d + ` L${last[0].toFixed(1)} ${h - pad} L${pts[0][0].toFixed(1)} ${h - pad} Z`;
-  return `<svg width="${w}" height="${h}" style="display:block">
+  const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const dots = pts.map((p, i) => {
+    const isLast = i === pts.length - 1;
+    const title = labels[i] ? `<title>${esc(labels[i])}</title>` : '';
+    return `<g>${title}
+      <circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="8" fill="transparent" style="cursor:${labels[i] ? 'help' : 'default'}"/>
+      <circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="${isLast ? 2.6 : 1.8}" fill="${colour}" stroke="#fff" stroke-width="${isLast ? 1.5 : 1}" pointer-events="none"/>
+    </g>`;
+  }).join('');
+  return `<svg width="${w}" height="${h}" style="display:block;overflow:visible">
     <defs><linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${colour}" stop-opacity=".16"/><stop offset="1" stop-color="${colour}" stop-opacity="0"/></linearGradient></defs>
     <path d="${area}" fill="url(#${id})"/>
-    <path d="${d}" fill="none" stroke="${colour}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-    <circle cx="${last[0].toFixed(1)}" cy="${last[1].toFixed(1)}" r="2.6" fill="${colour}" stroke="#fff" stroke-width="1.5"/>
+    <path d="${d}" fill="none" stroke="${colour}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
+    ${dots}
   </svg>`;
 }
+
+// Tooltip labels per run : "23 Mar : <value>" built from trend dates.
+const runDates: string[] = trendFromApi.map((t: any) => {
+  const d = t.completed_at ? new Date(t.completed_at) : null;
+  return d ? d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : `Run ${(t.run_index ?? 0) + 1}`;
+});
+function runLabels(vals: (number | null | undefined)[], fmt: (v: number) => string): string[] {
+  // vals is the RAW per-run series (may hold nulls) ; the filtered series
+  // used for the path skips nulls, so build labels on the same filter.
+  const out: string[] = [];
+  vals.forEach((v, i) => { if (v != null) out.push(`${runDates[i] || ''} : ${fmt(v)}`); });
+  return out;
+}
+const mentionLabels = runLabels(trendFromApi.map((t: any) => t.citation_rate), v => `${v}%`);
+const citationsLabels = runLabels(trendFromApi.map((t: any) => t.total_citations), v => v.toLocaleString('en-US'));
+const sentimentLabels = runLabels(trendFromApi.map((t: any) => t.sentiment_score), v => (v > 0 ? '+' : '') + v.toFixed(2));
+const sovLabels = runLabels(trendFromApi.map((t: any) => t.sov), v => `${v}%`);
 
 const mentionTone: 'up' | 'down' | 'flat' = delta == null ? 'flat' : delta > 0 ? 'up' : delta < 0 ? 'down' : 'flat';
 ---
@@ -386,7 +441,7 @@ const mentionTone: 'up' | 'down' | 'flat' = delta == null ? 'flat' : delta > 0 ?
             )}
           </div>
           {mentionRateTrend.length > 1
-            ? <div class="spark" set:html={sparkSvg(mentionRateTrend, mentionTone)} />
+            ? <div class="spark" set:html={sparkSvg(mentionRateTrend, mentionTone, mentionLabels)} />
             : <div class="spark spark--empty">Trend appears after your next rescan</div>}
         </div>
 
@@ -397,7 +452,7 @@ const mentionTone: 'up' | 'down' | 'flat' = delta == null ? 'flat' : delta > 0 ?
             <span class="stat__delta stat__delta--flat">{totalTests} test{totalTests > 1 ? 's' : ''}</span>
           </div>
           {citationsTrend.length > 1
-            ? <div class="spark" set:html={sparkSvg(citationsTrend, trendTone(citationsTrend))} />
+            ? <div class="spark" set:html={sparkSvg(citationsTrend, trendTone(citationsTrend), citationsLabels)} />
             : <div class="spark spark--empty">Trend appears after your next rescan</div>}
         </div>
 
@@ -410,7 +465,7 @@ const mentionTone: 'up' | 'down' | 'flat' = delta == null ? 'flat' : delta > 0 ?
             <span class="stat__delta stat__delta--flat">{sentTotal} mention{sentTotal > 1 ? 's' : ''}</span>
           </div>
           {sentimentTrend.length > 1
-            ? <div class="spark" set:html={sparkSvg(sentimentTrend, trendTone(sentimentTrend))} />
+            ? <div class="spark" set:html={sparkSvg(sentimentTrend, trendTone(sentimentTrend), sentimentLabels)} />
             : sentTotal > 0 && (
               <span class="sentiment" style="margin-top:10px;align-self:flex-start">
                 {sentPos > 0 && <span class="pos">▲ {sentPos}</span>}
@@ -427,7 +482,7 @@ const mentionTone: 'up' | 'down' | 'flat' = delta == null ? 'flat' : delta > 0 ?
             <span class="stat__delta stat__delta--flat">vs {competitors.length} competitor{competitors.length > 1 ? 's' : ''}</span>
           </div>
           {sovTrend.length > 1
-            ? <div class="spark" set:html={sparkSvg(sovTrend, trendTone(sovTrend))} />
+            ? <div class="spark" set:html={sparkSvg(sovTrend, trendTone(sovTrend), sovLabels)} />
             : <div style="font-size:11.5px;color:var(--color-text-muted);margin-top:10px">{myMentions} mention{myMentions > 1 ? 's' : ''} for this brand, {competitorMentions} for competitors</div>}
         </div>
       </div>

@@ -1,25 +1,28 @@
 ---
 /**
- * Dashboard Home — Global overview of all scans and activity.
+ * Workspace dashboard - redesign per 10-dashboard.html.
  *
- * UX Laws:
- * - Miller's Law: 4 KPI cards max
- * - Von Restorff: inbox badge stands out
- * - Goal-Gradient: score with "aim for B"
- * - Peak-End: clear CTA at bottom
- * - Cognitive Load: plain language, no jargon
+ * Brand-centric hero (latest completed scan + grade + per-run trend) over
+ * a 4-stat KPI row, recent scans table with per-lineage deltas, and a
+ * right rail (next scheduled scan / top gaps / quick actions). Trend,
+ * citations and sentiment ride the same enriched
+ * GET /organizations/{id}/workspaces/overview the agency overview uses -
+ * no new API.
+ *
+ * UX Laws :
+ *  - Miller's Law : 4 KPI cards max
+ *  - Peak-End : hero answers "how visible am I" in one glance
+ *  - Goal-Gradient : grade + delta give a target to beat
+ *  - Von Restorff : crisis chip stands out in the hero when present
  */
 export const prerender = false;
 import DashboardLayout from '../../layouts/DashboardLayout.astro';
-import Tip from '../../components/Tip.astro';
 
 const token = Astro.cookies.get('token')?.value;
 if (!token) return Astro.redirect('/login');
 
-// Fetch scans and brands from API (server-side via Docker network)
-let scans = [];
+let scans: any[] = [];
 let scanCredits = 0;
-let error = null;
 
 const activeOrgCookie = Astro.cookies.get('active_organization_id')?.value;
 const activeClientCookie = Astro.cookies.get('active_client_id')?.value;
@@ -30,6 +33,7 @@ const upstreamCookie = [
 ].filter(Boolean).join('; ');
 
 let hasNoClientAccess = false;
+let activeClient: any = null;
 try {
   const clientsRes = await fetch('http://api:8000/api/clients/', {
     headers: { Cookie: upstreamCookie },
@@ -37,16 +41,16 @@ try {
   });
   const clients = clientsRes.ok ? await clientsRes.json() : [];
   hasNoClientAccess = clients.length === 0;
-  const clientId = clients[0]?.id;
+  activeClient = clients.find((c: any) => c.id === activeClientCookie) || clients[0] || null;
 
-  if (clientId) {
-    const scansRes = await fetch(`http://api:8000/api/scans?client_id=${clientId}`, {
+  if (activeClient) {
+    const scansRes = await fetch(`http://api:8000/api/scans?client_id=${activeClient.id}`, {
       headers: { Cookie: `token=${token}` },
       signal: AbortSignal.timeout(3000),
     });
     scans = scansRes.ok ? await scansRes.json() : [];
 
-    const creditsRes = await fetch(`http://api:8000/api/stripe/credits/${clientId}`, {
+    const creditsRes = await fetch(`http://api:8000/api/stripe/credits/${activeClient.id}`, {
       headers: { Cookie: `token=${token}` },
       signal: AbortSignal.timeout(3000),
     });
@@ -55,12 +59,9 @@ try {
       scanCredits = credits.scan || 0;
     }
   }
-} catch (e) {
-  error = e.message;
-}
+} catch {}
 
-// Check email verification + signup intent (S15.1 - persists agency
-// framing across re-logins, not just URL-carried).
+// Email verification + signup intent (S15.1)
 let isEmailVerified = true;
 let userSignupIntent = '';
 try {
@@ -75,34 +76,21 @@ try {
   }
 } catch {}
 
-// First-time user → redirect to onboarding.
-// Phase E.C.2/4 — only true first-timers go to the wizard. The wizard is
-// the "create your first workspace" flow ; anyone who already belongs to
-// an org (= came through an invite or backfill) has been onboarded and an
-// empty dashboard for them means "ask your admin to grant you a workspace",
-// not "set up your first scan". Without this guard :
-//   - C.2 : switching to an empty agency org traps the user on /welcome
-//   - C.4 : a freshly-invited member with 0 client access yet gets the
-//           wizard meant for new-account self-signups
-// /welcome has no DashboardLayout (no org switcher) so it's a dead-end.
-let orgCount = 0;
+// First-time user → onboarding. Only true first-timers go to the wizard ;
+// anyone who already belongs to an org has been onboarded and an empty
+// dashboard means "ask your admin", not "set up your first scan"
+// (cf. Phase E.C.2/4 - /welcome has no org switcher, it would dead-end).
+let orgs: any[] = [];
 try {
   const orgsRes = await fetch('http://api:8000/api/organizations/', {
     headers: { Cookie: upstreamCookie },
     signal: AbortSignal.timeout(3000),
   });
-  if (orgsRes.ok) {
-    const orgs = await orgsRes.json();
-    orgCount = Array.isArray(orgs) ? orgs.length : 0;
-  }
+  if (orgsRes.ok) orgs = await orgsRes.json();
 } catch {}
-if (scans.length === 0 && orgCount === 0) {
-  // Forward the agency signup intent through to /welcome so the wizard
-  // can surface the agency-aware banner instead of the generic single-
-  // brand framing. v1 read the intent only from the URL param ; v1.1
-  // (S15.1) also reads users.signup_intent persisted on the user
-  // record, so the agency framing survives a logout / re-login from
-  // /login or Google OAuth without the URL flag.
+if (scans.length === 0 && orgs.length === 0) {
+  // Forward agency signup intent so /welcome keeps the agency framing
+  // across re-logins (URL param first, persisted users.signup_intent second).
   const urlIntent = (Astro.url.searchParams.get('intent') || '').toLowerCase();
   const effectiveIntent = urlIntent || userSignupIntent;
   if (effectiveIntent === 'agency') {
@@ -110,178 +98,490 @@ if (scans.length === 0 && orgCount === 0) {
   }
   return Astro.redirect('/welcome');
 }
+const activeOrg = orgs.find((o: any) => o.is_active) || orgs[0] || null;
+const isAgencyOrg = !!activeOrg && !activeOrg.is_personal;
 
-// Compute dashboard stats — only own-domain scans for the score (not competitive scans)
-const completedScans = scans.filter(s => s.status === 'completed');
-const ownScans = completedScans.filter(s => {
-  const targets = s.config?.target_domains || [s.domain];
-  return targets.includes(s.domain); // target = same as scanned domain = own scan
-});
-const competitiveScans = completedScans.filter(s => {
-  const targets = s.config?.target_domains || [s.domain];
-  return !targets.includes(s.domain);
-});
-const avgCitationRate = ownScans.length
-  ? Math.round(ownScans.reduce((sum, s) => sum + (s.summary?.brand_mention_rate ?? s.summary?.citation_rate ?? 0), 0) / ownScans.length)
-  : null;
-const totalOpportunities = completedScans.reduce((sum, s) => sum + (s.summary?.opportunities?.critique || 0), 0);
-
-function getGrade(rate) {
-  if (rate === null) return { letter: '?', color: 'gray', label: 'No scan yet' };
-  if (rate >= 50) return { letter: 'A', color: 'emerald', label: 'Excellent' };
-  if (rate >= 30) return { letter: 'B', color: 'blue', label: 'Good' };
-  if (rate >= 15) return { letter: 'C', color: 'amber', label: 'Average' };
-  return { letter: 'D', color: 'red', label: 'Low' };
+// Per-run trend + citations + sentiment for this workspace, from the same
+// org-level endpoint the agency overview reads. Non-fatal on failure.
+type TrendPoint = { completed_at: string | null; brand_mention_rate: number; total_citations: number };
+let wsLatest: any = null;
+if (activeOrg && activeClient) {
+  try {
+    const r = await fetch(`http://api:8000/api/organizations/${activeOrg.id}/workspaces/overview`, {
+      headers: { Cookie: upstreamCookie },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (r.ok) {
+      const data = await r.json();
+      const ws = (data.workspaces || []).find((w: any) => w.client_id === activeClient.id);
+      wsLatest = ws?.latest_scan || null;
+    }
+  } catch {}
 }
-const grade = getGrade(avgCitationRate);
 
-function statusLabel(status) {
-  const labels = {
-    draft: 'Draft', fetching_keywords: 'Fetching...', keywords_fetched: 'Keywords ready',
-    topics_ready: 'Topics ready', assigning_keywords: 'Assigning...', generating_personas: 'Generating...',
-    personas_ready: 'Ready to scan', scanning: 'Scanning...', completed: 'Completed', failed: 'Failed',
+// ─── Derived state ───
+const completedScans = scans.filter((s) => s.status === 'completed');
+const latestCompleted = completedScans[0] || null; // list is created_at DESC
+const latestAny = scans[0] || null;
+
+const rateOf = (s: any) => s?.summary?.brand_mention_rate ?? s?.summary?.citation_rate ?? null;
+const heroRate = wsLatest?.brand_mention_rate ?? rateOf(latestCompleted);
+const trend: TrendPoint[] = wsLatest?.trend || [];
+const mentionVals = trend.map((t) => t.brand_mention_rate);
+const citationVals = trend.map((t) => t.total_citations);
+const heroDelta = mentionVals.length >= 2
+  ? Math.round((mentionVals[mentionVals.length - 1] - mentionVals[mentionVals.length - 2]) * 10) / 10
+  : null;
+const isCrisis = !!wsLatest && (wsLatest.crisis_severity ?? 0) >= 36
+  && wsLatest.crisis_severity_label && wsLatest.crisis_severity_label !== 'none';
+
+function gradeFor(rate: number | null): string | null {
+  if (rate === null || rate === undefined) return null;
+  if (rate >= 50) return 'a';
+  if (rate >= 30) return 'b';
+  if (rate >= 15) return 'c';
+  return 'd';
+}
+const heroGrade = gradeFor(heroRate);
+
+// Top gaps : top opportunities of the latest completed scan.
+let topGaps: any[] = [];
+let oppsCritical = 0;
+if (latestCompleted) {
+  try {
+    const r = await fetch(`http://api:8000/api/scans/${latestCompleted.id}/opportunities`, {
+      headers: { Cookie: `token=${token}` },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (r.ok) {
+      const data = await r.json();
+      topGaps = (data.opportunities || []).slice(0, 3);
+      oppsCritical = data.summary?.critique || 0;
+    }
+  } catch {}
+}
+
+// Next scheduled run : soonest future next_run_at across the workspace.
+const upcoming = scans
+  .filter((s) => s.next_run_at && new Date(s.next_run_at).getTime() > Date.now())
+  .sort((a, b) => new Date(a.next_run_at).getTime() - new Date(b.next_run_at).getTime())[0] || null;
+
+// Per-lineage delta for the recent scans table : group by root, compare
+// each completed run's rate to the previous run of the SAME lineage
+// (cross-brand comparisons would be meaningless in multi-brand workspaces).
+const byRoot: Record<string, any[]> = {};
+for (const s of scans) {
+  const root = s.parent_scan_id || s.id;
+  (byRoot[root] = byRoot[root] || []).push(s);
+}
+const deltaByScanId: Record<string, number> = {};
+for (const root of Object.keys(byRoot)) {
+  const runs = byRoot[root]
+    .filter((s) => s.status === 'completed' && rateOf(s) !== null)
+    .sort((a, b) => new Date(a.completed_at || a.created_at).getTime() - new Date(b.completed_at || b.created_at).getTime());
+  runs.forEach((s, i) => {
+    if (i > 0) deltaByScanId[s.id] = Math.round((rateOf(s) - rateOf(runs[i - 1])) * 10) / 10;
+  });
+}
+const recentScans = scans.slice(0, 6);
+
+function statusLabel(status: string): string {
+  const labels: Record<string, string> = {
+    draft: 'Draft', fetching_keywords: 'Fetching keywords', keywords_fetched: 'Keywords ready',
+    topics_ready: 'Topics ready', assigning_keywords: 'Assigning', generating_personas: 'Generating personas',
+    personas_ready: 'Ready to scan', scanning: 'Scanning', completed: 'Completed', failed: 'Failed',
   };
   return labels[status] || status;
 }
-
-function statusColor(status) {
-  if (status === 'completed') return 'emerald';
-  if (status === 'failed') return 'red';
-  if (status === 'scanning') return 'blue';
-  return 'amber';
+function statusChipCls(status: string): string {
+  if (status === 'failed') return 'chip--critical';
+  if (status === 'scanning') return 'chip--info';
+  return 'chip--neutral';
 }
-
-function timeAgo(dateStr) {
+function fmtDate(iso: string | null): string {
+  if (!iso) return '–';
+  return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+function timeAgo(dateStr: string | null): string {
   if (!dateStr) return '';
   const diff = Date.now() - new Date(dateStr).getTime();
   const mins = Math.floor(diff / 60000);
-  if (mins < 60) return `${mins}m ago`;
+  if (mins < 60) return `${mins} min ago`;
   const hours = Math.floor(mins / 60);
   if (hours < 24) return `${hours}h ago`;
-  return `${Math.floor(hours / 24)}d ago`;
+  return `${Math.floor(hours / 24)} days ago`;
 }
+
+// ─── SVG sparkline (same helper as Overview / agency overview) ───
+function sparkSvg(vals: number[], tone: 'up' | 'down' | 'flat' = 'up', labels: string[] = [], w = 120, h = 34): string {
+  if (!vals || vals.length < 2) return '';
+  const pad = 4;
+  const min = Math.min(...vals);
+  const max = Math.max(...vals);
+  const rng = max - min || 1;
+  const xf = (i: number) => pad + (i * (w - 2 * pad)) / (vals.length - 1);
+  const yf = (v: number) => h - pad - ((v - min) / rng) * (h - 2 * pad);
+  const pts = vals.map((v, i) => [xf(i), yf(v)] as [number, number]);
+  const d = pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ');
+  const colour = tone === 'down' ? 'var(--status-critical)' : tone === 'flat' ? 'var(--color-text-muted)' : 'var(--status-positive)';
+  const last = pts[pts.length - 1];
+  const id = 'g' + Math.random().toString(36).slice(2, 7);
+  const area = d + ` L${last[0].toFixed(1)} ${h - pad} L${pts[0][0].toFixed(1)} ${h - pad} Z`;
+  const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const dots = pts.map((p, i) => {
+    const isLast = i === pts.length - 1;
+    const title = labels[i] ? `<title>${esc(labels[i])}</title>` : '';
+    return `<g>${title}
+      <circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="8" fill="transparent" style="cursor:${labels[i] ? 'help' : 'default'}"/>
+      <circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="${isLast ? 2.6 : 1.8}" fill="${colour}" stroke="#fff" stroke-width="${isLast ? 1.5 : 1}" pointer-events="none"/>
+    </g>`;
+  }).join('');
+  return `<svg width="${w}" height="${h}" style="display:block;overflow:visible">
+    <defs><linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${colour}" stop-opacity=".16"/><stop offset="1" stop-color="${colour}" stop-opacity="0"/></linearGradient></defs>
+    <path d="${area}" fill="url(#${id})"/>
+    <path d="${d}" fill="none" stroke="${colour}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
+    ${dots}
+  </svg>`;
+}
+const runDates = trend.map((t) => t.completed_at ? new Date(t.completed_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : '');
+const mentionLabels = trend.map((t, i) => `${runDates[i]} : ${t.brand_mention_rate}%`);
+const citationLabels = trend.map((t, i) => `${runDates[i]} : ${t.total_citations.toLocaleString('en-US')}`);
+function tone(vals: number[]): 'up' | 'down' | 'flat' {
+  if (vals.length < 2) return 'flat';
+  const d = vals[vals.length - 1] - vals[vals.length - 2];
+  return d > 0 ? 'up' : d < 0 ? 'down' : 'flat';
+}
+
+const priorityDot: Record<string, string> = {
+  critique: 'var(--sev-high)',
+  haute: 'var(--sev-medium)',
+  moyenne: 'var(--sev-low)',
+};
 ---
 
 <DashboardLayout title="Dashboard" activeSection="dashboard">
-  <div class="p-8 max-w-6xl">
+  <style is:global>
+    /* Page-local vocabulary from 10-dashboard.html (.hero .kpis .grid
+       .panel .tbl .next .gaps .quick). Primitives from components.css. */
+    .wsd { padding: var(--space-6); max-width: 1240px; margin: 0 auto; }
 
-    {hasNoClientAccess && orgCount >= 1 && (
-      <div class="bg-blue-50 border border-blue-200 rounded-xl px-5 py-4 mb-6">
-        <div class="flex items-start gap-3">
-          <svg class="w-5 h-5 text-blue-600 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
-          </svg>
-          <div>
-            <p class="text-sm font-medium text-blue-900">You haven't been added to a workspace yet</p>
-            <p class="text-xs text-blue-800 mt-1">
-              Ask your organization admin to grant you access to a workspace from the Members page. You'll see scans and content here once they do.
-            </p>
-          </div>
-        </div>
+    .wsd .hero { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); box-shadow: var(--shadow-xs); padding: 22px 24px; display: flex; align-items: center; gap: 24px; margin-bottom: 16px; flex-wrap: wrap; }
+    .wsd .hero__id h1 { font-size: 22px; font-weight: 700; letter-spacing: -.02em; color: var(--color-text-primary); display: flex; align-items: center; gap: 10px; }
+    .wsd .hero__id .dom { font-size: 13px; color: var(--color-text-muted); margin-top: 3px; display: flex; align-items: center; gap: 8px; }
+    .wsd .hero__rate { display: flex; align-items: center; gap: 24px; margin-left: 8px; padding-left: 24px; border-left: 1px solid var(--color-border); }
+    .wsd .hero__rl { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--color-text-muted); margin-bottom: 5px; }
+    .wsd .hero__rv { font-size: 30px; font-weight: 740; letter-spacing: -.03em; line-height: 1; color: var(--color-text-primary); }
+    .wsd .hero__actions { margin-left: auto; display: flex; align-items: center; gap: 10px; flex: none; }
+
+    .wsd .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 16px; }
+    @media (max-width: 899px) { .wsd .kpis { grid-template-columns: repeat(2, 1fr); } }
+    .wsd .kpis .stat { padding: 16px 18px; }
+    .wsd .kpis .stat__row { margin-top: 8px; }
+    .wsd .kpis .stat__value { font-size: 28px; line-height: 1; }
+    .wsd .kpis .spark { margin-top: 10px; height: 34px; }
+    .wsd .kpis .spark--empty { display: flex; align-items: center; font-size: 11px; color: var(--color-text-muted); font-style: italic; }
+
+    .wsd .grid { display: grid; grid-template-columns: 1fr 340px; gap: 16px; align-items: start; }
+    @media (max-width: 1023px) { .wsd .grid { grid-template-columns: 1fr; } }
+    .wsd .stack { display: flex; flex-direction: column; gap: 16px; }
+    .wsd .panel { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); box-shadow: var(--shadow-xs); overflow: hidden; }
+    .wsd .panel__head { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid var(--color-border); }
+    .wsd .panel__title { font-size: 14px; font-weight: 650; color: var(--color-text-primary); }
+    .wsd .panel__act { font-size: 12.5px; font-weight: 600; color: var(--coral-700); text-decoration: none; }
+    .wsd .panel__act:hover { color: var(--coral-800); }
+
+    .wsd table.tbl { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13.5px; }
+    .wsd table.tbl th { text-align: left; font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--color-text-muted); padding: 10px 18px; border-bottom: 1px solid var(--color-border); background: var(--color-surface-sunken); white-space: nowrap; }
+    .wsd table.tbl td { padding: 13px 18px; border-bottom: 1px solid var(--color-border); color: var(--color-text-secondary); vertical-align: middle; }
+    .wsd table.tbl tbody tr:last-child td { border-bottom: 0; }
+    .wsd table.tbl tbody tr { transition: background .1s; }
+    .wsd table.tbl tbody tr:hover { background: var(--color-surface-sunken); }
+    .wsd .rowlink { text-decoration: none; color: inherit; display: contents; }
+    .wsd .scandate { font-weight: 600; color: var(--color-text-primary); }
+    .wsd .scandate small { display: block; font-size: 11.5px; color: var(--color-text-muted); font-weight: 400; margin-top: 1px; }
+    .wsd .delta { font-size: 12.5px; font-weight: 650; display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; }
+    .wsd .delta.up { color: var(--status-positive); } .wsd .delta.down { color: var(--status-critical); } .wsd .delta.flat { color: var(--color-text-muted); }
+
+    .wsd .next { padding: 18px; }
+    .wsd .next__when { display: flex; align-items: center; gap: 12px; }
+    .wsd .next__cal { width: 46px; height: 46px; border-radius: var(--radius-md); background: var(--color-surface-sunken); border: 1px solid var(--color-border); display: flex; flex-direction: column; align-items: center; justify-content: center; flex: none; }
+    .wsd .next__cal .d { font-size: 17px; font-weight: 750; line-height: 1; color: var(--color-text-primary); }
+    .wsd .next__cal .m { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--color-text-muted); }
+    .wsd .next__info { font-size: 13px; color: var(--color-text-primary); }
+    .wsd .next__info b { font-weight: 650; }
+    .wsd .next__meta { font-size: 12px; color: var(--color-text-muted); margin-top: 2px; }
+    .wsd .next__foot { display: flex; gap: 8px; margin-top: 16px; }
+
+    .wsd .gaps { padding: 8px; }
+    .wsd .gap { display: flex; align-items: center; gap: 11px; padding: 11px 12px; border-radius: var(--radius-md); transition: background .1s; text-decoration: none; }
+    .wsd .gap:hover { background: var(--color-surface-sunken); }
+    .wsd .gap__sev { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+    .wsd .gap__q { flex: 1; font-size: 13px; color: var(--color-text-primary); line-height: 1.35; }
+    .wsd .gap__rate { font-size: 11.5px; font-weight: 700; color: var(--color-text-muted); white-space: nowrap; text-transform: uppercase; letter-spacing: .03em; }
+
+    .wsd .quick { padding: 14px; display: flex; flex-direction: column; gap: 8px; }
+    .wsd .qa { display: flex; align-items: center; gap: 11px; padding: 11px 13px; border: 1px solid var(--color-border); border-radius: var(--radius-md); transition: .12s; text-decoration: none; color: inherit; }
+    .wsd .qa:hover { border-color: var(--color-border-strong); background: var(--color-surface-sunken); }
+    .wsd .qa__ic { width: 30px; height: 30px; border-radius: var(--radius-sm); background: var(--color-surface-muted); display: grid; place-items: center; color: var(--color-text-secondary); flex: none; }
+    .wsd .qa__t { font-size: 13px; font-weight: 600; color: var(--color-text-primary); }
+    .wsd .qa__d { font-size: 11.5px; color: var(--color-text-muted); margin-top: 1px; }
+    .wsd .qa__arr { margin-left: auto; color: var(--color-text-muted); }
+
+    .wsd .notice { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: var(--space-5); }
+    .wsd .notice--info { background: #EFF6FF; border-color: #BFDBFE; }
+    .wsd .notice--warn { background: var(--status-warning-bg); border-color: #F2E2C4; }
+    .wsd .empty-cta { text-align: center; padding: var(--space-7) var(--space-5); }
+  </style>
+
+  <main class="wsd">
+    {hasNoClientAccess && orgs.length >= 1 && (
+      <div class="notice notice--info" style="margin-bottom:var(--space-5)">
+        <p style="font-size:13px;font-weight:600;color:var(--color-text-primary)">You haven't been added to a workspace yet</p>
+        <p style="font-size:12px;color:var(--color-text-secondary);margin-top:4px">
+          Ask your organization admin to grant you access from the Members page. You'll see scans and content here once they do.
+        </p>
       </div>
     )}
 
     {!isEmailVerified && !hasNoClientAccess && (
-      <div class="bg-amber-50 border border-amber-200 rounded-xl px-5 py-3 mb-6 flex items-center justify-between">
-        <div class="flex items-center gap-3">
-          <svg class="w-5 h-5 text-amber-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
-          <div>
-            <p class="text-sm font-medium text-amber-800">Verify your email to get 50 free scan credits</p>
-            <p class="text-xs text-amber-700">Check your inbox for the verification link.</p>
-          </div>
+      <div class="notice notice--warn" style="margin-bottom:var(--space-5);display:flex;align-items:center;justify-content:space-between;gap:12px">
+        <div>
+          <p style="font-size:13px;font-weight:600;color:var(--color-text-primary)">Verify your email to get 50 free scan credits</p>
+          <p style="font-size:12px;color:var(--color-text-secondary)">Check your inbox for the verification link.</p>
         </div>
-        <button onclick="fetch('/api/auth/resend-verification',{method:'POST'}).then(()=>this.textContent='Sent!')" class="text-xs text-amber-700 underline hover:text-amber-900 shrink-0">Resend</button>
+        <button onclick="fetch('/api/auth/resend-verification',{method:'POST'}).then(()=>this.textContent='Sent!')" class="btn btn--secondary btn--sm" style="flex:none">Resend</button>
       </div>
     )}
 
-    <!-- Greeting -->
-    <div class="mb-8">
-      <h1 class="text-2xl font-bold text-charcoal-dark">Dashboard</h1>
-      <p class="text-charcoal-light mt-1">Your AI visibility at a glance</p>
-    </div>
-
-    <!-- KPI Cards (Miller's Law: max 4) -->
-    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-      <!-- Score -->
-      <div class="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
-        <p class="text-xs text-charcoal-light uppercase tracking-wide mb-2">
-          <Tip id="visibility">AI Visibility</Tip>
-        </p>
-        <div class="flex items-end gap-3">
-          <span class={`text-4xl font-black text-${grade.color}-600`}>{grade.letter}</span>
-          <span class="text-sm text-charcoal-light mb-1">{avgCitationRate !== null ? `${avgCitationRate}%` : '—'}</span>
+    {/* ── HERO : the latest tracked brand, or the setup in progress ── */}
+    {latestCompleted ? (
+      <div class="hero">
+        <div style="flex:none">
+          {heroGrade
+            ? <div class={`score score--lg score--${heroGrade}`}>{heroGrade.toUpperCase()}</div>
+            : <div class="score score--lg" style="background:var(--color-surface-muted);color:var(--color-text-muted)">–</div>}
         </div>
-        <p class={`text-xs text-${grade.color}-600 mt-1`}>{grade.label}</p>
-      </div>
-
-      <!-- Scans -->
-      <div class="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
-        <p class="text-xs text-charcoal-light uppercase tracking-wide mb-2">
-          <Tip id="scans">Scans</Tip>
-        </p>
-        <p class="text-4xl font-bold text-charcoal-dark">{scans.length}</p>
-        <p class="text-xs text-charcoal-light mt-1">{completedScans.length} completed</p>
-      </div>
-
-      <!-- Opportunities -->
-      <div class="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
-        <p class="text-xs text-charcoal-light uppercase tracking-wide mb-2">
-          <Tip id="opportunities">Opportunities</Tip>
-        </p>
-        <p class="text-4xl font-bold text-red-500">{totalOpportunities}</p>
-        <p class="text-xs text-red-400 mt-1">CRITICAL</p>
-      </div>
-
-      <!-- Credits -->
-      <div class="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
-        <p class="text-xs text-charcoal-light uppercase tracking-wide mb-2">Scan Credits</p>
-        <p class="text-4xl font-bold text-blue-600 tabular-nums">{scanCredits.toLocaleString('fr-FR')}</p>
-        <a href="/app/settings" class="text-xs text-coral hover:underline mt-1 inline-block">Buy more</a>
-      </div>
-    </div>
-
-    <!-- Recent scans -->
-    <div class="bg-white rounded-xl shadow-sm border border-gray-100 mb-8">
-      <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
-        <h2 class="font-semibold text-charcoal-dark">Recent Scans</h2>
-        <a href="/app/scans" class="text-sm text-coral hover:underline">View all</a>
-      </div>
-      {scans.length === 0 ? (
-        <div class="px-6 py-12 text-center">
-          <p class="text-charcoal-light mb-4">No scans yet</p>
-          <a href="/app/scans/new" class="inline-flex items-center gap-2 px-5 py-2.5 bg-coral text-white rounded-lg font-medium hover:bg-coral-dark hover:shadow-md hover:scale-[1.02] transition-colors">
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-            Run my first scan
+        <div class="hero__id">
+          <h1>
+            {latestCompleted.name || latestCompleted.domain}
+            {isCrisis && <a href={`/app/scans/${latestCompleted.id}/crisis`} class="sev sev--critical" style="padding:3px 9px;text-decoration:none"><span class="sev__dot"></span>Crisis</a>}
+          </h1>
+          <div class="dom">{latestCompleted.domain}</div>
+        </div>
+        <div class="hero__rate">
+          <div>
+            <div class="hero__rl">Mention rate</div>
+            <div class="hero__rv">{heroRate !== null ? `${Math.round(heroRate)}%` : '–'}</div>
+          </div>
+          {mentionVals.length >= 2 && (
+            <div>
+              <div class="hero__rl">Trend ({mentionVals.length} runs)</div>
+              <div set:html={sparkSvg(mentionVals, tone(mentionVals), mentionLabels, 120, 34)} />
+            </div>
+          )}
+          {heroDelta !== null && (
+            <div>
+              <div class="hero__rl">vs last</div>
+              <div style={`font-size:18px;font-weight:700;color:${heroDelta > 0 ? 'var(--status-positive)' : heroDelta < 0 ? 'var(--status-critical)' : 'var(--color-text-muted)'}`}>
+                {heroDelta > 0 ? '▲' : heroDelta < 0 ? '▼' : '·'} {Math.abs(heroDelta)} pts
+              </div>
+            </div>
+          )}
+        </div>
+        <div class="hero__actions">
+          <a class="btn btn--secondary btn--md" href={`/app/scans/${latestCompleted.id}/results`}>View results</a>
+          <a class="btn btn--primary btn--md" href="/app/scans/new">
+            <svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 3v10M3 8h10"/></svg>
+            New scan
           </a>
         </div>
-      ) : (
-        <div class="divide-y divide-gray-100">
-          {scans.slice(0, 5).map(scan => (
-            <a href={scan.status === 'completed' ? `/app/scans/${scan.id}/results` : `/app/scans/${scan.id}`}
-               class="flex items-center gap-4 px-6 py-4 hover:bg-gray-50 transition-colors">
-              <div class={`w-2 h-2 rounded-full bg-${statusColor(scan.status)}-500 shrink-0`}></div>
-              <div class="flex-1 min-w-0">
-                <p class="text-sm font-medium text-charcoal-dark truncate">{scan.domain}</p>
-                <p class="text-xs text-charcoal-light">{statusLabel(scan.status)}</p>
-              </div>
-              {(scan.summary?.brand_mention_rate ?? scan.summary?.citation_rate) !== undefined && (
-                <span class="text-sm font-semibold text-charcoal-dark">{scan.summary.brand_mention_rate ?? scan.summary.citation_rate}%</span>
-              )}
-              <span class="text-xs text-charcoal-light">{timeAgo(scan.created_at)}</span>
-            </a>
-          ))}
+      </div>
+    ) : latestAny ? (
+      <div class="hero">
+        <div class="hero__id">
+          <h1>{latestAny.name || latestAny.domain}</h1>
+          <div class="dom">{latestAny.domain}</div>
         </div>
-      )}
-    </div>
+        <span class={`chip chip--md ${statusChipCls(latestAny.status)}`}><span class="chip__dot"></span>{statusLabel(latestAny.status)}</span>
+        <div class="hero__actions">
+          <a class="btn btn--primary btn--md" href={`/app/scans/${latestAny.id}`}>Continue setup</a>
+        </div>
+      </div>
+    ) : null}
 
-    <!-- CTA (Peak-End Rule: clear action at the end) -->
-    {scans.length > 0 && (
-      <div class="text-center">
-        <a href="/app/scans/new" class="inline-flex items-center gap-2 px-6 py-3 bg-coral text-white rounded-lg font-medium hover:bg-coral-dark hover:shadow-md hover:scale-[1.02] transition-colors shadow-sm">
-          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-          New Scan
-        </a>
+    {/* ── KPI row : only meaningful once a scan completed ── */}
+    {latestCompleted && (
+      <div class="kpis">
+        <div class="card card--flat stat">
+          <div class="stat__label">Mention rate</div>
+          <div class="stat__row">
+            <div class="stat__value">{heroRate !== null ? `${Math.round(heroRate)}%` : '–'}</div>
+            {heroDelta !== null && heroDelta !== 0 && (
+              <span class={`stat__delta ${heroDelta > 0 ? 'stat__delta--up' : 'stat__delta--down'}`}>{heroDelta > 0 ? '▲' : '▼'} {Math.abs(heroDelta)}</span>
+            )}
+          </div>
+          {mentionVals.length >= 2
+            ? <div class="spark" set:html={sparkSvg(mentionVals, tone(mentionVals), mentionLabels)} />
+            : <div class="spark spark--empty">Trend appears after your next rescan</div>}
+        </div>
+        <div class="card card--flat stat">
+          <div class="stat__label">Citations</div>
+          <div class="stat__row">
+            <div class="stat__value">{wsLatest?.total_citations != null ? wsLatest.total_citations.toLocaleString('en-US') : '–'}</div>
+          </div>
+          {citationVals.length >= 2
+            ? <div class="spark" set:html={sparkSvg(citationVals, tone(citationVals), citationLabels)} />
+            : <div class="spark spark--empty">Trend appears after your next rescan</div>}
+        </div>
+        <div class="card card--flat stat">
+          <div class="stat__label">Avg. sentiment</div>
+          <div class="stat__row">
+            <div class="stat__value" style={wsLatest?.sentiment_score != null && wsLatest.sentiment_score < 0 ? 'color:var(--status-critical)' : ''}>
+              {wsLatest?.sentiment_score != null ? (wsLatest.sentiment_score > 0 ? '+' : '') + wsLatest.sentiment_score.toFixed(2) : '–'}
+            </div>
+          </div>
+          <div class="spark spark--empty">On the latest run</div>
+        </div>
+        <div class="card card--flat stat">
+          <div class="stat__label">Critical opportunities</div>
+          <div class="stat__row">
+            <div class="stat__value" style={oppsCritical > 0 ? 'color:var(--status-critical)' : ''}>{oppsCritical}</div>
+          </div>
+          <a class="spark spark--empty" href={`/app/scans/${latestCompleted.id}/actions`} style="text-decoration:none;color:var(--coral-700);font-style:normal;font-weight:600">Open the action plan</a>
+        </div>
       </div>
     )}
-  </div>
+
+    {/* ── MAIN GRID ── */}
+    <div class="grid">
+      <div class="stack">
+        <div class="panel">
+          <div class="panel__head">
+            <div class="panel__title">Recent scans</div>
+            <a class="panel__act" href="/app/scans">All scans</a>
+          </div>
+          {recentScans.length === 0 ? (
+            <div class="empty-cta">
+              <p style="font-size:13.5px;color:var(--color-text-secondary);margin-bottom:16px">No scans yet.</p>
+              <a href="/app/scans/new" class="btn btn--primary btn--md">
+                <svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 3v10M3 8h10"/></svg>
+                Run my first scan
+              </a>
+            </div>
+          ) : (
+            <table class="tbl">
+              <thead><tr><th>Date</th><th>Scan</th><th>Status</th><th>Grade</th><th>Mention rate</th><th>Change</th></tr></thead>
+              <tbody>
+                {recentScans.map((s) => {
+                  const rate = rateOf(s);
+                  const g = s.status === 'completed' ? gradeFor(rate) : null;
+                  const delta = deltaByScanId[s.id];
+                  const href = s.status === 'completed' ? `/app/scans/${s.id}/results` : `/app/scans/${s.id}`;
+                  return (
+                    <tr onclick={`window.location.href='${href}'`} style="cursor:pointer">
+                      <td>
+                        <span class="scandate">{fmtDate(s.completed_at || s.created_at)}
+                          <small>{s.schedule && s.schedule !== 'manual' ? `Auto ${s.schedule}` : 'Manual'}{s.run_index > 1 ? ` · run ${s.run_index}` : ''}</small>
+                        </span>
+                      </td>
+                      <td style="max-width:220px">
+                        <span style="display:block;font-weight:600;color:var(--color-text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{s.name || s.domain}</span>
+                        <span style="display:block;font-size:11.5px;color:var(--color-text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{s.domain}</span>
+                      </td>
+                      <td><span class={`chip chip--sm ${statusChipCls(s.status)}`}>{statusLabel(s.status)}</span></td>
+                      <td>{g ? <span class={`score score--sm score--${g}`}>{g.toUpperCase()}</span> : <span style="color:var(--color-text-muted)">–</span>}</td>
+                      <td style="color:var(--color-text-primary);font-weight:600">{rate !== null ? `${Math.round(rate)}%` : '–'}</td>
+                      <td>
+                        {delta === undefined
+                          ? <span class="delta flat">·</span>
+                          : delta > 0 ? <span class="delta up">▲ +{delta} pts</span>
+                          : delta < 0 ? <span class="delta down">▼ {delta} pts</span>
+                          : <span class="delta flat">· no change</span>}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+
+      <div class="stack">
+        <div class="panel">
+          <div class="panel__head">
+            <div class="panel__title">Next scheduled scan</div>
+            {upcoming && <span class="chip chip--sm chip--neutral"><span class="chip__dot"></span>{upcoming.schedule}</span>}
+          </div>
+          <div class="next">
+            {upcoming ? (
+              <>
+                <div class="next__when">
+                  <div class="next__cal">
+                    <span class="d">{new Date(upcoming.next_run_at).getDate()}</span>
+                    <span class="m">{new Date(upcoming.next_run_at).toLocaleDateString('en-GB', { month: 'short' })}</span>
+                  </div>
+                  <div class="next__info">
+                    <b>{new Date(upcoming.next_run_at).toLocaleDateString('en-GB', { weekday: 'long' })}</b>
+                    <div class="next__meta">{upcoming.name || upcoming.domain} · repeats {upcoming.schedule}</div>
+                  </div>
+                </div>
+                <div class="next__foot">
+                  <a class="btn btn--secondary btn--sm" href={`/app/scans/${upcoming.id}/results`}>Open scan</a>
+                </div>
+              </>
+            ) : (
+              <p style="font-size:12.5px;color:var(--color-text-muted)">No rescan scheduled. Pick a weekly or monthly schedule on a scan to track the trend automatically.</p>
+            )}
+          </div>
+        </div>
+
+        {latestCompleted && topGaps.length > 0 && (
+          <div class="panel">
+            <div class="panel__head">
+              <div class="panel__title">Top gaps to close</div>
+              <a class="panel__act" href={`/app/scans/${latestCompleted.id}/actions`}>All actions</a>
+            </div>
+            <div class="gaps">
+              {topGaps.map((gap) => (
+                <a class="gap" href={`/app/scans/${latestCompleted.id}/actions`}>
+                  <span class="gap__sev" style={`background:${priorityDot[gap.priority] || 'var(--sev-low)'}`}></span>
+                  <span class="gap__q">{gap.question || gap.recommended_action || 'Opportunity'}</span>
+                  <span class="gap__rate">{gap.priority}</span>
+                </a>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div class="panel">
+          <div class="panel__head"><div class="panel__title">Quick actions</div></div>
+          <div class="quick">
+            <a class="qa" href="/app/scans/new">
+              <span class="qa__ic"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M8 3v10M3 8h10"/></svg></span>
+              <div><div class="qa__t">New scan</div><div class="qa__d">Track another brand or domain</div></div>
+              <svg class="qa__arr" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M6 4l4 4-4 4"/></svg>
+            </a>
+            <a class="qa" href="/app/compliance">
+              <span class="qa__ic"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 6V2h8v4M4 12H2V6h12v6h-2M5 10h6v4H5z"/></svg></span>
+              <div><div class="qa__t">Compliance report</div><div class="qa__d">Print-ready documentation</div></div>
+              <svg class="qa__arr" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M6 4l4 4-4 4"/></svg>
+            </a>
+            <a class="qa" href="/app/org/members">
+              <span class="qa__ic"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="6" cy="6" r="2.2"/><circle cx="11" cy="10" r="2.2"/><path d="M3 14a3 3 0 0 1 5-2"/></svg></span>
+              <div><div class="qa__t">Invite a teammate</div><div class="qa__d">Share this workspace</div></div>
+              <svg class="qa__arr" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M6 4l4 4-4 4"/></svg>
+            </a>
+            {isAgencyOrg && (
+              <a class="qa" href="/app/agency/overview">
+                <span class="qa__ic"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2" y="2" width="5" height="5" rx="1"/><rect x="9" y="2" width="5" height="5" rx="1"/><rect x="2" y="9" width="5" height="5" rx="1"/><rect x="9" y="9" width="5" height="5" rx="1"/></svg></span>
+                <div><div class="qa__t">All workspaces</div><div class="qa__d">Cross-workspace overview</div></div>
+                <svg class="qa__arr" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M6 4l4 4-4 4"/></svg>
+              </a>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
 </DashboardLayout>

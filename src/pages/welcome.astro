@@ -1,14 +1,17 @@
 ---
 /**
- * Onboarding Wizard - First-time user experience.
+ * Onboarding wizard - redesigned on the design-system auth/wizard frame
+ * (12-marketing auth + 07-create-scan vocabulary). Three Alpine steps :
+ * domain form → processing checklist → workspace ready. Logic verbatim
+ * from the previous version (auto-create client, fetch-keywords +
+ * auto-classify polling, agency intent framing, email-verification
+ * credits banner).
  *
  * UX Laws:
  * - Paradox of Active User: no docs, just do
  * - Goal-Gradient: 3 simple steps, motivation increases
  * - Hick's Law: ONE input (domain), everything else auto-detected
- * - Aesthetic-Usability: clean, welcoming, professional
  * - Peak-End Rule: ends with first scan launching = immediate value
- * - Doherty Threshold: fast feedback, loading states
  */
 export const prerender = false;
 import '../styles/global.css';
@@ -48,9 +51,7 @@ try {
 if (hasScans) return Astro.redirect('/app/dashboard');
 
 // Sprint 15 : surface an agency-aware banner when the signup intent was
-// agency (via /register?intent=agency OR Google OAuth state). The actual
-// bulk-workspace-creation flow is S15.1 ; v1 just makes sure the user
-// doesn't feel like they landed in the wrong product.
+// agency (via /register?intent=agency OR Google OAuth state).
 const intentRaw = (Astro.url.searchParams.get('intent') || '').toLowerCase();
 const isAgencyIntent = intentRaw === 'agency';
 
@@ -84,147 +85,177 @@ try {
   <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js" defer></script>
   <style is:global>
     [x-cloak] { display: none !important; }
-    .welcome-bg { background: linear-gradient(135deg, #f8f9fa 0%, #fff5f5 50%, #f0f9ff 100%); }
-    .kpi-tooltip { position: relative; display: inline; }
-    .kpi-tooltip .kpi-tip {
-      visibility: hidden; opacity: 0;
-      text-transform: none; letter-spacing: normal; font-weight: normal;
-      position: absolute; z-index: 50; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%);
-      background: #1E293B; color: white; padding: 10px 14px; border-radius: 8px;
-      font-size: 12px; line-height: 1.5; width: 280px; text-align: left;
-      transition: opacity 0.15s; pointer-events: none;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-    }
-    .kpi-tooltip:hover .kpi-tip { visibility: visible; opacity: 1; pointer-events: auto; }
+    body.wlc { background: var(--color-surface-sunken); font-family: var(--font-sans); color: var(--color-text-primary); -webkit-font-smoothing: antialiased; }
+
+    .wlc .topbar { position: fixed; top: 12px; right: 16px; z-index: 10; display: flex; align-items: center; gap: 14px; font-size: 12px; }
+    .wlc .topbar span { color: var(--color-text-muted); }
+    .wlc .topbar a, .wlc .topbar button { color: var(--color-text-muted); background: none; border: 0; font: 500 12px var(--font-sans); cursor: pointer; text-decoration: none; }
+    .wlc .topbar a:hover, .wlc .topbar button:hover { color: var(--color-text-primary); }
+
+    .wlc .frame { width: 100%; max-width: 480px; }
+    .wlc .brandrow { display: flex; align-items: center; gap: 9px; justify-content: center; margin-bottom: 26px; text-decoration: none; }
+    .wlc .brand__mark { width: 26px; height: 26px; border-radius: 8px; background: var(--color-primary); position: relative; flex: none; }
+    .wlc .brand__mark::after { content: ""; position: absolute; inset: 7px; border-radius: 50%; border: 2.5px solid #fff; }
+    .wlc .brand__name { font-size: 15px; font-weight: 700; letter-spacing: -.01em; color: var(--color-text-primary); }
+    .wlc .brand__name span { color: var(--color-text-muted); font-weight: 500; }
+
+    .wlc .card { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); box-shadow: var(--shadow-sm); padding: 26px; }
+    .wlc h1 { font-size: 22px; font-weight: 700; letter-spacing: -.02em; }
+    .wlc .sub { font-size: 13.5px; color: var(--color-text-secondary); margin-top: 6px; }
+
+    .wlc .notice { border-radius: var(--radius-md); padding: 12px 14px; font-size: 12.5px; line-height: 1.5; margin: 16px 0 20px; }
+    .wlc .notice--credits { background: var(--status-positive-bg); border: 1px solid #BFE5CF; color: var(--color-text-primary); display: flex; align-items: center; gap: 10px; }
+    .wlc .notice--credits b { color: var(--status-positive); font-size: 17px; }
+    .wlc .notice--verify { background: var(--status-warning-bg); border: 1px solid #F2E2C4; color: var(--color-text-primary); }
+    .wlc .notice--verify button { color: var(--coral-700); background: none; border: 0; font: 600 12px var(--font-sans); cursor: pointer; padding: 0; margin-top: 6px; }
+
+    .wlc .field { display: flex; flex-direction: column; gap: 7px; margin-bottom: 16px; }
+    .wlc .field label { font-size: 13px; font-weight: 600; }
+    .wlc .input, .wlc .select { width: 100%; height: 48px; border: 1px solid var(--color-border-strong); border-radius: var(--radius-md); padding: 0 14px; font-size: 15px; font-family: var(--font-sans); background: var(--color-surface); color: var(--color-text-primary); }
+    .wlc .input:focus, .wlc .select:focus { outline: none; border-color: var(--color-primary); box-shadow: 0 0 0 3px var(--coral-100); }
+    .wlc .select { appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='none' stroke='%236B7280' stroke-width='1.8'%3E%3Cpath d='M4 6l4 4 4-4'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 14px center; }
+
+    .wlc .adv summary { font-size: 13px; color: var(--color-text-muted); cursor: pointer; }
+    .wlc .adv summary:hover { color: var(--color-text-primary); }
+    .wlc .adv[open] summary { margin-bottom: 12px; }
+    .wlc .adv__body { display: flex; flex-direction: column; gap: 12px; padding-left: 14px; border-left: 2px solid var(--color-border); }
+    .wlc .pillrow { display: flex; gap: 8px; }
+    .wlc .pill { font: 600 12px var(--font-sans); padding: 7px 12px; border-radius: var(--radius-md); border: 1.5px solid var(--color-border); background: var(--color-surface); color: var(--color-text-secondary); cursor: pointer; transition: .12s; }
+    .wlc .pill.on { border-color: var(--color-primary); background: var(--color-primary-subtle); color: var(--coral-700); }
+
+    .wlc .cta { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; height: 50px; border-radius: var(--radius-md); font: 650 15px var(--font-sans); background: var(--color-primary); color: #fff; border: 0; cursor: pointer; margin-top: 8px; transition: .12s; }
+    .wlc .cta:hover { background: var(--color-primary-hover); }
+    .wlc .cta[disabled] { opacity: .5; cursor: not-allowed; }
+
+    .wlc .under { text-align: center; font-size: 12px; color: var(--color-text-muted); margin-top: 14px; }
+
+    /* processing checklist */
+    .wlc .check { display: flex; flex-direction: column; gap: 14px; max-width: 280px; margin: 0 auto; text-align: left; }
+    .wlc .check__row { display: flex; align-items: center; gap: 11px; font-size: 13.5px; color: var(--color-text-muted); }
+    .wlc .check__row.done { color: var(--status-positive); }
+    .wlc .check__num { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 700; background: var(--color-surface-muted); color: var(--color-text-muted); flex: none; }
+    .wlc .check__row.done .check__num { background: var(--status-positive); color: #fff; }
+    .wlc .spin { width: 40px; height: 40px; border: 3px solid var(--color-border); border-top-color: var(--color-primary); border-radius: 50%; animation: wlcspin .8s linear infinite; margin: 0 auto 20px; }
+    @keyframes wlcspin { to { transform: rotate(360deg); } }
+
+    /* ready step */
+    .wlc .okmark { width: 56px; height: 56px; border-radius: 50%; background: var(--status-positive-bg); color: var(--status-positive); display: grid; place-items: center; margin: 0 auto 18px; }
+    .wlc .statbox { background: var(--color-surface-sunken); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 14px 16px; display: flex; flex-direction: column; gap: 9px; margin: 18px 0; text-align: left; }
+    .wlc .statbox .row { display: flex; align-items: center; justify-content: space-between; font-size: 13px; }
+    .wlc .statbox .row span:first-child { color: var(--color-text-muted); }
+    .wlc .statbox .row span:last-child { font-weight: 650; }
+    .wlc .nextsteps { text-align: left; margin-bottom: 18px; }
+    .wlc .nextsteps .l { font-size: 11px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--color-text-muted); margin-bottom: 10px; }
+    .wlc .nextsteps .row { display: flex; align-items: center; gap: 9px; font-size: 13px; color: var(--color-text-secondary); padding: 4px 0; }
+    .wlc .nextsteps .n { width: 22px; height: 22px; border-radius: 50%; background: var(--color-primary-subtle); color: var(--coral-700); display: grid; place-items: center; font-size: 11px; font-weight: 700; flex: none; }
+    .wlc .skip { display: block; text-align: center; font-size: 12px; color: var(--color-text-muted); margin-top: 12px; text-decoration: none; }
+    .wlc .skip:hover { color: var(--color-text-primary); }
+
+    .wlc .errbox { margin-top: 16px; background: var(--status-critical-bg); border: 1px solid #FAD9D5; border-radius: var(--radius-md); padding: 12px 14px; font-size: 13px; color: var(--status-critical); }
   </style>
 </head>
-<body class="welcome-bg min-h-screen flex items-center justify-center p-4" x-data={`onboarding('${clientId}', '${token}')`} x-cloak>
+<body class="wlc min-h-screen flex items-center justify-center p-4" x-data={`onboarding('${clientId}', '${token}')`} x-cloak>
 
   <!-- Top utility bar : keeps the user from being trapped on /welcome -->
-  <div class="fixed top-3 right-4 z-10 flex items-center gap-3 text-[12px]">
-    {user.email && (
-      <span class="text-charcoal-light hidden sm:inline">{user.email}</span>
-    )}
-    <a href="/app/dashboard" class="text-charcoal-light hover:text-charcoal-dark transition-colors">Skip for now</a>
+  <div class="topbar">
+    {user.email && <span class="hidden sm:inline">{user.email}</span>}
+    <a href="/app/dashboard">Skip for now</a>
     <button
       onclick="fetch('/api/auth/logout',{method:'POST',credentials:'same-origin'}).finally(()=>{document.cookie='token=; Max-Age=0; path=/; SameSite=Lax'; location.href='/login';})"
-      class="text-charcoal-light hover:text-coral transition-colors"
     >Sign out</button>
   </div>
 
-  <div class="w-full max-w-lg">
-
-    <!-- Logo -->
-    <div class="text-center mb-8">
-      <a href="/">
-        <img src="/logo-sen-ai-fr.png" alt="sen-ai.fr" class="h-8 mx-auto mb-4" />
-      </a>
-    </div>
+  <div class="frame">
+    <a href="/" class="brandrow">
+      <span class="brand__mark"></span>
+      <span class="brand__name">sen-ai<span>.fr</span></span>
+    </a>
 
     <!-- Step 1: Enter domain -->
     <div x-show="step === 1" x-transition>
-      <div class="bg-white rounded-2xl shadow-lg p-8">
+      <div class="card">
         {isAgencyIntent ? (
           <>
-            <h1 class="text-2xl font-bold text-charcoal-dark mb-2">Add your first client workspace</h1>
-            <p class="text-charcoal-light text-sm mb-4">
-              We'll create your agency workspace and add this client below.
-              Multi-client add coming next.
-              <a href="/agency" target="_blank" class="text-coral hover:text-coral-dark whitespace-nowrap ml-1">Learn more →</a>
+            <h1>Add your first client workspace</h1>
+            <p class="sub">
+              We'll create your agency workspace and add this client below. Multi-client add comes right after.
+              <a href="/agency" target="_blank" style="color:var(--coral-700);font-weight:600;text-decoration:none;white-space:nowrap"> Learn more &rarr;</a>
             </p>
           </>
         ) : (
           <>
-            <h1 class="text-2xl font-bold text-charcoal-dark mb-2">Welcome to sen-ai.fr</h1>
-            <p class="text-charcoal-light mb-4">Let's measure your brand's visibility in AI responses. It takes 2 minutes.</p>
+            <h1>Welcome to sen-ai.fr</h1>
+            <p class="sub">Let's measure your brand's visibility in AI responses. It takes 2 minutes.</p>
           </>
         )}
+
         {isEmailVerified ? (
-          <div class="bg-emerald-50 border border-emerald-200 rounded-lg px-4 py-2.5 mb-6 flex items-center gap-2">
-            <span class="text-emerald-600 text-lg font-bold">+50</span>
-            <span class="text-sm text-emerald-700">You have <strong>50 free scan credits</strong> to get started.</span>
+          <div class="notice notice--credits">
+            <b>+50</b>
+            <span>You have <strong>50 free scan credits</strong> to get started.</span>
           </div>
         ) : (
-          <div class="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 mb-6">
-            <div class="flex items-center gap-2 mb-1.5">
-              <svg class="w-4 h-4 text-amber-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
-              <span class="text-sm font-medium text-amber-800">Check your email to get 50 free credits</span>
-            </div>
-            <p class="text-xs text-amber-700 ml-6">We sent a verification link to <strong>{user.email}</strong>. Verify to unlock your credits.</p>
-            <button onclick="fetch('/api/auth/resend-verification',{method:'POST'}).then(()=>this.textContent='Sent!')" class="ml-6 mt-1.5 text-xs text-amber-700 underline hover:text-amber-900">Resend email</button>
+          <div class="notice notice--verify">
+            <p style="font-weight:600">Check your email to get 50 free credits</p>
+            <p style="font-size:12px;color:var(--color-text-secondary);margin-top:3px">We sent a verification link to <strong>{user.email}</strong>. Verify to unlock your credits.</p>
+            <button onclick="fetch('/api/auth/resend-verification',{method:'POST'}).then(()=>this.textContent='Sent!')">Resend email</button>
           </div>
         )}
 
-        <div class="space-y-5">
-          <div>
-            <label class="block text-sm font-medium text-charcoal-dark mb-1.5">
-              <Tip id="domain_input" position="bottom">{isAgencyIntent ? 'Client website' : 'Your website'}</Tip>
-            </label>
-            <input
-              type="text" x-model="domain"
-              placeholder={isAgencyIntent ? 'e.g. your-first-client.com' : 'e.g. eau-thermale-avene.fr'}
-              @keydown.enter="!loading && domain && startAnalysis()"
-              class="w-full px-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-coral/50 focus:border-coral text-lg"
-            />
-          </div>
-
-          <div>
-            <label class="block text-sm font-medium text-charcoal-dark mb-1.5">
-              <Tip id="country" position="bottom">Country</Tip>
-            </label>
-            <select x-model="country" class="w-full px-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-coral/50 text-sm">
-              <option value="fr">France</option>
-              <option value="us">United States</option>
-              <option value="uk">United Kingdom</option>
-              <option value="de">Germany</option>
-              <option value="es">Spain</option>
-              <option value="it">Italy</option>
-              <option value="nl">Netherlands</option>
-              <option value="be">Belgium</option>
-              <option value="ch">Switzerland</option>
-              <option value="ca">Canada</option>
-            </select>
-          </div>
-
-          <!-- Advanced options (same as New Scan - Hick's Law: collapsed by default) -->
-          <details class="text-sm">
-            <summary class="text-charcoal-light cursor-pointer hover:text-charcoal-dark">Advanced options</summary>
-            <div class="mt-3 space-y-3 pl-4 border-l-2 border-gray-100">
-              <div>
-                <label class="block text-xs font-medium text-charcoal-light mb-1">
-                  <Tip id="ranking_filter" position="bottom">Google ranking filter</Tip>
-                </label>
-                <div class="flex gap-2">
-                  <button type="button" @click="maxPosition = 10" :class="maxPosition === 10 ? 'bg-charcoal-dark text-white' : 'bg-gray-100 text-charcoal-light'" class="px-3 py-1.5 rounded text-xs font-medium transition-all">Top 10</button>
-                  <button type="button" @click="maxPosition = 30" :class="maxPosition === 30 ? 'bg-charcoal-dark text-white' : 'bg-gray-100 text-charcoal-light'" class="px-3 py-1.5 rounded text-xs font-medium transition-all">Top 30</button>
-                  <button type="button" @click="maxPosition = 50" :class="maxPosition === 50 ? 'bg-charcoal-dark text-white' : 'bg-gray-100 text-charcoal-light'" class="px-3 py-1.5 rounded text-xs font-medium transition-all">Top 50 <span class="text-[10px] opacity-60">recommended</span></button>
-                </div>
-              </div>
-              <div>
-                <label class="block text-xs font-medium text-charcoal-light mb-1">
-                  <Tip id="max_keywords" position="bottom">Max keywords</Tip>
-                </label>
-                <input type="number" x-model.number="maxUrls" min="100" max="5000" class="px-3 py-1.5 border border-gray-200 rounded text-xs w-24" />
-                <span class="text-[10px] text-charcoal-light ml-2">recommended: 2000</span>
-              </div>
-            </div>
-          </details>
+        <div class="field">
+          <label><Tip id="domain_input" position="bottom">{isAgencyIntent ? 'Client website' : 'Your website'}</Tip></label>
+          <input
+            type="text" x-model="domain" class="input"
+            placeholder={isAgencyIntent ? 'e.g. your-first-client.com' : 'e.g. eau-thermale-avene.fr'}
+            @keydown.enter="!loading && domain && startAnalysis()"
+          />
         </div>
 
-        <button
-          @click="startAnalysis()"
-          :disabled="!domain || loading"
-          class="w-full mt-6 px-6 py-3.5 bg-coral text-white rounded-lg font-medium hover:bg-coral-dark hover:shadow-md hover:scale-[1.02] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-        >
+        <div class="field">
+          <label><Tip id="country" position="bottom">Country</Tip></label>
+          <select x-model="country" class="select">
+            <option value="fr">France</option>
+            <option value="us">United States</option>
+            <option value="uk">United Kingdom</option>
+            <option value="de">Germany</option>
+            <option value="es">Spain</option>
+            <option value="it">Italy</option>
+            <option value="nl">Netherlands</option>
+            <option value="be">Belgium</option>
+            <option value="ch">Switzerland</option>
+            <option value="ca">Canada</option>
+          </select>
+        </div>
+
+        <details class="adv">
+          <summary>Advanced options</summary>
+          <div class="adv__body">
+            <div>
+              <label style="display:block;font-size:12px;font-weight:600;margin-bottom:6px"><Tip id="ranking_filter" position="bottom">Google ranking filter</Tip></label>
+              <div class="pillrow">
+                <button type="button" class="pill" :class="maxPosition === 10 ? 'on' : ''" @click="maxPosition = 10">Top 10</button>
+                <button type="button" class="pill" :class="maxPosition === 30 ? 'on' : ''" @click="maxPosition = 30">Top 30</button>
+                <button type="button" class="pill" :class="maxPosition === 50 ? 'on' : ''" @click="maxPosition = 50">Top 50 · recommended</button>
+              </div>
+            </div>
+            <div>
+              <label style="display:block;font-size:12px;font-weight:600;margin-bottom:6px"><Tip id="max_keywords" position="bottom">Max keywords</Tip></label>
+              <input type="number" x-model.number="maxUrls" min="100" max="5000" class="input" style="width:130px;height:38px;font-size:13px" />
+              <span style="font-size:11px;color:var(--color-text-muted);margin-left:8px">recommended: 2000</span>
+            </div>
+          </div>
+        </details>
+
+        <button class="cta" @click="startAnalysis()" :disabled="!domain || loading" style="margin-top:20px">
           <span x-show="!loading">{isAgencyIntent ? 'Add this client workspace' : 'Analyze my site'}</span>
-          <span x-show="loading" class="flex items-center gap-2">
-            <svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+          <span x-show="loading" style="display:flex;align-items:center;gap:8px">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" style="animation:wlcspin .8s linear infinite"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" opacity=".25"/><path fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" opacity=".75"/></svg>
             Setting up...
           </span>
         </button>
       </div>
 
-      <p class="text-center text-xs text-charcoal-light mt-4">
+      <p class="under">
         {isAgencyIntent
           ? "We'll auto-detect this client's brand, topics, and competitors."
           : "We'll detect your brand, topics, and competitors automatically."}
@@ -233,38 +264,23 @@ try {
 
     <!-- Step 2: Processing -->
     <div x-show="step === 2" x-transition>
-      <div class="bg-white rounded-2xl shadow-lg p-8 text-center">
-        <div class="mb-6">
-          <svg class="w-16 h-16 mx-auto animate-spin text-coral/20" fill="none" viewBox="0 0 24 24">
-            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
-            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
-          </svg>
-        </div>
+      <div class="card" style="text-align:center">
+        <div class="spin"></div>
+        <h1 style="font-size:19px">Analyzing <span x-text="domain" style="color:var(--coral-700)"></span></h1>
+        <p class="sub" style="margin-bottom:24px">This takes about 1 to 2 minutes. Sit back.</p>
 
-        <h2 class="text-xl font-bold text-charcoal-dark mb-2">Analyzing <span x-text="domain" class="text-coral"></span></h2>
-        <p class="text-charcoal-light mb-8">This takes about 1-2 minutes. Sit back.</p>
-
-        <div class="space-y-4 text-left max-w-xs mx-auto">
-          <div class="flex items-center gap-3" :class="progress >= 1 ? 'text-emerald-600' : 'text-charcoal-light'">
-            <div class="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold" :class="progress >= 1 ? 'bg-emerald-100' : 'bg-gray-100'">
-              <span x-show="progress >= 1">✓</span>
-              <span x-show="progress < 1">1</span>
-            </div>
-            <span class="text-sm">Fetching keywords</span>
+        <div class="check">
+          <div class="check__row" :class="progress >= 1 ? 'done' : ''">
+            <span class="check__num"><span x-show="progress >= 1">✓</span><span x-show="progress < 1">1</span></span>
+            Fetching keywords
           </div>
-          <div class="flex items-center gap-3" :class="progress >= 2 ? 'text-emerald-600' : 'text-charcoal-light'">
-            <div class="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold" :class="progress >= 2 ? 'bg-emerald-100' : 'bg-gray-100'">
-              <span x-show="progress >= 2">✓</span>
-              <span x-show="progress < 2">2</span>
-            </div>
-            <span class="text-sm">Discovering topics</span>
+          <div class="check__row" :class="progress >= 2 ? 'done' : ''">
+            <span class="check__num"><span x-show="progress >= 2">✓</span><span x-show="progress < 2">2</span></span>
+            Discovering topics
           </div>
-          <div class="flex items-center gap-3" :class="progress >= 3 ? 'text-emerald-600' : 'text-charcoal-light'">
-            <div class="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold" :class="progress >= 3 ? 'bg-emerald-100' : 'bg-gray-100'">
-              <span x-show="progress >= 3">✓</span>
-              <span x-show="progress < 3">3</span>
-            </div>
-            <span class="text-sm">Detecting brands & competitors</span>
+          <div class="check__row" :class="progress >= 3 ? 'done' : ''">
+            <span class="check__num"><span x-show="progress >= 3">✓</span><span x-show="progress < 3">3</span></span>
+            Detecting brands &amp; competitors
           </div>
         </div>
       </div>
@@ -272,72 +288,42 @@ try {
 
     <!-- Step 3: Ready -->
     <div x-show="step === 3" x-transition>
-      <div class="bg-white rounded-2xl shadow-lg p-8 text-center">
-        <div class="w-16 h-16 mx-auto bg-emerald-100 rounded-full flex items-center justify-center mb-6">
-          <svg class="w-8 h-8 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+      <div class="card" style="text-align:center">
+        <div class="okmark">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
         </div>
 
-        <h2 class="text-xl font-bold text-charcoal-dark mb-2">Your workspace is ready!</h2>
-        <p class="text-charcoal-light mb-6">
+        <h1 style="font-size:19px">Your workspace is ready!</h1>
+        <p class="sub">
           We found <strong x-text="topicsCount"></strong> <span x-text="topicsCount === 1 ? 'topic' : 'topics'"></span>
           and <strong x-text="brandsCount"></strong> <span x-text="brandsCount === 1 ? 'brand' : 'brands'"></span>
-          on <span x-text="domain" class="text-coral"></span>.
+          on <span x-text="domain" style="color:var(--coral-700)"></span>.
         </p>
 
-        <div class="space-y-3 text-left bg-gray-50 rounded-lg p-4 mb-6">
-          <div class="flex items-center justify-between text-sm">
-            <span class="text-charcoal-light">Keywords analyzed</span>
-            <span class="font-medium text-charcoal-dark" x-text="keywordsCount"></span>
-          </div>
-          <div class="flex items-center justify-between text-sm">
-            <span class="text-charcoal-light">Topics discovered</span>
-            <span class="font-medium text-charcoal-dark" x-text="topicsCount"></span>
-          </div>
-          <div class="flex items-center justify-between text-sm">
-            <span class="text-charcoal-light">Brands detected</span>
-            <span class="font-medium text-charcoal-dark" x-text="brandsCount"></span>
-          </div>
+        <div class="statbox">
+          <div class="row"><span>Keywords analyzed</span><span x-text="keywordsCount"></span></div>
+          <div class="row"><span>Topics discovered</span><span x-text="topicsCount"></span></div>
+          <div class="row"><span>Brands detected</span><span x-text="brandsCount"></span></div>
         </div>
 
-        <!-- What's next roadmap -->
-        <div class="text-left mb-6">
-          <p class="text-xs font-semibold text-charcoal-dark uppercase tracking-wide mb-3">Next steps</p>
-          <div class="space-y-2">
-            <div class="flex items-center gap-2 text-sm text-charcoal-light">
-              <span class="w-5 h-5 bg-coral/10 text-coral rounded-full flex items-center justify-center text-[10px] font-bold shrink-0">1</span>
-              Review & refine your topics
-            </div>
-            <div class="flex items-center gap-2 text-sm text-charcoal-light">
-              <span class="w-5 h-5 bg-coral/10 text-coral rounded-full flex items-center justify-center text-[10px] font-bold shrink-0">2</span>
-              Classify brands (yours vs competitors)
-            </div>
-            <div class="flex items-center gap-2 text-sm text-charcoal-light">
-              <span class="w-5 h-5 bg-coral/10 text-coral rounded-full flex items-center justify-center text-[10px] font-bold shrink-0">3</span>
-              Review AI personas & questions
-            </div>
-            <div class="flex items-center gap-2 text-sm text-charcoal-light">
-              <span class="w-5 h-5 bg-coral/10 text-coral rounded-full flex items-center justify-center text-[10px] font-bold shrink-0">4</span>
-              Launch your AI visibility scan
-            </div>
-          </div>
+        <div class="nextsteps">
+          <p class="l">Next steps</p>
+          <div class="row"><span class="n">1</span>Review &amp; refine your topics</div>
+          <div class="row"><span class="n">2</span>Classify brands (yours vs competitors)</div>
+          <div class="row"><span class="n">3</span>Review AI personas &amp; questions</div>
+          <div class="row"><span class="n">4</span>Launch your AI visibility scan</div>
         </div>
 
-        <a
-          :href="'/app/scans/' + scanId"
-          class="w-full inline-flex items-center justify-center gap-2 px-6 py-3.5 bg-coral text-white rounded-lg font-medium hover:bg-coral-dark hover:shadow-md hover:scale-[1.02] transition-colors"
-        >
+        <a class="cta" :href="'/app/scans/' + scanId" style="text-decoration:none">
           Continue setup
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 8h10M9 4l4 4-4 4"/></svg>
         </a>
-
-        <a href="/app/dashboard" class="block text-center text-xs text-charcoal-light hover:text-charcoal-dark mt-3">
-          Skip - go to dashboard
-        </a>
+        <a href="/app/dashboard" class="skip">Skip - go to dashboard</a>
       </div>
     </div>
 
     <!-- Error -->
-    <div x-show="error" class="mt-4 bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 text-sm" x-text="error"></div>
+    <div x-show="error" class="errbox" x-text="error"></div>
   </div>
 
   <script is:inline>

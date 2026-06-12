@@ -2902,7 +2902,18 @@ async def get_results(scan_id: str, provider: str | None = Query(None), user=Dep
         str(q.id): q
         for q in db.query(ScanQuestion).filter(ScanQuestion.id.in_(question_ids)).all()
     } if question_ids else {}
-    persona_topic_ids = {p.topic_id for p in personas if p.topic_id}
+    # Imported lineages : the questions above belong to the ROOT scan, so
+    # their personas/topics do too. Merge the missing personas in by id,
+    # otherwise child scans render every persona as '?' and every topic as
+    # 'Other' on the Topics/Questions tabs.
+    missing_pids = {
+        q.persona_id for q in questions_by_id.values()
+        if q.persona_id and str(q.persona_id) not in persona_map
+    }
+    if missing_pids:
+        for p in db.query(ScanPersona).filter(ScanPersona.id.in_(missing_pids)).all():
+            persona_map[str(p.id)] = p
+    persona_topic_ids = {p.topic_id for p in persona_map.values() if p.topic_id}
     topics_by_id = {
         str(t.id): t
         for t in db.query(ScanTopic).filter(ScanTopic.id.in_(persona_topic_ids)).all()
@@ -3004,7 +3015,7 @@ async def get_results(scan_id: str, provider: str | None = Query(None), user=Dep
     # backfill might have missed them (e.g. edited question text breaking the
     # lookup-by-text join the migration uses).
     intent_lookup = {}  # question_text_lower → intention_cachee (legacy fallback)
-    for p in personas:
+    for p in persona_map.values():
         for pq in (p.data or {}).get("questions", []):
             if pq.get("question") and pq.get("intention_cachee"):
                 intent_lookup[pq["question"].strip().lower()] = pq["intention_cachee"]
@@ -3555,7 +3566,25 @@ async def get_persona_insights(scan_id: str, provider: str | None = Query(None),
 
     personas = db.query(ScanPersona).filter(ScanPersona.scan_id == scan_id, ScanPersona.is_active == True).all()
     questions = db.query(ScanQuestion).filter(ScanQuestion.scan_id == scan_id).all()
-    topics = {str(t.id): t for t in db.query(ScanTopic).filter(ScanTopic.scan_id == scan_id).all()}
+    # Imported lineages : child scans own no questions/personas - their
+    # results point at the ROOT scan's. Fall back to the questions the
+    # results actually reference (by id, never scan_id) and their personas,
+    # otherwise the Personas tab is empty on an imported child.
+    if results and not questions:
+        ref_qids = {r.question_id for r in results if r.question_id}
+        questions = db.query(ScanQuestion).filter(ScanQuestion.id.in_(ref_qids)).all() if ref_qids else []
+    if results and not personas and questions:
+        ref_pids = {q.persona_id for q in questions if q.persona_id}
+        personas = db.query(ScanPersona).filter(
+            ScanPersona.id.in_(ref_pids), ScanPersona.is_active == True,
+        ).all() if ref_pids else []
+    # Topics resolved via persona.topic_id - load by id so root-owned
+    # personas (import fallback above) find their topics too.
+    persona_topic_ids = {p.topic_id for p in personas if p.topic_id}
+    topics = {
+        str(t.id): t
+        for t in db.query(ScanTopic).filter(ScanTopic.id.in_(persona_topic_ids)).all()
+    } if persona_topic_ids else {}
     opportunities = db.query(ScanOpportunity).filter(ScanOpportunity.scan_id == scan_id).all()
 
     # Compute traffic weight per topic (sum of keyword traffic)

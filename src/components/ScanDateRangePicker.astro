@@ -43,8 +43,13 @@ function rangeUrl(range: string, extra = ''): string {
   return `/app/scans/${rootScanId}/${tabPath}?range=${range}${extra}`;
 }
 
+// When an individual scan is selected (?run=X), the label must show THAT
+// scan's date - not the latest run's (a March child displayed "19 May").
+const selectedRunId = Astro.url.searchParams.get('run');
+const selectedRun = selectedRunId ? runs.find(r => r.id === selectedRunId) : null;
+
 const rangeLabel = currentRange === 'all' ? 'All dates'
-  : currentRange === 'latest' ? fmtFull(runs[runs.length - 1]?.completed_at)
+  : currentRange === 'latest' ? fmtFull((selectedRun || runs[runs.length - 1])?.completed_at)
   : currentRange === 'last2' ? 'Last 2 scans'
   : currentRange === 'custom' ? `${fmtShort(fromDate)} — ${fmtShort(toDate)}`
   : 'All dates';

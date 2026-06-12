@@ -1003,11 +1003,12 @@ async def workspaces_overview(
     # latest-run citations count and raw sentiment. Same per-scan grouping
     # the Overview KPI sparklines use (/results/aggregated per_run_stats)
     # but as one GROUP BY instead of loading the rows, so the agency view
-    # stays cheap at 10+ workspaces x N runs. Counts ALL result rows per
-    # scan (no run_index filter) to match the aggregated endpoint.
+    # stays cheap at 10+ workspaces x N runs. N-runs (T2) : run rows only
+    # (run_index >= 1) to match the aggregated endpoint's run-mean rates.
     root_ids = list({(r.parent_id or r.scan_id) for r in latest_rows if r.scan_id})
     lineage_rows = []
     agg_by_scan: dict[str, object] = {}
+    cit_by_scan: dict[str, int] = {}
     if root_ids:
         lineage_rows = db.execute(_text(
             """
@@ -1022,22 +1023,39 @@ async def workspaces_overview(
         ), {"roots": root_ids}).fetchall()
         lineage_sids = [r.sid for r in lineage_rows]
         if lineage_sids:
+            # N-runs (T2) : rate stats over run rows only (run_index >= 1,
+            # multi-sample mean - consensus rows are meta). Citations deduped
+            # per (question, provider, url) so an N-runs scan stays comparable
+            # to the N=1 lineage points (same value at N=1 since citation
+            # arrays are deduped per row upstream).
             agg_rows = db.execute(_text(
                 """
                 SELECT r.scan_id::text AS sid,
                        COUNT(*) AS total,
                        COUNT(*) FILTER (
                            WHERE r.brand_analysis->>'marque_cible_mentionnee' = 'true'
-                       ) AS mentioned,
-                       COALESCE(SUM(CASE WHEN jsonb_typeof(r.citations) = 'array'
-                                         THEN jsonb_array_length(r.citations)
-                                         ELSE 0 END), 0) AS citations
+                       ) AS mentioned
                   FROM scan_llm_results r
                  WHERE r.scan_id::text = ANY(:sids)
+                   AND r.run_index >= 1
                  GROUP BY r.scan_id
                 """
             ), {"sids": lineage_sids}).fetchall()
             agg_by_scan = {r.sid: r for r in agg_rows}
+            cit_rows = db.execute(_text(
+                """
+                SELECT r.scan_id::text AS sid,
+                       COUNT(DISTINCT (r.question_id, r.provider, c->>'url')) AS citations
+                  FROM scan_llm_results r
+                 CROSS JOIN LATERAL jsonb_array_elements(
+                       CASE WHEN jsonb_typeof(r.citations) = 'array'
+                            THEN r.citations ELSE '[]'::jsonb END) c
+                 WHERE r.scan_id::text = ANY(:sids)
+                   AND r.run_index >= 1
+                 GROUP BY r.scan_id
+                """
+            ), {"sids": lineage_sids}).fetchall()
+            cit_by_scan = {r.sid: int(r.citations or 0) for r in cit_rows}
 
     # Raw sentiment over target-brand mentions, latest scans only. NOTE :
     # this is the unjudged brand_mentions[].sentiment (no migration-057
@@ -1071,7 +1089,7 @@ async def workspaces_overview(
         trend_by_root.setdefault(lr.root_id, []).append({
             "completed_at": lr.completed_at.isoformat() + "Z" if lr.completed_at else None,
             "brand_mention_rate": round(agg.mentioned / agg.total * 100, 1),
-            "total_citations": int(agg.citations or 0),
+            "total_citations": cit_by_scan.get(lr.sid, 0),
         })
 
     workspaces = []

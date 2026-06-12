@@ -754,11 +754,14 @@ async def get_pipeline(scan_id: str, user=Depends(get_current_user), db: Session
             int(active_q * len(providers) * 3),
         )
 
-    # Per-provider completion (run_llm_tests writes one row per question×provider)
-    # so the Scan UI can split "Testing AI providers" into OpenAI / Gemini / …
+    # Per-provider completion (run_llm_tests writes one row per
+    # question×provider×run) so the Scan UI can split "Testing AI providers"
+    # into OpenAI / Gemini / … N-runs (T2) : count run rows only (consensus
+    # rows are meta) and size the total by runs_depth below.
+    _runs_depth = int((scan.config or {}).get("runs_depth", 1)) or 1
     prov_done = dict(
         db.query(ScanLLMResult.provider, func.count())
-        .filter(ScanLLMResult.scan_id == scan_id)
+        .filter(ScanLLMResult.scan_id == scan_id, ScanLLMResult.run_index >= 1)
         .group_by(ScanLLMResult.provider)
         .all()
     )
@@ -786,8 +789,9 @@ async def get_pipeline(scan_id: str, user=Depends(get_current_user), db: Session
 
         # Per-provider split for the long "Testing AI providers" step.
         if j.job_type == "run_llm_tests" and active_q > 0:
+            _prov_total = active_q * _runs_depth
             out["providers"] = [
-                {"provider": p, "done": min(int(prov_done.get(p, 0)), active_q), "total": active_q}
+                {"provider": p, "done": min(int(prov_done.get(p, 0)), _prov_total), "total": _prov_total}
                 for p in providers
             ]
 
@@ -2693,6 +2697,84 @@ def _enrich_citations_with_site_type(citations, lookup):
     return out
 
 
+def _split_runs_for_view(results):
+    """N-runs (T2) - split raw scan_llm_results rows into :
+
+      run_rows  : the actual samples (run_index >= 1) - rate KPIs aggregate
+                  over these (multi-sample mean at N>1).
+      view_rows : ONE synthetic row per (question, provider) for display -
+                  response_text/duration from run 1, citations merged across
+                  runs (deduped by url), brand_analysis + brand_mentions from
+                  the consensus row (run_index = 0) when present, else run 1.
+
+    Each view row also carries `_run_ids` (judgments are attached to run 1
+    per T1), `_n_runs` and `_mention_rate` (0..1 over the runs) so the UI
+    can render "cited in X of N runs" without re-querying.
+
+    At N=1 without a consensus row, view rows mirror the single raw row -
+    every consumer keeps its legacy behavior.
+    """
+    from types import SimpleNamespace
+
+    runs_by_key: dict = {}
+    consensus_by_key: dict = {}
+    for r in results:
+        ri = r.run_index if r.run_index is not None else 1
+        key = (str(r.question_id), r.provider)
+        if ri == 0:
+            consensus_by_key[key] = r
+        else:
+            runs_by_key.setdefault(key, []).append(r)
+
+    run_rows = [r for runs in runs_by_key.values() for r in runs]
+    view_rows = []
+    for key, runs in runs_by_key.items():
+        runs.sort(key=lambda rr: (rr.run_index or 1))
+        base = runs[0]
+        analysis = consensus_by_key.get(key) or base
+
+        merged_citations: list = []
+        seen_urls: set = set()
+        for rr in runs:
+            for c in (rr.citations or []):
+                u = (c.get("url") or "") if isinstance(c, dict) else str(c)
+                k = u or str(c)
+                if k in seen_urls:
+                    continue
+                seen_urls.add(k)
+                merged_citations.append(c)
+
+        mentioned_runs = sum(
+            1 for rr in runs
+            if (rr.brand_analysis or {}).get("marque_cible_mentionnee")
+        )
+        positions = [rr.target_position for rr in runs if rr.target_position]
+        merged_competitors: dict = {}
+        for rr in runs:
+            for dom, cnt in (rr.competitor_domains or {}).items():
+                merged_competitors[dom] = merged_competitors.get(dom, 0) + (cnt or 0)
+        view_rows.append(SimpleNamespace(
+            id=analysis.id,
+            _run_ids=[rr.id for rr in runs],
+            _n_runs=len(runs),
+            _mention_rate=(mentioned_runs / len(runs)) if runs else 0.0,
+            scan_id=base.scan_id,
+            question_id=base.question_id,
+            provider=base.provider,
+            model=base.model,
+            response_text=base.response_text,
+            duration_ms=base.duration_ms,
+            citations=merged_citations,
+            total_citations=len(merged_citations),
+            target_cited=any(bool(rr.target_cited) for rr in runs),
+            target_position=min(positions) if positions else None,
+            competitor_domains=merged_competitors,
+            brand_analysis=analysis.brand_analysis,
+            brand_mentions=analysis.brand_mentions,
+        ))
+    return run_rows, view_rows
+
+
 @router.get("/{scan_id}/results")
 async def get_results(scan_id: str, provider: str | None = Query(None), user=Depends(get_current_user), db: Session = Depends(get_db)):
     """Get scan results: overview, per-persona, competitors. Optional provider filter."""
@@ -2705,16 +2787,25 @@ async def get_results(scan_id: str, provider: str | None = Query(None), user=Dep
     if not results:
         return {"overview": None, "by_persona": [], "competitors": [], "details": []}
 
+    # N-runs (T2) - run rows feed the rate KPIs (one sample each), view rows
+    # are ONE synthetic row per (question, provider) for display : run-1
+    # response text, citations merged across runs, analysis from the
+    # consensus row. At N=1 both sets mirror the raw rows exactly.
+    run_rows, view_rows = _split_runs_for_view(results)
+    if not run_rows:
+        return {"overview": None, "by_persona": [], "competitors": [], "details": []}
+
     # --- Overview KPIs ---
     # Primary metric: brand mention rate (brand name in AI response text)
     # Secondary: domain citation rate (domain URL in sources)
-    total = len(results)
-    brand_mentioned = sum(1 for r in results if (r.brand_analysis or {}).get("marque_cible_mentionnee"))
+    # Aggregated over RUN rows : at N>1 this is the multi-sample mean.
+    total = len(run_rows)
+    brand_mentioned = sum(1 for r in run_rows if (r.brand_analysis or {}).get("marque_cible_mentionnee"))
     brand_mention_rate = round(brand_mentioned / total * 100, 1) if total else 0
-    domain_cited = sum(1 for r in results if r.target_cited)
+    domain_cited = sum(1 for r in run_rows if r.target_cited)
     domain_citation_rate = round(domain_cited / total * 100, 1) if total else 0
     avg_position = None
-    positions = [r.target_position for r in results if r.target_position]
+    positions = [r.target_position for r in run_rows if r.target_position]
     if positions:
         avg_position = round(sum(positions) / len(positions), 1)
 
@@ -2736,13 +2827,17 @@ async def get_results(scan_id: str, provider: str | None = Query(None), user=Dep
 
     # Sprint M aggregations: SOV by entity_type + 4-issues funnel from judgments.
     from services.composite_scores import aggregate_entity_sov, aggregate_judgment_funnel
-    entity_sov = aggregate_entity_sov(r.brand_mentions or [] for r in results)
+    # N-runs : entity SoV reads the view rows (consensus mentions at N>1 -
+    # run rows carry [] and would zero the SoV ; at N=1 same rows as before).
+    entity_sov = aggregate_entity_sov(r.brand_mentions or [] for r in view_rows)
     all_judgments_for_scan = list(judgments_by_result_id.values())
     judgment_funnel = aggregate_judgment_funnel(all_judgments_for_scan)
+    # Coverage denominator = (question, provider) pairs : the judge runs on
+    # one representative sample per pair (T1), so N runs never dilute it.
     judgment_coverage = {
         "judged_responses": len(all_judgments_for_scan),
-        "total_responses": total,
-        "coverage_pct": round(len(all_judgments_for_scan) / total * 100, 1) if total else 0,
+        "total_responses": len(view_rows),
+        "coverage_pct": round(len(all_judgments_for_scan) / len(view_rows) * 100, 1) if view_rows else 0,
     }
 
     # --- By Persona ---
@@ -2750,7 +2845,7 @@ async def get_results(scan_id: str, provider: str | None = Query(None), user=Dep
     persona_map = {str(p.id): p for p in personas}
 
     persona_stats = {}
-    for r in results:
+    for r in view_rows:
         qid = str(r.question_id)
         q = db.query(ScanQuestion).filter(ScanQuestion.id == r.question_id).first()
         if not q:
@@ -2762,7 +2857,7 @@ async def get_results(scan_id: str, provider: str | None = Query(None), user=Dep
                 "persona_name": persona.name if persona else "?",
                 "topic": None,
                 "total": 0,
-                "cited": 0,
+                "cited": 0.0,
                 "positions": [],
             }
             if persona and persona.topic_id:
@@ -2771,9 +2866,10 @@ async def get_results(scan_id: str, provider: str | None = Query(None), user=Dep
                     persona_stats[pid]["topic"] = topic.name
 
         persona_stats[pid]["total"] += 1
-        mentioned = (r.brand_analysis or {}).get("marque_cible_mentionnee", False)
-        if mentioned:
-            persona_stats[pid]["cited"] += 1
+        # N-runs : fractional credit = mention rate over the runs of this
+        # pair (1.0 or 0.0 at N=1) - the persona rate stays a run-mean.
+        persona_stats[pid]["cited"] += r._mention_rate
+        if (r.brand_analysis or {}).get("marque_cible_mentionnee", False):
             pos = (r.brand_analysis or {}).get("position_marque_cible")
             if pos:
                 persona_stats[pid]["positions"].append(pos)
@@ -2786,7 +2882,7 @@ async def get_results(scan_id: str, provider: str | None = Query(None), user=Dep
             "persona": stats["persona_name"],
             "topic": stats["topic"],
             "tests": stats["total"],
-            "cited": stats["cited"],
+            "cited": round(stats["cited"], 1),
             "citation_rate": rate,
             "avg_position": avg_pos,
         })
@@ -2811,7 +2907,8 @@ async def get_results(scan_id: str, provider: str | None = Query(None), user=Dep
 
     classified_competitors = {}
     discovered_brands = {}
-    for r in results:
+    # N-runs : view rows (consensus mentions at N>1, counted once per pair)
+    for r in view_rows:
         for bm in (r.brand_mentions or []):
             if not bm.get("est_marque_cible") and bm.get("contexte_valide", True):
                 name = bm.get("brand_name_groupby") or bm.get("brand_name", "")
@@ -2858,10 +2955,10 @@ async def get_results(scan_id: str, provider: str | None = Query(None), user=Dep
     # 10-category taxonomy as worker/services/domain_classifier.SITE_CATEGORIES.
     # Single query, no N+1 ; unclassified domains stay None and the front
     # falls back to a heuristic.
-    site_type_lookup = _build_site_type_lookup(results, db)
+    site_type_lookup = _build_site_type_lookup(view_rows, db)
 
     details = []
-    for r in results:
+    for r in view_rows:
         q = db.query(ScanQuestion).filter(ScanQuestion.id == r.question_id).first()
         persona = persona_map.get(str(q.persona_id)) if q else None
         topic = topics_map.get(str(persona.topic_id)) if persona and persona.topic_id else None
@@ -2869,7 +2966,12 @@ async def get_results(scan_id: str, provider: str | None = Query(None), user=Dep
         if q:
             intention = q.intention_cachee or intent_lookup.get((q.question or "").strip().lower())
         bm_mentioned = (r.brand_analysis or {}).get("marque_cible_mentionnee", False)
-        j = judgments_by_result_id.get(str(r.id))
+        # Judgments attach to run rows (run 1 per T1) - try every run id.
+        j = next(
+            (judgments_by_result_id[str(rid)] for rid in r._run_ids
+             if str(rid) in judgments_by_result_id),
+            None,
+        )
         # Sprint M: composite scores derived from brand_mentions + judgment +
         # intent_category. None on any axis means "not computable" (legacy row,
         # no judgment yet, or not a safety intent for defensive).
@@ -2912,6 +3014,10 @@ async def get_results(scan_id: str, provider: str | None = Query(None), user=Dep
             "brand_analysis": overlaid_brand_analysis,
             "response_text": r.response_text or "",
             "duration_ms": r.duration_ms,
+            # N-runs (T2) - per-pair sampling stats for the variance UI (T3) :
+            # runs_total=1 / mention_rate 0|1 on legacy single-run scans.
+            "runs_total": r._n_runs,
+            "mention_rate": round(r._mention_rate, 3),
             # Sprint J judgment payload - None when not yet judged.
             "judgment": None if j is None else {
                 "positive_signal_hit": j.positive_signal_hit,
@@ -2948,7 +3054,9 @@ async def get_results(scan_id: str, provider: str | None = Query(None), user=Dep
             "domain_cited": domain_cited,
             "domain_citation_rate": domain_citation_rate,
             "avg_position": avg_position,
-            "providers": list({r.provider for r in results}),
+            "providers": list({r.provider for r in run_rows}),
+            # N-runs (T2) - observed sampling depth (1 on legacy scans).
+            "runs_depth": max((v._n_runs for v in view_rows), default=1),
             "scan_date": scan.completed_at.isoformat() if scan.completed_at else None,
             "editorial": (scan.summary or {}).get("editorial"),
             "position_distribution": (scan.summary or {}).get("position_distribution"),
@@ -3081,7 +3189,32 @@ async def get_results_aggregated(
         "competitor_mentions": 0,
     } for s in lineage}
 
+    # N-runs (T2) - collapse each scan's rows separately : the lineage
+    # dimension (one trend point per SCAN) and the sampling dimension
+    # (run_index within a scan) must never be conflated. Rate stats
+    # aggregate over each scan's run rows (multi-sample mean, comparable
+    # across scans of different runs_depth) ; mention/citation stats and
+    # the per-question drill-down read each scan's view rows (consensus
+    # analysis, citations deduped across runs).
+    results_by_scan: dict = {}
     for r in all_results:
+        results_by_scan.setdefault(r.scan_id, []).append(r)
+    view_by_scan: dict = {}
+    for sid, rows in results_by_scan.items():
+        scan_run_rows, scan_view_rows = _split_runs_for_view(rows)
+        view_by_scan[sid] = scan_view_rows
+        if sid in per_run_stats:
+            st = per_run_stats[sid]
+            for rr in scan_run_rows:
+                st["total"] += 1
+                if (rr.brand_analysis or {}).get("marque_cible_mentionnee", False):
+                    st["brand_mentioned"] += 1
+                if rr.target_cited:
+                    st["domain_cited"] += 1
+
+    all_view_rows = [v for vrows in view_by_scan.values() for v in vrows]
+
+    for r in all_view_rows:
         q = all_questions.get(str(r.question_id))
         if not q:
             continue
@@ -3119,16 +3252,14 @@ async def get_results_aggregated(
             "citations": _enrich_citations_with_site_type(r.citations, site_type_lookup),
             "response_text": r.response_text or "",
             "duration_ms": r.duration_ms,
+            # N-runs (T2) - intra-scan sampling stats for this lineage point.
+            "runs_total": r._n_runs,
+            "mention_rate": round(r._mention_rate, 3),
         })
 
-        # Per-run stats
+        # Per-run stats (mention/citation-based parts - view rows)
         if r.scan_id in per_run_stats:
             st = per_run_stats[r.scan_id]
-            st["total"] += 1
-            if bm_mentioned:
-                st["brand_mentioned"] += 1
-            if r.target_cited:
-                st["domain_cited"] += 1
             st["citations"] += len(r.citations or [])
             for bm in overlaid_mentions:
                 is_target = bm.get("est_marque_cible") or bm.get("is_target_brand")
@@ -3188,8 +3319,11 @@ async def get_results_aggregated(
             if ri not in persona_agg[pname]["per_run"]:
                 persona_agg[pname]["per_run"][ri] = {"cited": 0, "total": 0}
             persona_agg[pname]["per_run"][ri]["total"] += 1
-            if run_data["brand_mentioned"]:
-                persona_agg[pname]["per_run"][ri]["cited"] += 1
+            # N-runs : fractional credit (mention rate over intra-scan runs,
+            # 1|0 on legacy single-run scans) keeps the rate a run-mean.
+            persona_agg[pname]["per_run"][ri]["cited"] += run_data.get(
+                "mention_rate", 1 if run_data["brand_mentioned"] else 0
+            )
 
     by_persona = []
     for pname, pagg in persona_agg.items():
@@ -3204,7 +3338,7 @@ async def get_results_aggregated(
             "persona": pname,
             "topic": pagg["topic"],
             "tests": latest_p["total"],
-            "cited": latest_p["cited"],
+            "cited": round(latest_p["cited"], 1),
             "citation_rate": round(latest_p["cited"] / latest_p["total"] * 100, 1) if latest_p["total"] > 0 else 0,
             "avg_citation_rate": round(sum(all_p_rates) / len(all_p_rates), 1) if all_p_rates else 0,
             "trend": p_trend,
@@ -3222,8 +3356,10 @@ async def get_results_aggregated(
             if ri not in topic_agg[tname]["per_run"]:
                 topic_agg[tname]["per_run"][ri] = {"cited": 0, "total": 0}
             topic_agg[tname]["per_run"][ri]["total"] += 1
-            if run_data["brand_mentioned"]:
-                topic_agg[tname]["per_run"][ri]["cited"] += 1
+            # N-runs : fractional credit, same rationale as persona_agg.
+            topic_agg[tname]["per_run"][ri]["cited"] += run_data.get(
+                "mention_rate", 1 if run_data["brand_mentioned"] else 0
+            )
 
     by_topic = []
     for tname, tagg in topic_agg.items():
@@ -3246,7 +3382,8 @@ async def get_results_aggregated(
     classification_map = _build_brand_classification_map(str(latest_scan.id), db)
     classified_competitors = {}
     discovered_brands = {}
-    for r in all_results:
+    # N-runs : view rows (consensus mentions counted once per pair per scan)
+    for r in all_view_rows:
         for bm in (r.brand_mentions or []):
             if not bm.get("est_marque_cible") and bm.get("contexte_valide", True):
                 name = bm.get("brand_name_groupby") or bm.get("brand_name", "")
@@ -3379,10 +3516,16 @@ async def get_persona_insights(scan_id: str, provider: str | None = Query(None),
             if pq.get("question") and pq.get("intention_cachee"):
                 intent_lookup[pq["question"].strip().lower()] = pq["intention_cachee"]
 
-    # Map results by question_id
+    # Map results by question_id. N-runs (T2) : run rows feed the rate
+    # counters, view rows feed mention/competitor aggregations (consensus
+    # analysis, deduped citations). Identical sets on legacy N=1 scans.
+    run_rows_pi, view_rows_pi = _split_runs_for_view(results)
     results_by_qid = {}
-    for r in results:
+    for r in run_rows_pi:
         results_by_qid.setdefault(str(r.question_id), []).append(r)
+    views_by_qid = {}
+    for r in view_rows_pi:
+        views_by_qid.setdefault(str(r.question_id), []).append(r)
 
     # Map opportunities by persona_name
     opps_by_persona = {}
@@ -3411,6 +3554,7 @@ async def get_persona_insights(scan_id: str, provider: str | None = Query(None),
             if qtype not in by_type:
                 by_type[qtype] = {"total": 0, "cited": 0}
 
+            # Rates over the run rows (multi-sample mean at N>1)
             for r in q_results:
                 total_tests += 1
                 by_type[qtype]["total"] += 1
@@ -3418,6 +3562,11 @@ async def get_persona_insights(scan_id: str, provider: str | None = Query(None),
                 if mentioned:
                     total_cited += 1
                     by_type[qtype]["cited"] += 1
+
+            # Mention/competitor aggregations over the view rows (consensus
+            # analysis at N>1, counted once per (question, provider) pair)
+            for r in views_by_qid.get(qid, []):
+                if (r.brand_analysis or {}).get("marque_cible_mentionnee", False):
                     pos = (r.brand_analysis or {}).get("position_marque_cible")
                     if pos:
                         positions.append(pos)

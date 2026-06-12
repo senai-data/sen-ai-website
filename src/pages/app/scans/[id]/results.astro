@@ -92,7 +92,15 @@ const trippedProviders: string[] = providerStatus
 // Goal-Gradient hint nudging the user toward Rescan / a schedule.
 const mentionRateTrend: number[] = trendFromApi.map((t: any) => t.citation_rate).filter((v: any) => v != null);
 const citationsTrend: number[] = trendFromApi.map((t: any) => t.total_citations).filter((v: any) => v != null);
-const sentimentTrend: number[] = trendFromApi.map((t: any) => t.sentiment_score).filter((v: any) => v != null);
+// Sentiment is NOT comparable across the seo-llm import break (old analyzer
+// ~+0.5 baseline vs v2 prompt ~+0.1) : on a mixed lineage the sparkline reads
+// as a fake degradation, so we hide it and show the latest value only.
+const hasImportedRuns = trendFromApi.some((t: any) => t.import_origin);
+const hasNativeRuns = trendFromApi.some((t: any) => t.import_origin === false);
+const sentimentComparable = !(hasImportedRuns && hasNativeRuns);
+const sentimentTrend: number[] = sentimentComparable
+  ? trendFromApi.map((t: any) => t.sentiment_score).filter((v: any) => v != null)
+  : [];
 const sovTrend: number[] = trendFromApi.map((t: any) => t.sov).filter((v: any) => v != null);
 const hasTrend = mentionRateTrend.length > 1;
 

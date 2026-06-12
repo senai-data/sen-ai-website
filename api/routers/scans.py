@@ -3161,6 +3161,11 @@ async def get_results_aggregated(
             "total_citations": stats["citations"],
             "sentiment_score": sent_score,
             "sov": sov,
+            # Imported runs (seo-llm history) used a different sentiment
+            # analyzer (~+0.5 baseline vs ~+0.1 for the v2 prompt) - the UI
+            # hides the sentiment sparkline on mixed lineages because the
+            # cross-import comparison would read as a fake degradation.
+            "import_origin": bool((s.config or {}).get("import_origin")),
         })
 
     latest_stats = per_run_stats[latest_scan.id]

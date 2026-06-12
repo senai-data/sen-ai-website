@@ -144,14 +144,38 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
 
     # Persona summary
     personas = db.query(ScanPersona).filter(ScanPersona.scan_id == scan_id).all()
+
+    # P0 perf : batch the question / persona / topic lookups (was one
+    # ScanQuestion query per row PER PERSONA below, plus one per cited row).
+    # Lookup by id, never scan_id : imported lineages point results at the
+    # ROOT scan's questions (and those questions at the root's personas).
+    qids = {r.question_id for r in run_rows} | {r.question_id for r in analysis_rows}
+    questions_by_id = {
+        q.id: q for q in db.query(ScanQuestion).filter(ScanQuestion.id.in_(qids)).all()
+    } if qids else {}
+    personas_by_id = {p.id: p for p in personas}
+    missing_pids = {q.persona_id for q in questions_by_id.values()
+                    if q.persona_id and q.persona_id not in personas_by_id}
+    if missing_pids:
+        for p in db.query(ScanPersona).filter(ScanPersona.id.in_(missing_pids)).all():
+            personas_by_id[p.id] = p
+    topic_ids = {p.topic_id for p in personas if p.topic_id}
+    topics_by_id = {
+        t.id: t for t in db.query(ScanTopic).filter(ScanTopic.id.in_(topic_ids)).all()
+    } if topic_ids else {}
+
+    rows_by_persona = {}
+    for r in run_rows:
+        q = questions_by_id.get(r.question_id)
+        if q:
+            rows_by_persona.setdefault(q.persona_id, []).append(r)
+
     persona_lines = []
     for p in personas:
-        p_results = [r for r in run_rows if any(
-            q.persona_id == p.id for q in db.query(ScanQuestion).filter(ScanQuestion.id == r.question_id).all()
-        )]
+        p_results = rows_by_persona.get(p.id, [])
         p_cited = sum(1 for r in p_results if (r.brand_analysis or {}).get("marque_cible_mentionnee"))
         p_rate = round(p_cited / len(p_results) * 100, 1) if p_results else 0
-        topic = db.query(ScanTopic).filter(ScanTopic.id == p.topic_id).first()
+        topic = topics_by_id.get(p.topic_id) if p.topic_id else None
         persona_lines.append(f"- {p.name} ({topic.name if topic else '?'}) : {p_rate}% mentionné ({p_cited}/{len(p_results)})")
 
     # Competitor summary (run rows only - consensus rows carry {} anyway ;
@@ -168,8 +192,8 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
     cited_lines = []
     for r in analysis_rows:
         if (r.brand_analysis or {}).get("marque_cible_mentionnee"):
-            q = db.query(ScanQuestion).filter(ScanQuestion.id == r.question_id).first()
-            p = db.query(ScanPersona).filter(ScanPersona.id == q.persona_id).first() if q else None
+            q = questions_by_id.get(r.question_id)
+            p = personas_by_id.get(q.persona_id) if q else None
             sentiment = (r.brand_analysis or {}).get("sentiment_marque_cible", "?")
             cited_lines.append(f"- [{r.provider}] sentiment={sentiment} | {p.name if p else '?'} | {q.question[:80] if q else '?'}")
 

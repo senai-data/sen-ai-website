@@ -2893,10 +2893,25 @@ async def get_results(scan_id: str, provider: str | None = Query(None), user=Dep
     personas = db.query(ScanPersona).filter(ScanPersona.scan_id == scan_id).all()
     persona_map = {str(p.id): p for p in personas}
 
+    # P0 perf : batch the question + topic lookups (was one ScanQuestion
+    # query per row in the persona AND details loops = 1000+ queries per
+    # page on large scans). Lookup by id, never scan_id : imported
+    # lineages point results at the ROOT scan's questions.
+    question_ids = {r.question_id for r in view_rows}
+    questions_by_id = {
+        str(q.id): q
+        for q in db.query(ScanQuestion).filter(ScanQuestion.id.in_(question_ids)).all()
+    } if question_ids else {}
+    persona_topic_ids = {p.topic_id for p in personas if p.topic_id}
+    topics_by_id = {
+        str(t.id): t
+        for t in db.query(ScanTopic).filter(ScanTopic.id.in_(persona_topic_ids)).all()
+    } if persona_topic_ids else {}
+
     persona_stats = {}
     for r in view_rows:
         qid = str(r.question_id)
-        q = db.query(ScanQuestion).filter(ScanQuestion.id == r.question_id).first()
+        q = questions_by_id.get(qid)
         if not q:
             continue
         pid = str(q.persona_id)
@@ -2910,7 +2925,7 @@ async def get_results(scan_id: str, provider: str | None = Query(None), user=Dep
                 "positions": [],
             }
             if persona and persona.topic_id:
-                topic = db.query(ScanTopic).filter(ScanTopic.id == persona.topic_id).first()
+                topic = topics_by_id.get(str(persona.topic_id))
                 if topic:
                     persona_stats[pid]["topic"] = topic.name
 
@@ -2982,7 +2997,7 @@ async def get_results(scan_id: str, provider: str | None = Query(None), user=Dep
     ]
 
     # --- Details (each test) - enriched with brand_mentions, brand_analysis, intention_cachee ---
-    topics_map = {str(t.id): t for t in db.query(ScanTopic).filter(ScanTopic.scan_id == scan_id).all()}
+    # (questions_by_id / topics_by_id batched above - P0 perf)
 
     # Sprint P (migration 036): intention_cachee is now a native column on
     # scan_questions. Keep the JSONB lookup as fallback for legacy rows whose
@@ -3008,9 +3023,9 @@ async def get_results(scan_id: str, provider: str | None = Query(None), user=Dep
 
     details = []
     for r in view_rows:
-        q = db.query(ScanQuestion).filter(ScanQuestion.id == r.question_id).first()
+        q = questions_by_id.get(str(r.question_id))
         persona = persona_map.get(str(q.persona_id)) if q else None
-        topic = topics_map.get(str(persona.topic_id)) if persona and persona.topic_id else None
+        topic = topics_by_id.get(str(persona.topic_id)) if persona and persona.topic_id else None
         intention = None
         if q:
             intention = q.intention_cachee or intent_lookup.get((q.question or "").strip().lower())
@@ -3083,12 +3098,8 @@ async def get_results(scan_id: str, provider: str | None = Query(None), user=Dep
             "scores": scores,
         })
 
-    # Focus brand name
-    focus_brand_name = None
-    if scan.focus_brand_id:
-        fb = db.query(ClientBrand).filter(ClientBrand.id == scan.focus_brand_id).first()
-        if fb:
-            focus_brand_name = fb.name
+    # Focus brand name (focus_brand_obj already loaded for the competitor block)
+    focus_brand_name = focus_brand_obj.name if focus_brand_obj else None
 
     return {
         "overview": {

@@ -3341,11 +3341,17 @@ async def get_results_aggregated(
             "total_citations": stats["citations"],
             "sentiment_score": sent_score,
             "sov": sov,
-            # Imported runs (seo-llm history) used a different sentiment
-            # analyzer (~+0.5 baseline vs ~+0.1 for the v2 prompt) - the UI
-            # hides the sentiment sparkline on mixed lineages because the
-            # cross-import comparison would read as a fake degradation.
-            "import_origin": bool((s.config or {}).get("import_origin")),
+            # Imported RESULTS (seo-llm history children) used a different
+            # sentiment analyzer (~+0.5 baseline vs ~+0.1 for the v2 prompt) -
+            # the UI hides the sentiment sparkline on mixed lineages because
+            # the cross-import comparison reads as a fake degradation.
+            # Marker = config.import_period (set ONLY by import_seollm_history
+            # on child scans whose RESULT ROWS are imported). NOT
+            # config.import_origin : the PF ROOT scans carry that flag too
+            # (setup import of personas/questions) while their results are
+            # native sen-ai runs - using it masked nothing (bug caught on
+            # user screenshot 2026-06-12).
+            "import_origin": bool((s.config or {}).get("import_period")),
         })
 
     latest_stats = per_run_stats[latest_scan.id]

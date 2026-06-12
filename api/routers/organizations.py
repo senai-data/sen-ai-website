@@ -1139,7 +1139,7 @@ async def workspaces_overview(
                 "target_cited": summary.get("target_cited") if isinstance(summary, dict) else None,
                 "total_tests": summary.get("total_tests") if isinstance(summary, dict) else None,
                 "providers": summary.get("providers") if isinstance(summary, dict) else None,
-                "total_citations": int(latest_agg.citations) if latest_agg is not None else None,
+                "total_citations": cit_by_scan.get(latest.scan_id) if latest_agg is not None else None,
                 "sentiment_score": sentiment_score,
                 "trend": trend_by_root.get(latest.parent_id or latest.scan_id, []),
                 "critical_count": critical_count,

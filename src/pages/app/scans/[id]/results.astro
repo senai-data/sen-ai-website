@@ -217,9 +217,10 @@ details.forEach((d: any) => {
     ? (d.mention_count || 0)
     : Math.round((d.mention_rate ?? (d.brand_mentioned ? 1 : 0)) * (d.runs_total || 1));
   const rate = runs > 0 ? Math.round((mc / runs) * 100) : 0;
-  // Unit disambiguates the two multiplicities : lineage points = "scans",
-  // intra-scan samples = "runs". Hidden when there is only one of either.
-  const unit = runs > 1 ? (isAggregated ? 'scans' : 'runs') : '';
+  // Unit disambiguates the two multiplicities : aggregated lineage points
+  // are (scan x AI) pairs = "answers" (5 scans x 2 AIs = 10 answers, NOT
+  // "10 scans"), intra-scan samples = "runs". Hidden when single.
+  const unit = runs > 1 ? (isAggregated ? 'answers' : 'runs') : '';
   allQ.push({ question: q, rate, mention_count: mc, total_runs: runs, unit });
 });
 allQ.sort((a, b) => a.rate - b.rate);

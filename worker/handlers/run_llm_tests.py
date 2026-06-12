@@ -201,6 +201,40 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
     except Exception as e:
         logger.warning(f"BrandAnalyzer setup failed: {e}")
 
+    # Sprint 1.6 (Strategy C hybrid) - at N>1 a per-run EntityAnalyzer call
+    # would cost x runs_depth for near-identical analyses (+$40/scan PF at
+    # N=10). Instead :
+    #   - per-run rows carry a CHEAP deterministic regex brand check in a
+    #     minimal brand_analysis ({marque_cible_mentionnee, _method}) - same
+    #     minimal-shape precedent as the seo-llm history import rows - so
+    #     "% brand mentioned" aggregates correctly over run_index > 0 ;
+    #   - ONE consensus EntityAnalyzer call per (question, provider) runs
+    #     post-loop over the N concatenated responses, stored as run_index=0
+    #     (response_text NULL - meta row, never counted in rates).
+    # N=1 keeps the exact legacy behavior (per-run analyzer, no consensus row).
+    import re as _re
+    import unicodedata as _ud
+    from collections import defaultdict
+    use_consensus = runs_depth > 1 and brand_analyzer is not None
+    per_run_analyzer = None if use_consensus else brand_analyzer
+
+    def _fold(s: str) -> str:
+        # Accent-insensitive matching : LLMs write "Avene" as often as "Avène".
+        return _ud.normalize("NFKD", s).encode("ascii", "ignore").decode()
+
+    _brand_patterns = [
+        _re.compile(r"(?<!\w)" + _re.escape(_fold(b.strip())) + r"(?!\w)", _re.IGNORECASE)
+        for b in target_brands if b and len(b.strip()) >= 3
+    ] if use_consensus else []
+
+    def _regex_brand_mentioned(text: str) -> bool:
+        if not text or not _brand_patterns:
+            return False
+        folded = _fold(text)
+        return any(p.search(folded) for p in _brand_patterns)
+
+    consensus_texts: dict = defaultdict(list)  # (question_id, provider) -> [response_text]
+
     # --- Run tests ---
     total_tests = len(questions) * len(llm_clients)
     scan.progress_pct = 0
@@ -247,6 +281,58 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
     # so we don't waste API quota / wait time on a provider known to be down.
     breaker = ProviderCircuitBreaker(list(llm_clients.keys()))
 
+    # Auto-enrich helper : collect new brands from analyzer mentions into
+    # ClientBrand + ScanBrandClassification ('unclassified' inbox). Shared by
+    # the per-run path (legacy N=1) and the consensus rows (Sprint 1.6) -
+    # noise-filtered via the brief's vertical-specific noise_patterns.
+    from services.brand_noise_filter import is_noise_brand_name
+    from services.brand_name_norm import normalize_brand_name
+    _brief = (scan.config or {}).get("domain_brief") or {}
+    _noise_prefixes = _brief.get("noise_patterns") or []
+
+    def _enrich_brand_mentions(mentions: list) -> None:
+        for mention in mentions or []:
+            bname = mention.get("brand_name_groupby") or mention.get("brand_name")
+            if not bname or len(bname) < 2:
+                continue
+            if is_noise_brand_name(bname, _noise_prefixes):
+                continue
+
+            bnorm = normalize_brand_name(bname)
+            existing = db.query(ClientBrand).filter(
+                ClientBrand.client_id == scan.client_id,
+                ClientBrand.canonical_name == bnorm,
+            ).first() if bnorm else None
+
+            if not existing:
+                new_brand = ClientBrand(
+                    client_id=scan.client_id,
+                    name=bname,
+                    canonical_name=bnorm,
+                    last_seen_at=datetime.utcnow(),
+                    detected_in_scan_id=scan_id,
+                    detection_source="llm_response",
+                )
+                db.add(new_brand)
+                db.flush()
+                brand_id = new_brand.id
+            else:
+                existing.last_seen_at = datetime.utcnow()
+                brand_id = existing.id
+
+            sbc_exists = db.query(ScanBrandClassification).filter(
+                ScanBrandClassification.scan_id == scan_id,
+                ScanBrandClassification.brand_id == brand_id,
+            ).first()
+            if not sbc_exists:
+                db.add(ScanBrandClassification(
+                    scan_id=scan_id,
+                    brand_id=brand_id,
+                    classification='unclassified',
+                    classified_by='auto',
+                    source='llm_response',
+                ))
+
     # Single ThreadPoolExecutor over ALL tasks - no batching = no head-of-line blocking
     # (a slow OpenAI call no longer holds back Gemini results in the same batch).
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
@@ -262,7 +348,7 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
                     target_domain=target_domain,
                     api_key=settings.openai_api_key,
                     model=openai_model,
-                    brand_analyzer=brand_analyzer,
+                    brand_analyzer=per_run_analyzer,
                     country=scan_country,
                 )
             else:
@@ -273,7 +359,7 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
                     persona=persona.data or {},
                     llm_client=llm_client,
                     target_domain=target_domain,
-                    brand_analyzer=brand_analyzer,
+                    brand_analyzer=per_run_analyzer,
                 )
             futures[future] = (question, persona, provider, run_idx)
 
@@ -292,6 +378,20 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
 
             try:
                 result = future.result()
+
+                # Sprint 1.6 - consensus mode : the per-run analyzer was
+                # skipped, so the run row carries the deterministic regex
+                # check instead, and the response feeds the post-loop
+                # consensus. brand_mentions stays [] per run (the consensus
+                # row carries the full mention list).
+                if use_consensus:
+                    result["brand_analysis"] = {
+                        "marque_cible_mentionnee": _regex_brand_mentioned(result.get("response_text") or ""),
+                        "_method": "regex_per_run",
+                    }
+                    result["brand_mentions"] = []
+                    if result.get("response_text"):
+                        consensus_texts[(question.id, provider)].append(result["response_text"])
 
                 db.add(ScanLLMResult(
                     scan_id=scan_id,
@@ -329,58 +429,10 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
                 if result.get("brand_analysis", {}).get("marque_cible_mentionnee"):
                     brand_mentioned_count += 1
 
-                # Auto-enrich: collect new brands from LLM responses.
-                # Filter the obvious noise upstream so the catalog doesn't
-                # balloon with ingredients / product types / domains the
-                # BrandAnalyzer over-extracts. The brief's noise_patterns
-                # carries vertical-specific terms (cosmetics: "crème",
-                # "acide hyaluronique"; automotive: "huile moteur") so the
-                # filter is multi-industry without hardcoded lists.
-                from services.brand_noise_filter import is_noise_brand_name
-                _brief = (scan.config or {}).get("domain_brief") or {}
-                _noise_prefixes = _brief.get("noise_patterns") or []
-                for mention in result.get("brand_mentions", []):
-                    bname = mention.get("brand_name_groupby") or mention.get("brand_name")
-                    if not bname or len(bname) < 2:
-                        continue
-                    if is_noise_brand_name(bname, _noise_prefixes):
-                        continue
-
-                    from services.brand_name_norm import normalize_brand_name
-                    bnorm = normalize_brand_name(bname)
-                    existing = db.query(ClientBrand).filter(
-                        ClientBrand.client_id == scan.client_id,
-                        ClientBrand.canonical_name == bnorm,
-                    ).first() if bnorm else None
-
-                    if not existing:
-                        new_brand = ClientBrand(
-                            client_id=scan.client_id,
-                            name=bname,
-                            canonical_name=bnorm,
-                            last_seen_at=datetime.utcnow(),
-                            detected_in_scan_id=scan_id,
-                            detection_source="llm_response",
-                        )
-                        db.add(new_brand)
-                        db.flush()
-                        brand_id = new_brand.id
-                    else:
-                        existing.last_seen_at = datetime.utcnow()
-                        brand_id = existing.id
-
-                    sbc_exists = db.query(ScanBrandClassification).filter(
-                        ScanBrandClassification.scan_id == scan_id,
-                        ScanBrandClassification.brand_id == brand_id,
-                    ).first()
-                    if not sbc_exists:
-                        db.add(ScanBrandClassification(
-                            scan_id=scan_id,
-                            brand_id=brand_id,
-                            classification='unclassified',
-                            classified_by='auto',
-                            source='llm_response',
-                        ))
+                # Auto-enrich: collect new brands from LLM responses
+                # (no-op in consensus mode where per-run brand_mentions=[]
+                # - the consensus rows enrich post-loop instead).
+                _enrich_brand_mentions(result.get("brand_mentions", []))
 
                 completed += 1
                 breaker.record_success(provider)
@@ -429,7 +481,10 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
             # failure threshold, cancel its still-pending futures so we
             # don't keep burning quota / time on a known-down provider.
             if breaker.maybe_trip(provider):
-                for f, (q_, p_, prov_) in list(futures.items()):
+                # NOTE : futures values are 4-tuples since Sprint N-runs added
+                # run_idx - the previous 3-name unpacking raised ValueError on
+                # every trip (latent since 2026-05-27, fixed 2026-06-12).
+                for f, (q_, p_, prov_, run_) in list(futures.items()):
                     if prov_ == provider and not f.done():
                         if f.cancel():
                             breaker.record_skip(provider)
@@ -440,6 +495,76 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
             scan.progress_pct = int(completed / total_tests * 100)
             scan.progress_message = f"Scan LLM: {completed}/{total_tests} tests..."
             db.commit()
+
+    # --- Sprint 1.6 consensus pass (run_index=0) ---
+    # One EntityAnalyzer call per (question, provider) over the N concatenated
+    # run responses - same call COUNT as legacy N=1, so the analyzer cost does
+    # NOT scale with runs_depth. Rows are meta-only (response_text NULL,
+    # target_cited NULL) : every rate aggregation MUST stay on run_index > 0.
+    if use_consensus and consensus_texts:
+        CONSENSUS_CHAR_CAP = 30000  # ~10K tokens, flash-lite comfort zone
+        _qtext = {q.id: q.question for q in questions}
+        scan.progress_message = f"Analyzing brands (consensus over {runs_depth} runs)..."
+        db.commit()
+        logger.info(f"Consensus pass: {len(consensus_texts)} (question, provider) pairs")
+
+        def _consensus_call(texts: list, q_text: str):
+            merged = ""
+            for i, t in enumerate(texts, 1):
+                merged += f"\n\n--- Réponse {i}/{len(texts)} ---\n{t}"
+                if len(merged) >= CONSENSUS_CHAR_CAP:
+                    merged = merged[:CONSENSUS_CHAR_CAP]
+                    break
+            return brand_analyzer.analyze_response(merged.strip(), q_text)
+
+        consensus_ok = 0
+        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as cexec:
+            cfutures = {
+                cexec.submit(_consensus_call, texts, _qtext.get(qid, "")): (qid, prov, len(texts))
+                for (qid, prov), texts in consensus_texts.items()
+            }
+            for cf in as_completed(cfutures):
+                qid, prov, n_texts = cfutures[cf]
+                try:
+                    brand_result = cf.result() or {}
+                except Exception as e:
+                    logger.warning(f"Consensus analyzer failed (q={qid}, {prov}): {e}")
+                    continue
+                ba = dict(brand_result.get("brand_analyse") or {})
+                mentions = brand_result.get("brand_mentions") or []
+                ba["_consensus_of_runs"] = n_texts
+                db.add(ScanLLMResult(
+                    scan_id=scan_id,
+                    question_id=qid,
+                    provider=prov,
+                    model="consensus",
+                    response_text=None,
+                    citations=None,
+                    target_cited=None,
+                    target_position=None,
+                    total_citations=None,
+                    competitor_domains={},
+                    brand_mentions=mentions,
+                    brand_analysis=ba,
+                    run_index=0,
+                ))
+                _enrich_brand_mentions(mentions)
+                consensus_ok += 1
+
+                ba_usage = brand_result.get("llm_usage") or {}
+                ba_model = getattr(getattr(brand_analyzer, "llm", None), "model", None)
+                if ba_model and (ba_usage.get("input_tokens") or ba_usage.get("output_tokens")
+                                 or ba_usage.get("prompt_tokens") or ba_usage.get("completion_tokens")):
+                    from adapters.llm_logger import log_llm_usage
+                    log_llm_usage(
+                        db, provider="gemini", model=ba_model,
+                        operation="brand_analyzer_consensus",
+                        input_tokens=ba_usage.get("input_tokens", 0) or ba_usage.get("prompt_tokens", 0),
+                        output_tokens=ba_usage.get("output_tokens", 0) or ba_usage.get("completion_tokens", 0),
+                        scan_id=scan_id, client_id=str(scan.client_id),
+                    )
+                db.commit()
+        logger.info(f"Consensus pass done: {consensus_ok}/{len(consensus_texts)} rows written")
 
     # --- Final ---
     success = max(completed - errors, 1)

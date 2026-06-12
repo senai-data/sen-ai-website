@@ -1447,7 +1447,7 @@ const isReviewing = effectiveView !== null && (
 
     <!-- Personas ready (Gate 3) — or reviewing personas via ?view=personas -->
     {(effectiveView === 'personas' || (!effectiveView && scan.status === 'personas_ready')) && personasData && (
-      <div x-data={`personasWizard(${JSON.stringify(personasData)}, '${id}', ${JSON.stringify((scan.config || {}).providers || ['openai'])})`}>
+      <div x-data={`personasWizard(${JSON.stringify(personasData)}, '${id}', ${JSON.stringify((scan.config || {}).providers || ['openai'])}, ${JSON.stringify(Number((scan.config || {}).runs_depth) || 1)})`}>
         <h2 class="text-xl font-bold text-charcoal-dark mb-2">Personas & Questions on <span class="text-coral">{scan.domain}</span></h2>
         <p class="text-charcoal-light mb-2">For each topic, we generated personas — real people who'd ask questions about it — and the typical questions they'd ask an AI.</p>
         <p class="text-sm text-charcoal-light mb-4"><span class="font-medium text-charcoal-dark">Review and toggle off</span> what you don't need. Each active question counts as 1 scan credit when you launch.</p>
@@ -2213,10 +2213,26 @@ const isReviewing = effectiveView !== null && (
               <span x-text="totals.active_questions"></span> questions ·
               <span x-text="selectedProviders.length"></span> AI<span x-show="selectedProviders.length > 1">s</span>
             </p>
+            {/* N-runs (T4) - honest cost math before debit : credits =
+                questions x runs ; calls also x runs. */}
             <p class="text-xs text-charcoal-light mt-0.5">
-              <span class="font-medium text-charcoal-dark" x-text="totals.active_questions * selectedProviders.length"></span> API calls ·
-              <span class="font-medium text-charcoal-dark" x-text="totals.active_questions"></span> credit<span x-show="totals.active_questions !== 1">s</span>
+              <span class="font-medium text-charcoal-dark" x-text="(totals.active_questions * selectedProviders.length * runsDepth).toLocaleString()"></span> API calls ·
+              <span class="font-medium text-charcoal-dark" x-text="totals.active_questions + ' questions × ' + runsDepth + ' run' + (runsDepth > 1 ? 's' : '')"></span> =
+              <span class="font-medium text-coral" x-text="(totals.active_questions * runsDepth).toLocaleString() + ' credit' + (totals.active_questions * runsDepth !== 1 ? 's' : '')"></span>
             </p>
+            <label class="text-[11px] text-charcoal-light mt-1 inline-flex items-center gap-1.5">
+              Sampling
+              <select class="text-[11px] border border-gray-200 rounded px-1.5 py-0.5 bg-white"
+                      :disabled="savingRuns"
+                      :value="runsDepth"
+                      @change="saveRunsDepth($event.target.value)"
+                      title="How many times each question is asked to each AI. AI answers vary between identical runs - more runs = a mention rate with a real margin of error. 1 credit = 1 question × 1 run.">
+                <option value="1">1 run (single pass)</option>
+                <option value="5">5 runs</option>
+                <option value="10">10 runs (recommended)</option>
+                <option value="20">20 runs</option>
+              </select>
+            </label>
           </div>
           {isReviewing ? (
             <a href={`/app/scans/${id}`} class="btn btn--primary btn--md shrink-0">
@@ -3272,8 +3288,26 @@ const isReviewing = effectiveView !== null && (
         },
       }));
 
-      window.Alpine.data('personasWizard', (initialData, scanId, initialProviders) => ({
+      window.Alpine.data('personasWizard', (initialData, scanId, initialProviders, initialRunsDepth) => ({
         scanId: scanId,
+        // N-runs (T4) - samples per (question, provider). Credits = questions x runs.
+        runsDepth: initialRunsDepth || 1,
+        savingRuns: false,
+        async saveRunsDepth(v) {
+          const n = Math.max(1, Math.min(20, parseInt(v, 10) || 1));
+          const prev = this.runsDepth;
+          this.runsDepth = n;
+          this.savingRuns = true;
+          try {
+            const res = await fetch('/api/scans/' + this.scanId + '/config', {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ runs_depth: n }),
+            });
+            if (!res.ok) this.runsDepth = prev;
+          } catch (e) { this.runsDepth = prev; }
+          this.savingRuns = false;
+        },
         // Annotate each topic with `editing` so the in-place rename UI in the
         // topic header has a flag to toggle. Mirrors topicsWizard's pattern.
         topics: ((initialData && initialData.topics) || []).map(t => ({ ...t, editing: false })),
@@ -3752,7 +3786,7 @@ const isReviewing = effectiveView !== null && (
           if (!this.canLaunch) return;
           const providerNames = this.selectedProviders.join(' + ');
           const apiCalls = this.totals.active_questions * this.selectedProviders.length;
-          if (!confirm('Launch AI Scan?\n\n' + this.totals.active_personas + ' personas · ' + this.totals.active_questions + ' questions · ' + providerNames + '\n' + apiCalls + ' API calls · ' + this.totals.active_questions + ' scan credits')) return;
+          if (!confirm('Launch AI Scan?\n\n' + this.totals.active_personas + ' personas · ' + this.totals.active_questions + ' questions · ' + providerNames + '\n' + this.runsDepth + ' run' + (this.runsDepth > 1 ? 's' : '') + ' per question · ' + (apiCalls * this.runsDepth) + ' API calls\n' + (this.totals.active_questions * this.runsDepth) + ' scan credits (1 credit = 1 question × 1 run)')) return;
           fetch('/api/scans/' + this.scanId + '/launch', { method: 'POST' })
             .then(async res => {
               if (res.ok) {

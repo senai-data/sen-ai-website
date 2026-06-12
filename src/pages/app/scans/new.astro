@@ -166,7 +166,7 @@ const COUNTRIES = [
             </div>
 
             <div class="field span2">
-              <label class="field__label"><Tip id="analysis_depth" position="bottom">Analysis depth</Tip></label>
+              <label class="field__label"><Tip id="analysis_depth" position="bottom">Coverage</Tip></label>
               <div class="optrow">
                 <button type="button" class="optcard" :class="depth === 'light' ? 'on' : ''" @click="depth = 'light'">
                   <div class="optcard__name"><span class="optcard__radio"></span>Light</div>
@@ -182,6 +182,28 @@ const COUNTRIES = [
                 </button>
               </div>
               <span class="field__help">Each persona generates 15 buyer questions. More personas means broader coverage and higher cost.</span>
+            </div>
+
+            {/* N-runs (T4) - statistical sampling depth. "Coverage" above =
+                how many buyer profiles we ask ; "Sampling" = how many times
+                each question is asked to each AI. */}
+            <div class="field span2">
+              <label class="field__label">Sampling</label>
+              <div class="optrow">
+                <button type="button" class="optcard" :class="runs === 1 ? 'on' : ''" @click="runs = 1">
+                  <div class="optcard__name"><span class="optcard__radio"></span>Single pass</div>
+                  <div class="optcard__meta">1 run per question - quick snapshot</div>
+                </button>
+                <button type="button" class="optcard" :class="runs === 5 ? 'on' : ''" @click="runs = 5">
+                  <div class="optcard__name"><span class="optcard__radio"></span>5 runs</div>
+                  <div class="optcard__meta">basic margin of error</div>
+                </button>
+                <button type="button" class="optcard" :class="runs === 10 ? 'on' : ''" @click="runs = 10">
+                  <div class="optcard__name"><span class="optcard__radio"></span>10 runs</div>
+                  <div class="optcard__meta">recommended</div>
+                </button>
+              </div>
+              <span class="field__help">AI answers vary between identical runs (10-34% in published research). Asking each question N times turns a fragile yes/no into a mention rate with a visible margin of error. Credits scale with runs : 1 credit = 1 question x 1 run.</span>
             </div>
 
             <details class="adv span2">
@@ -229,13 +251,14 @@ const COUNTRIES = [
           <div class="srow"><span class="srow__k">Domain</span><span class="srow__v" :class="domain ? '' : 'muted'" x-text="domain || 'Not set'"></span></div>
           <div class="srow"><span class="srow__k">Type</span><span class="srow__v" x-text="scanType === 'own' ? 'Your site' : 'Competitor site'"></span></div>
           <div class="srow"><span class="srow__k">Country</span><span class="srow__v" x-text="countryLabel()"></span></div>
-          <div class="srow"><span class="srow__k">Depth</span><span class="srow__v" x-text="depth === 'light' ? 'Light (1 persona/topic)' : depth === 'deep' ? 'Deep (6 personas/topic)' : 'Balanced (3 personas/topic)'"></span></div>
+          <div class="srow"><span class="srow__k">Coverage</span><span class="srow__v" x-text="depth === 'light' ? 'Light (1 persona/topic)' : depth === 'deep' ? 'Deep (6 personas/topic)' : 'Balanced (3 personas/topic)'"></span></div>
+          <div class="srow"><span class="srow__k">Sampling</span><span class="srow__v" x-text="runs === 1 ? 'Single pass' : runs + ' runs per question'"></span></div>
           <div class="srow"><span class="srow__k">Ranking filter</span><span class="srow__v" x-text="'Top ' + maxPosition"></span></div>
         </div>
         <div class="cost">
           <div class="cost__l">Cost</div>
           <div class="cost__body">
-            Discovery (keywords + topics) is free. AI testing is charged per active topic when you launch it - you pick the topics first.
+            Discovery (keywords + topics) is free. AI testing is charged when you launch : 1 credit = 1 question &times; 1 run. The exact total shows on the launch screen before anything is debited.
           </div>
         </div>
       </div>
@@ -254,6 +277,7 @@ const COUNTRIES = [
         scanName: '',
         scanType: 'own',
         depth: 'balanced',
+        runs: 10,
         country: 'fr',
         maxPosition: 50,
         maxUrls: 2000,
@@ -284,6 +308,7 @@ const COUNTRIES = [
                 config: {
                   country: this.country,
                   personas_per_topic: this.depth === 'light' ? 1 : this.depth === 'deep' ? 6 : 3,
+                  runs_depth: this.runs,
                 },
               }),
             });

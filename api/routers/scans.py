@@ -102,6 +102,8 @@ class ScanUpdate(BaseModel):
 class ScanConfigUpdate(BaseModel):
     """PATCH /scans/{id}/config - update scan configuration."""
     providers: list[str] | None = None
+    # N-runs (T4) - samples per (question, provider). Clamped 1..20 server-side.
+    runs_depth: int | None = None
 
 
 class BrandClassify(BaseModel):
@@ -434,6 +436,12 @@ async def update_scan_config(scan_id: str, req: ScanConfigUpdate, user=Depends(g
         if not providers:
             raise HTTPException(400, "At least one valid provider required (openai, gemini)")
         config["providers"] = providers
+    if req.runs_depth is not None:
+        # N-runs (T4) - only meaningful before launch ; credits are computed
+        # at launch time from this value (questions x runs_depth).
+        if scan.status in ("scanning", "completed"):
+            raise HTTPException(400, "runs_depth can only change before launch")
+        config["runs_depth"] = max(1, min(20, int(req.runs_depth)))
     scan.config = config
     flag_modified(scan, "config")
     scan.updated_at = datetime.utcnow()
@@ -2359,6 +2367,47 @@ async def delete_question(scan_id: str, question_id: str, user=Depends(get_curre
     db.delete(q)
     db.commit()
     return {"deleted": True}
+
+
+@router.get("/{scan_id}/cost-estimate")
+async def cost_estimate(
+    scan_id: str,
+    runs: int | None = Query(None),
+    user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """N-runs (T4) - credit preview before launch. Same math as /launch
+    (active questions x runs_depth), zero side effects. `?runs=` overrides
+    the stored config so the launch UI can preview alternatives live.
+    """
+    scan = _check_scan_access(scan_id, user, db)
+
+    active_questions = (
+        db.query(ScanQuestion)
+        .join(ScanPersona, ScanPersona.id == ScanQuestion.persona_id)
+        .filter(
+            ScanQuestion.scan_id == scan_id,
+            ScanQuestion.is_active == True,
+            ScanPersona.is_active == True,
+        )
+        .count()
+    )
+    config = scan.config or {}
+    runs_depth = max(1, min(20, int(runs if runs is not None else config.get("runs_depth", 1) or 1)))
+    providers = config.get("providers", ["openai"]) or ["openai"]
+    credits_to_debit = active_questions * runs_depth
+
+    from routers.stripe import get_credit_balance
+    balance = get_credit_balance(str(scan.client_id), "scan", db)
+
+    return {
+        "active_questions": active_questions,
+        "runs_depth": runs_depth,
+        "providers": providers,
+        "credits_to_debit": credits_to_debit,
+        "scan_credits_available": balance,
+        "sufficient": balance >= credits_to_debit or bool(config.get("credits_already_debited")),
+    }
 
 
 @router.post("/{scan_id}/launch")

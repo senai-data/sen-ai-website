@@ -1,6 +1,8 @@
 ---
 /**
- * Pricing - Self-serve credit packs for AI Scan.
+ * Pricing (FR) - Self-serve credit packs for AI Scan.
+ * Page mid-funnel marketing : linkée depuis la landing FR, copy en français.
+ * Les SKUs/prix doivent rester alignés sur les SKUs Stripe live (scan_starter/pro/agency).
  *
  * UX Laws:
  * - Hick's Law: 3 tiers per credit type - minimal decision friction
@@ -14,19 +16,19 @@ import Nav from '../components/Nav.astro';
 import Footer from '../components/Footer.astro';
 ---
 
-<BaseLayout title="Pricing - sen-ai.fr" description="Simple, pay-as-you-go pricing. Buy credit packs to scan your AI visibility.">
+<BaseLayout title="Tarifs - sen-ai.fr" description="Tarification simple, à l'usage. Achetez des packs de crédits pour mesurer votre visibilité dans les IA.">
   <Nav />
   <main class="pt-24 pb-20 px-4">
     <div class="max-w-5xl mx-auto">
 
       <!-- Hero -->
       <div class="text-center mb-16">
-        <p class="text-coral uppercase tracking-[0.25em] text-sm font-medium mb-4">Pricing</p>
+        <p class="text-coral uppercase tracking-[0.25em] text-sm font-medium mb-4">Tarifs</p>
         <h1 class="text-4xl sm:text-5xl font-bold text-charcoal-dark mb-4">
-          Pay as you go
+          Payez à l'usage
         </h1>
         <p class="text-lg text-charcoal-light max-w-2xl mx-auto">
-          No subscription. Buy credit packs when you need them. Credits never expire.
+          Sans abonnement. Achetez des packs de crédits quand vous en avez besoin. Les crédits n'expirent jamais.
         </p>
       </div>
 
@@ -37,43 +39,43 @@ import Footer from '../components/Footer.astro';
             <svg class="w-5 h-5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v13m0-13V6a2 2 0 112 2h-2zm0 0V5.5A2.5 2.5 0 109.5 8H12zm-7 4h14M5 12a2 2 0 110-4h14a2 2 0 110 4M5 12v7a2 2 0 002 2h10a2 2 0 002-2v-7"/></svg>
           </div>
           <div>
-            <h2 class="text-lg font-bold text-emerald-800 mb-1">Free to start</h2>
-            <p class="text-sm text-emerald-700">Every new account gets <span class="font-bold">50 free scan credits</span>. Analyze your domain, discover topics and brands, classify competitors - all free. Credits are only consumed when you launch an AI scan.</p>
+            <h2 class="text-lg font-bold text-emerald-800 mb-1">Gratuit pour commencer</h2>
+            <p class="text-sm text-emerald-700">Chaque nouveau compte reçoit <span class="font-bold">50 crédits scan offerts</span>. Analysez votre domaine, découvrez vos sujets et vos marques, classez vos concurrents - tout est gratuit. Les crédits ne sont consommés qu'au lancement d'un scan IA.</p>
           </div>
         </div>
       </div>
 
       <!-- How it works -->
       <div class="max-w-3xl mx-auto mb-14">
-        <h2 class="text-sm font-semibold text-charcoal-dark uppercase tracking-wide mb-5 text-center">How it works</h2>
+        <h2 class="text-sm font-semibold text-charcoal-dark uppercase tracking-wide mb-5 text-center">Comment ça marche</h2>
         <div class="grid grid-cols-4 gap-4">
           <div class="text-center">
             <div class="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-2">
               <span class="text-sm font-bold text-charcoal-dark">1</span>
             </div>
-            <p class="text-xs text-charcoal-dark font-medium">Enter your domain</p>
-            <p class="text-[10px] text-charcoal-light mt-0.5">Free</p>
+            <p class="text-xs text-charcoal-dark font-medium">Entrez votre domaine</p>
+            <p class="text-[10px] text-charcoal-light mt-0.5">Gratuit</p>
           </div>
           <div class="text-center">
             <div class="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-2">
               <span class="text-sm font-bold text-charcoal-dark">2</span>
             </div>
-            <p class="text-xs text-charcoal-dark font-medium">Review topics & brands</p>
-            <p class="text-[10px] text-charcoal-light mt-0.5">Free</p>
+            <p class="text-xs text-charcoal-dark font-medium">Validez sujets et marques</p>
+            <p class="text-[10px] text-charcoal-light mt-0.5">Gratuit</p>
           </div>
           <div class="text-center">
             <div class="w-10 h-10 bg-coral/10 rounded-full flex items-center justify-center mx-auto mb-2">
               <span class="text-sm font-bold text-coral">3</span>
             </div>
-            <p class="text-xs text-charcoal-dark font-medium">Launch AI scan</p>
-            <p class="text-[10px] text-coral mt-0.5">Uses credits</p>
+            <p class="text-xs text-charcoal-dark font-medium">Lancez le scan IA</p>
+            <p class="text-[10px] text-coral mt-0.5">Consomme des crédits</p>
           </div>
           <div class="text-center">
             <div class="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-2">
               <span class="text-sm font-bold text-charcoal-dark">4</span>
             </div>
-            <p class="text-xs text-charcoal-dark font-medium">Get results & actions</p>
-            <p class="text-[10px] text-charcoal-light mt-0.5">Included</p>
+            <p class="text-xs text-charcoal-dark font-medium">Recevez résultats et actions</p>
+            <p class="text-[10px] text-charcoal-light mt-0.5">Inclus</p>
           </div>
         </div>
       </div>
@@ -81,54 +83,54 @@ import Footer from '../components/Footer.astro';
       <!-- Scan Credits -->
       <div class="mb-14">
         <div class="text-center mb-8">
-          <h2 class="text-2xl font-bold text-charcoal-dark mb-2">Scan Credits</h2>
-          <p class="text-charcoal-light">Measure your brand's visibility in AI responses (ChatGPT, Gemini, Claude, Mistral)</p>
-          <p class="text-sm text-charcoal-light mt-1">1 credit = 1 AI question asked about your brand</p>
+          <h2 class="text-2xl font-bold text-charcoal-dark mb-2">Crédits Scan</h2>
+          <p class="text-charcoal-light">Mesurez la visibilité de votre marque dans les réponses des IA (ChatGPT, Gemini, Claude, Mistral)</p>
+          <p class="text-sm text-charcoal-light mt-1">1 crédit = 1 question posée à une IA sur votre marque</p>
         </div>
 
         <div class="grid md:grid-cols-3 gap-6 max-w-4xl mx-auto">
           <!-- Starter -->
           <div class="bg-white rounded-2xl border border-gray-200 p-6 hover:shadow-lg transition-shadow">
             <h3 class="text-lg font-bold text-charcoal-dark mb-1">Starter</h3>
-            <p class="text-xs text-charcoal-light mb-4">Single brand, a few topics</p>
+            <p class="text-xs text-charcoal-light mb-4">Une marque, quelques sujets</p>
             <div class="mb-4">
-              <span class="text-3xl font-bold text-charcoal-dark">€20</span>
-              <span class="text-sm text-charcoal-light ml-1">/ 200 credits</span>
+              <span class="text-3xl font-bold text-charcoal-dark">20 €</span>
+              <span class="text-sm text-charcoal-light ml-1">/ 200 crédits</span>
             </div>
-            <p class="text-[10px] text-charcoal-light mb-5">€0.10 per credit</p>
+            <p class="text-[10px] text-charcoal-light mb-5">0,10 € par crédit</p>
             <a href="/register" class="block w-full py-2.5 border-2 border-coral text-coral font-medium rounded-lg hover:bg-coral hover:text-white transition-all text-center text-sm">
-              Get started
+              Commencer
             </a>
           </div>
 
           <!-- Pro - highlighted -->
           <div class="bg-white rounded-2xl border-2 border-coral shadow-lg shadow-coral/10 p-6 relative">
             <div class="absolute -top-3 left-6 bg-coral text-white text-[10px] font-bold px-3 py-1 rounded-full uppercase tracking-wide">
-              Best value
+              Meilleure offre
             </div>
             <h3 class="text-lg font-bold text-charcoal-dark mb-1">Pro</h3>
-            <p class="text-xs text-charcoal-light mb-4">Recurring scans, deeper coverage</p>
+            <p class="text-xs text-charcoal-light mb-4">Scans récurrents, couverture approfondie</p>
             <div class="mb-4">
-              <span class="text-3xl font-bold text-charcoal-dark">€80</span>
-              <span class="text-sm text-charcoal-light ml-1">/ 1 000 credits</span>
+              <span class="text-3xl font-bold text-charcoal-dark">80 €</span>
+              <span class="text-sm text-charcoal-light ml-1">/ 1 000 crédits</span>
             </div>
-            <p class="text-[10px] text-emerald-600 font-medium mb-5">€0.08 per credit - save 20%</p>
+            <p class="text-[10px] text-emerald-600 font-medium mb-5">0,08 € par crédit - 20% d'économie</p>
             <a href="/register" class="block w-full py-2.5 bg-coral text-white font-medium rounded-lg hover:bg-coral-dark hover:shadow-md transition-all text-center text-sm">
-              Get started
+              Commencer
             </a>
           </div>
 
           <!-- Agency -->
           <div class="bg-white rounded-2xl border border-gray-200 p-6 hover:shadow-lg transition-shadow">
             <h3 class="text-lg font-bold text-charcoal-dark mb-1">Agency</h3>
-            <p class="text-xs text-charcoal-light mb-4">Multi-brand portfolio, monthly tracking</p>
+            <p class="text-xs text-charcoal-light mb-4">Portefeuille multi-marques, suivi mensuel</p>
             <div class="mb-4">
-              <span class="text-3xl font-bold text-charcoal-dark">€300</span>
-              <span class="text-sm text-charcoal-light ml-1">/ 5 000 credits</span>
+              <span class="text-3xl font-bold text-charcoal-dark">300 €</span>
+              <span class="text-sm text-charcoal-light ml-1">/ 5 000 crédits</span>
             </div>
-            <p class="text-[10px] text-emerald-600 font-medium mb-5">€0.06 per credit - save 40%</p>
+            <p class="text-[10px] text-emerald-600 font-medium mb-5">0,06 € par crédit - 40% d'économie</p>
             <a href="/register?intent=agency" class="block w-full py-2.5 border-2 border-coral text-coral font-medium rounded-lg hover:bg-coral hover:text-white transition-all text-center text-sm">
-              Get started
+              Commencer
             </a>
           </div>
         </div>
@@ -136,8 +138,8 @@ import Footer from '../components/Footer.astro';
         <!-- Bridge to /agency for enterprise volumes -->
         <div class="mt-6 text-center">
           <p class="text-sm text-charcoal-light">
-            Need 20 000+ scan credits, shared workspaces, or custom invoicing?
-            <a href="/agency" class="text-coral hover:text-coral-dark font-medium">See enterprise pack →</a>
+            Besoin de 20 000+ crédits scan, d'espaces partagés ou d'une facturation sur mesure ?
+            <a href="/agency" class="text-coral hover:text-coral-dark font-medium">Voir l'offre agences →</a>
           </p>
         </div>
       </div>
@@ -145,51 +147,51 @@ import Footer from '../components/Footer.astro';
       <!-- Content Credits -->
       <div class="mb-14">
         <div class="text-center mb-8">
-          <h2 class="text-2xl font-bold text-charcoal-dark mb-2">Content Credits</h2>
-          <p class="text-charcoal-light">Generate optimized content to improve your AI visibility</p>
-          <p class="text-sm text-charcoal-light mt-1">1 credit = 1 FAQ (Schema.org) · 3 credits = 1 article (800-1500 words)</p>
+          <h2 class="text-2xl font-bold text-charcoal-dark mb-2">Crédits Contenu</h2>
+          <p class="text-charcoal-light">Générez du contenu optimisé pour améliorer votre visibilité dans les IA</p>
+          <p class="text-sm text-charcoal-light mt-1">1 crédit = 1 FAQ (Schema.org) · 3 crédits = 1 article (800-1500 mots)</p>
         </div>
 
         <div class="grid md:grid-cols-3 gap-6 max-w-4xl mx-auto">
           <div class="bg-white rounded-2xl border border-gray-200 p-6 hover:shadow-lg transition-shadow">
             <h3 class="text-lg font-bold text-charcoal-dark mb-1">Starter</h3>
-            <p class="text-xs text-charcoal-light mb-4">Fix a few gaps</p>
+            <p class="text-xs text-charcoal-light mb-4">Combler quelques lacunes</p>
             <div class="mb-4">
-              <span class="text-3xl font-bold text-charcoal-dark">€40</span>
-              <span class="text-sm text-charcoal-light ml-1">/ 10 credits</span>
+              <span class="text-3xl font-bold text-charcoal-dark">40 €</span>
+              <span class="text-sm text-charcoal-light ml-1">/ 10 crédits</span>
             </div>
-            <p class="text-[10px] text-charcoal-light mb-5">€4.00 per credit</p>
+            <p class="text-[10px] text-charcoal-light mb-5">4,00 € par crédit</p>
             <a href="/register" class="block w-full py-2.5 border-2 border-charcoal-dark text-charcoal-dark font-medium rounded-lg hover:bg-charcoal-dark hover:text-white transition-all text-center text-sm">
-              Get started
+              Commencer
             </a>
           </div>
 
           <div class="bg-white rounded-2xl border-2 border-charcoal-dark shadow-lg p-6 relative">
             <div class="absolute -top-3 left-6 bg-charcoal-dark text-white text-[10px] font-bold px-3 py-1 rounded-full uppercase tracking-wide">
-              Best value
+              Meilleure offre
             </div>
             <h3 class="text-lg font-bold text-charcoal-dark mb-1">Pro</h3>
-            <p class="text-xs text-charcoal-light mb-4">Full content strategy</p>
+            <p class="text-xs text-charcoal-light mb-4">Stratégie de contenu complète</p>
             <div class="mb-4">
-              <span class="text-3xl font-bold text-charcoal-dark">€100</span>
-              <span class="text-sm text-charcoal-light ml-1">/ 30 credits</span>
+              <span class="text-3xl font-bold text-charcoal-dark">100 €</span>
+              <span class="text-sm text-charcoal-light ml-1">/ 30 crédits</span>
             </div>
-            <p class="text-[10px] text-emerald-600 font-medium mb-5">€3.33 per credit - save 17%</p>
+            <p class="text-[10px] text-emerald-600 font-medium mb-5">3,33 € par crédit - 17% d'économie</p>
             <a href="/register" class="block w-full py-2.5 bg-charcoal-dark text-white font-medium rounded-lg hover:bg-charcoal-dark/90 hover:shadow-md transition-all text-center text-sm">
-              Get started
+              Commencer
             </a>
           </div>
 
           <div class="bg-white rounded-2xl border border-gray-200 p-6 hover:shadow-lg transition-shadow">
             <h3 class="text-lg font-bold text-charcoal-dark mb-1">Agency</h3>
-            <p class="text-xs text-charcoal-light mb-4">Scale content production</p>
+            <p class="text-xs text-charcoal-light mb-4">Industrialiser la production</p>
             <div class="mb-4">
-              <span class="text-3xl font-bold text-charcoal-dark">€250</span>
-              <span class="text-sm text-charcoal-light ml-1">/ 100 credits</span>
+              <span class="text-3xl font-bold text-charcoal-dark">250 €</span>
+              <span class="text-sm text-charcoal-light ml-1">/ 100 crédits</span>
             </div>
-            <p class="text-[10px] text-emerald-600 font-medium mb-5">€2.50 per credit - save 38%</p>
+            <p class="text-[10px] text-emerald-600 font-medium mb-5">2,50 € par crédit - 38% d'économie</p>
             <a href="/register?intent=agency" class="block w-full py-2.5 border-2 border-charcoal-dark text-charcoal-dark font-medium rounded-lg hover:bg-charcoal-dark hover:text-white transition-all text-center text-sm">
-              Get started
+              Commencer
             </a>
           </div>
         </div>
@@ -197,42 +199,51 @@ import Footer from '../components/Footer.astro';
 
       <!-- FAQ -->
       <div class="max-w-2xl mx-auto">
-        <h2 class="text-2xl font-bold text-charcoal-dark mb-6 text-center">Questions</h2>
+        <h2 class="text-2xl font-bold text-charcoal-dark mb-6 text-center">Questions fréquentes</h2>
         <div class="space-y-4">
           <details class="bg-white rounded-xl border border-gray-200 overflow-hidden group">
             <summary class="px-6 py-4 cursor-pointer text-sm font-medium text-charcoal-dark hover:bg-gray-50 transition-colors list-none flex justify-between items-center">
-              What is a scan credit?
+              Qu'est-ce qu'un crédit scan ?
               <svg class="w-4 h-4 text-gray-400 group-open:rotate-180 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
             </summary>
             <div class="px-6 pb-4 text-sm text-charcoal-light">
-              1 scan credit = 1 question asked to an AI model about your brand. A typical scan with 3 personas per topic and 15 questions per persona uses about 45 credits per topic. You choose how many topics and personas to include.
+              1 crédit scan = 1 question posée à un modèle d'IA sur votre marque. Un scan type avec 3 personas par sujet et 15 questions par persona consomme environ 45 crédits par sujet. Vous choisissez le nombre de sujets et de personas.
             </div>
           </details>
           <details class="bg-white rounded-xl border border-gray-200 overflow-hidden group">
             <summary class="px-6 py-4 cursor-pointer text-sm font-medium text-charcoal-dark hover:bg-gray-50 transition-colors list-none flex justify-between items-center">
-              Do credits expire?
+              Les crédits expirent-ils ?
               <svg class="w-4 h-4 text-gray-400 group-open:rotate-180 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
             </summary>
             <div class="px-6 pb-4 text-sm text-charcoal-light">
-              No. Credits never expire. Buy them once, use them whenever you need.
+              Non. Les crédits n'expirent jamais. Achetez-les une fois, utilisez-les quand vous en avez besoin.
             </div>
           </details>
           <details class="bg-white rounded-xl border border-gray-200 overflow-hidden group">
             <summary class="px-6 py-4 cursor-pointer text-sm font-medium text-charcoal-dark hover:bg-gray-50 transition-colors list-none flex justify-between items-center">
-              What's included for free?
+              Qu'est-ce qui est inclus gratuitement ?
               <svg class="w-4 h-4 text-gray-400 group-open:rotate-180 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
             </summary>
             <div class="px-6 pb-4 text-sm text-charcoal-light">
-              Domain analysis, topic discovery, brand detection, competitor identification, and persona generation are all free. Credits are only used when you launch the actual AI scan (step 3).
+              L'analyse de votre domaine, la découverte des sujets, la détection des marques, l'identification des concurrents et la génération des personas sont gratuites. Les crédits ne sont utilisés qu'au lancement du scan IA (étape 3).
             </div>
           </details>
           <details class="bg-white rounded-xl border border-gray-200 overflow-hidden group">
             <summary class="px-6 py-4 cursor-pointer text-sm font-medium text-charcoal-dark hover:bg-gray-50 transition-colors list-none flex justify-between items-center">
-              Can I re-scan the same domain?
+              Puis-je relancer un scan sur le même domaine ?
               <svg class="w-4 h-4 text-gray-400 group-open:rotate-180 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
             </summary>
             <div class="px-6 pb-4 text-sm text-charcoal-light">
-              Yes. Each re-scan creates a new data point so you can track your visibility over time. Re-scans inherit your topic, brand, and persona setup - you only pay for the AI questions.
+              Oui. Chaque nouveau scan crée un point de mesure supplémentaire pour suivre votre visibilité dans le temps. Les re-scans héritent de vos sujets, marques et personas - vous ne payez que les questions posées aux IA.
+            </div>
+          </details>
+          <details class="bg-white rounded-xl border border-gray-200 overflow-hidden group">
+            <summary class="px-6 py-4 cursor-pointer text-sm font-medium text-charcoal-dark hover:bg-gray-50 transition-colors list-none flex justify-between items-center">
+              La plateforme est-elle en français ?
+              <svg class="w-4 h-4 text-gray-400 group-open:rotate-180 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+            </summary>
+            <div class="px-6 pb-4 text-sm text-charcoal-light">
+              L'interface de la plateforme est en anglais, comme la plupart des outils SEO et data. En revanche, vos scans sont menés dans la langue de votre marché (le français inclus) : les questions posées aux IA, les réponses analysées et les marques détectées reflètent ce que vos clients voient réellement. La méthodologie et les documents de conformité (AI Act) existent en français.
             </div>
           </details>
         </div>
@@ -241,10 +252,10 @@ import Footer from '../components/Footer.astro';
       <!-- Bottom CTA -->
       <div class="text-center mt-16">
         <a href="/register" class="inline-flex items-center gap-2 px-8 py-4 bg-coral text-white font-medium rounded-xl text-lg hover:bg-coral-dark hover:shadow-lg hover:scale-[1.02] transition-all">
-          Start your free AI scan
+          Lancer mon scan IA gratuit
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
         </a>
-        <p class="text-sm text-charcoal-light mt-3">No credit card required. 50 free scan credits included.</p>
+        <p class="text-sm text-charcoal-light mt-3">Sans carte bancaire. 50 crédits scan offerts.</p>
       </div>
     </div>
   </main>

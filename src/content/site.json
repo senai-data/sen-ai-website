@@ -45,6 +45,10 @@
       {
         "q": "Ça marche pour les marques B2B ou seulement B2C ?",
         "a": "Les deux. Les IA répondent aux deux types de questions. La méthode est identique - les personas et les questions sont juste calibrés au contexte (acheteur pro vs consommateur final, cycle de décision long vs court, etc.)."
+      },
+      {
+        "q": "La plateforme est-elle en français ?",
+        "a": "L'interface est en anglais, comme la plupart des outils SEO et data. En revanche vos scans sont menés dans la langue de votre marché (le français inclus) : les questions posées aux IA et les réponses analysées reflètent ce que vos clients voient réellement. La méthodologie et les documents de conformité (AI Act) existent en français."
       }
     ]
   },

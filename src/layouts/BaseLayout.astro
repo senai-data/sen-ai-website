@@ -5,12 +5,17 @@ import '../styles/global.css';
 interface Props {
   title?: string;
   description?: string;
+  /** Page language - "fr" (default, marketing) or "en" (methodology, legal, agency). */
+  lang?: 'fr' | 'en';
 }
 
 const {
   title = site.meta.title,
   description = site.meta.description,
+  lang = 'fr',
 } = Astro.props;
+
+const ogLocale = lang === 'en' ? 'en_GB' : 'fr_FR';
 
 const canonicalURL = new URL(Astro.url.pathname, site.meta.url);
 
@@ -49,7 +54,7 @@ const softwareSchema = {
 ---
 
 <!doctype html>
-<html lang="fr">
+<html lang={lang}>
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -63,7 +68,7 @@ const softwareSchema = {
     <meta property="og:title" content={title} />
     <meta property="og:description" content={description} />
     <meta property="og:image" content="https://sen-ai.fr/og-image.png" />
-    <meta property="og:locale" content="fr_FR" />
+    <meta property="og:locale" content={ogLocale} />
 
     <!-- Twitter -->
     <meta name="twitter:card" content="summary_large_image" />

@@ -75,14 +75,32 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
     if not results:
         raise RuntimeError("No scan results")
 
+    # N-runs (T1) - rates aggregate over the run rows (run_index >= 1, the
+    # actual samples) ; qualitative fields (position) come from the per-pair
+    # analysis row : consensus (run_index=0) when present, else the run row.
+    # At N=1 without consensus both sets are the same rows = legacy behavior.
+    run_rows = [r for r in results if (r.run_index if r.run_index is not None else 1) != 0]
+    consensus_by_key = {
+        (str(r.question_id), r.provider): r for r in results
+        if (r.run_index if r.run_index is not None else 1) == 0
+    }
+    seen_keys: set = set()
+    analysis_rows = []
+    for r in run_rows:
+        key = (str(r.question_id), r.provider)
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        analysis_rows.append(consensus_by_key.get(key) or r)
+
     # Build context for Claude — uses brand mention rate (not domain citation)
-    total = len(results)
-    brand_mentioned = sum(1 for r in results if (r.brand_analysis or {}).get("marque_cible_mentionnee"))
-    citation_rate = round(brand_mentioned / total * 100, 1)
-    positions = [(r.brand_analysis or {}).get("position_marque_cible") for r in results
+    total = len(run_rows)
+    brand_mentioned = sum(1 for r in run_rows if (r.brand_analysis or {}).get("marque_cible_mentionnee"))
+    citation_rate = round(brand_mentioned / total * 100, 1) if total else 0.0
+    positions = [(r.brand_analysis or {}).get("position_marque_cible") for r in analysis_rows
                  if (r.brand_analysis or {}).get("position_marque_cible")]
     avg_position = round(sum(positions) / len(positions), 1) if positions else None
-    providers = list({r.provider for r in results})
+    providers = list({r.provider for r in run_rows})
 
     # Position distribution (C.1) — buckets the rank at which the focus brand
     # appears among all brands cited in each AI response. top1 = best (first
@@ -90,7 +108,9 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
     # into top6plus conservatively (rare; happens when BrandAnalyzer detects
     # the mention without an ordering signal).
     position_dist = {"top1": 0, "top2_3": 0, "top4_5": 0, "top6plus": 0, "not_cited": 0}
-    for r in results:
+    # N-runs : ranked over analysis rows (1 per question x provider) - run
+    # rows at N>1 carry no position and would all roll into top6plus.
+    for r in analysis_rows:
         ba = r.brand_analysis or {}
         if not ba.get("marque_cible_mentionnee"):
             position_dist["not_cited"] += 1
@@ -106,7 +126,7 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
             position_dist["top4_5"] += 1
         else:
             position_dist["top6plus"] += 1
-    position_dist["total"] = total
+    position_dist["total"] = len(analysis_rows)
 
     # Delta vs parent scan (only if parent persisted a position_distribution).
     # Compare percentages — parent and current may have different total_tests.
@@ -126,7 +146,7 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
     personas = db.query(ScanPersona).filter(ScanPersona.scan_id == scan_id).all()
     persona_lines = []
     for p in personas:
-        p_results = [r for r in results if any(
+        p_results = [r for r in run_rows if any(
             q.persona_id == p.id for q in db.query(ScanQuestion).filter(ScanQuestion.id == r.question_id).all()
         )]
         p_cited = sum(1 for r in p_results if (r.brand_analysis or {}).get("marque_cible_mentionnee"))
@@ -134,17 +154,19 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
         topic = db.query(ScanTopic).filter(ScanTopic.id == p.topic_id).first()
         persona_lines.append(f"- {p.name} ({topic.name if topic else '?'}) : {p_rate}% mentionné ({p_cited}/{len(p_results)})")
 
-    # Competitor summary
+    # Competitor summary (run rows only - consensus rows carry {} anyway ;
+    # counts are "across all runs", uniform x N so the top-5 ranking holds)
     all_comp = {}
-    for r in results:
+    for r in run_rows:
         if r.competitor_domains:
             for d, c in r.competitor_domains.items():
                 all_comp[d] = all_comp.get(d, 0) + c
     comp_lines = [f"- {d} : {c} mentions" for d, c in sorted(all_comp.items(), key=lambda x: -x[1])[:5]]
 
-    # Mentioned details (brand mentioned in response text)
+    # Mentioned details (brand mentioned in response text). Analysis rows :
+    # at N>1 the run rows have no sentiment and would list N duplicates.
     cited_lines = []
-    for r in results:
+    for r in analysis_rows:
         if (r.brand_analysis or {}).get("marque_cible_mentionnee"):
             q = db.query(ScanQuestion).filter(ScanQuestion.id == r.question_id).first()
             p = db.query(ScanPersona).filter(ScanPersona.id == q.persona_id).first() if q else None

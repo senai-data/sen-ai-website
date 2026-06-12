@@ -134,7 +134,8 @@ def _competitor_urls(
              )
         )
         SELECT c.url,
-               COUNT(*) AS cites,
+               -- N-runs (T1) : one signal per (question, provider), not per run
+               COUNT(DISTINCT (c.question_id, c.provider)) AS cites,
                jsonb_agg(DISTINCT jsonb_build_object(
                  'question_id', c.question_id::text,
                  'question',    sq.question,

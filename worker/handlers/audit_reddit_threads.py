@@ -110,18 +110,28 @@ def _cited_reddit_threads(db: Session, scan_id: str, limit: int) -> list[dict]:
                 "contextes": [],
                 "response_texts": [],
                 "_seen_slr": set(),
+                "_seen_count_keys": set(),
+                "_seen_text_keys": set(),
                 "winning_questions": [],
             }
             bucket[canonical] = b
-        b["citation_count"] += 1
+        # N-runs (T1) : count once per (question, provider) - the same thread
+        # cited across N runs of one question is one signal, not N.
+        _ckey = (r.question_id, r.provider)
+        if _ckey not in b["_seen_count_keys"]:
+            b["_seen_count_keys"].add(_ckey)
+            b["citation_count"] += 1
         contexte = (r.contexte or "").strip()
         if contexte and contexte not in b["contextes"]:
             b["contextes"].append(contexte)
         # Each (slr_id, URL) maps to ONE response_text - dedupe so we don't
         # add the same response twice when an LLM cites the same URL
-        # multiple times within its answer.
-        if r.slr_id and r.slr_id not in b["_seen_slr"]:
+        # multiple times within its answer. N-runs (T1) : also dedupe per
+        # (question, provider) so N near-identical run responses don't
+        # bloat the Haiku sentiment corpus x N.
+        if r.slr_id and r.slr_id not in b["_seen_slr"] and _ckey not in b["_seen_text_keys"]:
             b["_seen_slr"].add(r.slr_id)
+            b["_seen_text_keys"].add(_ckey)
             rt = (r.response_text or "").strip()
             if rt:
                 b["response_texts"].append(rt[:RESPONSE_TEXT_CAP])
@@ -141,6 +151,8 @@ def _cited_reddit_threads(db: Session, scan_id: str, limit: int) -> list[dict]:
     # for downstream consumers if needed.
     for b in bucket.values():
         b.pop("_seen_slr", None)
+        b.pop("_seen_count_keys", None)
+        b.pop("_seen_text_keys", None)
 
     out = sorted(bucket.values(), key=lambda x: -x["citation_count"])
     return out[:limit]

@@ -94,9 +94,15 @@ def _cited_youtube_videos(db: Session, scan_id: str, limit: int) -> list[dict]:
                 "_slr_brand_mentions": [],  # [(slr_id, brand_mentions), ...]
                 "winning_questions": [],
                 "_seen_q_keys": set(),
+                "_seen_count_keys": set(),
             }
             bucket[canon] = b
-        b["citation_count"] += 1
+        # N-runs (T1) : count once per (question, provider) - the same video
+        # cited across N runs of one question is one signal, not N.
+        _ckey = (r.question_id, r.provider)
+        if _ckey not in b["_seen_count_keys"]:
+            b["_seen_count_keys"].add(_ckey)
+            b["citation_count"] += 1
         if r.raw_url not in b["raw_urls"]:
             b["raw_urls"].append(r.raw_url)
         contexte = (r.contexte or "").strip()
@@ -120,6 +126,7 @@ def _cited_youtube_videos(db: Session, scan_id: str, limit: int) -> list[dict]:
     for b in bucket.values():
         b.pop("_seen_slr", None)
         b.pop("_seen_q_keys", None)
+        b.pop("_seen_count_keys", None)
 
     out = sorted(bucket.values(), key=lambda x: -x["citation_count"])
     return out[:limit]

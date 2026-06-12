@@ -252,7 +252,11 @@ def aggregate_citations(
             slr.provider,
             citation,
             s.config,
-            t.name AS topic_name
+            t.name AS topic_name,
+            slr.scan_id,
+            -- N-runs (T1) dedup key : per question when known, per row for
+            -- orphan results (question_id SET NULL keeps legacy granularity)
+            COALESCE(slr.question_id, slr.id) AS qkey
           FROM scan_llm_results slr
           JOIN scans s ON s.id = slr.scan_id
           LEFT JOIN scan_questions sq ON sq.id = slr.question_id
@@ -264,8 +268,12 @@ def aggregate_citations(
 
     buckets: dict[tuple[str, str, str], dict] = {}
     topic_counts: dict[tuple[str, str, str], dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    # N-runs (T1) : the same domain cited across N runs of one question is
+    # ONE catalog signal, not N - without this the nightly decayed scores
+    # inflate x runs_depth and cascade into suggest-media rankings.
+    seen_signals: set = set()
 
-    for created_at, provider, citation, scan_config, topic_name in rows:
+    for created_at, provider, citation, scan_config, topic_name, scan_id_, qkey in rows:
         if not isinstance(citation, dict):
             continue
         if citation.get("est_site_cible"):
@@ -277,6 +285,10 @@ def aggregate_citations(
             continue
         if domain in _INFRA_HOST_DENYLIST:
             continue
+        signal = (str(scan_id_), str(qkey), provider or "", domain)
+        if signal in seen_signals:
+            continue
+        seen_signals.add(signal)
 
         raw_country = ((scan_config or {}).get("domain_brief") or {}).get("country")
         country = normalize_country(raw_country)

@@ -55,14 +55,15 @@ def _cited_urls(db: Session, scan_id: str, limit: int) -> list[tuple[str, int]]:
 
     sql = _text(
         """
-        SELECT citation->>'url' AS url, COUNT(*)::int AS n
+        SELECT citation->>'url' AS url,
+               COUNT(DISTINCT (slr.question_id, slr.provider))::int AS n
           FROM scan_llm_results slr,
                LATERAL jsonb_array_elements(slr.citations) AS citation
          WHERE slr.scan_id = :scan_id
            AND (citation->>'est_site_cible')::bool = true
            AND citation->>'url' IS NOT NULL
          GROUP BY citation->>'url'
-        HAVING COUNT(*) >= :min_cnt
+        HAVING COUNT(DISTINCT (slr.question_id, slr.provider)) >= :min_cnt
          ORDER BY n DESC
          LIMIT :lim
         """

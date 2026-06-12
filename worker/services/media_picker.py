@@ -406,12 +406,20 @@ def _query_citation_rows(
     ).fetchall()
 
     out: list[tuple[str, str, str, str]] = []
+    # N-runs (T1) : rows are all for ONE question - dedupe per
+    # (domain, provider, url) so N runs citing the same page count once
+    # in the downstream citation_count.
+    _seen: set = set()
     for r in rows:
         if r.is_scanned_site:
             continue
         d = _normalize_domain(r.domain)
         if not d:
             continue
+        _k = (d, r.provider or "", r.url or "")
+        if _k in _seen:
+            continue
+        _seen.add(_k)
         out.append((d, r.provider or "", r.url or "", r.excerpt or ""))
     return out
 

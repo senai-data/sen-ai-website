@@ -105,6 +105,20 @@ def execute(job_payload: dict, scan_id: str | None, db: Session) -> dict:
         .all()
     )
 
+    # N-runs (T1) - the before/after comparison must read ONE analysis row
+    # per (scan, provider) : the consensus row (run_index=0, full
+    # brand_analysis) when the scan ran N>1, else its run row(s). Raw run
+    # rows at N>1 carry no position and would zero out the lift.
+    consensus_keys = {
+        (str(r.scan_id), r.provider)
+        for r in rows if (r.run_index if r.run_index is not None else 1) == 0
+    }
+    rows = [
+        r for r in rows
+        if ((r.run_index if r.run_index is not None else 1) == 0)
+        or ((str(r.scan_id), r.provider) not in consensus_keys)
+    ]
+
     by_provider: dict[str, list] = {}
     for r in rows:
         by_provider.setdefault(r.provider, []).append(r)

@@ -63,30 +63,65 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
 
     counts = {"critique": 0, "haute": 0, "moyenne": 0}
 
+    # N-runs (T1) - group rows by (question, provider) : run rows
+    # (run_index >= 1) carry the per-sample signals, the optional consensus
+    # row (run_index = 0) carries the full EntityAnalyzer output. One
+    # opportunity per (question, provider), like the legacy 1-row case -
+    # at N=1 with no consensus row this degrades to the exact old behavior.
+    from collections import defaultdict
+    groups = defaultdict(lambda: {"runs": [], "consensus": None})
     for r in results:
-        q = db.query(ScanQuestion).filter(ScanQuestion.id == r.question_id).first()
+        key = (str(r.question_id), r.provider)
+        if (r.run_index if r.run_index is not None else 1) == 0:
+            groups[key]["consensus"] = r
+        else:
+            groups[key]["runs"].append(r)
+
+    def _row_mentioned(r) -> bool:
+        ba = r.brand_analysis or {}
+        return bool(r.target_cited or ba.get("marque_cible_mentionnee", False))
+
+    for (qid, provider), g in groups.items():
+        runs = g["runs"]
+        if not runs:
+            continue
+        q = db.query(ScanQuestion).filter(ScanQuestion.id == qid).first()
         if not q:
             continue
 
         persona = personas.get(str(q.persona_id))
         topic = topics.get(str(persona.topic_id)) if persona and persona.topic_id else None
 
-        # Brand analysis
-        brand_analysis = r.brand_analysis or {}
-        brand_cited = r.target_cited or brand_analysis.get("marque_cible_mentionnee", False)
-        brand_position = r.target_position or brand_analysis.get("position_marque_cible")
+        # Statistical brand presence : "absent" means absent in >= 80% of
+        # runs (mention rate < 0.2). At N=1 this is the old boolean.
+        mention_rate = sum(1 for r in runs if _row_mentioned(r)) / len(runs)
+        brand_cited = mention_rate >= 0.2
+
+        # Qualitative fields come from the consensus row when present
+        # (N > 1), else from the single run row (legacy N=1).
+        analysis_row = g["consensus"] or runs[0]
+        brand_analysis = analysis_row.brand_analysis or {}
+        brand_position = (
+            min((r.target_position for r in runs if r.target_position), default=None)
+            or brand_analysis.get("position_marque_cible")
+        )
         brand_sentiment = brand_analysis.get("sentiment_marque_cible")
         brand_recommended = brand_analysis.get("recommandation_marque_cible", False)
 
-        # Competitor analysis
-        competitor_domains = r.competitor_domains or {}
+        # Competitor analysis - union across runs (a competitor seen in any
+        # run is a competitor ; at N=1 this is the single row's dict).
+        competitor_domains: dict = {}
+        for r in runs:
+            for dom, cnt in (r.competitor_domains or {}).items():
+                competitor_domains[dom] = competitor_domains.get(dom, 0) + (cnt or 0)
         nb_competitors = len(competitor_domains)
         best_competitor = None
         best_competitor_pos = None
         best_competitor_domain = None
 
-        # Find best competitor from brand_mentions
-        for mention in (r.brand_mentions or []):
+        # Find best competitor from the analysis row's brand_mentions
+        # (consensus mentions at N>1, run-row mentions at N=1).
+        for mention in (analysis_row.brand_mentions or []):
             if not mention.get("est_marque_cible") and mention.get("position_index"):
                 if best_competitor_pos is None or mention["position_index"] < best_competitor_pos:
                     best_competitor = mention.get("brand_name_groupby") or mention.get("brand_name")

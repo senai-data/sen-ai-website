@@ -253,6 +253,11 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
         .filter(
             ScanLLMResult.scan_id == scan_id,
             ScanLLMResult.response_text.isnot(None),
+            # N-runs (T1) : judge ONE representative sample (run 1) per
+            # (question, provider) - judging all N runs would scale the Haiku
+            # cost x N for verdicts that average out anyway. Consensus rows
+            # (run_index=0) are already excluded by response_text IS NOT NULL.
+            ScanLLMResult.run_index <= 1,
             ScanQuestionJudgment.id.is_(None),
         )
         .all()

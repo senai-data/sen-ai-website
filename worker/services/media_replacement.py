@@ -491,12 +491,19 @@ def _ingest_same_scan_citations(
            AND jsonb_typeof(slr.citations) = 'array'
     """), {"sid": scan_id, "qid": question_id}).fetchall()
 
+    # N-runs (T1) : the rows are all for ONE question - dedupe per
+    # (provider, url) so N runs citing the same page count once.
+    _seen: set = set()
     for r in rows:
         if r.is_target or r.is_pr:
             continue
         d = _normalize_domain(r.domain)
         if not d:
             continue
+        _k = (r.provider or "", r.url or d)
+        if _k in _seen:
+            continue
+        _seen.add(_k)
         cand = candidates.get(d)
         if cand is None:
             cand = _Candidate(domain=d, country=country, language=language)
@@ -530,7 +537,8 @@ def _ingest_cross_scan_citations(
             COALESCE(c->>'url', '')                       AS url,
             s.config->'domain_brief'->>'country'          AS raw_country,
             COALESCE((c->>'est_site_cible')::bool, false) AS is_target,
-            COALESCE((c->>'is_pr_source')::bool, false)   AS is_pr
+            COALESCE((c->>'is_pr_source')::bool, false)   AS is_pr,
+            COALESCE(slr.question_id, slr.id)             AS qkey
           FROM scan_llm_results slr
           JOIN scans s ON s.id = slr.scan_id,
                jsonb_array_elements(slr.citations) c
@@ -543,6 +551,10 @@ def _ingest_cross_scan_citations(
     from services.media_catalog_io import normalize_country
 
     bucket: dict[str, dict] = {}
+    # N-runs (T1) : one signal per (client, question, provider, domain) -
+    # the k-anonymity threshold (DISTINCT clients) was already immune, this
+    # keeps the count score honest at N>1.
+    _seen: set = set()
     for r in rows:
         if r.is_target or r.is_pr:
             continue
@@ -552,6 +564,10 @@ def _ingest_cross_scan_citations(
         rc = normalize_country(r.raw_country)
         if rc != country:
             continue
+        _k = (str(r.client_id), str(r.qkey), r.provider or "", d)
+        if _k in _seen:
+            continue
+        _seen.add(_k)
         b = bucket.setdefault(d, {"clients": set(), "count": 0, "providers": set(), "sample_url": None})
         b["clients"].add(str(r.client_id))
         b["count"] += 1

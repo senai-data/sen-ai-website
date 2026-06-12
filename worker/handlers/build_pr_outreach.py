@@ -344,10 +344,16 @@ def _aggregate_domain(
                 "_pages": {},
                 "_winning_q": [],
                 "_seen_q_keys": set(),
+                "_count_keys": set(),
             }
             bucket[domain] = b
 
-        b["citation_count"] += 1
+        # N-runs (T1) : count once per (question, provider, url) - the same
+        # page cited across N runs of one question is one signal, not N.
+        _ckey = (r["question_id"], r["provider"], url)
+        if _ckey not in b["_count_keys"]:
+            b["_count_keys"].add(_ckey)
+            b["citation_count"] += 1
         b["_competitor_brands"].update(slr_competitors)
         if slr_target_cited:
             b["_target_cited"] = True
@@ -372,10 +378,14 @@ def _aggregate_domain(
                 "_competitors_set": set(),
                 "target_cited": False,
                 "_q_seen": set(),
+                "_q_count": set(),
                 "winning_questions": [],
             }
             b["_pages"][url] = page
-        page["citation_count"] += 1
+        _pkey = (r["question_id"], r["provider"])
+        if _pkey not in page["_q_count"]:
+            page["_q_count"].add(_pkey)
+            page["citation_count"] += 1
         page["_competitors_set"].update(slr_competitors)
         if slr_target_cited:
             page["target_cited"] = True

@@ -8,6 +8,8 @@ services:
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - /etc/letsencrypt:/etc/letsencrypt:ro
+      # Certbot webroot for Let's Encrypt http-01 renewals (cert lapse fix 2026-06).
+      - /var/www/certbot:/var/www/certbot:ro
       # Whole reports tree mounted RO so symlinks in _serve/ can resolve their targets.
       # Nginx alias only exposes _serve/ — the {client}/{period}/ folders are not browsable.
       - /opt/sen-ai/reports:/var/www/reports:ro

@@ -162,7 +162,19 @@ Fonctionnel :
 
 ---
 
-## 7. 🔴 Action urgente : le cert VPS expire le 2026-07-01 et NE se renouvelle pas
+## 7. ✅ RÉSOLU 2026-06-12 : renouvellement TLS fiabilisé (webroot)
+
+> **Fix appliqué le 2026-06-12** : renewal passé en `authenticator = webroot`
+> (`/var/www/certbot` monté RO dans le container nginx, location ACME dans le
+> server block port 80 - le `return 301` a dû être déplacé dans `location /`
+> car un `return` server-level court-circuite le matching des locations).
+> `renew_hook = docker exec senai-nginx nginx -s reload` persisté. Cert
+> renouvelé : **expire 2026-09-10**, `certbot renew --dry-run` vert. Le timer
+> certbot (2×/jour) renouvelle désormais sans downtime. L'option DNS-01
+> Cloudflare reste la cible long terme post-phase 1. Diagnostic d'origine
+> conservé ci-dessous pour l'audit trail.
+
+### (Historique) Le cert VPS expirait le 2026-07-01 et ne se renouvelait pas
 
 **Diagnostic effectué le 2026-06-05 (SSH sur le VPS) — cause racine confirmée :**
 

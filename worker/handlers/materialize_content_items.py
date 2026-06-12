@@ -59,14 +59,20 @@ are the stable signal.
 
 ## Idempotency
 
-On rescan, this handler runs again. We dedupe by `(scan_id, content_type,
-target_question)` — existing ContentItems are preserved (user may have
-already edited them), only NEW questions create new ContentItems. An
-opportunity that drops in priority on rescan keeps its old ContentItem; an
-opportunity that newly enters 'critique'/'haute' gets a fresh one.
+On rescan, this handler runs again. We dedupe by `(content_type,
+normalized target_question)` across the WHOLE CLIENT (act-scope P2 - the
+old scan-scoped key duplicated every still-open card on each rescan).
+Existing ContentItems are preserved (user may have already edited them),
+only NEW questions create new ContentItems. On a dedup hit, a
+pre-generation card (status='identified') is re-pointed at the current
+scan with refreshed opportunity metrics ; cards with generated content
+are never touched. Cross-scan matching is by normalized question TEXT,
+never question_id (rescan copies questions under new ids, imports point
+at the root's).
 """
 
 import logging
+import re
 
 from sqlalchemy.orm import Session
 
@@ -90,6 +96,28 @@ _CONTENT_TYPE_BY_ACTION = {
     "faq": "faq",
     "netlinking": "netlinking_article",
 }
+
+# Workflow progression used by the client-scoped dedup : on duplicate keys
+# the most advanced card is the canonical one. 'identified' (lowest) is the
+# only status the handler may re-point / the dedupe script may delete.
+_STATUS_RANK = {
+    "identified": 0,
+    "generating": 1,
+    "draft": 2,
+    "in_review": 3,
+    "rejected": 3,
+    "approved": 4,
+    "published": 5,
+}
+
+
+def _normalize_question(text: str | None) -> str:
+    """Cross-scan question key : lower / trim / collapse whitespace.
+
+    NEVER join cross-scan by question_id - rescans copy questions under new
+    ids and imported lineages point results at the root's questions.
+    """
+    return re.sub(r"\s+", " ", (text or "").strip().lower())
 
 
 def _resolve_lead_brand(scan, db, item=None):
@@ -627,24 +655,44 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
         f"is_competitor={competitor}, eligible_opps={len(opps)}"
     )
 
-    # Pre-load existing ContentItems for this scan to dedupe by
-    # (content_type, target_question). Allows the same question to have BOTH
-    # a FAQ and a netlinking_article variant if generate_opportunities ever
-    # emits both actions for the same question — unlikely today (action is
-    # exclusive per the ternary in generate_opportunities.py:84) but the
-    # tuple-key dedupe is the correct semantic and future-proof.
+    # Pre-load existing ContentItems for the whole CLIENT to dedupe by
+    # (content_type, normalized target_question). Act-scope P2 : the key was
+    # scan-scoped before, so every rescan re-materialized every still-open
+    # opportunity as a brand-new card and the kanban duplicated per rescan.
+    # ScanContentItem has no client_id - join through scans. load_only keeps
+    # the query light (no content_html across 1000+ rows).
+    from sqlalchemy.orm import load_only
+
     existing = (
         db.query(ScanContentItem)
+        .join(Scan, Scan.id == ScanContentItem.scan_id)
         .filter(
-            ScanContentItem.scan_id == scan_id,
+            Scan.client_id == scan.client_id,
             ScanContentItem.content_type.in_(_CONTENT_TYPE_BY_ACTION.values()),
         )
+        .options(load_only(
+            ScanContentItem.id, ScanContentItem.scan_id,
+            ScanContentItem.content_type, ScanContentItem.target_question,
+            ScanContentItem.status,
+        ))
         .all()
     )
-    existing_keys: set[tuple[str, str]] = {
-        (item.content_type, (item.target_question or "").strip().lower())
-        for item in existing if item.target_question
-    }
+    # One canonical card per key : keep the most advanced status (a published
+    # card wins over a stale duplicate still in 'identified').
+    existing_by_key: dict[tuple[str, str], object] = {}
+    for item in existing:
+        if not item.target_question:
+            continue
+        k = (item.content_type, _normalize_question(item.target_question))
+        cur = existing_by_key.get(k)
+        if cur is None or _STATUS_RANK.get(item.status, 0) > _STATUS_RANK.get(cur.status, 0):
+            existing_by_key[k] = item
+
+    # Batch the opportunity questions (was one query per opportunity).
+    opp_qids = {o.question_id for o in opps if o.question_id}
+    questions_by_id = {
+        q.id: q for q in db.query(ScanQuestion).filter(ScanQuestion.id.in_(opp_qids)).all()
+    } if opp_qids else {}
 
     # Phase 1: create ContentItem rows (without target_url yet) so they get UUIDs
     # we can key the matcher results on.
@@ -655,9 +703,10 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
     # destructuring so they keep working unchanged.
     new_items: list = []
     skipped = 0
+    repointed = 0
 
     for opp in opps:
-        question = db.query(ScanQuestion).filter(ScanQuestion.id == opp.question_id).first()
+        question = questions_by_id.get(opp.question_id)
         if not question or not (question.question or "").strip():
             logger.debug(f"materialize: skip opp {opp.id} — no question text")
             continue
@@ -674,8 +723,22 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
             continue
 
         q_text = question.question.strip()
-        q_key = q_text.lower()
-        if (ct, q_key) in existing_keys:
+        q_key = _normalize_question(q_text)
+        hit = existing_by_key.get((ct, q_key))
+        if hit is not None:
+            # Same question already tracked for this client. Re-point a
+            # pre-generation card at the current scan (kanban stays attached
+            # to the present, card survives old-scan deletion) and refresh
+            # its opportunity metrics. Never touch a card once generation
+            # started - user edits and generated content are preserved.
+            if hit.status == "identified" and str(hit.scan_id) != str(scan_id):
+                hit.scan_id = scan_id
+                hit.priority = opp.priority
+                hit.opportunity_score = opp.opportunity_score
+                hit.brand_position = opp.brand_position
+                hit.best_competitor = opp.best_competitor_name
+                hit.nb_competitors_cited = opp.nb_competitors_cited
+                repointed += 1
             skipped += 1
             continue
 
@@ -706,18 +769,20 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
         )
         db.add(item)
         new_items.append((item, q_text, opp.topic_name, str(opp.question_id)))
-        existing_keys.add((ct, q_key))
+        existing_by_key[(ct, q_key)] = item
 
     if not new_items:
         db.commit()
         logger.info(
             f"materialize_content_items done: scan={scan_id}, "
-            f"materialized=0, skipped_existing={skipped}, auto_matched=0"
+            f"materialized=0, skipped_existing={skipped}, "
+            f"repointed={repointed}, auto_matched=0"
         )
         return {
             "materialized": 0,
             "materialized_by_type": {},
             "skipped_existing": skipped,
+            "repointed": repointed,
             "auto_matched": 0,
             "is_competitor_scan": competitor,
         }
@@ -823,7 +888,7 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
     logger.info(
         f"materialize_content_items done: scan={scan_id}, "
         f"materialized={len(new_items)} {by_type}, "
-        f"skipped_existing={skipped}, "
+        f"skipped_existing={skipped}, repointed={repointed}, "
         f"FAQ auto_matched={auto_matched}/{len(faq_items)} "
         f"(sitemap_index={sitemap_matched}, "
         f"auto_suggest={auto_matched - sitemap_matched}), "
@@ -838,6 +903,7 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
         "materialized": len(new_items),
         "materialized_by_type": by_type,
         "skipped_existing": skipped,
+        "repointed": repointed,
         "auto_matched": auto_matched,
         "sitemap_matched": sitemap_matched,
         "article_auto_matched": article_auto_matched,

@@ -539,7 +539,12 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
                     provider=prov,
                     model="consensus",
                     response_text=None,
-                    citations=None,
+                    # EMPTY list, not None : SQLAlchemy JSONB stores Python
+                    # None as JSON null (not SQL NULL), and jsonb_array_length
+                    # ('null') crashes every citation aggregation (media_picker
+                    # took down the smoke scan via materialize_content_items).
+                    # [] makes jsonb_array_elements no-op naturally instead.
+                    citations=[],
                     target_cited=None,
                     target_position=None,
                     total_citations=None,

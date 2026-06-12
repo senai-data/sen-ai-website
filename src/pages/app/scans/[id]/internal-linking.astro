@@ -20,10 +20,17 @@
 export const prerender = false;
 import ScanResultsLayout from '../../../../layouts/ScanResultsLayout.astro';
 import Tip from '../../../../components/Tip.astro';
+import ActScanNotice from '../../../../components/ActScanNotice.astro';
+import { resolveActScan } from '../../../../lib/act-scan';
 
 const token = Astro.cookies.get('token')?.value;
 if (!token) return Astro.redirect('/login');
-const scanId = Astro.params.id as string;
+const urlScanId = Astro.params.id as string;
+// Act-scope (P1) : this leaf documents the present - data fetches and
+// refresh actions target the latest completed scan of the lineage,
+// unless a specific ?run= was deep-linked. The layout keeps the URL id.
+const act = await resolveActScan(urlScanId, token, Astro.url.searchParams);
+const scanId = act.scanId;
 
 const headers = { Cookie: `token=${token}` };
 let data: any = null;
@@ -92,7 +99,8 @@ function shortPath(u: string | null): string {
 const defaultFilter = (summary.dead_end || 0) > 0 ? 'dead_end' : ((summary.orphan || 0) > 0 ? 'orphan' : 'issues');
 ---
 
-<ScanResultsLayout scanId={scanId} activeTab="internal-linking">
+<ScanResultsLayout scanId={urlScanId} activeTab="internal-linking">
+  <ActScanNotice resolved={act.resolved} completedAt={act.completedAt} />
   <div x-data={`{ filter: '${defaultFilter}', expanded: null, refreshing: false }`}>
 
     <p class="text-sm text-charcoal-light mb-6">

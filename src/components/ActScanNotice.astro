@@ -1,0 +1,21 @@
+---
+/**
+ * Discreet "Showing the latest scan" line for act-scoped leaves.
+ * Rendered only when resolveActScan() switched away from the URL scan id,
+ * so users entering via an old child scan (or a picker-rebuilt root URL)
+ * know which scan the page documents.
+ */
+interface Props {
+  resolved: boolean;
+  completedAt: string | null;
+}
+const { resolved, completedAt } = Astro.props;
+const dateLabel = completedAt
+  ? new Date(completedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+  : null;
+---
+{resolved && (
+  <p class="text-[11px] text-charcoal-light mb-4">
+    Showing the latest scan{dateLabel ? ` - ${dateLabel}` : ''}
+  </p>
+)}

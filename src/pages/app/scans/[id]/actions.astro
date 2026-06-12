@@ -9,14 +9,17 @@
  */
 export const prerender = false;
 import ScanResultsLayout from '../../../../layouts/ScanResultsLayout.astro';
+import ActScanNotice from '../../../../components/ActScanNotice.astro';
+import { resolveActScan } from '../../../../lib/act-scan';
 
 const token = Astro.cookies.get('token')?.value;
 if (!token) return Astro.redirect('/login');
 const { id: scanId } = Astro.params;
 
-const rangeParam = Astro.url.searchParams.get('range') || 'all';
-const runParam = Astro.url.searchParams.get('run') || '';
-const effectiveScanId = (rangeParam === 'latest' && runParam) ? runParam : scanId;
+// Act-scope (P1) : this leaf documents the present - resolve the latest
+// completed scan of the lineage unless a specific ?run= was deep-linked.
+const act = await resolveActScan(scanId as string, token, Astro.url.searchParams);
+const effectiveScanId = act.scanId;
 const providerParam = Astro.url.searchParams.get('provider') || 'all';
 
 const headers = { Cookie: `token=${token}` };
@@ -97,6 +100,7 @@ const oppTopicMoyenne = topicOppEntries.map(e => e[1].moyenne);
 ---
 
 <ScanResultsLayout scanId={scanId} activeTab="actions">
+  <ActScanNotice resolved={act.resolved} completedAt={act.completedAt} />
   <div x-data={`{
     filterPriority: 'all',
     filterTopic: 'all',

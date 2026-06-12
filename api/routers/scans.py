@@ -18,6 +18,10 @@ from models import (
 )
 
 logger = logging.getLogger(__name__)
+# NOTE : this import was MISSING until 2026-06-12 - the auto-rescan endpoint
+# (S15.4) referenced `settings` and 500'd on every worker sweep call since
+# ship. Also needed by /notify-complete (Resend + internal token + frontend_url).
+from config import settings
 from services.auth_service import get_current_user
 from services.audit import audit_log
 from services.rate_limit import limiter
@@ -1541,6 +1545,98 @@ async def auto_rescan(
     db.commit()
     db.refresh(child)
     return _serialize_scan(child)
+
+
+def _send_scan_complete_email(*, to_email: str, label: str, brand_mention_rate, results_url: str) -> bool:
+    """Mobile P2 - scan-complete notification via Resend. Mirrors the
+    auth._send_verification_email pattern : falls back to a log line when
+    Resend isn't configured, never raises."""
+    if not settings.resend_api_key:
+        logger.warning(f"RESEND_API_KEY not set - scan-complete email for {to_email}: {results_url}")
+        return False
+    try:
+        import resend
+        resend.api_key = settings.resend_api_key
+        rate_line = (
+            f"<p>Brand mentioned in <strong>{brand_mention_rate}%</strong> of AI answers.</p>"
+            if brand_mention_rate is not None else ""
+        )
+        resend.Emails.send({
+            "from": settings.resend_from_email,
+            "to": [to_email],
+            "subject": f"Your AI scan of {label} is complete",
+            "html": (
+                f"<p>Your AI scan of <strong>{label}</strong> just finished.</p>"
+                f"{rate_line}"
+                f'<p><a href="{results_url}" style="display:inline-block;padding:12px 24px;'
+                f'background:#E8604C;color:white;border-radius:8px;text-decoration:none;'
+                f'font-weight:bold;">See the results</a></p>'
+                f'<p style="font-size:13px;color:#666;">You receive this email because you '
+                f"launched this scan on sen-ai.fr.</p>"
+                f"<p>- sen-ai.fr</p>"
+            ),
+        })
+        return True
+    except Exception:
+        logger.exception(f"Failed to send scan-complete email to {to_email}")
+        return False
+
+
+@router.post("/{scan_id}/notify-complete")
+async def notify_scan_complete(
+    scan_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Mobile P2 - worker-triggered scan-complete email. Same X-Internal-Token
+    auth as /auto-rescan (the worker has no user session). The email is the
+    mobile bridge of the funnel : a user who registered on their phone gets a
+    deep link back into the results once the scan is done.
+
+    Idempotent via summary['completion_email_sent_at'] so a worker retry
+    can't double-send. Skips silently (200 + sent:false) when the scan has no
+    owner or the owner never verified their email - both are data states, not
+    caller errors, and the worker must never treat them as scan failures.
+    """
+    expected = (settings.internal_service_token or "").strip()
+    presented = (request.headers.get("X-Internal-Token") or "").strip()
+    if not expected or presented != expected:
+        raise HTTPException(401, "Invalid or missing X-Internal-Token")
+
+    scan = db.query(Scan).filter(Scan.id == scan_id).first()
+    if not scan:
+        raise HTTPException(404, "Scan not found")
+    if scan.status != "completed":
+        raise HTTPException(400, f"Scan not completed (current status: {scan.status})")
+
+    summary = dict(scan.summary or {})
+    if summary.get("completion_email_sent_at"):
+        return {"sent": False, "reason": "already_sent"}
+    if not scan.created_by:
+        return {"sent": False, "reason": "no_owner"}
+
+    from models import User
+    owner = db.query(User).filter(User.id == scan.created_by).first()
+    if not owner or not owner.email:
+        return {"sent": False, "reason": "no_owner"}
+    if not owner.is_email_verified:
+        return {"sent": False, "reason": "email_unverified"}
+
+    label = scan.name or scan.domain or "your domain"
+    results_url = f"{settings.frontend_url}/app/scans/{scan.id}/results"
+    sent = _send_scan_complete_email(
+        to_email=owner.email,
+        label=label,
+        brand_mention_rate=summary.get("brand_mention_rate"),
+        results_url=results_url,
+    )
+    if sent:
+        from sqlalchemy.orm.attributes import flag_modified
+        summary["completion_email_sent_at"] = datetime.utcnow().isoformat()
+        scan.summary = summary
+        flag_modified(scan, "summary")
+        db.commit()
+    return {"sent": sent}
 
 
 @router.get("/{scan_id}/lineage")

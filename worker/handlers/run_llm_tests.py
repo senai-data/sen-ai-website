@@ -553,6 +553,25 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
 
     db.commit()
 
+    # Mobile P2 - scan-complete email to the scan owner, via the api (Resend
+    # lives api-side ; X-Internal-Token mirrors the auto-rescan sweep).
+    # Fire-and-forget AFTER the completion commit : a notification failure
+    # must never fail the scan, and the endpoint is idempotent
+    # (summary['completion_email_sent_at']) so a job retry can't double-send.
+    try:
+        from config import settings as _settings
+        _token = (_settings.internal_service_token or "").strip()
+        if _token:
+            import httpx
+            _resp = httpx.post(
+                f"{_settings.api_internal_base_url.rstrip('/')}/api/scans/{scan_id}/notify-complete",
+                headers={"X-Internal-Token": _token},
+                timeout=15.0,
+            )
+            logger.info(f"notify-complete for {scan_id}: {_resp.status_code} {_resp.text[:120]}")
+    except Exception:
+        logger.warning(f"notify-complete email call failed for scan {scan_id}", exc_info=True)
+
     logger.info(f"Scan complete: {completed} tests, citations={citation_rate}%, brand={brand_rate}%")
     return {
         "total_tests": completed,

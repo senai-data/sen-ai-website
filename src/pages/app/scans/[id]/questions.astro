@@ -193,6 +193,12 @@ const typeRateColors = typeRates.map(r => r >= 30 ? '#10b981' : r > 0 ? '#f59e0b
                   <span class="text-[10px] text-charcoal-light">
                     <span x-text="q.persona"></span> · <span x-text="q.topic_name"></span>
                   </span>
+                  {/* N-runs (T3) : intra-scan sampling chip - "cited in X of N runs" */}
+                  <template x-if="q.runs_total > 1">
+                    <span class="text-[9px] px-1.5 py-0.5 rounded-full font-medium"
+                          :class="q.mention_rate >= 0.7 ? 'bg-emerald-50 text-emerald-700' : q.mention_rate >= 0.3 ? 'bg-amber-50 text-amber-700' : 'bg-red-50 text-red-600'"
+                          x-text="Math.round(q.mention_rate * q.runs_total) + '/' + q.runs_total + ' runs'"></span>
+                  </template>
                   {/* Brand insight badges (Von Restorff: highlight what matters) */}
                   <template x-if="q.brand_analysis && q.brand_analysis.sentiment_marque_cible">
                     <span class="text-[9px] px-1.5 py-0.5 rounded-full"
@@ -347,6 +353,11 @@ const typeRateColors = typeRates.map(r => r >= 30 ? '#10b981' : r > 0 ? '#f59e0b
                   <span class="text-[10px] text-charcoal-light" x-text="q.model"></span>
                   <template x-if="q.duration_ms">
                     <span class="text-[10px] text-charcoal-light" x-text="(q.duration_ms / 1000).toFixed(1) + 's'"></span>
+                  </template>
+                  {/* N-runs (T3) : the shown text is one sample ; the
+                      analysis above is the consensus over all runs */}
+                  <template x-if="q.runs_total > 1">
+                    <span class="text-[10px] text-charcoal-light" x-text="'sample 1 of ' + q.runs_total + ' runs · brand analysis = consensus over all runs'"></span>
                   </template>
                 </div>
                 <div class="text-xs text-charcoal-dark leading-relaxed max-h-60 overflow-y-auto whitespace-pre-line bg-white rounded-lg border border-gray-200 p-3"

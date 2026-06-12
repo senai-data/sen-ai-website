@@ -82,7 +82,7 @@ const criticalCount = tabCounts.actions > 0 ? tabCounts.actions : 0;
 const currentQuery = Astro.url.searchParams.toString();
 
 // Range label for breadcrumb context
-const rangeContext = rangeParam === 'all' && runs.length > 1 ? ` (${runs.length} runs)` : '';
+const rangeContext = rangeParam === 'all' && runs.length > 1 ? ` (${runs.length} scans)` : '';
 ---
 
 <DashboardLayout title={`${scan.focus_brand || scan.name || scan.domain} - ${tabLabels[activeTab]}`} activeSection="scans" mobileReady={mobileReady}>

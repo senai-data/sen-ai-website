@@ -390,7 +390,7 @@ const priorityDot: Record<string, string> = {
           </div>
           {mentionVals.length >= 2 && (
             <div>
-              <div class="hero__rl">Trend ({mentionVals.length} runs)</div>
+              <div class="hero__rl">Trend ({mentionVals.length} scans)</div>
               <div set:html={sparkSvg(mentionVals, tone(mentionVals), mentionLabels, 120, 34)} />
             </div>
           )}
@@ -497,7 +497,7 @@ const priorityDot: Record<string, string> = {
                     <tr onclick={`window.location.href='${href}'`} style="cursor:pointer">
                       <td>
                         <span class="scandate">{fmtDate(s.completed_at || s.created_at)}
-                          <small>{s.schedule && s.schedule !== 'manual' ? `Auto ${s.schedule}` : 'Manual'}{s.run_index > 1 ? ` · run ${s.run_index}` : ''}</small>
+                          <small>{s.schedule && s.schedule !== 'manual' ? `Auto ${s.schedule}` : 'Manual'}{s.run_index > 1 ? ` · scan ${s.run_index}` : ''}</small>
                         </span>
                       </td>
                       <td style="max-width:220px">

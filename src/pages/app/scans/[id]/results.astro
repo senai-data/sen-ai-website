@@ -76,9 +76,17 @@ const oppsItems = opportunitiesData?.opportunities || [];
 const isAggregated = data?.mode === 'aggregated';
 
 const currentRate = o?.citation_rate ?? 0;
+// N-runs (T3) - 95% CI on the headline mention rate, binomial over the run
+// samples. Shown only when the scan multi-sampled (runs_depth > 1) : a
+// poll-style "X% ± Y pts" instead of a fragile point estimate.
+const runsDepth = o?.runs_depth ?? 1;
 const delta = o?.delta ?? null;
 const totalTests = o?.total_tests ?? 0;
 const trendFromApi = o?.trend || [];
+const _p = (currentRate ?? 0) / 100;
+const marginPts = (runsDepth > 1 && totalTests > 0)
+  ? Math.round(1.96 * Math.sqrt(_p * (1 - _p) / totalTests) * 1000) / 10
+  : null;
 
 // ─── Refund + circuit breaker (kept, top-of-page safety rail) ───
 const providerStatus: any = o?.provider_status || null;
@@ -194,17 +202,25 @@ sovItemsRaw.sort((a, b) => b.mentions - a.mentions);
 const sovMax = Math.max(1, ...sovItemsRaw.map(r => r.mentions));
 
 // ─── Panel D : Top buyer questions (dedup, sorted by ascending mention rate = weakest first) ───
-interface QRow { question: string; rate: number; mention_count: number; total_runs: number; }
+interface QRow { question: string; rate: number; mention_count: number; total_runs: number; unit: string; }
 const seenQ = new Set<string>();
 const allQ: QRow[] = [];
 details.forEach((d: any) => {
   const q = d.question;
   if (!q || seenQ.has(q)) return;
   seenQ.add(q);
-  const runs = isAggregated ? (d.total_runs || 1) : 1;
-  const mc = isAggregated ? (d.mention_count || 0) : (d.brand_mentioned ? 1 : 0);
+  // N-runs (T3) : single-scan mode now carries intra-scan sampling stats
+  // (runs_total / mention_rate, both 1|0-shaped on legacy N=1 scans) -
+  // "0/10 runs" reads exactly like the lineage "0/5 scans" did.
+  const runs = isAggregated ? (d.total_runs || 1) : (d.runs_total || 1);
+  const mc = isAggregated
+    ? (d.mention_count || 0)
+    : Math.round((d.mention_rate ?? (d.brand_mentioned ? 1 : 0)) * (d.runs_total || 1));
   const rate = runs > 0 ? Math.round((mc / runs) * 100) : 0;
-  allQ.push({ question: q, rate, mention_count: mc, total_runs: runs });
+  // Unit disambiguates the two multiplicities : lineage points = "scans",
+  // intra-scan samples = "runs". Hidden when there is only one of either.
+  const unit = runs > 1 ? (isAggregated ? 'scans' : 'runs') : '';
+  allQ.push({ question: q, rate, mention_count: mc, total_runs: runs, unit });
 });
 allQ.sort((a, b) => a.rate - b.rate);
 const topQuestions = allQ.slice(0, 5);
@@ -457,6 +473,11 @@ const mentionTone: 'up' | 'down' | 'flat' = delta == null ? 'flat' : delta > 0 ?
               </span>
             )}
           </div>
+          {marginPts !== null && (
+            <div style="margin-top:4px;font-size:11px;color:var(--color-text-muted)" title={`95% confidence interval over ${totalTests} samples (${runsDepth} runs per question). AI answers vary between identical runs - the margin shows how solid this rate is.`}>
+              ± {marginPts} pts · {runsDepth} runs per question
+            </div>
+          )}
           {mentionRateTrend.length > 1
             ? <div class="spark" set:html={sparkSvg(mentionRateTrend, mentionTone, mentionLabels)} />
             : <div class="spark spark--empty">Trend appears after your next rescan</div>}
@@ -607,7 +628,7 @@ const mentionTone: 'up' | 'down' | 'flat' = delta == null ? 'flat' : delta > 0 ?
                     <div class="qrow">
                       <span class={`sev sev--${s.sev}`} style="padding:3px 9px"><span class="sev__dot"></span>{s.label}</span>
                       <span class="qrow__q">{q.question}</span>
-                      <span class="qrow__cited">{q.mention_count} / {q.total_runs}</span>
+                      <span class="qrow__cited">{q.mention_count} / {q.total_runs}{q.unit ? ` ${q.unit}` : ''}</span>
                     </div>
                   );
                 })}

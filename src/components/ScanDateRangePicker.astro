@@ -45,7 +45,7 @@ function rangeUrl(range: string, extra = ''): string {
 
 const rangeLabel = currentRange === 'all' ? 'All dates'
   : currentRange === 'latest' ? fmtFull(runs[runs.length - 1]?.completed_at)
-  : currentRange === 'last2' ? 'Last 2 runs'
+  : currentRange === 'last2' ? 'Last 2 scans'
   : currentRange === 'custom' ? `${fmtShort(fromDate)} — ${fmtShort(toDate)}`
   : 'All dates';
 
@@ -107,19 +107,19 @@ const lastDate = runs[runs.length - 1]?.completed_at;
         <span class="text-[10px] text-charcoal-light ml-1">{fmtShort(firstDate)} — {fmtShort(lastDate)}</span>
       </a>
       <a href={rangeUrl('latest')} class:list={['block px-4 py-2 text-xs transition-colors', currentRange === 'latest' ? 'bg-coral/5 text-coral font-medium' : 'text-charcoal-dark hover:bg-gray-50']}>
-        Latest run
+        Latest scan
         <span class="text-[10px] text-charcoal-light ml-1">{fmtShort(lastDate)}</span>
       </a>
       {runs.length >= 3 && (
         <a href={rangeUrl('last2')} class:list={['block px-4 py-2 text-xs transition-colors', currentRange === 'last2' ? 'bg-coral/5 text-coral font-medium' : 'text-charcoal-dark hover:bg-gray-50']}>
-          Last 2 runs
+          Last 2 scans
         </a>
       )}
 
       <div class="border-t border-gray-100 my-1"></div>
 
       {/* Individual runs */}
-      <p class="px-4 py-1 text-[10px] text-charcoal-light uppercase">Individual runs</p>
+      <p class="px-4 py-1 text-[10px] text-charcoal-light uppercase">Individual scans</p>
       {[...runs].reverse().map(r => (
         <a href={rangeUrl('latest') + `&run=${r.id}`}
            class:list={['block px-4 py-2 text-xs transition-colors', 'text-charcoal-dark hover:bg-gray-50']}>

@@ -1,3 +1,4 @@
 [submodule "worker/seo_llm"]
 	path = worker/seo_llm
 	url = https://github.com/senai-data/seo-llm.git
+	ignore = untracked

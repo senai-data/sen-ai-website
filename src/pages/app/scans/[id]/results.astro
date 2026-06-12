@@ -329,7 +329,7 @@ const sovLabels = runLabels(trendFromApi.map((t: any) => t.sov), v => `${v}%`);
 const mentionTone: 'up' | 'down' | 'flat' = delta == null ? 'flat' : delta > 0 ? 'up' : delta < 0 ? 'down' : 'flat';
 ---
 
-<ScanResultsLayout scanId={scanId} activeTab="overview">
+<ScanResultsLayout scanId={scanId} activeTab="overview" mobileReady>
   <style is:global>
     /* Overview-local layout - page-specific grids + bar primitives.
        Reused vocabulary from the design (.ovl .grid-12 col-* .panel
@@ -400,6 +400,15 @@ const mentionTone: 'up' | 'down' | 'flat' = delta == null ? 'flat' : delta > 0 ?
     @media (max-width: 1024px) {
       .ovl { grid-template-columns:1fr 1fr; }
       .col-3, .col-4, .col-5, .col-7 { grid-column:span 12; }
+    }
+    /* Mobile P3 - phone pass. The page is the scan-complete email's
+       deep-link target : tiles tighten, gaps shrink, nothing hidden. */
+    @media (max-width: 639px) {
+      .ovl { gap:10px; }
+      .ovl .stat { padding:13px 14px; }
+      .ovl .stat__value { font-size:24px; }
+      .grid-12 { gap:12px; }
+      .prov__row { grid-template-columns:84px 1fr 38px; gap:8px; }
     }
   </style>
 

@@ -27,9 +27,13 @@ import { fetchScanHeader } from '../lib/scan-header';
 interface Props {
   scanId: string;
   activeTab: 'overview' | 'topics' | 'personas' | 'questions' | 'citations' | 'wikipedia' | 'audit' | 'schema' | 'competitors' | 'reddit' | 'pr-outreach' | 'internal-linking' | 'youtube' | 'crisis' | 'compliance' | 'actions';
+  /** Mobile P3 - forwarded to DashboardLayout. Only the Overview leaf
+   *  (results.astro) opts in : it's the scan-complete email's deep-link
+   *  target. Dense leaves keep the <1024px gate. */
+  mobileReady?: boolean;
 }
 
-const { scanId, activeTab } = Astro.props;
+const { scanId, activeTab, mobileReady = false } = Astro.props;
 
 // Auth guard
 const token = Astro.cookies.get('token')?.value;
@@ -81,7 +85,7 @@ const currentQuery = Astro.url.searchParams.toString();
 const rangeContext = rangeParam === 'all' && runs.length > 1 ? ` (${runs.length} runs)` : '';
 ---
 
-<DashboardLayout title={`${scan.focus_brand || scan.name || scan.domain} - ${tabLabels[activeTab]}`} activeSection="scans">
+<DashboardLayout title={`${scan.focus_brand || scan.name || scan.domain} - ${tabLabels[activeTab]}`} activeSection="scans" mobileReady={mobileReady}>
 
   {/* Breadcrumb (Recognition > Recall) */}
   <ScanBreadcrumb
@@ -91,8 +95,8 @@ const rangeContext = rangeParam === 'all' && runs.length > 1 ? ` (${runs.length}
   />
 
   {/* Sticky Scan Header (Von Restorff: grade badge stands out) */}
-  <div class="sticky top-0 z-20 bg-white/95 backdrop-blur-sm shadow-sm px-8 py-3">
-    <div class="max-w-5xl flex items-center justify-between gap-4">
+  <div class="static lg:sticky top-0 z-20 bg-white/95 backdrop-blur-sm shadow-sm px-4 lg:px-8 py-3">
+    <div class="max-w-5xl flex items-center justify-between gap-4 flex-wrap">
       <div class="flex items-center gap-4 min-w-0">
         {/* Grade badge */}
         <div class={`w-12 h-12 rounded-xl ${grade.bg} shadow-sm flex flex-col items-center justify-center shrink-0`}>
@@ -115,7 +119,7 @@ const rangeContext = rangeParam === 'all' && runs.length > 1 ? ` (${runs.length}
           </div>
         </div>
       </div>
-      <div class="flex items-center gap-3 shrink-0">
+      <div class="flex items-center gap-3 shrink-0 flex-wrap">
         <ScanProviderFilter
           currentProvider={providerParam}
           availableProviders={overview?.providers || ['openai']}
@@ -211,7 +215,7 @@ const rangeContext = rangeParam === 'all' && runs.length > 1 ? ` (${runs.length}
   />
 
   {/* Page content */}
-  <div class="px-8 max-w-5xl pb-8 pt-6">
+  <div class="px-4 lg:px-8 max-w-5xl pb-8 pt-6">
     {headerData.error && (
       <div class="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 text-sm mb-6">
         {headerData.error}

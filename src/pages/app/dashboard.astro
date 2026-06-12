@@ -259,7 +259,7 @@ const priorityDot: Record<string, string> = {
 };
 ---
 
-<DashboardLayout title="Dashboard" activeSection="dashboard">
+<DashboardLayout title="Dashboard" activeSection="dashboard" mobileReady>
   <style is:global>
     /* Page-local vocabulary from 10-dashboard.html (.hero .kpis .grid
        .panel .tbl .next .gaps .quick). Primitives from components.css. */
@@ -326,6 +326,21 @@ const priorityDot: Record<string, string> = {
     .wsd .qa__t { font-size: 13px; font-weight: 600; color: var(--color-text-primary); }
     .wsd .qa__d { font-size: 11.5px; color: var(--color-text-muted); margin-top: 1px; }
     .wsd .qa__arr { margin-left: auto; color: var(--color-text-muted); }
+
+    /* Mobile P3 - phone pass : hero stacks, KPI grid tightens, the recent
+       scans table scrolls horizontally inside its panel (6 honest columns
+       beat 3 truncated ones). */
+    .wsd .tblwrap { overflow-x: auto; }
+    @media (max-width: 1023px) { .wsd .tblwrap table.tbl { min-width: 620px; } }
+    @media (max-width: 639px) {
+      .wsd { padding: var(--space-4); }
+      .wsd .hero { padding: 16px; gap: 14px; }
+      .wsd .hero__rate { margin-left: 0; padding-left: 0; border-left: 0; width: 100%; }
+      .wsd .hero__actions { margin-left: 0; width: 100%; }
+      .wsd .hero__actions .btn { flex: 1; justify-content: center; }
+      .wsd .kpis { gap: 10px; }
+      .wsd .kpis .stat__value { font-size: 24px; }
+    }
 
     .wsd .notice { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: var(--space-5); }
     .wsd .notice--info { background: #EFF6FF; border-color: #BFDBFE; }
@@ -469,6 +484,7 @@ const priorityDot: Record<string, string> = {
               </a>
             </div>
           ) : (
+            <div class="tblwrap">
             <table class="tbl">
               <thead><tr><th>Date</th><th>Scan</th><th>Status</th><th>Grade</th><th>Mention rate</th><th>Change</th></tr></thead>
               <tbody>
@@ -503,6 +519,7 @@ const priorityDot: Record<string, string> = {
                 })}
               </tbody>
             </table>
+            </div>
           )}
         </div>
       </div>

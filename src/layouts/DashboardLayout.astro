@@ -16,9 +16,14 @@ import AgentChatWidget from '../components/AgentChatWidget.astro';
 interface Props {
   title: string;
   activeSection?: string;
+  /** Mobile P3 - pages that pass true bypass the <1024px gate : the shell
+   *  renders below lg with the sidebar swapped for a slim top bar. Reserve
+   *  for read-mostly pages whose content stacks honestly on a phone
+   *  (dashboard, results overview). Dense leaves stay gated. */
+  mobileReady?: boolean;
 }
 
-const { title, activeSection = '' } = Astro.props;
+const { title, activeSection = '', mobileReady = false } = Astro.props;
 
 // Get user info from JWT cookie
 const token = Astro.cookies.get('token')?.value;
@@ -178,6 +183,7 @@ const icons = {
        it keeps the (white-label) brand frame, surfaces which workspaces need
        attention right now (agency orgs only, lazy-fetched so desktop users
        never pay the roundtrip), and offers one action (copy the link). -->
+  {!mobileReady && (
   <div id="mobile-gate" class="lg:hidden min-h-screen bg-gray-50 flex flex-col">
     <div class="px-5 py-4 bg-charcoal-dark flex items-center gap-2.5">
       {(activeOrg as any)?.branding?.logo_url ? (
@@ -206,11 +212,30 @@ const icons = {
       </button>
     </div>
   </div>
+  )}
 
-  <div class="hidden lg:flex min-h-screen">
+  {/* Mobile P3 - slim top bar for mobileReady pages : the fixed w-60
+      sidebar has no honest 375px form, so navigation collapses to the
+      brand mark (home) + the active workspace name. */}
+  {mobileReady && (
+    <div class="lg:hidden sticky top-0 z-30 px-4 py-3 bg-charcoal-dark flex items-center gap-2.5">
+      <a href="/app/dashboard" class="flex items-center gap-2.5 min-w-0">
+        {(activeOrg as any)?.branding?.logo_url ? (
+          <img src={(activeOrg as any).branding.logo_url} alt={(activeOrg as any).branding?.display_name || activeOrg?.name} class="w-7 h-7 rounded object-contain bg-white/10" />
+        ) : (
+          <img src="/logo-sen-ai-fr.png" alt="sen-ai.fr" class="h-6 brightness-0 invert opacity-90" />
+        )}
+      </a>
+      {activeClient && (
+        <span class="ml-auto text-[12px] text-gray-300 truncate">{activeClient.name}</span>
+      )}
+    </div>
+  )}
+
+  <div class:list={[mobileReady ? 'flex' : 'hidden lg:flex', 'min-h-screen']}>
 
     <!-- Sidebar -->
-    <aside class="w-60 bg-charcoal-dark flex flex-col shrink-0 fixed h-screen z-10">
+    <aside class:list={[mobileReady ? 'hidden lg:flex' : 'flex', 'w-60 bg-charcoal-dark flex-col shrink-0 fixed h-screen z-10']}>
 
       <!-- Logo -->
       <div class="px-5 py-5 border-b border-white/10">
@@ -584,8 +609,9 @@ const icons = {
       </div>
     </aside>
 
-    <!-- Main content (offset by sidebar width) -->
-    <main class="flex-1 ml-60">
+    <!-- Main content (offset by sidebar width ; no offset below lg when the
+         sidebar is hidden on mobileReady pages) -->
+    <main class:list={['flex-1', mobileReady ? 'ml-0 lg:ml-60' : 'ml-60']}>
       <slot />
     </main>
   </div>

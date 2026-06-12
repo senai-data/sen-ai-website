@@ -84,7 +84,7 @@ const activeMacroId = macros.find(m => m.leaves.includes(activeTab))?.id || 'vis
 const queryStringSuffix = queryString ? '?' + queryString : '';
 ---
 
-<div class="scantabs px-8 bg-white sticky top-[68px] z-10 pt-3" x-data={`{ macro: '${activeMacroId}' }`}>
+<div class="scantabs px-4 lg:px-8 bg-white static lg:sticky top-[68px] z-10 pt-3" x-data={`{ macro: '${activeMacroId}' }`}>
   <style is:global>
     /* The components.css library styles `.tabs__leaf button` ; the working
        nav uses `<a>` (SSR-first, right-click-open-tab-friendly). Mirror

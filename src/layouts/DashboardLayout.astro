@@ -172,7 +172,42 @@ const icons = {
   </style>
 </head>
 <body class="bg-gray-50 text-charcoal font-sans antialiased min-h-screen">
-  <div class="flex min-h-screen">
+
+  <!-- Mobile gate (handoff ref 05, Option C hybrid) - below 1024px the dense
+       app shell is hidden and replaced by a calm redirect. Not a dead end :
+       it keeps the (white-label) brand frame, surfaces which workspaces need
+       attention right now (agency orgs only, lazy-fetched so desktop users
+       never pay the roundtrip), and offers one action (copy the link). -->
+  <div id="mobile-gate" class="lg:hidden min-h-screen bg-gray-50 flex flex-col">
+    <div class="px-5 py-4 bg-charcoal-dark flex items-center gap-2.5">
+      {(activeOrg as any)?.branding?.logo_url ? (
+        <>
+          <img src={(activeOrg as any).branding.logo_url} alt={(activeOrg as any).branding?.display_name || activeOrg?.name} class="w-7 h-7 rounded object-contain bg-white/10" />
+          <span class="text-white text-sm font-semibold truncate">{(activeOrg as any).branding?.display_name || activeOrg?.name}</span>
+        </>
+      ) : (
+        <img src="/logo-sen-ai-fr.png" alt="sen-ai.fr" class="h-6 brightness-0 invert opacity-90" />
+      )}
+    </div>
+    <div class="flex-1 flex flex-col items-center justify-center px-6 py-10 text-center">
+      <div class="w-16 h-16 rounded-2xl bg-white border border-gray-200 flex items-center justify-center mb-5">
+        <svg class="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" stroke-width="1.6" viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="13" rx="2"/><path stroke-linecap="round" d="M8 21h8M12 17v4"/></svg>
+      </div>
+      <h1 class="text-lg font-bold text-charcoal-dark mb-2">Best viewed on a wider screen</h1>
+      <p class="text-sm text-charcoal-light max-w-xs mx-auto">The full dashboard needs at least 1024px of width. Open this page on a desktop to continue.</p>
+
+      <div id="gate-attention" class="hidden w-full max-w-sm mt-6 bg-white border border-gray-200 rounded-xl p-4 text-left" data-org-id={activeOrg && !activeOrg.is_personal ? activeOrg.id : undefined}>
+        <p class="text-[10px] font-semibold uppercase tracking-wide text-gray-400">Needs attention</p>
+        <div id="gate-attention-rows" class="mt-2 space-y-2"></div>
+      </div>
+
+      <button id="gate-copy-link" class="mt-6 w-full max-w-sm py-3 bg-coral text-white text-sm font-medium rounded-lg hover:bg-coral-dark transition-colors">
+        Copy link for desktop
+      </button>
+    </div>
+  </div>
+
+  <div class="hidden lg:flex min-h-screen">
 
     <!-- Sidebar -->
     <aside class="w-60 bg-charcoal-dark flex flex-col shrink-0 fixed h-screen z-10">
@@ -555,8 +590,11 @@ const icons = {
     </main>
   </div>
 
-  <!-- Sprint 4 - in-app chatbot, floats bottom-right above all content. -->
-  <AgentChatWidget />
+  <!-- Sprint 4 - in-app chatbot, floats bottom-right above all content.
+       Hidden below lg : it would float over the mobile gate. -->
+  <div class="hidden lg:block">
+    <AgentChatWidget />
+  </div>
 
 
   <script type="module">
@@ -688,6 +726,67 @@ const icons = {
         state.loading = false;
       }
     };
+
+    // Mobile gate (ref 05) - copy-link action + lazy "Needs attention" panel.
+    // The fetch only fires when the gate is actually visible (viewport <
+    // 1024px) AND the active org is an agency : desktop users and solo
+    // accounts never pay the extra roundtrip.
+    (function () {
+      var copyBtn = document.getElementById('gate-copy-link');
+      if (copyBtn) {
+        copyBtn.addEventListener('click', async function () {
+          try {
+            await navigator.clipboard.writeText(window.location.href);
+            copyBtn.textContent = 'Link copied - open it on your desktop';
+          } catch (e) {
+            copyBtn.textContent = window.location.href;
+          }
+        });
+      }
+      var panel = document.getElementById('gate-attention');
+      var orgId = panel && panel.dataset.orgId;
+      if (!orgId) return;
+      if (!window.matchMedia('(max-width: 1023px)').matches) return;
+      fetch('/api/organizations/' + orgId + '/workspaces/overview')
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (data) {
+          if (!data || !data.workspaces) return;
+          // Mirror of agency/overview bucketFor : crisis = severity >= 36
+          // with a non-none label ; weak = mention rate < 30%.
+          var flagged = data.workspaces.map(function (ws) {
+            var ls = ws.latest_scan;
+            if (!ls) return null;
+            var sev = ls.crisis_severity || 0;
+            var rate = ls.brand_mention_rate != null ? ls.brand_mention_rate : ls.citation_rate;
+            if (ls.crisis_severity_label && ls.crisis_severity_label !== 'none' && sev >= 36) {
+              return { name: ws.name, kind: 'crisis', sort: 1000 + sev };
+            }
+            if (rate != null && rate < 30) {
+              return { name: ws.name, kind: 'weak', sort: 100 - rate };
+            }
+            return null;
+          }).filter(Boolean).sort(function (a, b) { return b.sort - a.sort; }).slice(0, 3);
+          if (!flagged.length) return;
+          var rows = document.getElementById('gate-attention-rows');
+          flagged.forEach(function (f) {
+            var row = document.createElement('div');
+            row.className = 'flex items-center justify-between gap-2';
+            var name = document.createElement('span');
+            name.className = 'text-[13px] font-medium text-charcoal-dark truncate';
+            name.textContent = f.name;
+            var chip = document.createElement('span');
+            chip.className = f.kind === 'crisis'
+              ? 'text-[11px] font-semibold px-2 py-0.5 rounded-full bg-red-50 text-red-700 border border-red-200 shrink-0'
+              : 'text-[11px] font-semibold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200 shrink-0';
+            chip.textContent = f.kind === 'crisis' ? 'Crisis' : 'Weak';
+            row.appendChild(name);
+            row.appendChild(chip);
+            rows.appendChild(row);
+          });
+          panel.classList.remove('hidden');
+        })
+        .catch(function () {});
+    })();
 
     window.__createClientInOrg = async function (formEl, name, state) {
       const trimmed = (name || '').trim();

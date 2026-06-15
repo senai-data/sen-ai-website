@@ -42,3 +42,10 @@ data/duckdb/
 
 # local exploration / scratch
 prototypes/
+avene_selfcontained_bundle/
+all_roots_q.txt
+build_topic_map.py
+seg_map.py
+check_personas.py
+root_personas*.txt
+root_q.txt

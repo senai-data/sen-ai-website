@@ -3823,7 +3823,7 @@ async def get_opportunities(scan_id: str, user=Depends(get_current_user), db: Se
 # --- Sprint 4 : Wikipedia Entity Action -------------------------------------
 # Surfaces the Wikipedia presence cache (client_brands.wikipedia JSONB,
 # migration 046) for all brands attached to the scan : focus + competitors +
-# my_brand children. ChatGPT cites Wikipedia ~48% of the time so a missing
+# my_brand children. Wikipedia is the most-cited domain in ChatGPT answers (Profound) so a missing
 # page is structurally costly. Cf. project_10_action_features.md #1.
 
 @router.get("/{scan_id}/wikipedia")

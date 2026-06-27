@@ -86,7 +86,7 @@ const TIPS: Record<string, string> = {
 
   // ── Sprint 4 — Wikipedia tab ──────────────────────────────────────────
   wikipedia_present: 'This brand has a Wikipedia page.<br/>'
-    + '<em>ChatGPT cites Wikipedia ~48% of the time, so having one is a strong AI-visibility lever.</em>',
+    + '<em>Wikipedia is the most-cited domain in ChatGPT answers (Profound, 680M citations), so a page is a strong AI-visibility lever.</em>',
   wikipedia_absent: 'No Wikipedia page found for this brand.<br/>'
     + '<em>Notability bar is high — start by accumulating press citations rather than self-publishing.</em>',
   wikipedia_disambig: 'A Wikipedia page exists for this name but it disambiguates to multiple entities.<br/>'
@@ -101,7 +101,7 @@ const TIPS: Record<string, string> = {
   geo_page_score_contexte: 'Princeton GEO score derived from the LLM citation snippet, not the full page.<br/>'
     + '<em>Site is bot-blocked so we couldn\'t fetch the live page. Only comparable across snippet-only rows.</em>',
   geo_pattern_statistics: 'Numerical claims, percentages, patient counts, dosages.<br/>'
-    + '<em>Top-3 lift in the Princeton paper (~30–40% citation uplift).</em>',
+    + '<em>One of the higher-impact content patterns in the Princeton GEO paper (Aggarwal et al., KDD 2024).</em>',
   geo_pattern_cite_sources: 'Outbound links to authoritative sites (ANSM, HAS, peer-reviewed journals, government).<br/>'
     + '<em>Top-3 lift signal for LLM trust.</em>',
   geo_pattern_quotation: 'Direct quotes from experts, dermatologists, clinical leads.<br/>'
@@ -140,7 +140,7 @@ const TIPS: Record<string, string> = {
   comp_schema_delta: 'Competitor avg schema score minus your avg (from the Schema tab).<br/>'
     + '<em>Structured data is a strong AI-Overview ranking signal — positive deltas point at copy-pasteable JSON-LD fixes.</em>',
   comp_wikipedia: 'This competitor has a Wikipedia page.<br/>'
-    + '<em>ChatGPT cites Wikipedia ~48% of the time, so it\'s a multiplier on their AI visibility.</em>',
+    + '<em>Wikipedia is the most-cited domain in ChatGPT answers (Profound), so a page multiplies their AI visibility.</em>',
   comp_da: 'Babbar Domain Authority (0–100) for this competitor\'s domain.<br/>'
     + '<em>Higher = stronger backlink profile. NULL when the domain isn\'t in our media_catalog yet.</em>',
   comp_missing_schemas: 'Schema.org JSON-LD types found on this competitor\'s cited pages but absent from all your own audited pages.<br/>'

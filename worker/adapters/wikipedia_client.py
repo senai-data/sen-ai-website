@@ -1,7 +1,7 @@
 """Wikipedia REST + Action API client - brand entity presence check.
 
-Sprint 4 (project_10_action_features.md #1). ChatGPT cites Wikipedia 48% of the
-time (Stackmatix 30M citations study, mai 2026). If a brand has no proper
+Sprint 4 (project_10_action_features.md #1). Wikipedia is the most-cited domain
+in ChatGPT answers (Profound, 680M citations). If a brand has no proper
 Wikipedia page, it's structurally invisible in the single most-cited source on
 the planet.
 

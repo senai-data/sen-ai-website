@@ -28,6 +28,35 @@ Ce sur quoi le produit est réellement construit. **À distinguer : sources exte
 
 > Règle d'or contenu : **une affirmation chiffrée = une source citable, ou alors c'est « notre mesure / notre méthode ».** Jamais « des études montrent » sans nom.
 
+## 1bis. Rapport de recherche GEO vérifié (deep-research 2026-06-27, 19/25 claims confirmés)
+
+### ✅ VÉRIFIÉ - citable comme fait
+| Thème | Source primaire | URL |
+|---|---|---|
+| **Query fan-out** (le filon n°1) | Google blog AI Mode (I/O 2025) : « breaks down your question into subtopics and issues a multitude of queries » **+ brevet Google `US20240289407A1` « Search with stateful chat »** (déposé 2024-02-27, publié 2024-08-29) | blog.google/.../google-search-ai-mode-update + patents.google.com/patent/US20240289407A1 |
+| **Origine académique du GEO** | Aggarwal et al., « GEO: Generative Engine Optimization », **KDD 2024** | arXiv:2311.09735 |
+| **Non-déterminisme / variance par run** (la colonne vertébrale du N-runs) | Sielinski, « Quantifying Uncertainty in AI Visibility » + Schulte et al., « Don't Measure Once » | arXiv:2603.08924 + arXiv:2604.07585 |
+| **Variance marques (preuve grand public)** | **SparkToro, Fishkin/O'Donnell, 27 jan 2026** : 2 961 runs, <1/100 même liste de marques, ~1/1000 même ordre | sparktoro.com/blog/new-research-ais-are-highly-inconsistent... |
+| **Comportement de citation** | **Profound, 680M citations** (août 2024-juin 2025) : Wikipedia = 1ère source ChatGPT (7,8% global, **47,9% du top-10**) ; Reddit = 1er sur Google AIO + Perplexity | tryprofound.com/blog/ai-platform-citation-patterns |
+| **Schema & éligibilité IA** | Google Search Central : « no additional requirements... no special schema.org structured data » pour AI Overviews/AI Mode | developers.google.com/search/docs/appearance/ai-features |
+
+### 🔴 RÉFUTÉ - NE PAS présenter comme fait (foot-guns sourcing)
+- **« GEO = +40% de visibilité »** (attribué à Aggarwal) → **réfuté**. Citer le papier comme origine, JAMAIS le chiffre 40%.
+- **Uplifts par pattern** (code +76,88%, stats +61,55%, définitions +57,33% - arXiv 2604.25707) → **réfutés**. Ne pas citer ces chiffres.
+- **« FAQ/Q&A améliore (ou pas) la citation »** → **réfuté dans les deux sens** : l'effet du format FAQ est **non résolu**. Présenter answer-first/FAQ comme *bonne pratique cohérente avec le query fan-out*, sans chiffre d'effet.
+- **AgentGEO « +40% »** → réfuté.
+
+### 🩹 Corrections de cohérence à faire DANS LE PRODUIT (le code se contredit avec la recherche)
+1. **`wikipedia.astro`** cite « Stackmatix 30M citations, 48% ». → **L'étude Stackmatix n'existe pas.** Vraie source = **Profound**, et le chiffre est **47,9% du top-10 ChatGPT** (pas 48% global). Corriger l'attribution + le cadrage.
+2. **`geo_pattern_analyzer.py`** (commentaires « lift ~30-40% ») → le **+40% est réfuté**. L'audit reste utile (patterns = proxies raisonnables), mais le **contenu marketing ne doit pas claimer un lift chiffré**.
+3. **`methodology.astro`** cite « Fishkin/O'Donnell 2026 » pour la variance → **LÉGITIME** (c'est l'étude SparkToro réelle). Ajouter l'URL/citation propre.
+
+### 🟡 Nuance importante (schema)
+Google dit « pas de markup magique requis pour être **éligible** » aux AI Overviews. Mais **éligibilité ≠ part de citation** : la SEO de fond + EEAT + structure décident *quelles* pages éligibles sont citées. Présenter honnêtement (ne pas survendre le schema comme « ça booste la visibilité IA »).
+
+### 🔎 À compléter (un 2e passage de recherche dédié)
+Non couverts par les claims vérifiés (PAS réfutés, juste pas traités) : **EEAT / Search Quality Rater Guidelines** (source primaire Google PDF), **cocon sémantique + attribution Laurent Bourrelly** (sa source : laurentbourrelly.com/blog/categorie/cocon-semantique), **crédibilité du stack FR** (Babbar, HaloScan, YourTextGuru SOSEO/DSEO, LinkFinder - citer depuis leurs sites officiels). → research pass #2 avant d'écrire les feuilles correspondantes.
+
 ---
 
 ## 2. Le pipeline « comment on travaille » (collecte → traitement → analyse)
@@ -149,6 +178,7 @@ Idée : utiliser le produit sur soi-même pour **prouver que le mécanisme march
 - **Production (générateur d'article)** : scaffolder les feuilles via `generate_article` (SOSEO/DSEO + grounding + natural_writing + schema), mais en **DRAFT → édition humaine** (du machine-spun brut saboterait le message EEAT). Bon fit = feuilles **top-funnel éducatives** (cibles mots-clés) ; feuilles **produit/méthodo** = à la main (captures, voix, sources).
 - **Mesure (boucle T+14) = le vrai trésor** : déclarer **sen-ai.fr comme son propre « client »**, suivre la marque « sen-ai » + questions GEO, publier le cocon, **mesurer à T+14/T+30** si les IA citent ces pages, et **afficher le résultat sur la page** (« produit par notre moteur, puis suivi : voici si les IA le citent »). Feuille flagship **« On a testé notre outil sur nous-mêmes »** (case study daté).
 - **« ou pas » = feature** : publier ses propres ratés renforce la crédibilité d'une boîte de mesure. Mener avec le **résultat mesuré**, pas avec « c'est généré par IA ».
+- **Attribution contenu → signup → achat (à porter de storva)** : capturer `document.referrer` au register (la page cocon d'où vient l'inscrit) → 1 colonne `signup_referrer` (cf storva migration 035) → croiser avec Stripe. First-party, last-touch, **cookieless = pas de consentement**. Prouve le **ROI business** du contenu (pas que la citation IA). sen-ai a déjà `users.signup_intent` mais pas ce referrer. Double axe de preuve : GEO (les IA me citent ?) + business (le contenu génère des inscrits qui paient ?).
 - Garde-fous : la grille **révéler/protéger §4bis** s'applique quel que soit l'auteur (humain ou générateur).
 
 ## 5. Infra à porter de storva (rappel)

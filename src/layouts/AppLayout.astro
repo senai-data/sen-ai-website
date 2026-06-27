@@ -16,6 +16,8 @@ const { title } = Astro.props;
     <meta name="robots" content="noindex" />
     <link rel="icon" href="/favicon.ico" sizes="48x48" />
     <title>{title} — sen-ai.fr</title>
+    <!-- Cloudflare Web Analytics (cookieless) -->
+    <script is:inline defer src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='{"token": "2884f25c202e4c5f945e03519b468596"}'></script>
   </head>
   <body class="bg-gray-50 text-charcoal font-sans antialiased min-h-screen">
     <slot />

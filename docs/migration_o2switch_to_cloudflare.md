@@ -35,25 +35,43 @@ o2switch (cPanel AutoSSL) tente de renouveler **son propre** certificat pour `se
 
 ---
 
-## 2. Zone DNS actuelle (à recréer à l'identique dans Cloudflare)
+## 2. Zone DNS actuelle (capturée depuis cPanel o2switch, 2026-06-27)
 
-Relevé en live le 2026-06-05 (DNS-over-HTTPS). **Source autoritative complète = export de la zone depuis cPanel o2switch → Zone Editor** (faire l'export AVANT toute manip pour ne rien rater).
+Zone complète = **32 enregistrements**. La capture autoritative révèle ce que le DNS public masquait : **Resend** (sous-domaine `send.` + `resend._domainkey`) et **Brevo DKIM** (`brevo1/brevo2._domainkey`) sont actifs. Et **18 enregistrements sur 32 sont du déchet cPanel o2switch** (pointent vers `109.234.166.12` ou l'infra cPanel) → **à NE PAS recréer**.
 
-| Type | Nom | Valeur | TTL actuel | Proxy CF visé |
+### 2.a — À MIGRER vers Cloudflare (14 enregistrements fonctionnels)
+
+| Type | Nom | Valeur | Proxy CF | Rôle |
 |---|---|---|---|---|
-| A | `@` (sen-ai.fr) | `135.181.156.218` | 14400 | grey en phase 1, orange en phase 2 |
-| A | `www` | `135.181.156.218` | 14400 | grey en phase 1, orange en phase 2 |
-| MX | `@` | `senai-fr0i.mail.protection.outlook.com` (priorité 0) | 3600 | **grey obligatoire** (MX jamais proxifiable) |
-| TXT | `@` | `v=spf1 include:spf.protection.outlook.com -all` | 14400 | grey (TXT non proxifiable) |
-| TXT | `@` | `MS=ms41352629` (vérif M365) | 14400 | grey |
-| TXT | `@` | `brevo-code:1878249a7e3d10ac5a4be2cd958b9bdf` (vérif Brevo) | 14400 | grey |
-| CNAME | `autodiscover` | `autodiscover.outlook.com` | 3600 | **grey obligatoire** |
-| TXT | `_dmarc` | `v=DMARC1; p=none; rua=mailto:rua@dmarc.brevo.com` | 14400 | grey |
-| NS | `@` | `ns1/ns2.o2switch.net` | 21600 | **NE PAS recopier** — remplacés par les NS Cloudflare |
+| A | `@` | `135.181.156.218` | **orange** | l'app (VPS Hetzner) |
+| A | `www` | `135.181.156.218` | **orange** | l'app |
+| MX | `@` | `senai-fr0i.mail.protection.outlook.com` (pri 0) | **gris** | réception mail M365 |
+| TXT | `@` | `v=spf1 include:spf.protection.outlook.com -all` | gris | SPF (M365) |
+| TXT | `@` | `MS=ms41352629` | gris | vérif domaine M365 |
+| TXT | `@` | `brevo-code:1878249a7e3d10ac5a4be2cd958b9bdf` | gris | vérif Brevo |
+| CNAME | `autodiscover` | `autodiscover.outlook.com` | **gris** | autodiscover Outlook |
+| TXT | `_dmarc` | `v=DMARC1; p=none; rua=mailto:rua@dmarc.brevo.com` | gris | DMARC |
+| CNAME | `brevo1._domainkey` | `b1.sen-ai-fr.dkim.brevo.com` | gris | DKIM Brevo |
+| CNAME | `brevo2._domainkey` | `b2.sen-ai-fr.dkim.brevo.com` | gris | DKIM Brevo |
+| TXT | `resend._domainkey` | `p=MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQC96ksOW…ReQIDAQAB` (clé RSA, recopier intégralement) | gris | DKIM Resend |
+| MX | `send` | `feedback-smtp.eu-west-1.amazonses.com` (pri 10) | **gris** | return-path Resend (SES) |
+| TXT | `send` | `v=spf1 include:amazonses.com ~all` | gris | SPF du sous-domaine `send` (Resend) |
+| TXT | `default._domainkey` | `v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOC…QIDAQAB;` (clé RSA) | gris | **probable DKIM cPanel** — voir note |
 
-**Absents (vérifiés)** : pas de DKIM M365 (`selector1/2._domainkey`), pas de `brevo._domainkey`. À reconfirmer dans l'export cPanel — Brevo peut utiliser un autre sélecteur (`mail._domainkey`, `brevo1/2._domainkey`).
+> **`default._domainkey`** : sélecteur `default` = signature DKIM générée par cPanel/Exim (mail sortant o2switch). M365 signe via `selector1/2`, Resend via `resend`, Brevo via `brevo1/2` → ce `default` ne sert probablement plus rien une fois o2switch parti. **Inoffensif à garder** ; le supprimer si tu confirmes qu'aucun envoi n'utilise le sélecteur `default`.
 
-> ⚠️ **Observation hors-scope migration mais à corriger** : le SPF n'inclut **que** Outlook (`-all` strict), pas Brevo. Si l'app envoie des emails transactionnels (vérif compte, reset password) via Brevo, ils **échouent SPF**. À traiter séparément (ajouter `include:spf.brevo.com` au SPF + configurer le DKIM Brevo). Ne PAS l'introduire pendant la migration pour ne pas mélanger les variables.
+### 2.b — À NE PAS recréer (18 enregistrements = infra cPanel o2switch morte)
+
+Tous pointent vers `109.234.166.12` (serveur o2switch) ou l'autodiscovery cPanel — inutiles dès qu'on quitte o2switch (mail = M365, pas de webmail/cPanel) :
+
+`mail` (A), `ftp` (CNAME), `cpanel` (A), `whm` (A), `webdisk` (A), `webmail` (A), `cpcontacts` (A), `cpcalendars` (A), `autoconfig` (A), `_autodiscover._tcp` (SRV → cpanel), `_caldav._tcp` (SRV+TXT), `_caldavs._tcp` (SRV+TXT), `_carddav._tcp` (SRV+TXT), `_carddavs._tcp` (SRV+TXT).
+
+> ⚠️ Le `NS` (`ns1/ns2.o2switch.net`) n'est PAS recopié — remplacé par les NS Cloudflare au cutover.
+
+### Méthode d'import
+Le scan Cloudflare importe la zone existante (souvent les 32). **Après import : supprimer les 18 de 2.b**, vérifier que les 14 de 2.a sont présents et corrects (surtout les longues clés DKIM TXT recopiées intégralement), poser le proxy par enregistrement (orange = `@`/`www` ; gris = tout le reste).
+
+> ⚠️ **Observation deliverability (hors-scope mais à noter)** : le SPF racine n'inclut que M365. Resend aligne via DKIM (`resend._domainkey`) + son propre SPF sur `send.` → OK. Brevo aligne via DKIM (`brevo1/2`) → OK. Donc pas de blocage si l'alignement DKIM est respecté. Ne rien changer au SPF pendant la migration.
 
 ---
 
@@ -224,15 +242,79 @@ C'est l'élément le plus **time-sensitive** du dossier — le fix immédiat est
 
 ---
 
-## 10. Séquencement recommandé
+## 10bis. ✅✅ CUTOVER FAIT 2026-06-27 — DNS sur Cloudflare, validé
 
-1. **Cette semaine** : §7 — sécuriser le cert VPS (urgent, indépendant).
-2. **Phase 1** : DNS chez Cloudflare en grey cloud (zéro risque), valider §5.
-3. **Phase 2** (quand stable) : orange cloud + Origin CA + real-IP + Cache Rule.
-4. **Phase 3** (avant 2026-09-09) : transfert/relocalisation de l'enregistrement `.fr`, non-renouvellement o2switch (~185 €/an économisés).
-5. **Plus tard, optionnel** : nginx → Caddy.
+NS basculés (`kipp`/`robin.ns.cloudflare.com`), zone active. Validé en live :
+- A `@` → IP Cloudflare (`172.67.177.138` / `104.21.72.81`) → origine masquée ; proxy **orange** actif.
+- Site `HTTP/2 200` via CF (`server: cloudflare`, `cf-ray`), `/api/health` ok → **Full strict OK**.
+- `/r/` ok (404 sur slug vide), Cache Rule en place.
+- **real_ip OK** (logs nginx = vraies IP, pas d'IP edge CF).
+- **Email intact** : MX M365, autodiscover + brevo1 DKIM en CNAME non aplatis, SPF/brevo-code/MS présents.
 
-## Décisions ouvertes à confirmer
-- [ ] Décision A : grey-first puis orange, ou directement orange ?
-- [ ] Décision B : registrar cible pour le `.fr` (vérifier support Cloudflare `.fr`) ?
-- [ ] Décision C : adopter Caddy, ou rester nginx ?
+**Tests fonctionnels user : TOUS PASSÉS 2026-06-27** ✅ — site+cert, réception mail M365, Google OAuth, email transactionnel reset-password (contact@sen-ai.fr via Resend/Brevo).
+
+**Reste à faire (post-cutover) :**
+2. **Backups R2** (`deploy/backup.sh` prêt) : créer bucket `senai-backups` + token, `deploy/backup.env`, cron.
+3. **Transfert registrar → OVH** avant le **2026-09-23** (date de renouvellement o2switch).
+4. Durcissement optionnel : **HSTS**, **Origin CA 15 ans**.
+5. ⚠️ À revoir dans Cloudflare : « Block AI training bots = Block on all pages » et « Manage robots.txt » ont pu être activés à l'onboarding — pour un produit dont la thèse est la visibilité IA, **bloquer les crawlers IA sur son propre site est contre-productif**. Vérifier/désactiver.
+
+---
+
+## 10. ✅ RUNBOOK CONFIRMÉ 2026-06-27 (cible « Cloudflare + OVH », calquée sur storva)
+
+### Décisions verrouillées
+- **Registrar** : `sen-ai.fr` quitte o2switch → **OVH** (Cloudflare Registrar ne fait pas `.fr` de façon fiable ; storva confirme OVH pour le `.fr`).
+- **DNS** : délégué à **Cloudflare**.
+- **Edge** : Cloudflare **proxy orange + SSL Full (strict)** + WAF/CDN. Email **toujours en gris**.
+- **Compute** : **reste sur Hetzner** `135.181.156.218` (OVH = registrar seulement, pas de migration serveur). Identique à storva.
+- **Reverse proxy** : nginx (inchangé). Cert : webroot LE aujourd'hui → **Origin CA 15 ans** une fois en orange.
+- **Backups** : ajout **Cloudflare R2** (pg_dump nightly via rclone, rétention 14j) — porté de `storva/deploy/backup.sh` → `deploy/backup.sh`.
+- **Cadence** : **tout d'un coup** (DNS + orange + Origin CA + lancement transfert OVH dans la même fenêtre ; le transfert `.fr` se finalise en quelques jours côté AFNIC).
+
+### Architecture cible
+```
+Navigateur → sen-ai.fr (registrar OVH)
+  → Cloudflare DNS (NS délégués) + proxy orange + Full(strict) + WAF/CDN   [email = gris]
+  → Hetzner VPS 135.181.156.218
+     → nginx 80/443 (Origin CA 15 ans) + real_ip Cloudflare
+        ├ /api/ → api:8000 (FastAPI)   ├ /r/ → volume reports   └ / → astro:4321 (SSR)
+        + postgres:16 + worker + worker-content
+  Backups : pg_dump nightly → Cloudflare R2 (rclone, 14j, alerte >5Go)
+```
+
+### Ordre d'exécution (chaque étape validée avant la suivante)
+
+**A. Pré-vol (aucun impact prod)**
+1. Export complet de la zone depuis cPanel o2switch (Zone Editor) = référence autoritative.
+2. Baisser les TTL chez o2switch à **300 s** (idéalement 24-48 h avant le switch NS → rollback rapide).
+3. Stager les changements VPS en local sans déployer : `deploy/backup.sh` (fait), snippet nginx `real_ip` + chemins Origin CA (cf §6).
+
+**B. Cloudflare (aucun impact prod tant que les NS ne sont pas basculés)**
+4. Créer le compte Cloudflare (plan Free), *Add a Site* `sen-ai.fr` → laisser scanner.
+5. **Auditer l'import** vs le tableau §2 + l'export cPanel. Ajouter le manquant : **MX, 3 TXT (SPF, `MS=ms41352629`, `brevo-code:…`), `autodiscover`, `_dmarc`**.
+6. Proxy : `@` + `www` = **orange** ; tous les enregistrements email = **gris**.
+7. SSL/TLS = **Full (strict)** ; **Always Use HTTPS** ; **Min TLS 1.2**.
+8. **Origin CA** : créer le certificat (15 ans) → garder le PEM + clé pour l'étape D.
+9. **Cache Rule** `sen-ai.fr/r/*` = **Bypass** (sinon l'edge ignore le `max-age=300` des rapports).
+
+**C. Bascule NS (le moment du cutover)**
+10. Chez **o2switch** (registrar actuel), remplacer `ns1/ns2.o2switch.net` par les 2 NS Cloudflare. Attendre l'email « Active » de Cloudflare (< 1 h en général).
+11. Valider §5 **avant** de toucher au cert : site, app, OAuth, `/r/`, **et surtout l'email** (envoi + réception `@sen-ai.fr`). À ce stade nginx sert encore le cert LE (publiquement valide) → Full strict OK.
+
+**D. Bascule cert Origin CA + real_ip (déploiement VPS — feu vert requis)**
+12. Installer le PEM/clé Origin CA sur le VPS, pointer `nginx.conf` dessus, ajouter le bloc **`real_ip` Cloudflare** (`set_real_ip_from` plages CF + `real_ip_header CF-Connecting-IP`) — sinon slowapi/audit log voient l'IP Cloudflare (cf §6). Rebuild nginx + `restart nginx`.
+13. (Option) firewaller le port 80/443 origine pour n'accepter que les plages Cloudflare.
+
+**E. Backups R2 (indépendant du DNS — quand on veut)**
+14. Cloudflare → R2 → créer le bucket `senai-backups` + un token API scopé au bucket. Remplir `deploy/backup.env` (cf `deploy/backup.env.example`), `apt install rclone`, tester `deploy/backup.sh`, installer le cron nightly (cf §11).
+
+**F. Transfert registrar → OVH (asynchrone, en parallèle)**
+15. Chez o2switch : **déverrouiller** `sen-ai.fr` + récupérer le **code de transfert (AuthInfo)**.
+16. Chez **OVH** : lancer le transfert entrant du `.fr`, approuver. Les NS restent Cloudflare (aucune coupure DNS). Le `.fr` se finalise en quelques jours (AFNIC).
+17. Transfert confirmé + tout stable → **ne pas renouveler** l'offre o2switch (échéance 2026-09-09, ~185 €/an économisés). Retirer le domaine de l'AutoSSL cPanel pour faire taire l'alerte morte.
+
+### Rollback
+- Avant étape 10 : rien à annuler.
+- Après étape 10 : remettre `ns1/ns2.o2switch.net` chez o2switch (zone d'origine intacte ; TTL 300 → propagation rapide).
+- Après étape 12 : repasser `@`/`www` en gris côté Cloudflare (immédiat) et restaurer le cert LE/webroot sur nginx.

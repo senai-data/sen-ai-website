@@ -91,6 +91,9 @@ const softwareSchema = {
     <!-- Alpine.js for interactive components (modal, etc.) — defer keeps it non-blocking -->
     <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js" defer></script>
     <style is:global>[x-cloak] { display: none !important; }</style>
+
+    <!-- Cloudflare Web Analytics (cookieless, sans bandeau RGPD) -->
+    <script is:inline defer src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='{"token": "2884f25c202e4c5f945e03519b468596"}'></script>
   </head>
   <body class="bg-white text-charcoal font-sans antialiased">
     <a href="#main-content" class="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[100] focus:px-4 focus:py-2 focus:bg-coral focus:text-white focus:rounded-lg focus:text-sm focus:font-medium">

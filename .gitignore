@@ -18,6 +18,7 @@ pnpm-debug.log*
 .env.production
 api/.env
 worker/.env
+deploy/backup.env
 
 # python
 __pycache__/

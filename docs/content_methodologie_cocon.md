@@ -54,8 +54,21 @@ Ce sur quoi le produit est réellement construit. **À distinguer : sources exte
 ### 🟡 Nuance importante (schema)
 Google dit « pas de markup magique requis pour être **éligible** » aux AI Overviews. Mais **éligibilité ≠ part de citation** : la SEO de fond + EEAT + structure décident *quelles* pages éligibles sont citées. Présenter honnêtement (ne pas survendre le schema comme « ça booste la visibilité IA »).
 
-### 🔎 À compléter (un 2e passage de recherche dédié)
-Non couverts par les claims vérifiés (PAS réfutés, juste pas traités) : **EEAT / Search Quality Rater Guidelines** (source primaire Google PDF), **cocon sémantique + attribution Laurent Bourrelly** (sa source : laurentbourrelly.com/blog/categorie/cocon-semantique), **crédibilité du stack FR** (Babbar, HaloScan, YourTextGuru SOSEO/DSEO, LinkFinder - citer depuis leurs sites officiels). → research pass #2 avant d'écrire les feuilles correspondantes.
+## 1ter. Rapport de recherche pass #2 (2026-06-27, 25/25 claims confirmés)
+
+### ✅ VÉRIFIÉ - nouvelles fondations citables
+| Thème | Source primaire | URL | Angle / nuance |
+|---|---|---|---|
+| **E-E-A-T (source officielle)** | Google « **General Guidelines** » (Search Quality Rater Guidelines), **rév. 11 sept 2025, 182 p.** | guidelines.raterhub.com/searchqualityevaluatorguidelines.pdf | E-E-A-T = Experience, Expertise, Authoritativeness, **Trust AU CENTRE** (le plus important). ⚠️ **Les notes des raters n'affectent PAS directement le ranking** - c'est un concept qualité, pas un facteur de ranking confirmé. Dater la citation (le PDF évolue). Ne PAS citer `hsw-sqrg.pdf` (résumé court ≠ doc complet). |
+| **Histoire E-E-A-T** | Google Search Central blog | developers.google.com/search/blog/2022/12/google-raters-guidelines-e-e-a-t | E-A-T (2021) → ajout « Experience » (déc 2022). |
+| **Citation IA ≠ miroir du SEO** | Zhang et al., « Source Coverage and Citation Bias in LLM vs Traditional Search », arXiv:2512.09483 (déc 2025, 55 936 requêtes) | arxiv.org/abs/2512.09483 | **37% des domaines cités sont uniques aux moteurs IA** (≠ classement Google). MAIS pas de meilleure qualité de source. Preprint. |
+| **« Attribution gap »** | Strauss et al., « The Attribution Crisis in LLM Search », arXiv:2508.00838 (2025) | arxiv.org/abs/2508.00838 | Les moteurs IA récupèrent ~10 pages, n'en citent que **3-4**. **Être récupéré ≠ être cité.** |
+| **Cocon sémantique (inventeur)** | **Laurent Bourrelly**, sa source officielle | laurentbourrelly.com/blog/54753.php (+ 1631.php) | Conçu 2004, formalisé 2007, dévoilé 2012. Déf : « **Qui est en relation avec quoi et pourquoi** ». Pyramide de silos + maillage « **vases communicants** ». ⚠️ Scope : il a créé le cocon *nommé*, par-dessus le « siloing » plus ancien (Bruce Clay). |
+| **GEO - le solide** | Aggarwal et al., KDD 2024 (arXiv:2311.09735) | arxiv.org/abs/2311.09735 | Le **+40% existe dans le papier mais est CONTESTÉ** (pool artificiel de 5 sources, pas de réplication). **Le solide = « l'efficacité varie selon le domaine »** → optimisation domain-specific. Citer « jusqu'à 40% (max du papier, contesté) », jamais comme moyenne garantie. |
+
+### 🔎 RESTE ouvert (un 3e passage ciblé, court)
+- **Stack FR** (Babbar/HaloScan/YourTextGuru/LinkFinder) : aucune source primaire vérifiée. Lead : **Babbar = Sylvain Peyronnet / exensa**. À citer depuis les sites officiels de chaque outil avant d'écrire la branche G.
+- **Schema → part de citation IA** : **aucune preuve** qu'un balisage augmente la *part de citation* (au-delà de l'éligibilité). Cadrage sûr : « cohérent avec la logique passage-retrieval, sans effet mesuré sur la citation ».
 
 ---
 

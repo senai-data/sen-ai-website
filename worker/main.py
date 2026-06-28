@@ -789,6 +789,18 @@ def sweep_due_rescans() -> None:
                     )
                     parent.next_run_at = datetime.utcnow() + timedelta(seconds=AUTO_RESCAN_RETRY_DEFER_SECONDS)
                     db.commit()
+                elif resp.status_code == 400:
+                    # Structural failure (e.g. "no active personas/questions"). A 400
+                    # never heals by waiting, so deferring 24h would loop forever and
+                    # spam Sentry. Disable the auto-rescan schedule instead ; the user
+                    # can re-enable it after fixing the scan.
+                    logger.warning(
+                        f"auto_rescan_sweep: {parent.id} cannot be rescanned "
+                        f"({resp.text[:160]}) - disabling schedule"
+                    )
+                    parent.schedule = "manual"
+                    parent.next_run_at = None
+                    db.commit()
                 else:
                     logger.error(
                         f"auto_rescan_sweep: {parent.id} returned {resp.status_code}: "

@@ -94,9 +94,10 @@ curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/doc
 echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo $VERSION_CODENAME) stable" > /etc/apt/sources.list.d/docker.list
 apt-get update && apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
 
-# 4. Cloner le code :
+# 4. Cloner le code (les scripts sont versionnés en 644 -> rendre exécutables) :
 git clone https://github.com/senai-data/sen-ai-website.git /root/sen-ai-website
 cd /root/sen-ai-website
+chmod +x deploy/*.sh
 
 # 5. Restaurer les secrets (depuis le coffre, cf §4) :
 #    api/.env , worker/.env , deploy/backup.env  (chmod 600 deploy/backup.env)

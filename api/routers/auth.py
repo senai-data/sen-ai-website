@@ -32,6 +32,10 @@ class RegisterRequest(BaseModel):
     # the user record is flagged at creation time and the framing sticks
     # across re-logins. Invalid values are silently dropped.
     intent: str | None = None
+    # Attribution contenu->signup (migration 059) : document.referrer envoyé
+    # par le client au register (souvent une page du cocon /guides). Sanitisé
+    # côté serveur (tag-strip + tronqué). Optionnel, NULL si absent/externe.
+    signup_referrer: str | None = None
 
 
 class LoginRequest(BaseModel):
@@ -119,12 +123,17 @@ async def register(request: Request, req: RegisterRequest, response: Response, d
     # sticky across re-logins. Currently the only recognised value is
     # 'agency' ; future intents go through the same gate.
     persisted_intent = req.intent if (req.intent and req.intent in _ALLOWED_INTENTS) else None
+    # Attribution (migration 059) : on garde le referrer tag-strippé + tronqué.
+    # First-party last-touch, cookieless. Valeur cliente -> non fiable mais OK
+    # pour de l'analytics. NULL si vide.
+    persisted_referrer = (strip_tags((req.signup_referrer or "").strip())[:500]) or None
     user = User(
         email=req.email,
         name=strip_tags(req.name),
         password_hash=pwd_context.hash(req.password),
         is_email_verified=False,
         signup_intent=persisted_intent,
+        signup_referrer=persisted_referrer,
     )
     db.add(user)
     audit_log(db, action="auth.register", user_id=str(user.id) if user.id else None,

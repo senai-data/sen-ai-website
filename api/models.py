@@ -28,6 +28,9 @@ class User(Base):
     # initial URL-carried `?intent=agency` flow. NULL means no declared
     # intent. Today the only recognised value is 'agency'.
     signup_intent = Column(Text)
+    # Attribution contenu->signup (migration 059) - document.referrer capturé au
+    # register, souvent une page du cocon /guides. À croiser avec Stripe pour le ROI.
+    signup_referrer = Column(Text)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     client_links = relationship("UserClient", back_populates="user")

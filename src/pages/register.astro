@@ -169,8 +169,10 @@ const safeNext = (rawNext.startsWith('/') && !rawNext.startsWith('//')) ? rawNex
           headers: { 'Content-Type': 'application/json' },
           // Forward the intent (currently 'agency' only) so it's
           // persisted on the user record - keeps the agency framing
-          // sticky across re-logins.
-          body: JSON.stringify({ name, email, password, intent: intentRaw || null }),
+          // sticky across re-logins. Also forward document.referrer
+          // (migration 059) for content->signup attribution : when the
+          // user came from a /guides cocon page, it lands on the record.
+          body: JSON.stringify({ name, email, password, intent: intentRaw || null, signup_referrer: document.referrer || null }),
         });
 
         if (res.status === 503) {

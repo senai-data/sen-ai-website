@@ -135,5 +135,11 @@ const schema = {
     .cocon-prose table { width: 100%; border-collapse: collapse; font-size: 0.95em; }
     .cocon-prose th, .cocon-prose td { border: 1px solid #e5e7eb; padding: 0.5rem 0.7rem; text-align: left; }
     .cocon-prose th { background: #f9fafb; font-weight: 600; color: #1A1A1A; }
+    /* Captures produit. Convention : ![alt](/captures/xxx.png) puis, en dessous,
+       une ligne *Légende*. Le :has() ne stylise en légende que l'italique qui suit
+       immédiatement une image (les autres italiques du texte ne sont pas touchés). */
+    .cocon-prose p:has(> img) { margin: 1.6rem 0 0.4rem; text-align: center; }
+    .cocon-prose img { display: inline-block; max-width: 100%; height: auto; border: 1px solid #e5e7eb; border-radius: 10px; box-shadow: 0 1px 4px rgba(0,0,0,0.07); }
+    .cocon-prose p:has(> img) + p:has(> em:only-child) { margin-top: 0; text-align: center; font-size: 0.86rem; color: #6B7280; }
   </style>
 </BaseLayout>

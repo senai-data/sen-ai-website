@@ -1,0 +1,52 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import Nav from '../../components/Nav.astro';
+import Footer from '../../components/Footer.astro';
+import { getCollection } from 'astro:content';
+
+const all = await getCollection('guides', (e) => !e.data.draft);
+const pillar = all.find((e) => !e.data.parent);
+const branches = all
+  .filter((e) => pillar && e.data.parent === pillar.id)
+  .sort((a, b) => a.data.order - b.data.order);
+const childrenOf = (id: string) =>
+  all.filter((e) => e.data.parent === id).sort((a, b) => a.data.order - b.data.order);
+
+const title = 'Guides : la visibilité des marques dans les IA, expliquée';
+const description =
+  "Comment ChatGPT, Gemini, Claude et Mistral citent les marques, comment on le mesure, et comment agir. Méthode sourcée, illustrée par le produit sen-ai.";
+---
+<BaseLayout title={`${title} | sen-ai.fr`} description={description} lang="fr">
+  <Nav />
+  <main id="main-content" class="mx-auto max-w-4xl px-4 sm:px-6 pt-24 pb-16">
+    <h1 class="text-3xl sm:text-4xl font-bold tracking-tight text-charcoal-dark">La visibilité dans les IA, expliquée</h1>
+    <p class="mt-3 max-w-2xl text-lg leading-relaxed text-charcoal-light">{description}</p>
+
+    {pillar && (
+      <a href={`/guides/${pillar.id}/`} class="mt-8 block rounded-xl border border-gray-200 bg-white p-5 shadow-sm transition hover:border-coral">
+        <span class="text-xs font-semibold uppercase tracking-wide text-coral">Commencer ici</span>
+        <p class="mt-1 text-xl font-bold tracking-tight text-charcoal-dark">{pillar.data.title}</p>
+        <p class="mt-1 text-charcoal-light">{pillar.data.description}</p>
+      </a>
+    )}
+
+    {branches.length > 0 && (
+      <div class="mt-8 grid gap-4 sm:grid-cols-2">
+        {branches.map((b) => (
+          <section class="rounded-xl border border-gray-200 bg-white p-5">
+            <a href={`/guides/${b.id}/`} class="text-base font-bold tracking-tight text-charcoal-dark hover:text-coral">{b.data.branch ?? b.data.title}</a>
+            <p class="mt-1 text-sm text-charcoal-light">{b.data.description}</p>
+            {childrenOf(b.id).length > 0 && (
+              <ul class="mt-3 space-y-1.5">
+                {childrenOf(b.id).map((c) => (
+                  <li><a href={`/guides/${c.id}/`} class="text-sm font-medium text-coral hover:underline">{c.data.title}</a></li>
+                ))}
+              </ul>
+            )}
+          </section>
+        ))}
+      </div>
+    )}
+  </main>
+  <Footer />
+</BaseLayout>

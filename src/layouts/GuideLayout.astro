@@ -1,0 +1,139 @@
+---
+import BaseLayout from './BaseLayout.astro';
+import Nav from '../components/Nav.astro';
+import Footer from '../components/Footer.astro';
+import PagesLiees from '../components/guides/PagesLiees.astro';
+import { type CollectionEntry } from 'astro:content';
+
+interface Props { entry: CollectionEntry<'guides'>; all: CollectionEntry<'guides'>[]; }
+const { entry, all } = Astro.props;
+const d = entry.data;
+const SITE = 'https://sen-ai.fr';
+const url = `${SITE}/guides/${entry.id}/`;
+
+// Fil d'Ariane : remonte la chaîne `parent`.
+const byId = (id: string) => all.find((e) => e.id === id);
+const chain: CollectionEntry<'guides'>[] = [];
+let cur = d.parent ? byId(d.parent) : undefined;
+let guard = 0;
+while (cur && guard++ < 10) { chain.unshift(cur); cur = cur.data.parent ? byId(cur.data.parent) : undefined; }
+const short = (e: CollectionEntry<'guides'>) => e.data.branch ?? e.data.title.split(' : ')[0];
+const crumbs = [
+  { name: 'Guides', url: '/guides/' },
+  ...chain.map((c) => ({ name: short(c), url: `/guides/${c.id}/` })),
+  { name: short(entry), url: `/guides/${entry.id}/` },
+];
+
+const schema = {
+  '@context': 'https://schema.org',
+  '@graph': [
+    {
+      '@type': 'Article',
+      headline: d.title,
+      description: d.description,
+      inLanguage: 'fr-FR',
+      mainEntityOfPage: url,
+      author: { '@type': 'Organization', name: 'sen-ai.fr' },
+      publisher: { '@type': 'Organization', name: 'sen-ai.fr' },
+      ...(d.updated ? { dateModified: d.updated } : {}),
+    },
+    {
+      '@type': 'BreadcrumbList',
+      itemListElement: crumbs.map((b, i) => ({
+        '@type': 'ListItem', position: i + 1, name: b.name, item: `${SITE}${b.url}`,
+      })),
+    },
+    ...(d.faq.length
+      ? [{
+          '@type': 'FAQPage',
+          mainEntity: d.faq.map((f) => ({
+            '@type': 'Question', name: f.q,
+            acceptedAnswer: { '@type': 'Answer', text: f.a },
+          })),
+        }]
+      : []),
+  ],
+};
+---
+<BaseLayout title={`${d.title} | sen-ai.fr`} description={d.description} lang="fr">
+  <Nav />
+  <main id="main-content" class="mx-auto max-w-3xl px-4 sm:px-6 pt-24 pb-16">
+    <nav aria-label="Fil d'Ariane" class="mb-5 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-sm text-charcoal-light">
+      {crumbs.map((b, i) => (
+        i < crumbs.length - 1
+          ? <span class="flex items-center gap-1.5"><a href={b.url} class="hover:text-coral">{b.name}</a><span class="text-gray-300">/</span></span>
+          : <span class="text-charcoal">{b.name}</span>
+      ))}
+    </nav>
+
+    <h1 class="text-3xl sm:text-4xl font-bold leading-tight tracking-tight text-charcoal-dark">{d.title}</h1>
+    <p class="mt-3 text-lg leading-relaxed text-charcoal-light">{d.description}</p>
+
+    <article class="cocon-prose mt-8">
+      <slot />
+    </article>
+
+    {d.cta && (
+      <aside class="my-8 rounded-xl border border-coral/30 bg-coral/5 p-5">
+        <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p class="text-[15px] font-bold text-charcoal-dark">{d.cta.titre}</p>
+            {d.cta.texte && <p class="mt-1 text-sm text-charcoal-light">{d.cta.texte}</p>}
+          </div>
+          <a href={d.cta.href} class="inline-flex flex-none items-center justify-center rounded-lg bg-coral px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-coral-dark">{d.cta.label}</a>
+        </div>
+      </aside>
+    )}
+
+    {d.faq.length > 0 && (
+      <section class="mt-10">
+        <h2 class="text-2xl font-bold tracking-tight text-charcoal-dark">Questions fréquentes</h2>
+        <div class="mt-3 divide-y divide-gray-100 border-y border-gray-100">
+          {d.faq.map((f) => (
+            <details class="group py-3.5">
+              <summary class="flex cursor-pointer list-none items-center justify-between gap-3 text-base font-semibold text-charcoal-dark">
+                {f.q}
+                <svg width="16" height="16" class="flex-none text-charcoal-light transition-transform group-open:rotate-180" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"></path></svg>
+              </summary>
+              <p class="mt-2 text-[15px] leading-relaxed text-charcoal-light">{f.a}</p>
+            </details>
+          ))}
+        </div>
+      </section>
+    )}
+
+    {d.sources.length > 0 && (
+      <section class="mt-9 rounded-xl border border-gray-200 bg-gray-50 p-4">
+        <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-charcoal-light">Sources</p>
+        <ul class="space-y-1">
+          {d.sources.map((s) => (
+            <li class="text-sm"><a href={s.url} target="_blank" rel="noopener nofollow" class="text-coral underline underline-offset-2 hover:text-coral-dark">{s.label}</a></li>
+          ))}
+        </ul>
+      </section>
+    )}
+
+    <PagesLiees entry={entry} all={all} />
+  </main>
+  <Footer />
+
+  <script type="application/ld+json" set:html={JSON.stringify(schema)} />
+
+  <style is:global>
+    .cocon-prose { color: #374151; font-size: 16px; line-height: 1.75; }
+    .cocon-prose > * + * { margin-top: 1rem; }
+    .cocon-prose h2 { margin-top: 2.2rem; margin-bottom: 0.4rem; font-size: 1.5rem; font-weight: 700; letter-spacing: -0.01em; color: #1A1A1A; }
+    .cocon-prose h3 { margin-top: 1.6rem; margin-bottom: 0.2rem; font-size: 1.2rem; font-weight: 600; color: #1A1A1A; }
+    .cocon-prose a { color: #F06A5C; font-weight: 500; text-decoration: underline; text-underline-offset: 2px; }
+    .cocon-prose a:hover { color: #d8503f; }
+    .cocon-prose strong { color: #1A1A1A; font-weight: 600; }
+    .cocon-prose ul { list-style: disc; padding-left: 1.4rem; }
+    .cocon-prose ol { list-style: decimal; padding-left: 1.4rem; }
+    .cocon-prose li { margin-top: 0.3rem; }
+    .cocon-prose blockquote { border-left: 3px solid #e5e7eb; padding-left: 1rem; color: #6B7280; font-style: italic; }
+    .cocon-prose code { background: #f3f4f6; border-radius: 5px; padding: 0.1rem 0.35rem; font-size: 0.9em; }
+    .cocon-prose table { width: 100%; border-collapse: collapse; font-size: 0.95em; }
+    .cocon-prose th, .cocon-prose td { border: 1px solid #e5e7eb; padding: 0.5rem 0.7rem; text-align: left; }
+    .cocon-prose th { background: #f9fafb; font-weight: 600; color: #1A1A1A; }
+  </style>
+</BaseLayout>

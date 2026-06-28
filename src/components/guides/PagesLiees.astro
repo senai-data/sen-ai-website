@@ -1,0 +1,40 @@
+---
+// Maillage interne AUTO depuis l'arbre du cocon (calculé depuis `parent`/`related`).
+// "Dans cette rubrique" = pages filles ; "À voir aussi" = pages sœurs (ou related si feuille).
+import { type CollectionEntry } from 'astro:content';
+interface Props { entry: CollectionEntry<'guides'>; all: CollectionEntry<'guides'>[]; }
+const { entry, all } = Astro.props;
+
+const pub = all.filter((e) => !e.data.draft);
+const byId = (id: string) => pub.find((e) => e.id === id);
+const ord = (a: CollectionEntry<'guides'>, b: CollectionEntry<'guides'>) => a.data.order - b.data.order;
+
+const children = pub.filter((e) => e.data.parent === entry.id).sort(ord);
+const siblings = entry.data.parent
+  ? pub.filter((e) => e.data.parent === entry.data.parent && e.id !== entry.id).sort(ord)
+  : [];
+const related = (entry.data.related || []).map(byId).filter(Boolean) as CollectionEntry<'guides'>[];
+
+const blocks = [
+  { title: 'Dans cette rubrique', items: children },
+  { title: 'À voir aussi', items: (siblings.length ? siblings : related) },
+].filter((b) => b.items.length > 0);
+---
+{blocks.length > 0 && (
+  <nav class="mt-12 border-t border-gray-100 pt-7">
+    {blocks.map((b) => (
+      <div class="mb-6">
+        <p class="mb-2.5 text-xs font-semibold uppercase tracking-wide text-charcoal-light">{b.title}</p>
+        <ul class="grid gap-2.5 sm:grid-cols-2">
+          {b.items.map((it) => (
+            <li>
+              <a href={`/guides/${it.id}/`} class="block rounded-lg border border-gray-200 bg-white px-3.5 py-2.5 text-sm font-medium text-charcoal-dark transition-colors hover:border-coral hover:text-coral">
+                {it.data.branch ?? it.data.title}
+              </a>
+            </li>
+          ))}
+        </ul>
+      </div>
+    ))}
+  </nav>
+)}

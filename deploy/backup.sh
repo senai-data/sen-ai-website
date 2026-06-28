@@ -15,14 +15,22 @@ ALERT_THRESHOLD_GB="${SENAI_BACKUP_ALERT_GB:-5}"      # alerte à 50% du tier gr
 ENV_FILE="$REPO_DIR/deploy/backup.env"
 
 mkdir -p "$BACKUP_DIR"
-OUT="$BACKUP_DIR/senai_$(date +%F_%H%M).sql.gz"
+STAMP="$(date +%F_%H%M)"
+OUT="$BACKUP_DIR/senai_${STAMP}.sql.gz"
+FILES_OUT="$BACKUP_DIR/senai-files_${STAMP}.tar.gz"
 
 cd "$REPO_DIR"
 docker compose exec -T postgres pg_dump -U senai senai | gzip > "$OUT"
 
-# Rotation locale.
-find "$BACKUP_DIR" -name 'senai_*.sql.gz' -mtime "+${RETENTION_DAYS}" -delete
-echo "[backup] $(date -Is) local -> $OUT ($(du -h "$OUT" | cut -f1))"
+# Fichiers hôte hors dump Postgres : rapports publiés (/opt/sen-ai/reports) + certs TLS
+# (/etc/letsencrypt). Sans eux, un VPS reconstruit perd les rapports déjà publiés et doit
+# réémettre les certs (coupure Full strict). Chemins relatifs à / pour une restauration propre.
+tar czf "$FILES_OUT" -C / opt/sen-ai/reports etc/letsencrypt 2>/dev/null || true
+
+# Rotation locale (dumps SQL + tarballs fichiers).
+find "$BACKUP_DIR" -name 'senai_*.sql.gz'     -mtime "+${RETENTION_DAYS}" -delete
+find "$BACKUP_DIR" -name 'senai-files_*.tar.gz' -mtime "+${RETENTION_DAYS}" -delete
+echo "[backup] $(date -Is) local -> $OUT ($(du -h "$OUT" | cut -f1)) + $FILES_OUT ($(du -h "$FILES_OUT" | cut -f1))"
 
 # Push hors-VPS vers R2 (seulement si configuré).
 if [ -f "$ENV_FILE" ]; then
@@ -38,9 +46,10 @@ if [ -f "$ENV_FILE" ]; then
   export RCLONE_CONFIG_R2_NO_CHECK_BUCKET=true
 
   rclone copy "$OUT" "R2:$R2_BUCKET/"
-  echo "[backup] push R2 ok -> R2:$R2_BUCKET/$(basename "$OUT")"
+  rclone copy "$FILES_OUT" "R2:$R2_BUCKET/"
+  echo "[backup] push R2 ok -> $(basename "$OUT") + $(basename "$FILES_OUT")"
 
-  # Rétention R2 : supprime les dumps de plus de RETENTION_DAYS (le stockage reste borné).
+  # Rétention R2 : supprime tout objet de plus de RETENTION_DAYS (dumps + tarballs ; le stockage reste borné).
   rclone delete "R2:$R2_BUCKET/" --min-age "${RETENTION_DAYS}d" || true
 
   # Garde-fou anti-dépassement : alerte si le bucket dépasse le seuil (bien avant 10 Go).

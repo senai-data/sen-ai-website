@@ -15,9 +15,9 @@ Le code est sur **GitHub**, les données sont dans **Postgres** (sauvegardé cha
 | **Code** | GitHub `github.com/senai-data/sen-ai-website` (branche `master`) | ✅ git |
 | **Compute** | VPS Hetzner, Ubuntu 24.04, IP `135.181.156.218`, `/root/sen-ai-website` | Snapshots Hetzner (à vérifier activés) |
 | **Base de données** | container `senai-postgres` (postgres:16-alpine), volume `sen-ai-website_postgres_data` | ✅ dump nuit -> R2 + local `/opt/backups` |
-| **Fichiers rapports** | bind mount hôte `/opt/sen-ai/reports` (~8 Mo) | ⚠️ **NON** (cf gaps §6) |
+| **Fichiers rapports** | bind mount hôte `/opt/sen-ai/reports` (~8 Mo) | ✅ tarball nuit -> R2 (`senai-files_*.tar.gz`) |
 | **Secrets** | `api/.env`, `worker/.env`, `deploy/backup.env` (git-ignorés) | ⚠️ **à sauvegarder hors-VPS à la main** (§4) |
-| **Certificats TLS** | `/etc/letsencrypt/live/sen-ai.fr` (Let's Encrypt, renouvellement webroot) | ⚠️ NON (réémissible, cf §5.7) |
+| **Certificats TLS** | `/etc/letsencrypt/live/sen-ai.fr` (Let's Encrypt, renouvellement webroot) | ✅ tarball nuit -> R2 (+ réémissible, §5.7) |
 | **DNS + proxy + WAF** | Cloudflare (NS `kipp`/`robin.ns.cloudflare.com`, `@`/`www` proxy orange, SSL Full strict) | Config côté Cloudflare |
 | **Registrar `.fr`** | o2switch -> transfert OVH en cours (NS restent Cloudflare) | - |
 
@@ -25,9 +25,9 @@ Services Docker (6 containers, cf `docker-compose.yml`) : `nginx` (alpine, 80/44
 
 ## 2. Sauvegardes (état réel)
 
-- **Quoi** : `pg_dump` de la base `senai`, gzip, par `deploy/backup.sh`.
+- **Quoi** : `pg_dump` de la base `senai` (gzip) **+** un tarball des fichiers hôte hors base - `/opt/sen-ai/reports` (rapports publiés) et `/etc/letsencrypt` (certs TLS) - par `deploy/backup.sh`.
 - **Quand** : cron root **02:30** chaque nuit -> `/var/log/senai-backup.log`.
-- **Où** : local `/opt/backups/senai_AAAA-MM-JJ_HHMM.sql.gz` **+** Cloudflare R2 bucket `senai-backups` (push rclone, remote défini 100 % par variables d'env, pas de `rclone.conf`).
+- **Où** : local `/opt/backups/senai_AAAA-MM-JJ_HHMM.sql.gz` + `senai-files_AAAA-MM-JJ_HHMM.tar.gz` **+** Cloudflare R2 bucket `senai-backups` (push rclone, remote défini 100 % par variables d'env, pas de `rclone.conf`).
 - **Rétention** : 14 jours (local et R2). Alerte si le bucket dépasse 5 Go (tier gratuit R2 = 10 Go).
 - **Taille** : DB ~280 Mo -> dump ~31 Mo.
 
@@ -121,7 +121,16 @@ docker compose up -d --build
 # 9. Restaurer la base depuis R2 :
 CONFIRM=yes deploy/restore.sh
 
-# 10. (si sauvegardés) restaurer les fichiers rapports dans /opt/sen-ai/reports (cf gaps §6).
+# 10. Restaurer les fichiers hôte (rapports + certs) depuis le dernier tarball R2 :
+#       cd /root/sen-ai-website && set -a; . deploy/backup.env; set +a
+#       export RCLONE_CONFIG_R2_TYPE=s3 RCLONE_CONFIG_R2_PROVIDER=Cloudflare \
+#         RCLONE_CONFIG_R2_ACCESS_KEY_ID="$R2_ACCESS_KEY_ID" \
+#         RCLONE_CONFIG_R2_SECRET_ACCESS_KEY="$R2_SECRET_ACCESS_KEY" \
+#         RCLONE_CONFIG_R2_ENDPOINT="$R2_ENDPOINT" RCLONE_CONFIG_R2_NO_CHECK_BUCKET=true
+#       LATEST=$(rclone lsf "R2:$R2_BUCKET/" | grep '^senai-files_.*\.tar\.gz$' | sort | tail -1)
+#       rclone copy "R2:$R2_BUCKET/$LATEST" /opt/backups/
+#       tar xzf "/opt/backups/$LATEST" -C /          # restaure opt/sen-ai/reports + etc/letsencrypt
+#    (si les certs sont restaurés ainsi, l'étape 7 d'émission devient inutile.)
 
 # 11. Réinstaller le cron de backup :
 ( crontab -l 2>/dev/null; echo '30 2 * * * /root/sen-ai-website/deploy/backup.sh >> /var/log/senai-backup.log 2>&1' ) | crontab -
@@ -136,14 +145,17 @@ curl -s -o /dev/null -w '%{http_code}\n' https://sen-ai.fr/guides/  # 200
 #   + login, lancement d'un scan, réception email transactionnel.
 ```
 
-## 6. Gaps connus / risques (à traiter)
+## 6. Gaps / risques
 
-1. **`/opt/sen-ai/reports` (8 Mo) n'est PAS sauvegardé** : les rapports publiés vivent sur l'hôte, hors dump Postgres. En cas de perte VPS, les fichiers déjà publiés disparaissent (re-générables depuis la base, mais URLs cassées en attendant). *Fix possible* : ajouter à `backup.sh` un `tar czf` de `/opt/sen-ai/reports` poussé sur R2, OU accepter le caractère régénérable.
-2. **`/etc/letsencrypt` n'est pas sauvegardé** : certs réémissibles (§5.7), mais prévoir le chemin certbot/Cloudflare Origin pour éviter une coupure Full strict pendant la DR.
-3. **Pas de swap** sur le VPS actuel : risque OOM au build astro (déjà à l'origine d'un incident 502). La reconstruction (§5.2) en ajoute ; envisager de le faire aussi sur le VPS courant.
-4. **Volume Postgres orphelin** : `senai_postgres_data` (48 Mo, 0 lien, vestige d'un ancien nom de projet) coexiste avec l'actif `sen-ai-website_postgres_data`. Vérifier qu'il est bien inutilisé puis `docker volume rm senai_postgres_data` pour lever l'ambiguïté.
-5. **Snapshots Hetzner** : confirmer qu'ils sont activés (fallback ultime, restaure l'OS + les volumes d'un coup).
-6. **HaloScan / YourTextGuru / Link Finder** sont câblés (clés dans `worker/.env`) mais absents du registre `src/data/subprocessors.ts` : voir le TODO conformité (les ajouter au registre ou acter le cadrage « signaux SEO publics, pas de donnée perso »).
+**Résolus le 2026-06-28 :**
+1. ✅ **`/opt/sen-ai/reports` sauvegardé** : `backup.sh` en fait un tarball nuit poussé sur R2 (`senai-files_*.tar.gz`). Restauration en §5.10.
+2. ✅ **`/etc/letsencrypt` sauvegardé** : inclus dans le même tarball -> plus de coupure Full strict à craindre pendant la DR.
+3. ✅ **Swap ajouté** sur le VPS courant : `/swapfile` 2 Go, persistant via `/etc/fstab`.
+4. ✅ **Volume Postgres orphelin supprimé** : `senai_postgres_data` retiré ; ne reste que l'actif `sen-ai-website_postgres_data`.
+
+**Restants :**
+5. ⏳ **Snapshots Hetzner** : confirmer qu'ils sont activés côté console Hetzner (fallback ultime, restaure OS + volumes d'un coup). **Action manuelle.**
+6. ⏳ **Secrets hors-VPS** : les `.env` (§4) doivent être exportés dans un coffre. **Action manuelle**, à refaire après chaque ajout de provider.
 
 ## 7. Inventaire des accès (à garder dans le coffre)
 

@@ -10,7 +10,7 @@ faq:
   - q: "sen-ai entraîne-t-il des modèles avec mes données ?"
     a: "Non. sen-ai interroge les API des IA en lecture seule et analyse les réponses. Aucun entraînement, aucun fine-tuning, aucune réinjection de vos données dans les modèles. C'est une application classée à risque limité au sens de l'AI Act."
   - q: "Où sont hébergées mes données ?"
-    a: "L'application et la base de données sont hébergées en Europe, chez Hetzner à Falkenstein en Allemagne. Les fournisseurs de modèles situés hors UE opèrent sous des garanties de transfert encadrées. La liste datée des sous-traitants est publique."
+    a: "L'application et la base de données sont hébergées en Europe, chez Hetzner à Helsinki en Finlande. Les fournisseurs de modèles situés hors UE opèrent sous des garanties de transfert encadrées. La liste datée des sous-traitants est publique."
 cta:
   titre: "Une mesure transparente, des données en Europe"
   texte: "Découvrez le détail de notre conformité sur votre rapport. Premier scan gratuit."

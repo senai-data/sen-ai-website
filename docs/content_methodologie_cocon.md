@@ -144,7 +144,7 @@ La page publique `/methodology` (MAJ 2026-05-29) **affirme déjà** ces faits. T
 - **Modèles exacts** : GPT-5.4-mini / 5.4 ; Gemini 2.5 Flash/Pro (Google Ireland) ; Claude Haiku 4.5 / Sonnet 4.6 ; Mistral Large (EU, 41% FR). Nouveau provider ajouté au seuil 5% de part de recherche.
 - **Questions brand-agnostic** (ne pas guider l'IA).
 - **Classification marque pilotée par l'utilisateur, ZÉRO liste hardcodée** vertical/région/marque.
-- **Limited-risk deployer** (AI Act Art. 50), **read-only**, pas d'entraînement, hébergement EU (Hetzner Falkenstein). 6 sous-traitants (Hetzner, OpenAI, Google Ireland, Anthropic, Stripe Europe, Babbar).
+- **Limited-risk deployer** (AI Act Art. 50), **read-only**, pas d'entraînement, hébergement EU (Hetzner **Helsinki, Finlande** - PAS Falkenstein, corrigé 2026-06-28). 6 sous-traitants de base (Hetzner, OpenAI, Google Ireland, Anthropic, Stripe Europe, Babbar) + 3 ajoutés 28/06 (Haloscan, YourTextGuru, Link Finder).
 - **7 jours minimum** entre rescans, tendances en fenêtre glissante 30 j.
 - **Ne JAMAIS contredire** : pas de « scraping massif », pas de « high-risk », pas de « on entraîne des modèles », pas de modèles périmés (GPT-4, Claude 3.5).
 

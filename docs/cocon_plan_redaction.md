@@ -103,7 +103,7 @@ Toutes les branches sont rédigées, déployées et vérifiées en 200 sur `http
 | Feuille | Intention / query | Sources | Capture | Tier |
 |---|---|---|---|---|
 | `conformite-ai-act-limited-risk` | « sen-ai est-il conforme à l'AI Act ? » | **Règlement (UE) 2024/1689**, Art. 50 ; methodology §8 | Onglet Compliance | ✅ |
-| `donnees-en-europe` | « mes données restent-elles en UE ? » | Hetzner Falkenstein, sous-traitants | Page Compliance org | ✅ |
+| `donnees-en-europe` | « mes données restent-elles en UE ? » | Hetzner Helsinki (Finlande, UE), sous-traitants | Page Compliance org | ✅ |
 
 ---
 

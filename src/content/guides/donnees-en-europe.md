@@ -1,6 +1,6 @@
 ---
 title: "Vos données restent-elles en Europe ? L'hébergement de sen-ai"
-description: "L'application et la base de données de sen-ai sont hébergées en Europe, chez Hetzner en Allemagne. Les rares traitements hors UE, par des fournisseurs de modèles, sont encadrés par des garanties de transfert."
+description: "L'application et la base de données de sen-ai sont hébergées en Europe, chez Hetzner en Finlande. Les rares traitements hors UE, par des fournisseurs de modèles, sont encadrés par des garanties de transfert."
 parent: "confiance"
 branch: "Données en Europe"
 priority: coeur
@@ -10,7 +10,7 @@ related:
   - conformite-ai-act-limited-risk
 faq:
   - q: "Où sont hébergées les données de sen-ai ?"
-    a: "L'application, la base de données et le stockage sont hébergés en Europe, chez Hetzner à Falkenstein, en Allemagne. Vos données de scan ne quittent pas cet hébergement européen pour leur stockage."
+    a: "L'application, la base de données et le stockage sont hébergés en Europe, chez Hetzner à Helsinki, en Finlande. Vos données de scan ne quittent pas cet hébergement européen pour leur stockage."
   - q: "Des données partent-elles aux États-Unis ?"
     a: "Seules les requêtes envoyées à certains fournisseurs de modèles établis hors UE, comme OpenAI et Anthropic, transitent hors d'Europe, et ce en lecture seule. Ces transferts sont encadrés par le cadre de protection des données UE-États-Unis et des clauses contractuelles types."
   - q: "Quels sous-traitants sen-ai utilise-t-il ?"
@@ -22,11 +22,11 @@ cta:
   href: "/register"
 ---
 
-Pour beaucoup d'organisations, surtout en Europe, la première question n'est pas « combien ça coûte » mais « où vont mes données ». **L'application et la base de données de sen-ai sont hébergées en Europe, chez Hetzner en Allemagne, et vos données de scan y restent.**
+Pour beaucoup d'organisations, surtout en Europe, la première question n'est pas « combien ça coûte » mais « où vont mes données ». **L'application et la base de données de sen-ai sont hébergées en Europe, chez Hetzner en Finlande, et vos données de scan y restent.**
 
 ## Un hébergement européen
 
-**L'ensemble de l'application, sa base de données et son stockage sont hébergés à Falkenstein, en Allemagne, chez Hetzner.** Vos données de scan, vos marques suivies, vos résultats sont conservés sur cette infrastructure européenne, sous le régime du RGPD.
+**L'ensemble de l'application, sa base de données et son stockage sont hébergés à Helsinki, en Finlande, chez Hetzner.** Vos données de scan, vos marques suivies, vos résultats sont conservés sur cette infrastructure européenne, sous le régime du RGPD.
 
 Ce choix est délibéré. Héberger en Europe simplifie la conformité et la rend vérifiable : pas de transfert de stockage hors UE à justifier, un hébergeur soumis au droit européen, une localisation claire que vos équipes peuvent contrôler. C'est la fondation sur laquelle repose le reste.
 

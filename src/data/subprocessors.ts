@@ -49,7 +49,7 @@ export const SUBPROCESSORS: SubProcessor[] = [
     legal_entity: 'Hetzner Online GmbH',
     category: 'infrastructure',
     purpose: 'Application hosting, PostgreSQL database, file storage',
-    hosting_region: 'Falkenstein, Germany (EU)',
+    hosting_region: 'Helsinki, Finland (EU)',
     transfer_mechanism: 'EU controller, no transfer',
     added_on: '2026-04-01',
     status: 'active',
@@ -153,6 +153,12 @@ export const SUBPROCESSORS: SubProcessor[] = [
  * ship date - everything that existed at that point gets one entry.
  */
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    date: '2026-06-28',
+    kind: 'scope_change',
+    subprocessor_id: 'hetzner',
+    summary: 'Correction de la region d hebergement Hetzner : Helsinki, Finlande (precedemment libelle Falkenstein, Allemagne par erreur). Aucun changement reel : l infrastructure est et reste dans l Union europeenne.',
+  },
   {
     date: '2026-06-28',
     kind: 'added',

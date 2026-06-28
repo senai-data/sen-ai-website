@@ -66,9 +66,19 @@ Google dit « pas de markup magique requis pour être **éligible** » aux AI Ov
 | **Cocon sémantique (inventeur)** | **Laurent Bourrelly**, sa source officielle | laurentbourrelly.com/blog/54753.php (+ 1631.php) | Conçu 2004, formalisé 2007, dévoilé 2012. Déf : « **Qui est en relation avec quoi et pourquoi** ». Pyramide de silos + maillage « **vases communicants** ». ⚠️ Scope : il a créé le cocon *nommé*, par-dessus le « siloing » plus ancien (Bruce Clay). |
 | **GEO - le solide** | Aggarwal et al., KDD 2024 (arXiv:2311.09735) | arxiv.org/abs/2311.09735 | Le **+40% existe dans le papier mais est CONTESTÉ** (pool artificiel de 5 sources, pas de réplication). **Le solide = « l'efficacité varie selon le domaine »** → optimisation domain-specific. Citer « jusqu'à 40% (max du papier, contesté) », jamais comme moyenne garantie. |
 
-### 🔎 RESTE ouvert (un 3e passage ciblé, court)
-- **Stack FR** (Babbar/HaloScan/YourTextGuru/LinkFinder) : aucune source primaire vérifiée. Lead : **Babbar = Sylvain Peyronnet / exensa**. À citer depuis les sites officiels de chaque outil avant d'écrire la branche G.
+### 🔎 RESTE ouvert
 - **Schema → part de citation IA** : **aucune preuve** qu'un balisage augmente la *part de citation* (au-delà de l'éligibilité). Cadrage sûr : « cohérent avec la logique passage-retrieval, sans effet mesuré sur la citation ».
+
+## 1quater. Rapport de recherche pass #3 - stack SEO FR (2026-06-28)
+
+| Outil | Ce qu'il fait + métriques | Source officielle |
+|---|---|---|
+| **Babbar** (babbar.tech) | Analyse de liens / autorité. Fondé 2019, **Sylvain Peyronnet** (président) + **Guillaume Pitel** (DG), lignée Exensa/ix-labs. Métriques **propriétaires** : **Value** (PV/HV/DV = popularité 0-100, surfeur raisonnable), **Trust** (PT/HT/DT = type TrustRank), **Semantic Value** (popularité pondérée par la pertinence thématique, unique à Babbar), **BAS** (Babbar Authority Score 0-100, « ce qui fait un bon lien »). | babbar.tech ; blog.babbar.tech/les-metriques-de-babbar/ |
+| **YourTextGuru** (yourtext.guru, **racheté par Babbar**) | Optimisation sémantique. **SOSEO** = Score d'Optimisation SEO (0-300%, ~100% bien optimisé, cap 300% anti-bourrage). **DSEO** = Score de Danger SEO (0-200%, plus haut = risque de sur-optimisation). | yourtext.guru blog ; knowledge.babbar.tech |
+| **Haloscan** (haloscan.com) | Mots-clés / SERP / suivi de positions **spécialisé Google France**. | haloscan.com |
+| **LinkFinder** | Marketplace netlinking / prix médias. ⚠️ **NON vérifié** depuis une source primaire (le pass n'a pas trouvé de site officiel fiable) → vérifier avant de citer (feuille D4). |  - |
+
+> 🩹 **Cohérence produit CRITIQUE** : le code sen-ai mappe Babbar `hostTrust→da`, `domainTrust→tf`, `semanticValue→cf`, `backlinksCount→rd`. **Ces « DA/TF/CF/RD » sont NOTRE mapping de convenance, PAS les noms de Babbar** (qui dit Value/Trust/Semantic Value/BAS). Le contenu public et les tooltips ne doivent PAS dire « Babbar DA/TF/CF » comme si c'était la terminologie Babbar → dire « autorité via Babbar (Value, Trust, Semantic Value, BAS) ». Vérifier aussi les tooltips `Tip.astro` (`comp_da` = « Babbar Domain Authority » → imprécis).
 
 ---
 

@@ -132,8 +132,11 @@ CONFIRM=yes deploy/restore.sh
 #       tar xzf "/opt/backups/$LATEST" -C /          # restaure opt/sen-ai/reports + etc/letsencrypt
 #    (si les certs sont restaurés ainsi, l'étape 7 d'émission devient inutile.)
 
-# 11. Réinstaller le cron de backup :
-( crontab -l 2>/dev/null; echo '30 2 * * * /root/sen-ai-website/deploy/backup.sh >> /var/log/senai-backup.log 2>&1' ) | crontab -
+# 11. Réinstaller les crons (backup nuit + garde-fou disque hebdo) :
+chmod +x deploy/*.sh
+( crontab -l 2>/dev/null; \
+  echo '30 2 * * * /root/sen-ai-website/deploy/backup.sh >> /var/log/senai-backup.log 2>&1'; \
+  echo '0 4 * * 0 /root/sen-ai-website/deploy/docker-prune.sh >> /var/log/senai-docker-prune.log 2>&1' ) | crontab -
 
 # 12. Repointer le DNS : Cloudflare -> DNS -> enregistrement A `@` (et `www`) vers la
 #     nouvelle IP du VPS, proxy ORANGE. SSL/TLS reste "Full (strict)". Le patch real_ip

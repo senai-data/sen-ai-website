@@ -13,13 +13,13 @@ Le code est sur **GitHub**, les données sont dans **Postgres** (sauvegardé cha
 | Brique | Emplacement | Sauvegardé ? |
 |---|---|---|
 | **Code** | GitHub `github.com/senai-data/sen-ai-website` (branche `master`) | ✅ git |
-| **Compute** | VPS Hetzner, Ubuntu 24.04, IP `135.181.156.218`, `/root/sen-ai-website` | Snapshots Hetzner (à vérifier activés) |
+| **Compute** | VPS Hetzner CX23, Ubuntu 24.04, **Helsinki (hel1, Finlande, UE)**, IP `135.181.156.218`, `/root/sen-ai-website` | ✅ Backups Hetzner automatiques ACTIVÉS (7 images disque glissantes) |
 | **Base de données** | container `senai-postgres` (postgres:16-alpine), volume `sen-ai-website_postgres_data` | ✅ dump nuit -> R2 + local `/opt/backups` |
 | **Fichiers rapports** | bind mount hôte `/opt/sen-ai/reports` (~8 Mo) | ✅ tarball nuit -> R2 (`senai-files_*.tar.gz`) |
 | **Secrets** | `api/.env`, `worker/.env`, `deploy/backup.env` (git-ignorés) | ⚠️ **à sauvegarder hors-VPS à la main** (§4) |
 | **Certificats TLS** | `/etc/letsencrypt/live/sen-ai.fr` (Let's Encrypt, renouvellement webroot) | ✅ tarball nuit -> R2 (+ réémissible, §5.7) |
 | **DNS + proxy + WAF** | Cloudflare (NS `kipp`/`robin.ns.cloudflare.com`, `@`/`www` proxy orange, SSL Full strict) | Config côté Cloudflare |
-| **Registrar `.fr`** | o2switch -> transfert OVH en cours (NS restent Cloudflare) | - |
+| **Registrar `.fr`** | transfert o2switch -> OVH lancé 2026-06-28 (NS restent Cloudflare, propagation AFNIC ~5-7j) | - |
 
 Services Docker (6 containers, cf `docker-compose.yml`) : `nginx` (alpine, 80/443) · `astro` (build `Dockerfile.astro`) · `api` (FastAPI, `api/.env`) · `worker` (scan, `WORKER_ID=worker-scan`) · `worker-content` (article/FAQ/suggest_media, `WORKER_ID=worker-content`) · `postgres`.
 
@@ -154,8 +154,8 @@ curl -s -o /dev/null -w '%{http_code}\n' https://sen-ai.fr/guides/  # 200
 4. ✅ **Volume Postgres orphelin supprimé** : `senai_postgres_data` retiré ; ne reste que l'actif `sen-ai-website_postgres_data`.
 
 **Restants :**
-5. ⏳ **Snapshots Hetzner** : confirmer qu'ils sont activés côté console Hetzner (fallback ultime, restaure OS + volumes d'un coup). **Action manuelle.**
-6. ⏳ **Secrets hors-VPS** : les `.env` (§4) doivent être exportés dans un coffre. **Action manuelle**, à refaire après chaque ajout de provider.
+5. ✅ **Backups Hetzner ACTIVÉS** : 7 images disque quotidiennes glissantes (vérifié console 2026-06-28). C'est le fallback ultime (restaure OS + volumes d'un coup). Snapshots manuels NON requis en plus des 3 couches (Backups Hetzner + dumps R2 + tarball fichiers R2) ; à prendre seulement ponctuellement avant une opération à risque.
+6. ✅ **Secrets exportés hors-VPS** dans le coffre (LastPass) 2026-06-28. À refaire après chaque ajout de provider.
 
 ## 7. Inventaire des accès (à garder dans le coffre)
 

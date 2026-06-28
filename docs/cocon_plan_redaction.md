@@ -7,6 +7,30 @@
 
 ---
 
+## ✅ Statut de rédaction (2026-06-28) - COCON COMPLET (30 pages live, hors flagship)
+
+Toutes les branches sont rédigées, déployées et vérifiées en 200 sur `https://sen-ai.fr/guides/`. Build local vert avant chaque lot, zéro em-dash, maillage auto + croisé, fil d'Ariane + FAQPage + beacon Cloudflare présents.
+
+| Branche | Statut | Pages (slugs) |
+|---|---|---|
+| Pilier | ✅ | `methodologie-visibilite-ia` |
+| A - Mesurer | ✅ | `mesurer-visibilite-ia` + `un-seul-test-chatgpt-ne-suffit-pas`, `paradigme-n-runs`, `quelles-ia-suivre-marche-francais`, `questions-sans-marque-eviter-biais` |
+| B - Être cité | ✅ | `etre-cite-par-les-ia` + `query-fan-out`, `etude-princeton-geo`, `contenu-extractible-stats-citations-quotes`, `schema-org-et-ia`, `cocon-semantique-et-maillage` |
+| C - Autorité & E-E-A-T | ✅ | `autorite-eeat-ia` + `eeat-explique`, `wikipedia-source-plus-citee-chatgpt`, `autorite-domaine-da-tf-cf-rd` |
+| D - Off-site & média | ✅ | `off-site-et-achat-media` + `concurrents-cites-par-ia`, `medias-cites-par-ia-relations-presse`, `reddit-youtube-sources-ugc-ia`, `media-cite-trop-cher-alternative` |
+| E - Agir & mesurer | ✅ | `agir-et-mesurer` + `actions-priorisees`, `boucle-t14-mesurer-le-lift`, `radar-de-crise`, `contenu-qui-ne-sent-pas-lia` |
+| F - Confiance | ✅ | `confiance` + `conformite-ai-act-limited-risk`, `donnees-en-europe` |
+| G - Outils du marché | ✅ | `outils-seo-sur-lesquels-on-sappuie` (enfant direct du pilier ; 1 feuille = pas d'intermédiaire) |
+| FLAGSHIP | ⏳ différé | `on-a-teste-notre-outil-sur-nous-memes` - a besoin d'un **vrai lift mesuré** ; à écrire à T+14 (~12/07/2026) une fois sen-ai.fr déclaré comme son propre client et le cocon remesuré. Pas de chiffre inventé. |
+
+**Sources confirmées en cours de rédaction** : Link Finder (`link-finder.net/fr/`) vérifié = comparateur de prix netlinking FR (cadré comparateur, pas marketplace).
+
+**TODO restants (hors rédaction)** :
+- **Conformité** : HaloScan / YourTextGuru / Link Finder sont mis en avant (feuille G) mais absents de `src/data/subprocessors.ts` (seul Babbar y figure). Cadrage actuel dans la feuille = « signaux SEO publics, pas de donnée personnelle ». À acter ou compléter par un ajout au registre.
+- **Captures SaaS** : non insérées. `GuideLayout` n'a pas de composant image - à câbler le jour où on dépose des PNG.
+
+---
+
 ## PILIER (page mère)
 **`/methodologie/` - « Comment sen-ai mesure (vraiment) votre visibilité dans les IA »**
 - Intention : poser le problème (les IA citent certaines marques, pas d'autres ; c'est le nouveau SEO) + cartographier les 6 branches.

@@ -13,8 +13,8 @@ faq:
     a: "L'application, la base de données et le stockage sont hébergés en Europe, chez Hetzner à Falkenstein, en Allemagne. Vos données de scan ne quittent pas cet hébergement européen pour leur stockage."
   - q: "Des données partent-elles aux États-Unis ?"
     a: "Seules les requêtes envoyées à certains fournisseurs de modèles établis hors UE, comme OpenAI et Anthropic, transitent hors d'Europe, et ce en lecture seule. Ces transferts sont encadrés par le cadre de protection des données UE-États-Unis et des clauses contractuelles types."
-  - q: "Combien de sous-traitants sen-ai utilise-t-il ?"
-    a: "Six, listés et datés sur notre page méthodologie : un hébergeur, des fournisseurs de modèles IA, un service de paiement et un service d'enrichissement de données. La liste est tenue à jour avec un journal des changements."
+  - q: "Quels sous-traitants sen-ai utilise-t-il ?"
+    a: "Un hébergeur, des fournisseurs de modèles IA, un service de paiement et des services d'enrichissement SEO (autorité, mots-clés, sémantique, prix médias). La liste complète, datée et tenue à jour avec un journal des changements est publique sur notre page méthodologie."
 cta:
   titre: "Des données européennes, en toute transparence"
   texte: "Le détail de l'hébergement et des sous-traitants est public. Premier scan gratuit."
@@ -38,6 +38,6 @@ Ces transferts s'appuient sur le cadre de protection des données UE-États-Unis
 
 ## Une liste publique et datée
 
-**sen-ai s'appuie sur six sous-traitants, listés et datés sur sa page méthodologie : un hébergeur, des fournisseurs de modèles IA, un service de paiement et un service d'enrichissement.** Rien n'est caché, et chaque ajout ou changement est consigné dans un journal.
+**sen-ai s'appuie sur une courte liste de sous-traitants, publiée et datée sur sa page méthodologie : un hébergeur, des fournisseurs de modèles IA, un service de paiement et des services d'enrichissement SEO.** Rien n'est caché, et chaque ajout ou changement est consigné dans un journal.
 
 Cette transparence est le pendant concret de la confiance. Plutôt que de promettre vaguement la sécurité, sen-ai publie qui traite quoi, où, et sous quelles garanties. Le détail complet, tenu à jour, est consultable sur la [page méthodologie publique](/methodology) et reporté sur chaque rapport de scan.

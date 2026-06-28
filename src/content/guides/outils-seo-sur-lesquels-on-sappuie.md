@@ -29,7 +29,7 @@ faq:
   - q: "sen-ai utilise-t-il ses propres métriques ou celles d'outils reconnus ?"
     a: "Les deux. La mesure de visibilité IA est notre méthode, mais elle s'appuie sur des outils établis du SEO français pour l'autorité de domaine, les mots-clés et les prix des médias. On ne réinvente pas ce que le marché fait déjà bien."
   - q: "Ces outils traitent-ils mes données personnelles ?"
-    a: "Non. Ils traitent des signaux SEO publics : mots-clés, autorité de domaines, prix de liens. Parmi eux, seul Babbar, qui enrichit l'autorité de domaine, figure au registre des sous-traitants de sen-ai, consultable sur la page méthodologie."
+    a: "Non. Ils traitent des signaux SEO : mots-clés, autorité de domaines, prix de liens. Les quatre figurent au registre des sous-traitants de sen-ai, consultable et daté sur la page méthodologie, par transparence, même s'ils ne traitent pas de données personnelles."
   - q: "Pourquoi s'appuyer sur des outils tiers ?"
     a: "Parce qu'ils représentent des années de travail sur des données que nous n'avons pas vocation à recréer : un graphe de liens, un index de positions Google, des prix de marché. Les brancher, c'est offrir une mesure solide plutôt qu'une approximation maison."
 cta:
@@ -45,7 +45,7 @@ Mesurer la visibilité dans les IA est nouveau, mais cela ne veut pas dire repar
 
 **sen-ai s'appuie sur Babbar, un outil français d'analyse de liens, pour évaluer l'autorité des domaines que les IA citent.** Fondé par Sylvain Peyronnet et Guillaume Pitel, dans la lignée des travaux d'Exensa, Babbar mesure l'autorité avec ses propres métriques : Value pour la popularité, Trust pour la confiance, Semantic Value qui pondère la popularité par la pertinence thématique, et le BAS, son score d'autorité global.
 
-Ces noms sont ceux de Babbar, et c'est important de les citer correctement. Quand l'interface de sen-ai affiche des libellés plus familiers, ce sont nos correspondances de lecture, comme l'explique la page sur l'[autorité de domaine](/guides/autorite-domaine-da-tf-cf-rd/). Babbar est aussi le seul de ces outils qui figure au registre des sous-traitants de sen-ai, au titre de l'enrichissement d'autorité.
+Ces noms sont ceux de Babbar, et c'est important de les citer correctement. Quand l'interface de sen-ai affiche des libellés plus familiers, ce sont nos correspondances de lecture, comme l'explique la page sur l'[autorité de domaine](/guides/autorite-domaine-da-tf-cf-rd/). Babbar figure au registre des sous-traitants de sen-ai, au titre de l'enrichissement d'autorité, tout comme les trois autres outils présentés ci-dessous.
 
 ## HaloScan, pour les mots-clés Google France
 
@@ -69,4 +69,4 @@ Croisé avec l'autorité mesurée par Babbar, ce prix de marché permet de sugg�
 
 **Un graphe de liens, un index de positions Google, des prix de marché représentent des années de travail que nous n'avons pas vocation à recréer.** Les brancher, c'est offrir une mesure adossée à des données solides et reconnues, au lieu d'une approximation maison qui sonnerait creux.
 
-C'est aussi une question d'honnêteté envers vous. Ces outils traitent des signaux SEO publics, pas vos données personnelles, et la part qui relève d'un sous-traitant est déclarée au registre. La valeur propre de sen-ai n'est pas de posséder ces données, mais de les mettre au service d'une mesure de visibilité IA que personne d'autre n'assemble de cette façon.
+C'est aussi une question d'honnêteté envers vous. Ces outils traitent des signaux SEO, pas vos données personnelles, et tous sont déclarés au registre des sous-traitants par transparence. La valeur propre de sen-ai n'est pas de posséder ces données, mais de les mettre au service d'une mesure de visibilité IA que personne d'autre n'assemble de cette façon.

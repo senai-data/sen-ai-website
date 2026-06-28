@@ -112,6 +112,39 @@ export const SUBPROCESSORS: SubProcessor[] = [
     added_on: '2026-04-15',
     status: 'active',
   },
+  {
+    id: 'haloscan',
+    name: 'Haloscan',
+    legal_entity: 'ARCHI301 (RCS Nice 950 897 371)',
+    category: 'data-enrichment',
+    purpose: 'Keyword & SERP data (Google France) - seeds scan topics and personas. Processes search keywords and domains, not personal data.',
+    hosting_region: 'European Union (France, OVH)',
+    transfer_mechanism: 'EU controller, no transfer',
+    added_on: '2026-06-28',
+    status: 'active',
+  },
+  {
+    id: 'yourtextguru',
+    name: 'YourTextGuru',
+    legal_entity: 'Babbar Technologies SAS',
+    category: 'data-enrichment',
+    purpose: 'Semantic optimization scoring (SOSEO / DSEO) during content generation. Processes content keywords, not personal data.',
+    hosting_region: 'European Union (France)',
+    transfer_mechanism: 'EU controller, no transfer',
+    added_on: '2026-06-28',
+    status: 'active',
+  },
+  {
+    id: 'linkfinder',
+    name: 'Link Finder',
+    legal_entity: 'Apexx LLC (United States)',
+    category: 'data-enrichment',
+    purpose: 'Netlinking price comparison for the media-alternative feature. Processes media domains and market prices, not personal data.',
+    hosting_region: 'Germany (Contabo) - publisher US-incorporated',
+    transfer_mechanism: 'SCC (US publisher)',
+    added_on: '2026-06-28',
+    status: 'active',
+  },
 ];
 
 /**
@@ -120,6 +153,24 @@ export const SUBPROCESSORS: SubProcessor[] = [
  * ship date - everything that existed at that point gets one entry.
  */
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    date: '2026-06-28',
+    kind: 'added',
+    subprocessor_id: 'haloscan',
+    summary: 'Haloscan ajoute au registre : donnees mots-cles et SERP Google France, amorce des topics et personas. Integration SEO existante, traite des mots-cles et domaines, pas de donnee personnelle.',
+  },
+  {
+    date: '2026-06-28',
+    kind: 'added',
+    subprocessor_id: 'yourtextguru',
+    summary: 'YourTextGuru ajoute au registre : scores semantiques SOSEO et DSEO pour la generation de contenu. Edite par Babbar Technologies SAS, traite des mots-cles de contenu, pas de donnee personnelle.',
+  },
+  {
+    date: '2026-06-28',
+    kind: 'added',
+    subprocessor_id: 'linkfinder',
+    summary: 'Link Finder ajoute au registre : comparateur de prix du netlinking pour la fonctionnalite alternative media. Editeur Apexx LLC (Etats-Unis), hebergement Contabo (Allemagne), traite des domaines et prix, pas de donnee personnelle.',
+  },
   {
     date: '2026-05-29',
     kind: 'initial_disclosure',

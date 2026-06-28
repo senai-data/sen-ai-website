@@ -71,8 +71,7 @@ const lastUpdated = "2026-05-29";
           trimestrielles.
         </p>
         <p class="text-charcoal-light leading-relaxed mt-3">
-          Source pour la caractérisation de la variance : étude de mesure Fishkin / O&apos;Donnell
-          2026, plus nos propres benchmarks internes sur 50+ scans dans les verticales cosmétique,
+          Source pour la caractérisation de la variance : l&apos;<a href="https://sparktoro.com/blog/new-research-ais-are-highly-inconsistent-when-recommending-brands-or-products-marketers-should-take-care-when-tracking-ai-visibility/" target="_blank" rel="noopener" class="text-coral underline">étude SparkToro (Fishkin / O&apos;Donnell, janvier 2026)</a>, qui mesure l&apos;inconstance des recommandations de marques sur 2 961 runs, plus nos propres benchmarks internes sur 50+ scans dans les verticales cosmétique,
           pharmaceutique, automobile et services aux particuliers en France.
         </p>
       </section>
@@ -133,10 +132,10 @@ const lastUpdated = "2026-05-29";
           codée en dur.
         </p>
         <p class="text-charcoal-light leading-relaxed mt-3">
-          Une couche Haiku-as-judge (sprint dédié) renverse les faux positifs de sentiment évidents
-          (par exemple &quot;non adapté pour X&quot; mal classé en négatif alors que la formulation
-          est factuelle). En attendant, les outils radar minimisent les signaux négatifs isolés via
-          des buckets de sévérité conservateurs.
+          Une couche Haiku-as-judge (en production) relit chaque mention négative et renverse les faux
+          positifs de sentiment évidents (par exemple &quot;non adapté pour X&quot; mal classé en négatif
+          alors que la formulation est factuelle). Les signaux négatifs isolés sont par ailleurs tempérés
+          via des buckets de sévérité conservateurs.
         </p>
       </section>
 
@@ -161,8 +160,9 @@ const lastUpdated = "2026-05-29";
         <h2 class="text-xl font-bold text-charcoal-dark mb-3">7. Variance &amp; honnêteté statistique</h2>
         <p class="text-charcoal-light leading-relaxed">
           Les métriques en single-run sont signalées comme &quot;confiance faible&quot; dans l&apos;UI.
-          Les métriques multi-runs apparaissent avec leur intervalle de variance visible (prévu dans
-          le sprint Variance UI - livré avec le ramp N=10).
+          Les métriques multi-runs apparaissent avec leur intervalle de variance visible (en production :
+          l&apos;intervalle de confiance est affiché en plus-ou-moins points sur le taux de citation, avec
+          la taille d&apos;échantillon par métrique).
         </p>
         <p class="text-charcoal-light leading-relaxed mt-3">
           Les comparaisons cross-scan requièrent un minimum de 7 jours entre deux scans pour éviter

@@ -68,7 +68,7 @@ const lastUpdated = "2026-05-29";
           drops to ±1-2pts across the mix - tight enough to detect quarterly trend changes.
         </p>
         <p class="text-charcoal-light leading-relaxed mt-3">
-          Source for the variance characterisation : Fishkin / O&apos;Donnell 2026 measurement study
+          Source for the variance characterisation : the <a href="https://sparktoro.com/blog/new-research-ais-are-highly-inconsistent-when-recommending-brands-or-products-marketers-should-take-care-when-tracking-ai-visibility/" target="_blank" rel="noopener" class="text-coral underline">SparkToro study (Fishkin / O&apos;Donnell, January 2026)</a>, which measured brand-recommendation inconsistency across 2,961 runs,
           plus our own internal benchmarks across 50+ scans on French cosmetics, pharma,
           automotive, and consumer-services verticals.
         </p>
@@ -127,10 +127,10 @@ const lastUpdated = "2026-05-29";
           owner curates them. No hardcoded vertical / region / brand lists.
         </p>
         <p class="text-charcoal-light leading-relaxed mt-3">
-          A Haiku-as-judge layer (Sprint candidate) will start overturning obvious sentiment
-          false positives (e.g. &quot;not suitable for X&quot; misclassified as negative when the
-          underlying statement is factual). Until then, the radar tools downplay isolated
-          negative signals via conservative severity buckets.
+          A Haiku-as-judge layer (live) re-reads each negative mention and overturns obvious
+          sentiment false positives (e.g. &quot;not suitable for X&quot; misclassified as negative when the
+          underlying statement is factual). Isolated negative signals are also tempered via
+          conservative severity buckets.
         </p>
       </section>
 
@@ -154,8 +154,8 @@ const lastUpdated = "2026-05-29";
         <h2 class="text-xl font-bold text-charcoal-dark mb-3">7. Variance handling &amp; statistical honesty</h2>
         <p class="text-charcoal-light leading-relaxed">
           Single-run metrics are flagged as &quot;low confidence&quot; in the UI. Multi-run metrics
-          surface with their variance band visible (planned in the Variance UI sprint - shipping
-          alongside the N=10 ramp).
+          surface with their variance band visible (live : the confidence interval is shown as
+          plus-or-minus points on the mention rate, alongside the sample size per metric).
         </p>
         <p class="text-charcoal-light leading-relaxed mt-3">
           Cross-scan comparisons require a minimum of 7 days between scans to avoid measuring

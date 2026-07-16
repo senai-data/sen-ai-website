@@ -2202,14 +2202,14 @@ const isReviewing = effectiveView !== null && (
           <h3 class="text-sm font-semibold text-charcoal-dark mb-1">AI Providers</h3>
           <p class="text-xs text-charcoal-light mb-4">Choose which AI models to test. Each question is tested against every selected AI.</p>
           <div class="flex items-center gap-3 mb-3">
-            <!-- OpenAI pill -->
+            <!-- OpenAI pill (model label follows the selected version) -->
             <button @click="toggleProvider('openai')"
                     :class="selectedProviders.includes('openai')
                       ? 'bg-coral text-white shadow-sm'
                       : 'bg-gray-100 text-charcoal-light hover:bg-gray-200'"
                     class="px-4 py-2.5 rounded-lg text-sm font-medium transition-all flex items-center gap-2">
               <span class="w-2 h-2 rounded-full" :class="selectedProviders.includes('openai') ? 'bg-white' : 'bg-gray-300'"></span>
-              OpenAI <span class="text-[10px] opacity-75">(GPT-4.1-mini)</span>
+              OpenAI <span class="text-[10px] opacity-75" x-text="'(' + (selectedModelLabel('openai') || 'GPT-4.1 mini') + ')'"></span>
             </button>
             <!-- Gemini pill -->
             <button @click="toggleProvider('gemini')"
@@ -2218,9 +2218,33 @@ const isReviewing = effectiveView !== null && (
                       : 'bg-gray-100 text-charcoal-light hover:bg-gray-200'"
                     class="px-4 py-2.5 rounded-lg text-sm font-medium transition-all flex items-center gap-2">
               <span class="w-2 h-2 rounded-full" :class="selectedProviders.includes('gemini') ? 'bg-white' : 'bg-gray-300'"></span>
-              Gemini <span class="text-[10px] opacity-75">(2.5 Flash)</span>
+              Gemini <span class="text-[10px] opacity-75" x-text="'(' + (selectedModelLabel('gemini') || 'Gemini 3.5 Flash') + ')'"></span>
             </button>
-            <span x-show="savingProviders" class="text-[10px] text-charcoal-light">Saving...</span>
+            <span x-show="savingProviders || savingModels" class="text-[10px] text-charcoal-light">Saving...</span>
+          </div>
+          <!-- Model versions (BYOK-gated selector). Shown only when the org
+               has a complete BYOK setup AND a provider has >1 allowed version.
+               The choice is made on the root scan and inherited by every
+               rescan so the lineage stays on one model era. -->
+          <div x-show="showModelSelect('openai') || showModelSelect('gemini')" class="mb-3 text-xs bg-gray-50 border border-gray-100 rounded-lg px-3 py-2">
+            <p class="font-medium text-charcoal-dark mb-1.5">Model versions
+              <span class="font-normal text-charcoal-light">- runs on your own API keys. Applies to this tracker's future rescans too (one model era per lineage).</span>
+            </p>
+            <template x-for="prov in ['openai', 'gemini']" :key="prov">
+              <label x-show="showModelSelect(prov)" class="inline-flex items-center gap-1.5 mr-4 text-[11px] text-charcoal-light">
+                <span x-text="prov === 'openai' ? 'OpenAI' : 'Gemini'"></span>
+                <select class="text-[11px] border border-gray-200 rounded px-1.5 py-0.5 bg-white"
+                        :disabled="savingModels"
+                        :value="selectedModel(prov)"
+                        @change="saveModelChoice(prov, $event.target.value)">
+                  <template x-for="opt in modelChoices(prov)" :key="opt.model">
+                    <option :value="opt.model"
+                            :title="opt.note + ' · ' + opt.price"
+                            x-text="opt.label + (opt.recommended ? ' · closest to consumer ChatGPT' : '') + ' · ' + opt.price"></option>
+                  </template>
+                </select>
+              </label>
+            </template>
           </div>
           <!-- BYOK - blocking key issues (cap reached / invalid) -->
           <div x-show="blockingByokIssues().length" class="mb-3 text-xs bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-charcoal-dark">
@@ -3334,6 +3358,11 @@ const isReviewing = effectiveView !== null && (
         // of truth for the rule); the local math mirrors ceil(Q x N / 2).
         byokIssues: byokIssues || [],
         byokCovered: false,
+        // Model-version selector (BYOK-gated) - allowlist + current selection
+        // ride /cost-estimate (server = single source, no front copy to drift).
+        modelOptions: {},
+        modelOverrides: {},
+        savingModels: false,
         init() { this.fetchByokEstimate(); },
         async fetchByokEstimate() {
           try {
@@ -3341,8 +3370,46 @@ const isReviewing = effectiveView !== null && (
             if (r.ok) {
               const j = await r.json();
               this.byokCovered = !!j.byok_covered;
+              this.modelOptions = j.model_options || {};
+              this.modelOverrides = j.model_overrides || {};
             }
           } catch (e) { /* fail-open: full-price display */ }
+        },
+        modelChoices(provider) {
+          return this.modelOptions[provider] || [];
+        },
+        selectedModel(provider) {
+          const choices = this.modelChoices(provider);
+          return this.modelOverrides[provider] || (choices[0] && choices[0].model) || '';
+        },
+        selectedModelLabel(provider) {
+          const m = this.selectedModel(provider);
+          const e = this.modelChoices(provider).find(c => c.model === m);
+          return e ? e.label : m;
+        },
+        // Show the select only when a real choice exists : BYOK complete AND
+        // more than one allowed version for that provider (Hick's Law).
+        showModelSelect(provider) {
+          return this.byokCovered && this.modelChoices(provider).length > 1
+            && this.selectedProviders.includes(provider);
+        },
+        async saveModelChoice(provider, model) {
+          const prev = { ...this.modelOverrides };
+          const next = { ...this.modelOverrides };
+          const dflt = (this.modelChoices(provider)[0] || {}).model;
+          if (!model || model === dflt) delete next[provider];
+          else next[provider] = model;
+          this.modelOverrides = next;
+          this.savingModels = true;
+          try {
+            const res = await fetch('/api/scans/' + this.scanId + '/config', {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ model_overrides: next }),
+            });
+            if (!res.ok) this.modelOverrides = prev;
+          } catch (e) { this.modelOverrides = prev; }
+          this.savingModels = false;
         },
         displayCredits() {
           const full = this.totals.active_questions * this.runsDepth;

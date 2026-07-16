@@ -31,6 +31,9 @@ const providers: any[] = data?.providers || [];
 // report keeps the platform wording in that case.
 const byokProviders: string[] = data?.byok_providers || [];
 const byokNames: Record<string, string> = { openai: 'OpenAI', anthropic: 'Anthropic', gemini: 'Google Gemini', mistral: 'Mistral' };
+// P3 model eras + BYOK selector : exact model versions observed on this
+// scan's rows (providers[].models) + customer-selected versions (config).
+const modelOverrides: Record<string, string> = data?.model_overrides || {};
 const runsDepth = data?.runs_depth || {};
 const counts = data?.counts || {};
 const dataSources = data?.data_sources || {};
@@ -164,6 +167,7 @@ const runsDisplay = runsDepth.configured || runsDepth.observed_max || 1;
                 <th>Provider</th>
                 <th>Sub-processor</th>
                 <th>Model family</th>
+                <th>Model version</th>
                 <th>Hosting region</th>
                 <th>API key</th>
                 <th class="text-right">LLM calls</th>
@@ -172,17 +176,24 @@ const runsDisplay = runsDepth.configured || runsDepth.observed_max || 1;
             </thead>
             <tbody>
               {providers.length === 0 && (
-                <tr><td colspan="7" class="text-charcoal-light italic">No provider responses recorded.</td></tr>
+                <tr><td colspan="8" class="text-charcoal-light italic">No provider responses recorded.</td></tr>
               )}
               {providers.map((p: any) => {
                 const info = providerInfo(String(p.provider));
+                const key = String(p.provider).toLowerCase();
+                const observed: string[] = p.models || [];
+                const isCustomerSelected = !!modelOverrides[key];
                 return (
                   <tr>
                     <td>{info.name}</td>
                     <td>{info.sub_processor}</td>
                     <td>{info.model_family}</td>
+                    <td>
+                      {observed.length ? observed.join(', ') : '-'}
+                      {isCustomerSelected && <span class="text-charcoal-light"> (customer-selected)</span>}
+                    </td>
                     <td>{info.region}</td>
-                    <td>{byokProviders.includes(String(p.provider).toLowerCase()) ? 'Customer (BYOK)' : 'sen-ai platform'}</td>
+                    <td>{byokProviders.includes(key) ? 'Customer (BYOK)' : 'sen-ai platform'}</td>
                     <td class="text-right">{p.responses}</td>
                     <td class="text-right">{p.distinct_runs}</td>
                   </tr>

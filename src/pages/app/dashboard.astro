@@ -119,6 +119,24 @@ if (activeOrg && activeClient) {
   } catch {}
 }
 
+// BYOK - key issues (cap reached / invalid) for the warning banner.
+// Fail-open: no banner if the fetch hiccups. Mistral excluded (dormant).
+let byokIssues: { provider: string; kind: string }[] = [];
+if (activeOrg) {
+  try {
+    const r = await fetch(`http://api:8000/api/organizations/${activeOrg.id}/api-keys`, {
+      headers: { Cookie: upstreamCookie },
+      signal: AbortSignal.timeout(3000),
+    });
+    if (r.ok) {
+      const kj = await r.json();
+      byokIssues = (kj.providers || [])
+        .filter((k: any) => k.configured && k.provider !== 'mistral' && (k.status === 'invalid' || k.cap_reached))
+        .map((k: any) => ({ provider: k.provider, kind: k.status === 'invalid' ? 'invalid' : 'cap' }));
+    }
+  } catch {}
+}
+
 // ─── Derived state ───
 const completedScans = scans.filter((s) => s.status === 'completed');
 const latestCompleted = completedScans[0] || null; // list is created_at DESC
@@ -365,6 +383,22 @@ const priorityDot: Record<string, string> = {
           <p style="font-size:12px;color:var(--color-text-secondary)">Check your inbox for the verification link.</p>
         </div>
         <button onclick="fetch('/api/auth/resend-verification',{method:'POST'}).then(()=>this.textContent='Sent!')" class="btn btn--secondary btn--sm" style="flex:none">Resend</button>
+      </div>
+    )}
+
+    {byokIssues.length > 0 && (
+      <div class="notice notice--warn" style="margin-bottom:var(--space-5);display:flex;align-items:center;justify-content:space-between;gap:12px">
+        <div>
+          <p style="font-size:13px;font-weight:600;color:var(--color-text-primary)">
+            {byokIssues.some(i => i.kind === 'invalid')
+              ? `Your ${byokIssues.filter(i => i.kind === 'invalid').map(i => i.provider).join(', ')} API key${byokIssues.filter(i => i.kind === 'invalid').length > 1 ? 's were' : ' was'} rejected by the provider`
+              : `Your ${byokIssues.map(i => i.provider).join(', ')} API key${byokIssues.length > 1 ? 's' : ''} hit ${byokIssues.length > 1 ? 'their' : 'its'} monthly cap`}
+          </p>
+          <p style="font-size:12px;color:var(--color-text-secondary)">
+            Scans that need {byokIssues.map(i => i.provider).join(', ')} are blocked. Raise the cap, replace the key, or delete it to fall back to platform keys.
+          </p>
+        </div>
+        <a href="/app/settings/api-keys" class="btn btn--secondary btn--sm" style="flex:none">Manage keys</a>
       </div>
     )}
 

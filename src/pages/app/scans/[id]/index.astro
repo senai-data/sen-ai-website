@@ -42,6 +42,31 @@ if (scan.status === 'keywords_fetched') {
   } catch {}
 }
 
+// BYOK - provider issues (cap reached / invalid key) feeding the inline
+// wizard note next to the AI pills. Fail-open: no note on fetch failure.
+// gemini is always launch-blocking (EntityAnalyzer), anthropic never blocks
+// the launch (post-scan jobs) - filtering happens client-side against the
+// selected providers.
+let byokIssues: { provider: string; kind: string }[] = [];
+try {
+  const activeOrgCookie = Astro.cookies.get('active_organization_id')?.value;
+  const upstreamCookie = [`token=${token}`, activeOrgCookie ? `active_organization_id=${activeOrgCookie}` : null].filter(Boolean).join('; ');
+  const orgRes = await fetch('http://api:8000/api/organizations/', { headers: { Cookie: upstreamCookie }, signal: AbortSignal.timeout(3000) });
+  if (orgRes.ok) {
+    const orgs = await orgRes.json();
+    const activeOrg = orgs.find((o: any) => o.is_active) || orgs[0];
+    if (activeOrg) {
+      const kRes = await fetch(`http://api:8000/api/organizations/${activeOrg.id}/api-keys`, { headers: { Cookie: upstreamCookie }, signal: AbortSignal.timeout(3000) });
+      if (kRes.ok) {
+        const kj = await kRes.json();
+        byokIssues = (kj.providers || [])
+          .filter((k: any) => k.configured && k.provider !== 'mistral' && (k.status === 'invalid' || k.cap_reached))
+          .map((k: any) => ({ provider: k.provider, kind: k.status === 'invalid' ? 'invalid' : 'cap' }));
+      }
+    }
+  }
+} catch {}
+
 const steps = [
   { key: 'domain', label: 'Domain' },
   { key: 'topics', label: 'Topics' },
@@ -1447,7 +1472,7 @@ const isReviewing = effectiveView !== null && (
 
     <!-- Personas ready (Gate 3) — or reviewing personas via ?view=personas -->
     {(effectiveView === 'personas' || (!effectiveView && scan.status === 'personas_ready')) && personasData && (
-      <div x-data={`personasWizard(${JSON.stringify(personasData)}, '${id}', ${JSON.stringify((scan.config || {}).providers || ['openai'])}, ${JSON.stringify(Number((scan.config || {}).runs_depth) || 1)})`}>
+      <div x-data={`personasWizard(${JSON.stringify(personasData)}, '${id}', ${JSON.stringify((scan.config || {}).providers || ['openai'])}, ${JSON.stringify(Number((scan.config || {}).runs_depth) || 1)}, ${JSON.stringify(byokIssues)})`}>
         <h2 class="text-xl font-bold text-charcoal-dark mb-2">Personas & Questions on <span class="text-coral">{scan.domain}</span></h2>
         <p class="text-charcoal-light mb-2">For each topic, we generated personas — real people who'd ask questions about it — and the typical questions they'd ask an AI.</p>
         <p class="text-sm text-charcoal-light mb-4"><span class="font-medium text-charcoal-dark">Review and toggle off</span> what you don't need. Each active question counts as 1 scan credit when you launch.</p>
@@ -2197,6 +2222,17 @@ const isReviewing = effectiveView !== null && (
             </button>
             <span x-show="savingProviders" class="text-[10px] text-charcoal-light">Saving...</span>
           </div>
+          <!-- BYOK - blocking key issues (cap reached / invalid) -->
+          <div x-show="blockingByokIssues().length" class="mb-3 text-xs bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-charcoal-dark">
+            <template x-for="i in blockingByokIssues()" :key="i.provider">
+              <p>
+                <span>Your </span><span class="font-medium" x-text="i.provider"></span>
+                <span x-text="i.kind === 'invalid' ? ' API key was rejected by the provider' : ' API key hit its monthly cap'"></span>
+                <span> - launch is blocked. </span>
+                <a href="/app/settings/api-keys" class="text-coral hover:underline">Manage API keys</a>
+              </p>
+            </template>
+          </div>
           <p class="text-xs text-charcoal-light">
             <span x-text="totals.active_questions"></span> questions &times;
             <span x-text="selectedProviders.length"></span> AI<span x-show="selectedProviders.length > 1">s</span>
@@ -2217,8 +2253,8 @@ const isReviewing = effectiveView !== null && (
                 questions x runs ; calls also x runs. */}
             <p class="text-xs text-charcoal-light mt-0.5">
               <span class="font-medium text-charcoal-dark" x-text="(totals.active_questions * selectedProviders.length * runsDepth).toLocaleString()"></span> API calls ·
-              <span class="font-medium text-charcoal-dark" x-text="totals.active_questions + ' questions × ' + runsDepth + ' run' + (runsDepth > 1 ? 's' : '')"></span> =
-              <span class="font-medium text-coral" x-text="(totals.active_questions * runsDepth).toLocaleString() + ' credit' + (totals.active_questions * runsDepth !== 1 ? 's' : '')"></span>
+              <span class="font-medium text-charcoal-dark" x-text="totals.active_questions + ' questions × ' + runsDepth + ' run' + (runsDepth > 1 ? 's' : '') + (byokCovered ? ' × 50% BYOK' : '')"></span> =
+              <span class="font-medium text-coral" x-text="displayCredits().toLocaleString() + ' credit' + (displayCredits() !== 1 ? 's' : '')"></span>
             </p>
             <label class="text-[11px] text-charcoal-light mt-1 inline-flex items-center gap-1.5">
               Sampling
@@ -3288,11 +3324,37 @@ const isReviewing = effectiveView !== null && (
         },
       }));
 
-      window.Alpine.data('personasWizard', (initialData, scanId, initialProviders, initialRunsDepth) => ({
+      window.Alpine.data('personasWizard', (initialData, scanId, initialProviders, initialRunsDepth, byokIssues) => ({
         scanId: scanId,
         // N-runs (T4) - samples per (question, provider). Credits = questions x runs.
         runsDepth: initialRunsDepth || 1,
         savingRuns: false,
+        // BYOK beta - 50% credit discount when the org covers all 3 runtime
+        // providers. byokCovered comes from /cost-estimate (server = source
+        // of truth for the rule); the local math mirrors ceil(Q x N / 2).
+        byokIssues: byokIssues || [],
+        byokCovered: false,
+        init() { this.fetchByokEstimate(); },
+        async fetchByokEstimate() {
+          try {
+            const r = await fetch('/api/scans/' + this.scanId + '/cost-estimate');
+            if (r.ok) {
+              const j = await r.json();
+              this.byokCovered = !!j.byok_covered;
+            }
+          } catch (e) { /* fail-open: full-price display */ }
+        },
+        displayCredits() {
+          const full = this.totals.active_questions * this.runsDepth;
+          return this.byokCovered ? Math.ceil(full / 2) : full;
+        },
+        blockingByokIssues() {
+          // gemini always blocks (EntityAnalyzer runs on every scan);
+          // selected providers block themselves; anthropic never blocks.
+          return (this.byokIssues || []).filter(
+            i => i.provider === 'gemini' || this.selectedProviders.includes(i.provider)
+          );
+        },
         async saveRunsDepth(v) {
           const n = Math.max(1, Math.min(20, parseInt(v, 10) || 1));
           const prev = this.runsDepth;
@@ -3786,7 +3848,10 @@ const isReviewing = effectiveView !== null && (
           if (!this.canLaunch) return;
           const providerNames = this.selectedProviders.join(' + ');
           const apiCalls = this.totals.active_questions * this.selectedProviders.length;
-          if (!confirm('Launch AI Scan?\n\n' + this.totals.active_personas + ' personas · ' + this.totals.active_questions + ' questions · ' + providerNames + '\n' + this.runsDepth + ' run' + (this.runsDepth > 1 ? 's' : '') + ' per question · ' + (apiCalls * this.runsDepth) + ' API calls\n' + (this.totals.active_questions * this.runsDepth) + ' scan credits (1 credit = 1 question × 1 run)')) return;
+          const creditLine = this.displayCredits() + ' scan credits'
+            + (this.byokCovered ? ' (50% off - your own API keys)' : '')
+            + ' (1 credit = 1 question × 1 run)';
+          if (!confirm('Launch AI Scan?\n\n' + this.totals.active_personas + ' personas · ' + this.totals.active_questions + ' questions · ' + providerNames + '\n' + this.runsDepth + ' run' + (this.runsDepth > 1 ? 's' : '') + ' per question · ' + (apiCalls * this.runsDepth) + ' API calls\n' + creditLine)) return;
           fetch('/api/scans/' + this.scanId + '/launch', { method: 'POST' })
             .then(async res => {
               if (res.ok) {
@@ -3794,7 +3859,19 @@ const isReviewing = effectiveView !== null && (
               } else if (res.status === 402) {
                 const err = await res.json().catch(() => ({}));
                 const detail = err.detail || {};
-                alert('Not enough scan credits.\nNeed: ' + (detail.need || '?') + '\nHave: ' + (detail.have || '?') + '\n\nGo to Settings → Buy credits.');
+                if (detail.error === 'byok_cap_exceeded') {
+                  alert('Launch blocked: your ' + (detail.provider || '') + ' API key hit its monthly cap ($' + (detail.mtd_cost_usd ?? '?') + ' of $' + (detail.monthly_cap_usd ?? '?') + ').\n\nRaise the cap in Settings > LLM API keys, or delete the key to use platform keys.');
+                } else {
+                  alert('Not enough scan credits.\nNeed: ' + (detail.need || '?') + '\nHave: ' + (detail.have || '?') + '\n\nGo to Settings → Buy credits.');
+                }
+              } else if (res.status === 400) {
+                const err = await res.json().catch(() => ({}));
+                const detail = err.detail || {};
+                if (detail.error === 'byok_key_invalid') {
+                  alert('Launch blocked: your ' + (detail.provider || '') + ' API key was rejected by the provider.\n\nReplace, re-validate or delete it in Settings > LLM API keys.');
+                } else {
+                  alert('Launch failed: ' + (typeof detail === 'string' ? detail : JSON.stringify(detail)));
+                }
               } else {
                 return res.text().then(t => { alert('Launch failed: ' + res.status + ' ' + t); });
               }

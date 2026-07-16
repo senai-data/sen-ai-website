@@ -116,6 +116,8 @@ const problems = keys.filter(k => k.configured && k.provider !== 'mistral' && (k
         <li><strong>Monthly cap:</strong> an optional hard stop in USD per provider. When your estimated month-to-date spend reaches the cap, scans that need this provider are blocked until the next calendar month or until you raise the cap.</li>
         <li><strong>Security:</strong> keys are encrypted at rest, shown only as a masked hint after saving, and can be deleted at any time.</li>
         <li><strong>Compliance:</strong> with your own key, prompts for that provider are sent through your own provider account, under your direct agreement with that provider. See the <a href="/app/compliance" class="text-coral hover:underline">compliance hub</a> for details.</li>
+        <li><strong>Pricing:</strong> scans that run entirely on your own keys (OpenAI, Anthropic and Gemini all active) cost 50% fewer credits. Provider usage is billed by the provider to your account.</li>
+        <li><strong>Beta bonus:</strong> the first time your organization has active keys for OpenAI, Anthropic and Gemini, you get 200 free scan credits (one time, credited to your active workspace).</li>
         <li><strong>Mistral:</strong> keys can be stored and validated today, but Mistral scanning is not live yet. Your key stays dormant until it ships.</li>
       </ul>
     </div>

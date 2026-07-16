@@ -27,7 +27,7 @@ import logging
 import uuid
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -132,6 +132,57 @@ def _serialize_key(provider: str, row: OrganizationApiKey | None, mtd: dict[str,
     }
 
 
+def _maybe_grant_byok_bonus(db: Session, org: Organization, active_client_id: str | None) -> dict | None:
+    """BYOK beta bonus : one-time 200 scan credits per org at first COMPLETE
+    setup (active keys for openai + gemini + anthropic). Idempotent via
+    organizations.byok_bonus_granted_at (row-locked against a double PUT).
+    Credited to the active workspace when it belongs to the org, else the
+    org's oldest client. Org without any client : silently retried on the
+    next PUT/validate (pattern: welcome bonus, routers/clients.py).
+    """
+    from services.byok_preflight import is_byok_complete
+    if org.byok_bonus_granted_at is not None:
+        return None
+    if not is_byok_complete(db, org.id):
+        return None
+    org_locked = (
+        db.query(Organization)
+        .filter(Organization.id == org.id)
+        .with_for_update()
+        .first()
+    )
+    if org_locked is None or org_locked.byok_bonus_granted_at is not None:
+        return None
+    target = None
+    if active_client_id:
+        target = (
+            db.query(Client)
+            .filter(Client.id == active_client_id, Client.organization_id == org.id)
+            .first()
+        )
+    if target is None:
+        target = (
+            db.query(Client)
+            .filter(Client.organization_id == org.id)
+            .order_by(Client.created_at.asc())
+            .first()
+        )
+    if target is None:
+        return None
+    from routers.stripe import add_credits
+    add_credits(
+        client_id=str(target.id),
+        credit_type="scan",
+        amount=200,
+        description="BYOK beta bonus - 200 free scan credits",
+        db=db,
+    )
+    org_locked.byok_bonus_granted_at = datetime.utcnow()
+    db.commit()
+    logger.info("BYOK bonus granted: org=%s client=%s (+200 scan credits)", org.id, target.id)
+    return {"amount": 200, "credit_type": "scan", "client_id": str(target.id)}
+
+
 def _get_key_row(db: Session, org_id, provider: str) -> OrganizationApiKey | None:
     return (
         db.query(OrganizationApiKey)
@@ -198,6 +249,7 @@ async def upsert_org_api_key(
     provider: str,
     req: OrgApiKeyUpsert,
     request: Request,
+    active_client_id: str | None = Cookie(default=None),
     user=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -248,9 +300,15 @@ async def upsert_org_api_key(
         db.commit()
         logger.info("BYOK key saved: org=%s provider=%s by user=%s", org.id, provider, user.id)
 
+    # One-time beta bonus check (no-op unless the org just became complete).
+    bonus = _maybe_grant_byok_bonus(db, org, active_client_id)
+
     db.refresh(row)
     mtd = _mtd_byok_cost_by_provider(db, org.id)
-    return _serialize_key(provider, row, mtd)
+    out = _serialize_key(provider, row, mtd)
+    if bonus:
+        out["bonus_granted"] = bonus
+    return out
 
 
 @router.delete("/{org_id}/api-keys/{provider}", status_code=204)
@@ -280,6 +338,7 @@ async def revalidate_org_api_key(
     org_id: str,
     provider: str,
     request: Request,
+    active_client_id: str | None = Cookie(default=None),
     user=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -304,6 +363,13 @@ async def revalidate_org_api_key(
         row.status = "invalid"
         row.last_error = error_msg
     db.commit()
+
+    # Re-activation can complete the org's BYOK setup - bonus check here too.
+    bonus = _maybe_grant_byok_bonus(db, org, active_client_id) if ok else None
+
     db.refresh(row)
     mtd = _mtd_byok_cost_by_provider(db, org.id)
-    return _serialize_key(provider, row, mtd)
+    out = _serialize_key(provider, row, mtd)
+    if bonus:
+        out["bonus_granted"] = bonus
+    return out

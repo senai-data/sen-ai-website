@@ -1384,8 +1384,15 @@ def _perform_rescan(db: Session, parent: "Scan", created_by_user_id) -> "Scan":
         db, parent.client_id, parent_config.get("providers", ["openai"]))
     child_config = dict(parent.config or {})
     child_config.pop("byok_providers", None)
+    child_config.pop("byok_discount", None)
     if byok_providers:
         child_config["byok_providers"] = byok_providers
+    # BYOK beta pricing : -50% credits (mirror of launch_scan).
+    byok_discount = {"openai", "anthropic", "gemini"}.issubset(set(byok_providers))
+    if byok_discount:
+        import math
+        credits_needed = math.ceil(credits_needed / 2)
+        child_config["byok_discount"] = True
 
     # Credit gate: same pattern as launch_scan - lock client, check balance,
     # then debit (with scan_id=child.id once it exists, so a worker failure
@@ -1502,6 +1509,7 @@ def _perform_rescan(db: Session, parent: "Scan", created_by_user_id) -> "Scan":
         amount=-credits_needed,
         description=(
             f"Rescan launched: {active_questions} questions × {runs_depth} runs"
+            + (" - 50% BYOK" if byok_discount else "")
         ),
         db=db,
         scan_id=str(child.id),
@@ -2406,7 +2414,15 @@ async def cost_estimate(
     config = scan.config or {}
     runs_depth = max(1, min(20, int(runs if runs is not None else config.get("runs_depth", 1) or 1)))
     providers = config.get("providers", ["openai"]) or ["openai"]
-    credits_to_debit = active_questions * runs_depth
+    credits_full = active_questions * runs_depth
+
+    # BYOK beta pricing : 50% credit discount when the org has active keys
+    # for all 3 runtime providers (openai + gemini + anthropic). Same rule
+    # as /launch - keep the two in sync.
+    import math
+    from services.byok_preflight import _org_id_for_client, is_byok_complete
+    byok_covered = is_byok_complete(db, _org_id_for_client(db, scan.client_id))
+    credits_to_debit = math.ceil(credits_full / 2) if byok_covered else credits_full
 
     from routers.stripe import get_credit_balance
     balance = get_credit_balance(str(scan.client_id), "scan", db)
@@ -2416,6 +2432,9 @@ async def cost_estimate(
         "runs_depth": runs_depth,
         "providers": providers,
         "credits_to_debit": credits_to_debit,
+        "credits_full": credits_full,
+        "byok_covered": byok_covered,
+        "byok_pricing": "discount50" if byok_covered else "none",
         "scan_credits_available": balance,
         "sufficient": balance >= credits_to_debit or bool(config.get("credits_already_debited")),
     }
@@ -2459,13 +2478,23 @@ async def launch_scan(request: Request, scan_id: str, user=Depends(get_current_u
     from services.byok_preflight import preflight_scan_launch
     byok_providers = preflight_scan_launch(
         db, scan.client_id, config.get("providers", ["openai"]))
-    if byok_providers or config.get("byok_providers"):
+    # BYOK beta pricing : -50% credits when the org covers all 3 runtime
+    # providers (mirror of /cost-estimate).
+    byok_discount = {"openai", "anthropic", "gemini"}.issubset(set(byok_providers))
+    if byok_discount:
+        import math
+        credits_needed = math.ceil(credits_needed / 2)
+    if byok_providers or config.get("byok_providers") or config.get("byok_discount"):
         config = dict(config)
         if byok_providers:
             config["byok_providers"] = byok_providers
         else:
             # Keys deleted since a previous launch - drop the stale record.
             config.pop("byok_providers", None)
+        if byok_discount:
+            config["byok_discount"] = True
+        else:
+            config.pop("byok_discount", None)
         scan.config = config
         from sqlalchemy.orm.attributes import flag_modified
         flag_modified(scan, "config")
@@ -2506,6 +2535,7 @@ async def launch_scan(request: Request, scan_id: str, user=Depends(get_current_u
             amount=-credits_needed,
             description=(
                 f"Scan launched: {active_questions} questions × {runs_depth} runs"
+                + (" - 50% BYOK" if byok_discount else "")
             ),
             db=db,
             scan_id=scan_id,

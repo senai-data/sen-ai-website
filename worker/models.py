@@ -38,6 +38,11 @@ class Client(Base):
     stripe_customer_id = Column(String(255))
     apps = Column(JSONB)  # feature flags + workspace state (client_brief lives here)
     primary_brand_ids = Column(ARRAY(UUID(as_uuid=True)), nullable=True)  # see brand_resolver.py
+    # BYOK (migration 060 wiring) - PARITÉ avec api/models.py:53. Plain UUID,
+    # NO ForeignKey(): the worker metadata has no organizations table; the
+    # DB-level FK exists via migration 029. Used by services/byok.py to
+    # resolve which org's LLM keys apply to this client's jobs.
+    organization_id = Column(UUID(as_uuid=True))
     created_at = Column(DateTime, default=datetime.utcnow)
 
     user_links = relationship("UserClient", back_populates="client")
@@ -85,6 +90,8 @@ class ClientCredit(Base):
 
 
 class ClientApiKey(Base):
+    """DORMANT - superseded by OrganizationApiKey (BYOK, migration 060).
+    PARITÉ avec api/models.py. Zero runtime usage, candidate for DROP."""
     __tablename__ = "client_api_keys"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -94,6 +101,30 @@ class ClientApiKey(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     client = relationship("Client", back_populates="api_keys")
+
+
+class OrganizationApiKey(Base):
+    """BYOK - org-level LLM API key (migration 060). PARITÉ obligatoire avec
+    api/models.py. organization_id is a plain UUID (no ForeignKey: the worker
+    metadata has no organizations table; the DB FK exists via migration 060).
+    api_key_encrypted = Fernet ciphertext (OAUTH_FERNET_KEY) - decrypt via
+    adapters/token_manager.decrypt_token, NEVER log the plaintext.
+    Read/written by services/byok.py (resolution + mark-invalid on 401).
+    """
+    __tablename__ = "organization_api_keys"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    organization_id = Column(UUID(as_uuid=True), nullable=False)
+    provider = Column(Text, nullable=False)          # 'openai'|'anthropic'|'gemini'|'mistral'
+    api_key_encrypted = Column(Text, nullable=False)
+    key_hint = Column(Text, nullable=False, default="")
+    status = Column(Text, nullable=False, default="active")  # 'active' | 'invalid'
+    monthly_cap_usd = Column(Numeric(10, 2))
+    created_by_user_id = Column(UUID(as_uuid=True))
+    last_validated_at = Column(DateTime)
+    last_error = Column(Text)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class ClientModule(Base):
@@ -856,6 +887,8 @@ class LlmUsageLog(Base):
     scan_id = Column(UUID(as_uuid=True), ForeignKey("scans.id", ondelete="SET NULL"))
     client_id = Column(UUID(as_uuid=True), ForeignKey("clients.id", ondelete="SET NULL"))
     error = Column(Boolean, nullable=False, default=False)
+    # BYOK (migration 060) - 'platform' | 'byok'. PARITÉ avec api/models.py.
+    key_source = Column(String(20), nullable=False, default="platform")
     created_at = Column(DateTime, default=datetime.utcnow)
 
 

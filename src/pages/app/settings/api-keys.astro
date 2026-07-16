@@ -1,0 +1,325 @@
+---
+/**
+ * BYOK beta - org-level LLM API keys (/app/settings/api-keys).
+ *
+ * Org-scoped unlike the sibling settings pages (SSR org resolution copied
+ * from agency/branding.astro, but personal orgs are INCLUDED - a solo user's
+ * org holds their keys). Owner/admin manage keys; members get a read-only
+ * view (masked hints + status only, which also feeds the cap/invalid
+ * banners elsewhere).
+ *
+ * Security: the full key is write-only. After save the API returns only
+ * key_hint ('sk-pr...abc4'); the plaintext is never displayed again.
+ */
+export const prerender = false;
+import DashboardLayout from '../../../layouts/DashboardLayout.astro';
+import Tip from '../../../components/Tip.astro';
+
+const token = Astro.cookies.get('token')?.value;
+if (!token) return Astro.redirect('/login');
+
+const activeOrgCookie = Astro.cookies.get('active_organization_id')?.value;
+const upstreamCookie = [`token=${token}`, activeOrgCookie ? `active_organization_id=${activeOrgCookie}` : null].filter(Boolean).join('; ');
+
+type OrgItem = { id: string; name: string; is_personal: boolean; role: string | null; is_active: boolean };
+let activeOrg: OrgItem | null = null;
+try {
+  const r = await fetch('http://api:8000/api/organizations/', { headers: { Cookie: upstreamCookie }, signal: AbortSignal.timeout(3000) });
+  if (r.ok) {
+    const list: OrgItem[] = await r.json();
+    activeOrg = list.find(o => o.is_active) || list[0] || null;
+  }
+} catch {}
+
+// Personal orgs included on purpose (unlike branding.astro) - the creator is
+// 'owner' in organization_users, is_personal is a belt-and-braces fallback.
+const isManager = !!activeOrg && (activeOrg.role === 'owner' || activeOrg.role === 'admin' || activeOrg.is_personal);
+
+type KeyItem = {
+  provider: string; configured: boolean; key_hint: string | null; status: string | null;
+  monthly_cap_usd: number | null; mtd_cost_usd: number; cap_reached: boolean;
+  last_validated_at: string | null; last_error: string | null;
+};
+const PROVIDER_META = [
+  { id: 'openai', name: 'OpenAI', family: 'GPT family', placeholder: 'sk-...' },
+  { id: 'anthropic', name: 'Anthropic', family: 'Claude family (also used for mention extraction and sentiment judging)', placeholder: 'sk-ant-...' },
+  { id: 'gemini', name: 'Google Gemini', family: 'Gemini family', placeholder: 'AIza...' },
+  { id: 'mistral', name: 'Mistral', family: 'Stored for when Mistral scanning ships', placeholder: 'Mistral API key' },
+];
+
+// Fail-open default: all providers unconfigured (page still renders if the
+// API fetch hiccups; saves will surface real errors).
+let keys: KeyItem[] = PROVIDER_META.map(p => ({
+  provider: p.id, configured: false, key_hint: null, status: null,
+  monthly_cap_usd: null, mtd_cost_usd: 0, cap_reached: false,
+  last_validated_at: null, last_error: null,
+}));
+if (activeOrg) {
+  try {
+    const r = await fetch(`http://api:8000/api/organizations/${activeOrg.id}/api-keys`, { headers: { Cookie: upstreamCookie }, signal: AbortSignal.timeout(3000) });
+    if (r.ok) {
+      const j = await r.json();
+      if (Array.isArray(j.providers)) keys = j.providers;
+    }
+  } catch {}
+}
+
+const problems = keys.filter(k => k.configured && k.provider !== 'mistral' && (k.status === 'invalid' || k.cap_reached));
+---
+
+<DashboardLayout title="LLM API keys" activeSection="settings">
+  <div class="p-8 max-w-3xl">
+    <a href="/app/settings" class="text-xs text-gray-400 hover:text-charcoal-dark">&larr; Settings</a>
+    <div class="flex items-center gap-3 mt-2 mb-1">
+      <h1 class="text-2xl font-bold text-charcoal-dark">LLM API keys</h1>
+      <span class="chip chip--neutral">Beta</span>
+    </div>
+    <p class="text-sm text-charcoal-light mb-6">
+      For organization <strong>{activeOrg ? activeOrg.name : 'unknown'}</strong>. Keys apply to every workspace in this organization.
+    </p>
+
+    {!activeOrg && (
+      <div class="bg-amber-50 border border-amber-200 rounded-xl p-5 mb-6">
+        <p class="text-sm text-charcoal-dark">Could not load your organization right now. Refresh the page or try again in a minute.</p>
+      </div>
+    )}
+
+    {problems.length > 0 && (
+      <div class="bg-amber-50 border border-amber-200 rounded-xl p-5 mb-6">
+        <p class="text-sm font-semibold text-charcoal-dark mb-1">Attention needed</p>
+        {problems.map(k => (
+          <p class="text-xs text-charcoal-light">
+            {k.status === 'invalid'
+              ? `Your ${k.provider} API key was rejected by the provider. Replace or delete it - scans that need ${k.provider} are blocked while it is invalid.`
+              : `Your ${k.provider} API key hit its monthly cap ($${k.mtd_cost_usd.toFixed(2)} of $${k.monthly_cap_usd}). Scans that need ${k.provider} are paused until the next calendar month or a higher cap.`}
+          </p>
+        ))}
+      </div>
+    )}
+
+    {!isManager && activeOrg && (
+      <div class="bg-amber-50 border border-amber-200 rounded-xl p-5 mb-6">
+        <p class="text-sm font-semibold text-charcoal-dark mb-1">Owners and admins only</p>
+        <p class="text-xs text-charcoal-light">
+          Only owners and admins of this organization can add, change or delete API keys.
+          You can see key status below. Ask your org owner for changes.
+        </p>
+      </div>
+    )}
+
+    <!-- How it works -->
+    <div class="bg-white rounded-xl border border-gray-200 p-6 mb-6">
+      <h2 class="text-sm font-semibold text-charcoal-dark uppercase tracking-wide mb-3">How it works</h2>
+      <ul class="text-xs text-charcoal-light space-y-2 list-disc pl-4">
+        <li><strong>Fallback:</strong> providers without a key of yours keep running on sen-ai platform keys and consume scan credits as usual. Add a key and every scan in this organization uses it for that provider.</li>
+        <li><strong>Validation:</strong> we verify each key with one small test call when you save it. Invalid keys are rejected with the provider's error message.</li>
+        <li><strong>Monthly cap:</strong> an optional hard stop in USD per provider. When your estimated month-to-date spend reaches the cap, scans that need this provider are blocked until the next calendar month or until you raise the cap.</li>
+        <li><strong>Security:</strong> keys are encrypted at rest, shown only as a masked hint after saving, and can be deleted at any time.</li>
+        <li><strong>Compliance:</strong> with your own key, prompts for that provider are sent through your own provider account, under your direct agreement with that provider. See the <a href="/app/compliance" class="text-coral hover:underline">compliance hub</a> for details.</li>
+        <li><strong>Mistral:</strong> keys can be stored and validated today, but Mistral scanning is not live yet. Your key stays dormant until it ships.</li>
+      </ul>
+    </div>
+
+    {activeOrg && (
+      <div x-data={`apiKeysPanel('${activeOrg.id}', ${JSON.stringify(keys)}, ${isManager})`}>
+        {PROVIDER_META.map(p => (
+          <div class="bg-white rounded-xl border border-gray-200 p-6 mb-6">
+            <div class="flex items-start justify-between mb-3">
+              <div>
+                <h2 class="text-sm font-semibold text-charcoal-dark">{p.name}</h2>
+                <p class="text-xs text-charcoal-light">{p.family}</p>
+              </div>
+              <Tip id="byok_status">
+                <span class="chip" :class={`chipCls('${p.id}')`} x-text={`chipLabel('${p.id}')`}></span>
+              </Tip>
+            </div>
+
+            {/* Configured state: masked hint + actions */}
+            <template x-if={`st('${p.id}').configured`}>
+              <div class="mb-3">
+                <div class="flex items-center gap-3 flex-wrap">
+                  <span class="font-mono text-sm text-charcoal-dark" x-text={`st('${p.id}').key_hint`}></span>
+                  <span class="text-xs text-gray-400" x-text={`lastValidated('${p.id}')`}></span>
+                  {isManager && (
+                    <>
+                      <button class="btn btn--secondary btn--sm" x-show={`!st('${p.id}').editing`} @click={`st('${p.id}').editing = true`}>Replace key</button>
+                      <button class="btn btn--secondary btn--sm" x-show={`st('${p.id}').status === 'invalid'`} :disabled={`st('${p.id}').saving`} @click={`revalidate('${p.id}')`}>Re-validate</button>
+                      <button class="btn btn--danger btn--sm" @click={`del('${p.id}')`}>Delete</button>
+                    </>
+                  )}
+                </div>
+                <p class="text-xs text-red-600 mt-2" x-show={`st('${p.id}').status === 'invalid' && st('${p.id}').last_error`} x-text={`st('${p.id}').last_error`}></p>
+              </div>
+            </template>
+
+            {/* Spend row (configured only) */}
+            <template x-if={`st('${p.id}').configured`}>
+              <div class="mb-4">
+                <Tip id="byok_spend">
+                  <span class="text-xs text-charcoal-light">
+                    <span class="font-semibold text-charcoal-dark" x-text={`'$' + st('${p.id}').mtd_cost_usd.toFixed(2)`}></span>
+                    <span> this month</span>
+                    <span x-show={`st('${p.id}').monthly_cap_usd !== null`} x-text={`' of $' + st('${p.id}').monthly_cap_usd + ' cap'`}></span>
+                    <span x-show={`st('${p.id}').monthly_cap_usd === null`}> - no cap set</span>
+                  </span>
+                </Tip>
+                <div class="h-1.5 rounded bg-gray-100 mt-2" x-show={`st('${p.id}').monthly_cap_usd !== null`}>
+                  <div class="h-1.5 rounded" :class={`barCls('${p.id}')`} :style={`'width:' + capPct('${p.id}') + '%'`}></div>
+                </div>
+              </div>
+            </template>
+
+            {isManager && (
+              <div>
+                {/* Key input: shown when not configured, or replacing */}
+                <div x-show={`!st('${p.id}').configured || st('${p.id}').editing`} class="mb-3">
+                  <label class="block text-xs font-semibold text-charcoal-dark mb-1">API key</label>
+                  <input type="password" autocomplete="off" spellcheck="false" class="input font-mono w-full"
+                         placeholder={p.placeholder}
+                         x-model={`st('${p.id}').input`} @input={`dirty('${p.id}')`} />
+                </div>
+                <div class="mb-3">
+                  <label class="block text-xs font-semibold text-charcoal-dark mb-1">
+                    <Tip id="byok_monthly_cap"><span>Monthly cap (USD, optional)</span></Tip>
+                  </label>
+                  <input type="number" min="0" step="1" class="input" style="width:140px"
+                         x-model={`st('${p.id}').capInput`} @input={`dirty('${p.id}')`} />
+                  <p class="text-xs text-gray-400 mt-1">Leave empty for no cap. The cap blocks jobs; it does not buy anything.</p>
+                </div>
+                <div class="flex items-center justify-between border-t border-gray-100 pt-3">
+                  <span class="text-xs" :class={`st('${p.id}').err ? 'text-red-600' : (st('${p.id}').saved ? 'text-emerald-600' : 'text-gray-400')`}>
+                    <span x-show={`st('${p.id}').err`} x-text={`st('${p.id}').err`}></span>
+                    <span x-show={`!st('${p.id}').err && st('${p.id}').saved`}>&#10003; Saved</span>
+                    <span x-show={`!st('${p.id}').err && !st('${p.id}').saved && !st('${p.id}').saving`}>Unsaved changes</span>
+                    <span x-show={`!st('${p.id}').err && st('${p.id}').saving`}>Validating & saving...</span>
+                  </span>
+                  <button class="btn btn--primary btn--sm" @click={`save('${p.id}')`} :disabled={`st('${p.id}').saving || st('${p.id}').saved`}>Save & validate</button>
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    )}
+  </div>
+</DashboardLayout>
+
+<script is:inline>
+  document.addEventListener('alpine:init', () => {
+    Alpine.data('apiKeysPanel', (orgId, initial, isManager) => ({
+      orgId, isManager,
+      keys: {},
+      names: { openai: 'OpenAI', anthropic: 'Anthropic', gemini: 'Google Gemini', mistral: 'Mistral' },
+      init() {
+        for (const k of initial) {
+          this.keys[k.provider] = Object.assign({}, k, {
+            input: '',
+            capInput: (k.monthly_cap_usd === null || k.monthly_cap_usd === undefined) ? '' : String(k.monthly_cap_usd),
+            editing: false,
+            saving: false,
+            saved: true,
+            err: '',
+          });
+        }
+      },
+      st(p) { return this.keys[p]; },
+      dirty(p) { const s = this.st(p); s.saved = false; s.err = ''; },
+      chipLabel(p) {
+        const s = this.st(p);
+        if (!s || !s.configured) return 'Platform default';
+        if (s.status === 'invalid') return 'Invalid key';
+        if (s.cap_reached) return 'Cap reached';
+        if (p === 'mistral') return 'Stored - not used yet';
+        return 'Your key active';
+      },
+      chipCls(p) {
+        const s = this.st(p);
+        if (!s || !s.configured) return 'chip--neutral';
+        if (s.status === 'invalid') return 'chip--critical';
+        if (s.cap_reached) return 'chip--warning';
+        if (p === 'mistral') return 'chip--neutral';
+        return 'chip--positive';
+      },
+      lastValidated(p) {
+        const s = this.st(p);
+        if (!s || !s.last_validated_at) return '';
+        try { return 'Last validated ' + new Date(s.last_validated_at).toLocaleDateString(); } catch { return ''; }
+      },
+      capPct(p) {
+        const s = this.st(p);
+        if (!s || !s.monthly_cap_usd) return 0;
+        return Math.min(100, Math.round(100 * s.mtd_cost_usd / s.monthly_cap_usd));
+      },
+      barCls(p) {
+        const pct = this.capPct(p);
+        if (pct >= 100) return 'bg-red-500';
+        if (pct >= 80) return 'bg-amber-400';
+        return 'bg-gray-400';
+      },
+      applyServer(p, j) {
+        const s = this.st(p);
+        Object.assign(s, j, {
+          input: '',
+          editing: false,
+          saved: true,
+          capInput: (j.monthly_cap_usd === null || j.monthly_cap_usd === undefined) ? '' : String(j.monthly_cap_usd),
+        });
+      },
+      async save(p) {
+        const s = this.st(p);
+        const key = (s.input || '').trim();
+        if (!key && !s.configured) { s.err = 'Paste an API key first'; return; }
+        const body = { monthly_cap_usd: s.capInput === '' ? null : Number(s.capInput) };
+        if (key) body.api_key = key;
+        if (body.monthly_cap_usd !== null && (!isFinite(body.monthly_cap_usd) || body.monthly_cap_usd < 0)) {
+          s.err = 'Monthly cap must be a positive number'; return;
+        }
+        s.saving = true; s.err = '';
+        try {
+          const r = await fetch('/api/organizations/' + this.orgId + '/api-keys/' + p, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          });
+          const j = await r.json().catch(() => ({}));
+          if (!r.ok) {
+            const d = j && j.detail;
+            if (d && typeof d === 'object' && d.message) s.err = 'Key validation failed - ' + d.message;
+            else if (typeof d === 'string') s.err = d;
+            else s.err = 'Save failed (' + r.status + ')';
+          } else {
+            this.applyServer(p, j);
+          }
+        } catch { s.err = 'Network error'; }
+        s.saving = false;
+      },
+      async del(p) {
+        const s = this.st(p);
+        const n = this.names[p] || p;
+        if (!confirm('Delete your ' + n + ' key?\n\nScans in this organization will fall back to sen-ai platform keys and consume credits for ' + n + '.')) return;
+        s.err = '';
+        try {
+          const r = await fetch('/api/organizations/' + this.orgId + '/api-keys/' + p, { method: 'DELETE' });
+          if (r.ok || r.status === 204) {
+            Object.assign(s, {
+              configured: false, key_hint: null, status: null, monthly_cap_usd: null,
+              mtd_cost_usd: s.mtd_cost_usd, cap_reached: false, last_validated_at: null,
+              last_error: null, input: '', capInput: '', editing: false, saved: true, err: '',
+            });
+          } else { s.err = 'Delete failed (' + r.status + ')'; }
+        } catch { s.err = 'Network error'; }
+      },
+      async revalidate(p) {
+        const s = this.st(p);
+        s.saving = true; s.err = '';
+        try {
+          const r = await fetch('/api/organizations/' + this.orgId + '/api-keys/' + p + '/validate', { method: 'POST' });
+          const j = await r.json().catch(() => ({}));
+          if (r.ok) this.applyServer(p, j);
+          else s.err = (typeof j.detail === 'string') ? j.detail : 'Validation failed (' + r.status + ')';
+        } catch { s.err = 'Network error'; }
+        s.saving = false;
+      },
+    }));
+  });
+</script>

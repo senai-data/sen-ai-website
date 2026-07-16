@@ -6,7 +6,7 @@ from slowapi.middleware import SlowAPIMiddleware
 
 from config import settings
 from models import Base, engine
-from routers import admin, audit_requests, auth, clients, content_items, invitations, oauth, organizations, reports, stripe, scans, brands, agent
+from routers import admin, audit_requests, auth, clients, content_items, invitations, oauth, org_api_keys, organizations, reports, stripe, scans, brands, agent
 from services.rate_limit import limiter
 from services.request_context import current_request_method
 from services.sentry_setup import init_sentry
@@ -61,6 +61,8 @@ app.include_router(audit_requests.router, prefix="/api/audit-requests", tags=["a
 app.include_router(content_items.router, prefix="/api", tags=["content-items"])
 app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
 app.include_router(organizations.router, prefix="/api/organizations", tags=["organizations"])
+# BYOK beta - org-level LLM API keys (migration 060).
+app.include_router(org_api_keys.router, prefix="/api/organizations", tags=["org-api-keys"])
 app.include_router(invitations.org_scoped_router, prefix="/api/organizations", tags=["invitations"])
 app.include_router(invitations.token_scoped_router, prefix="/api/invitations", tags=["invitations"])
 # Sprint 4 - in-app chatbot (Anthropic SDK tool-loop, scoped via JWT cookie).

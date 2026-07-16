@@ -308,6 +308,15 @@ const TIPS: Record<string, string> = {
     + '<em>Look for batch / SKU concentration.</em>',
   crisis_action: 'Recommended next step derived from severity_label.<br/>'
     + '<em>Crisis war room / Investigate now / Triage this week / Monitor / All clear.</em>',
+
+  // ── BYOK - org LLM API keys ──────────────────────────────────────────
+  byok_status: 'Which key this provider uses for scans in this organization.<br/>'
+    + '<em>Platform default = sen-ai keys. Your key active = calls billed to your provider account. Invalid = provider rejected the key, jobs blocked. Cap reached = monthly cap hit, jobs blocked.</em>',
+  byok_monthly_cap: 'Hard monthly spend limit for this provider, in USD.<br/>'
+    + '<em>When estimated month-to-date spend reaches the cap, scans needing this provider are blocked until the next calendar month or a higher cap.</em>',
+  byok_spend: 'Estimated spend on your key this calendar month, computed from token usage and public provider prices.<br/>'
+    + '<em>Indicative - your provider invoice is authoritative.</em>',
+  byok_fallback: 'Providers without a key of yours keep running on sen-ai platform keys and consume scan credits as usual.',
 };
 
 const tipText = text || TIPS[id || ''] || '';

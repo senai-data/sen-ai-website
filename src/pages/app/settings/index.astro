@@ -206,6 +206,19 @@ const paymentStatus = Astro.url.searchParams.get('payment');
       </div>
     </a>
 
+    <!-- LLM API keys (BYOK beta) - org-scoped unlike the sibling cards -->
+    <a href="/app/settings/api-keys" class="block bg-white rounded-xl border border-gray-200 p-6 mb-6 hover:border-coral/40 transition-colors group">
+      <div class="flex items-center justify-between">
+        <div>
+          <h2 class="text-sm font-semibold text-charcoal-dark uppercase tracking-wide mb-1">LLM API keys</h2>
+          <p class="text-xs text-charcoal-light">Bring your own OpenAI, Anthropic, Gemini or Mistral API keys. Applies to your whole organization - scans run on your provider accounts, with monthly spend caps.</p>
+        </div>
+        <svg class="w-5 h-5 text-gray-400 group-hover:text-coral transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+        </svg>
+      </div>
+    </a>
+
     <!-- Connected Accounts tile removed 2026-05-19 — Google/Microsoft/Notion
          OAuth delegation is not wired into any feature today. The
          /app/settings/connections page stays around (orphan, no inbound link)

@@ -69,10 +69,42 @@ class Organization(Base):
     is_personal = Column(Boolean, nullable=False, default=False)
     branding = Column(JSONB, nullable=False, default=dict)
     pool_billing = Column(Boolean, nullable=False, default=False)
+    # BYOK beta (migration 060) - idempotence stamp for the one-time 200
+    # scan-credit bonus granted at first complete BYOK setup.
+    byok_bonus_granted_at = Column(DateTime)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     clients = relationship("Client", back_populates="organization")
     members = relationship("OrganizationUser", back_populates="organization", cascade="all, delete-orphan")
+
+
+class OrganizationApiKey(Base):
+    """BYOK - org-level LLM API key (migration 060).
+
+    One row per (organization, provider), provider in openai/anthropic/gemini/
+    mistral. api_key_encrypted is Fernet ciphertext (OAUTH_FERNET_KEY, same
+    infra as oauth_connections). NEVER log or return the plaintext key -
+    key_hint is the only display form. status 'invalid' is set when a
+    validation ping or a runtime call gets an auth error; the key is then
+    BLOCKING for that provider (no silent platform fallback) until re-validated
+    or deleted. PARITÉ obligatoire avec worker/models.py.
+    """
+    __tablename__ = "organization_api_keys"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    organization_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False)
+    provider = Column(Text, nullable=False)          # 'openai'|'anthropic'|'gemini'|'mistral'
+    api_key_encrypted = Column(Text, nullable=False)
+    key_hint = Column(Text, nullable=False, default="")
+    status = Column(Text, nullable=False, default="active")  # 'active' | 'invalid'
+    monthly_cap_usd = Column(Numeric(10, 2))
+    created_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    last_validated_at = Column(DateTime)
+    last_error = Column(Text)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    organization = relationship("Organization")
 
 
 class OrganizationUser(Base):
@@ -206,6 +238,12 @@ class OAuthConnection(Base):
 
 
 class ClientApiKey(Base):
+    """DORMANT - superseded by OrganizationApiKey (BYOK, migration 060).
+
+    Client-scoped stub that predates the org model; zero runtime usage, no
+    management endpoint, no encryption wiring. Kept only so create_all does
+    not diverge from the existing table. Candidate for a DROP migration.
+    """
     __tablename__ = "client_api_keys"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -968,6 +1006,9 @@ class LlmUsageLog(Base):
     scan_id = Column(UUID(as_uuid=True), ForeignKey("scans.id", ondelete="SET NULL"))
     client_id = Column(UUID(as_uuid=True), ForeignKey("clients.id", ondelete="SET NULL"))
     error = Column(Boolean, nullable=False, default=False)
+    # BYOK (migration 060) - 'platform' | 'byok'. The org monthly cap counts
+    # ONLY 'byok' rows (spend made with the org's own key).
+    key_source = Column(String(20), nullable=False, default="platform")
     created_at = Column(DateTime, default=datetime.utcnow)
 
 

@@ -29,6 +29,41 @@ _RATE_LIMIT_MARKERS = ("429", "resource_exhausted", "rate limit", "too many requ
 _SPEND_CAP_MARKERS = ("spend cap", "resource_exhausted")
 
 
+def derive_scan_models(db: Session, scan_id) -> dict:
+    """P3 model eras - {provider: model} this scan's LLM calls actually ran on.
+
+    Derived from the scan's own result rows, NOT from config constants: rows
+    carry the model each call was made with across config changes, history
+    imports and per-scan overrides, and the backfill script reuses this exact
+    function - one derivation, so deploy day cannot fabricate era boundaries.
+    Consensus meta-rows (run_index=0) are excluded; per provider the most
+    frequent non-NULL model wins (imported rows can hold NULLs), ties broken
+    on the model string for a deterministic, re-runnable result. Empty dict =
+    nothing derivable.
+    """
+    from sqlalchemy import func as sql_func
+
+    from models import ScanLLMResult
+
+    rows = (
+        db.query(ScanLLMResult.provider, ScanLLMResult.model, sql_func.count().label("n"))
+        .filter(
+            ScanLLMResult.scan_id == scan_id,
+            ScanLLMResult.run_index >= 1,
+            ScanLLMResult.model.isnot(None),
+            ScanLLMResult.model != "",
+            ScanLLMResult.model != "consensus",
+        )
+        .group_by(ScanLLMResult.provider, ScanLLMResult.model)
+        .all()
+    )
+    best: dict = {}
+    for provider, model, n in rows:
+        if provider not in best or (n, model) > best[provider]:
+            best[provider] = (n, model)
+    return {provider: model for provider, (_, model) in best.items()}
+
+
 class PoolRotatingGeminiClient:
     """Gemini client that draws a fresh key from the pool per `.generate()` call
     and, on a 429, parks the offending key (long cooldown for a spend cap) and
@@ -181,6 +216,10 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
     target_domain = scan_config.get("target_domains", [scan.domain])[0] if scan_config.get("target_domains") else scan.domain
 
     analyzer_key_source = "platform"
+    # Single source for the analyzer model: the construction below AND the
+    # summary.models stamp at completion (P3 eras) must agree. Was hardcoded
+    # at the call site, which silently ignored a MODEL_BRAND_ANALYZER override.
+    analyzer_model = settings.task_models.get("brand_analyzer", "gemini-2.5-flash-lite")
     try:
         from adapters.entity_analyzer import EntityAnalyzer, build_target_entities_from_scan
 
@@ -199,7 +238,7 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
             # BYOK-aware analyzer client (same resolution as the gemini
             # provider tests). None = no org key AND empty platform pool.
             gemini_client, analyzer_key_source = make_gemini_client(
-                db, scan.client_id, model="gemini-2.5-flash-lite")
+                db, scan.client_id, model=analyzer_model)
         if gemini_client is None:
             logger.info("EntityAnalyzer skipped: no Gemini key in pool")
         else:
@@ -659,6 +698,15 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
                 f"({failed_question_count} questions × {runs_depth} runs)"
             )
 
+    # P3 model eras - record what this scan actually ran on. Derived from the
+    # scan's own rows (shared with the backfill script). The analyzer is
+    # stamped separately: it writes no rows but IS the measurement instrument
+    # (brand/sentiment extraction) - swapping it changes eras too. Only added
+    # when the analyzer actually ran; its absence reads as a coverage change.
+    scan_models = derive_scan_models(db, scan_id)
+    if scan_models and brand_analyzer:
+        scan_models["analyzer"] = analyzer_model
+
     scan.status = "completed"
     scan.progress_pct = 100
     scan.progress_message = f"Scan terminé - cité {citation_rate}%, marque mentionnée {brand_rate}%"
@@ -686,6 +734,9 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
         # Sprint N-runs : surface in the summary so the UI can show "1 scan = N runs"
         # and consumers can branch on it (e.g., aggregate intra-scan vs cross-lineage).
         "runs_depth": runs_depth,
+        # P3 model eras : {provider: model} + "analyzer" - trend endpoints
+        # compare consecutive scans' dicts to flag era boundaries. {} = unknown.
+        "models": scan_models,
     }
 
     # Chain: classify intent (Phase B Tier A) → judge per-question signals

@@ -84,15 +84,27 @@ const lastUpdated = "2026-05-29";
           Mix actuel :
         </p>
         <ul class="text-charcoal-light leading-relaxed list-disc pl-6 mt-3">
-          <li><strong>OpenAI ChatGPT</strong> - GPT-5.4-mini pour les runs équilibrés en coût, GPT-5.4 pour les runs premium. Mode grounded (recherche web) quand disponible.</li>
-          <li><strong>Google Gemini</strong> - Gemini 2.5 Flash pour le coût, Gemini 2.5 Pro pour le premium. Hébergement UE via Google Ireland Ltd.</li>
-          <li><strong>Anthropic Claude</strong> - Haiku 4.5 pour l&apos;extraction JSON structurée (parseur de mentions de marque, juge de sentiment) ; Sonnet 4.6 pour les runs premium.</li>
-          <li><strong>Mistral Le Chat</strong> - Mistral Large. Hébergement UE. Critique pour le marché français (41 % du trafic Mistral = France).</li>
+          <li><strong>OpenAI ChatGPT</strong> - GPT-4.1 mini pour les runs de scan. Mode grounded (recherche web) quand disponible.</li>
+          <li><strong>Google Gemini</strong> - Gemini 2.5 Flash pour les runs de scan ; Gemini 2.5 Flash-Lite alimente notre analyseur d&apos;extraction de marques. Hébergement UE via Google Ireland Ltd.</li>
+          <li><strong>Anthropic Claude</strong> - Haiku 4.5 pour l&apos;extraction JSON structurée (parseur de mentions de marque, juge de sentiment) ; Sonnet 4.6 pour la synthèse éditoriale.</li>
+          <li><strong>Mistral Le Chat</strong> - prévu ; pas encore intégré aux scans live. Critique pour le marché français (41 % du trafic Mistral = France).</li>
         </ul>
         <p class="text-charcoal-light leading-relaxed mt-3">
           Le mix évolue : les fournisseurs sont ajoutés lorsque leur adoption dépasse le seuil
-          de 5 % de part de recherche par pays. Nous publions le mix actuel sur le rapport
-          per-scan pour que les comparaisons historiques restent reproductibles.
+          de 5 % de part de recherche par pays. Nous publions les versions exactes de modèles
+          utilisées par chaque scan dans le rapport de conformité per-scan pour que les
+          comparaisons historiques restent reproductibles.
+        </p>
+        <p class="text-charcoal-light leading-relaxed mt-3">
+          <strong>Ères de modèles.</strong> Les fournisseurs d&apos;IA remplacent régulièrement
+          leurs modèles, et un changement de modèle peut faire bouger vos chiffres de visibilité
+          sans que rien ne change de votre côté. Chaque scan enregistre les versions de modèles
+          sur lesquelles il a réellement tourné. Quand ce mix change entre deux scans du même
+          tracker, votre courbe est annotée d&apos;une frontière d&apos;ère : le point est marqué
+          (« AI models updated ») et aucun indicateur d&apos;évolution n&apos;est calculé à
+          travers la frontière - comparer deux modèles différents comme s&apos;ils étaient le
+          même instrument de mesure produirait une courbe trompeuse. La frontière est elle-même
+          une information : elle montre comment la nouvelle génération de modèle voit votre marque.
         </p>
       </section>
 
@@ -167,7 +179,9 @@ const lastUpdated = "2026-05-29";
         <p class="text-charcoal-light leading-relaxed mt-3">
           Les comparaisons cross-scan requièrent un minimum de 7 jours entre deux scans pour éviter
           de mesurer le bruit des updates IA intra-semaine. Les métriques de tendance utilisent des
-          moyennes glissantes sur une fenêtre de 30 jours.
+          moyennes glissantes sur une fenêtre de 30 jours. Les ères de modèles (section 3)
+          complètent ce dispositif : aucun indicateur d&apos;évolution n&apos;est calculé à travers
+          un changement de version de modèle.
         </p>
       </section>
 

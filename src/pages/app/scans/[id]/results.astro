@@ -32,6 +32,7 @@
  */
 export const prerender = false;
 import ScanResultsLayout from '../../../../layouts/ScanResultsLayout.astro';
+import { sparkSvg, modelChangeNote, boundaryChipLabel } from '../../../../lib/sparkline';
 
 const token = Astro.cookies.get('token')?.value;
 if (!token) return Astro.redirect('/login');
@@ -81,8 +82,20 @@ const currentRate = o?.citation_rate ?? 0;
 // poll-style "X% ± Y pts" instead of a fragile point estimate.
 const runsDepth = o?.runs_depth ?? 1;
 const delta = o?.delta ?? null;
+// P3 model eras : delta_reason='model_changed' means the API suppressed the
+// delta because the AI model mix changed between the last two runs - the
+// chip replaces the delta instead of letting the comparison lie.
+const deltaReason = o?.delta_reason ?? null;
 const totalTests = o?.total_tests ?? 0;
 const trendFromApi = o?.trend || [];
+const lastPoint = trendFromApi[trendFromApi.length - 1] || null;
+const prevPoint = trendFromApi[trendFromApi.length - 2] || null;
+const eraChipLabel = deltaReason === 'model_changed'
+  ? boundaryChipLabel(prevPoint?.models, lastPoint?.models)
+  : null;
+const eraChipTitle = deltaReason === 'model_changed'
+  ? (modelChangeNote(prevPoint?.models, lastPoint?.models) || 'The AI model mix changed on this run - the previous run is not directly comparable.')
+  : '';
 const _p = (currentRate ?? 0) / 100;
 const marginPts = (runsDepth > 1 && totalTests > 0)
   ? Math.round(1.96 * Math.sqrt(_p * (1 - _p) / totalTests) * 1000) / 10
@@ -293,63 +306,39 @@ const criticalCount = oppsSummary.critique || 0;
 const highCount = oppsSummary.haute || 0;
 const topActions = oppsItems.slice(0, 3);
 
-// SVG sparkline helper used by the 4 KPIs. Coral by default ; status colour
-// when a tone is forced (down=critical, flat=muted).
-//
-// Hover detail (Laws of UX) :
-//  - each run gets a visible micro-dot + a generous invisible hit circle
-//    (r=8 >> r=2) carrying a native SVG <title> tooltip "23 Mar : 41%".
-//    Fitts : the touch target is 4x the visible dot. Doherty + SSR-first :
-//    browser-native tooltip, zero JS, zero chart lib.
-//  - the LAST dot stays the big one (Recency / Serial Position : the
-//    current value is the anchor).
-function sparkSvg(vals: number[], tone: 'up' | 'down' | 'flat' = 'up', labels: string[] = [], w = 120, h = 34): string {
-  if (!vals || vals.length < 2) return '';
-  const pad = 4;
-  const min = Math.min(...vals);
-  const max = Math.max(...vals);
-  const rng = max - min || 1;
-  const xf = (i: number) => pad + (i * (w - 2 * pad)) / (vals.length - 1);
-  const yf = (v: number) => h - pad - ((v - min) / rng) * (h - 2 * pad);
-  const pts = vals.map((v, i) => [xf(i), yf(v)] as [number, number]);
-  const d = pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ');
-  const colour = tone === 'down' ? 'var(--status-critical)' : tone === 'flat' ? 'var(--color-text-muted)' : 'var(--status-positive)';
-  const last = pts[pts.length - 1];
-  const id = 'g' + Math.random().toString(36).slice(2, 7);
-  const area = d + ` L${last[0].toFixed(1)} ${h - pad} L${pts[0][0].toFixed(1)} ${h - pad} Z`;
-  const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  const dots = pts.map((p, i) => {
-    const isLast = i === pts.length - 1;
-    const title = labels[i] ? `<title>${esc(labels[i])}</title>` : '';
-    return `<g>${title}
-      <circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="8" fill="transparent" style="cursor:${labels[i] ? 'help' : 'default'}"/>
-      <circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="${isLast ? 2.6 : 1.8}" fill="${colour}" stroke="#fff" stroke-width="${isLast ? 1.5 : 1}" pointer-events="none"/>
-    </g>`;
-  }).join('');
-  return `<svg width="${w}" height="${h}" style="display:block;overflow:visible">
-    <defs><linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${colour}" stop-opacity=".16"/><stop offset="1" stop-color="${colour}" stop-opacity="0"/></linearGradient></defs>
-    <path d="${area}" fill="url(#${id})"/>
-    <path d="${d}" fill="none" stroke="${colour}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
-    ${dots}
-  </svg>`;
-}
+// Sparkline rendering is shared with dashboard + agency overview
+// (src/lib/sparkline.ts, imported above). Design notes live there.
 
 // Tooltip labels per run : "23 Mar : <value>" built from trend dates.
+// P3 model eras : boundary points get a ringed dot (markers) + the
+// old → new detail appended to their tooltip.
 const runDates: string[] = trendFromApi.map((t: any) => {
   const d = t.completed_at ? new Date(t.completed_at) : null;
   return d ? d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : `Run ${(t.run_index ?? 0) + 1}`;
 });
-function runLabels(vals: (number | null | undefined)[], fmt: (v: number) => string): string[] {
+const eraNotes: string[] = trendFromApi.map((t: any, i: number) =>
+  t.model_changed ? modelChangeNote(trendFromApi[i - 1]?.models, t.models) : '');
+function runSeries(vals: (number | null | undefined)[], fmt: (v: number) => string): { labels: string[]; markers: boolean[] } {
   // vals is the RAW per-run series (may hold nulls) ; the filtered series
-  // used for the path skips nulls, so build labels on the same filter.
-  const out: string[] = [];
-  vals.forEach((v, i) => { if (v != null) out.push(`${runDates[i] || ''} : ${fmt(v)}`); });
-  return out;
+  // used for the path skips nulls, so build labels/markers on the same filter.
+  const labels: string[] = [];
+  const markers: boolean[] = [];
+  vals.forEach((v, i) => {
+    if (v != null) {
+      labels.push(`${runDates[i] || ''} : ${fmt(v)}${eraNotes[i] ? '\n' + eraNotes[i] : ''}`);
+      markers.push(!!trendFromApi[i]?.model_changed);
+    }
+  });
+  return { labels, markers };
 }
-const mentionLabels = runLabels(trendFromApi.map((t: any) => t.citation_rate), v => `${v}%`);
-const citationsLabels = runLabels(trendFromApi.map((t: any) => t.total_citations), v => v.toLocaleString('en-US'));
-const sentimentLabels = runLabels(trendFromApi.map((t: any) => t.sentiment_score), v => (v > 0 ? '+' : '') + v.toFixed(2));
-const sovLabels = runLabels(trendFromApi.map((t: any) => t.sov), v => `${v}%`);
+const mentionSeries = runSeries(trendFromApi.map((t: any) => t.citation_rate), v => `${v}%`);
+const citationsSeries = runSeries(trendFromApi.map((t: any) => t.total_citations), v => v.toLocaleString('en-US'));
+const sentimentSeries = runSeries(trendFromApi.map((t: any) => t.sentiment_score), v => (v > 0 ? '+' : '') + v.toFixed(2));
+const sovSeries = runSeries(trendFromApi.map((t: any) => t.sov), v => `${v}%`);
+const mentionLabels = mentionSeries.labels;
+const citationsLabels = citationsSeries.labels;
+const sentimentLabels = sentimentSeries.labels;
+const sovLabels = sovSeries.labels;
 
 const mentionTone: 'up' | 'down' | 'flat' = delta == null ? 'flat' : delta > 0 ? 'up' : delta < 0 ? 'down' : 'flat';
 ---
@@ -473,6 +462,11 @@ const mentionTone: 'up' | 'down' | 'flat' = delta == null ? 'flat' : delta > 0 ?
                 {delta > 0 ? '↑' : delta < 0 ? '↓' : '·'} {delta === 0 ? 'flat' : Math.abs(delta).toFixed(1)}
               </span>
             )}
+            {eraChipLabel && (
+              <span class="stat__delta stat__delta--flat" style="cursor:help" title={eraChipTitle}>
+                ⟳ {eraChipLabel}
+              </span>
+            )}
           </div>
           {marginPts !== null && (
             <div style="margin-top:4px;font-size:11px;color:var(--color-text-muted)" title={`95% confidence interval over ${totalTests} samples (${runsDepth} runs per question). AI answers vary between identical runs - the margin shows how solid this rate is.`}>
@@ -480,7 +474,7 @@ const mentionTone: 'up' | 'down' | 'flat' = delta == null ? 'flat' : delta > 0 ?
             </div>
           )}
           {mentionRateTrend.length > 1
-            ? <div class="spark" set:html={sparkSvg(mentionRateTrend, mentionTone, mentionLabels)} />
+            ? <div class="spark" set:html={sparkSvg(mentionRateTrend, mentionTone, mentionLabels, 120, 34, mentionSeries.markers)} />
             : <div class="spark spark--empty">Trend appears after your next rescan</div>}
         </div>
 
@@ -491,7 +485,7 @@ const mentionTone: 'up' | 'down' | 'flat' = delta == null ? 'flat' : delta > 0 ?
             <span class="stat__delta stat__delta--flat">{totalTests} test{totalTests > 1 ? 's' : ''}</span>
           </div>
           {citationsTrend.length > 1
-            ? <div class="spark" set:html={sparkSvg(citationsTrend, trendTone(citationsTrend), citationsLabels)} />
+            ? <div class="spark" set:html={sparkSvg(citationsTrend, trendTone(citationsTrend), citationsLabels, 120, 34, citationsSeries.markers)} />
             : <div class="spark spark--empty">Trend appears after your next rescan</div>}
         </div>
 
@@ -504,7 +498,7 @@ const mentionTone: 'up' | 'down' | 'flat' = delta == null ? 'flat' : delta > 0 ?
             <span class="stat__delta stat__delta--flat">{sentTotal} mention{sentTotal > 1 ? 's' : ''}</span>
           </div>
           {sentimentTrend.length > 1
-            ? <div class="spark" set:html={sparkSvg(sentimentTrend, trendTone(sentimentTrend), sentimentLabels)} />
+            ? <div class="spark" set:html={sparkSvg(sentimentTrend, trendTone(sentimentTrend), sentimentLabels, 120, 34, sentimentSeries.markers)} />
             : sentTotal > 0 && (
               <span class="sentiment" style="margin-top:10px;align-self:flex-start">
                 {sentPos > 0 && <span class="pos">▲ {sentPos}</span>}
@@ -521,7 +515,7 @@ const mentionTone: 'up' | 'down' | 'flat' = delta == null ? 'flat' : delta > 0 ?
             <span class="stat__delta stat__delta--flat">vs {competitors.length} competitor{competitors.length > 1 ? 's' : ''}</span>
           </div>
           {sovTrend.length > 1
-            ? <div class="spark" set:html={sparkSvg(sovTrend, trendTone(sovTrend), sovLabels)} />
+            ? <div class="spark" set:html={sparkSvg(sovTrend, trendTone(sovTrend), sovLabels, 120, 34, sovSeries.markers)} />
             : <div style="font-size:11.5px;color:var(--color-text-muted);margin-top:10px">{myMentions} mention{myMentions > 1 ? 's' : ''} for this brand, {competitorMentions} for competitors</div>}
         </div>
       </div>

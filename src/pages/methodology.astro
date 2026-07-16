@@ -81,15 +81,25 @@ const lastUpdated = "2026-05-29";
           We don&apos;t train, fine-tune, or feed responses back into any model. Current mix :
         </p>
         <ul class="text-charcoal-light leading-relaxed list-disc pl-6 mt-3">
-          <li><strong>OpenAI ChatGPT</strong> - GPT-5.4-mini for cost-balanced runs, GPT-5.4 for premium runs. Grounded mode (web search) when available.</li>
-          <li><strong>Google Gemini</strong> - Gemini 2.5 Flash for cost, Gemini 2.5 Pro for premium. EU-hosted via Google Ireland Ltd.</li>
-          <li><strong>Anthropic Claude</strong> - Haiku 4.5 for structured-JSON extraction (brand mention parser, sentiment judge) ; Sonnet 4.6 for premium runs.</li>
-          <li><strong>Mistral Le Chat</strong> - Mistral Large. EU-hosted. Critical for the French market (41% of Mistral traffic = France).</li>
+          <li><strong>OpenAI ChatGPT</strong> - GPT-4.1 mini for scan runs. Grounded mode (web search) when available.</li>
+          <li><strong>Google Gemini</strong> - Gemini 2.5 Flash for scan runs ; Gemini 2.5 Flash-Lite powers our brand-extraction analyzer. EU-hosted via Google Ireland Ltd.</li>
+          <li><strong>Anthropic Claude</strong> - Haiku 4.5 for structured-JSON extraction (brand mention parser, sentiment judge) ; Sonnet 4.6 for editorial synthesis.</li>
+          <li><strong>Mistral Le Chat</strong> - planned ; not part of live scans yet. Critical for the French market (41% of Mistral traffic = France).</li>
         </ul>
         <p class="text-charcoal-light leading-relaxed mt-3">
           The mix evolves : providers get added when their adoption crosses the 5% search-share
-          threshold per country. We publish the current mix on the per-scan report so historical
-          comparisons stay reproducible.
+          threshold per country. We publish the exact model versions each scan ran on in the
+          per-scan compliance report so historical comparisons stay reproducible.
+        </p>
+        <p class="text-charcoal-light leading-relaxed mt-3">
+          <strong>Model eras.</strong> AI vendors replace their models regularly, and a model
+          change can move your visibility numbers without anything changing on your side. Every
+          scan records the model versions it actually ran on. When that mix changes between two
+          scans of the same tracker, your trend is annotated with an era boundary : the data
+          point is marked (&quot;AI models updated&quot;) and we never compute a change indicator
+          across the boundary - comparing two different models as if they were the same
+          measurement instrument would produce a misleading curve. The boundary itself is
+          information : it shows how the new model generation sees your brand.
         </p>
       </section>
 
@@ -160,6 +170,8 @@ const lastUpdated = "2026-05-29";
         <p class="text-charcoal-light leading-relaxed mt-3">
           Cross-scan comparisons require a minimum of 7 days between scans to avoid measuring
           intra-week LLM update noise. Trend metrics use rolling averages with a 30-day window.
+          Model eras (section 3) complete this : change indicators are never computed across
+          a model-version change.
         </p>
       </section>
 

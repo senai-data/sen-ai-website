@@ -17,6 +17,7 @@
  */
 export const prerender = false;
 import DashboardLayout from '../../layouts/DashboardLayout.astro';
+import { sparkSvg, modelChangeNote, boundaryChipLabel } from '../../lib/sparkline';
 
 const token = Astro.cookies.get('token')?.value;
 if (!token) return Astro.redirect('/login');
@@ -103,7 +104,14 @@ const isAgencyOrg = !!activeOrg && !activeOrg.is_personal;
 
 // Per-run trend + citations + sentiment for this workspace, from the same
 // org-level endpoint the agency overview reads. Non-fatal on failure.
-type TrendPoint = { completed_at: string | null; brand_mention_rate: number; total_citations: number };
+type TrendPoint = {
+  completed_at: string | null;
+  brand_mention_rate: number;
+  total_citations: number;
+  // P3 model eras : what the scan ran on + boundary flag vs previous point.
+  models?: Record<string, string>;
+  model_changed?: boolean;
+};
 let wsLatest: any = null;
 if (activeOrg && activeClient) {
   try {
@@ -147,9 +155,19 @@ const heroRate = wsLatest?.brand_mention_rate ?? rateOf(latestCompleted);
 const trend: TrendPoint[] = wsLatest?.trend || [];
 const mentionVals = trend.map((t) => t.brand_mention_rate);
 const citationVals = trend.map((t) => t.total_citations);
-const heroDelta = mentionVals.length >= 2
+// P3 model eras : a delta across a boundary compares two different AI model
+// mixes - suppress it and show the era chip instead (mirrors the API's
+// delta_reason behavior on /results/aggregated).
+const lastTrendPoint = trend[trend.length - 1] || null;
+const prevTrendPoint = trend[trend.length - 2] || null;
+const heroBoundary = !!lastTrendPoint?.model_changed;
+const heroDelta = mentionVals.length >= 2 && !heroBoundary
   ? Math.round((mentionVals[mentionVals.length - 1] - mentionVals[mentionVals.length - 2]) * 10) / 10
   : null;
+const heroEraChip = heroBoundary ? boundaryChipLabel(prevTrendPoint?.models, lastTrendPoint?.models) : null;
+const heroEraTitle = heroBoundary
+  ? (modelChangeNote(prevTrendPoint?.models, lastTrendPoint?.models) || 'The AI model mix changed on this run - the previous run is not directly comparable.')
+  : '';
 const isCrisis = !!wsLatest && (wsLatest.crisis_severity ?? 0) >= 36
   && wsLatest.crisis_severity_label && wsLatest.crisis_severity_label !== 'none';
 
@@ -192,13 +210,31 @@ for (const s of scans) {
   const root = s.parent_scan_id || s.id;
   (byRoot[root] = byRoot[root] || []).push(s);
 }
+// P3 model eras : when the AI model mix changed between two runs, the delta
+// would compare two different instruments - show the era note instead.
+const modelsDiffer = (a: any, b: any): boolean => {
+  const ka = Object.keys(a || {});
+  const kb = Object.keys(b || {});
+  if (!ka.length || !kb.length) return false; // unknown on either side = no boundary
+  if (ka.length !== kb.length) return true;
+  return ka.some((k) => (a || {})[k] !== (b || {})[k]);
+};
 const deltaByScanId: Record<string, number> = {};
+const eraNoteByScanId: Record<string, string> = {};
 for (const root of Object.keys(byRoot)) {
   const runs = byRoot[root]
     .filter((s) => s.status === 'completed' && rateOf(s) !== null)
     .sort((a, b) => new Date(a.completed_at || a.created_at).getTime() - new Date(b.completed_at || b.created_at).getTime());
   runs.forEach((s, i) => {
-    if (i > 0) deltaByScanId[s.id] = Math.round((rateOf(s) - rateOf(runs[i - 1])) * 10) / 10;
+    if (i > 0) {
+      const prevM = runs[i - 1]?.summary?.models;
+      const curM = s?.summary?.models;
+      if (modelsDiffer(prevM, curM)) {
+        eraNoteByScanId[s.id] = modelChangeNote(prevM, curM) || 'AI models updated';
+      } else {
+        deltaByScanId[s.id] = Math.round((rateOf(s) - rateOf(runs[i - 1])) * 10) / 10;
+      }
+    }
   });
 }
 const recentScans = scans.slice(0, 6);
@@ -230,40 +266,13 @@ function timeAgo(dateStr: string | null): string {
   return `${Math.floor(hours / 24)} days ago`;
 }
 
-// ─── SVG sparkline (same helper as Overview / agency overview) ───
-function sparkSvg(vals: number[], tone: 'up' | 'down' | 'flat' = 'up', labels: string[] = [], w = 120, h = 34): string {
-  if (!vals || vals.length < 2) return '';
-  const pad = 4;
-  const min = Math.min(...vals);
-  const max = Math.max(...vals);
-  const rng = max - min || 1;
-  const xf = (i: number) => pad + (i * (w - 2 * pad)) / (vals.length - 1);
-  const yf = (v: number) => h - pad - ((v - min) / rng) * (h - 2 * pad);
-  const pts = vals.map((v, i) => [xf(i), yf(v)] as [number, number]);
-  const d = pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ');
-  const colour = tone === 'down' ? 'var(--status-critical)' : tone === 'flat' ? 'var(--color-text-muted)' : 'var(--status-positive)';
-  const last = pts[pts.length - 1];
-  const id = 'g' + Math.random().toString(36).slice(2, 7);
-  const area = d + ` L${last[0].toFixed(1)} ${h - pad} L${pts[0][0].toFixed(1)} ${h - pad} Z`;
-  const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  const dots = pts.map((p, i) => {
-    const isLast = i === pts.length - 1;
-    const title = labels[i] ? `<title>${esc(labels[i])}</title>` : '';
-    return `<g>${title}
-      <circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="8" fill="transparent" style="cursor:${labels[i] ? 'help' : 'default'}"/>
-      <circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="${isLast ? 2.6 : 1.8}" fill="${colour}" stroke="#fff" stroke-width="${isLast ? 1.5 : 1}" pointer-events="none"/>
-    </g>`;
-  }).join('');
-  return `<svg width="${w}" height="${h}" style="display:block;overflow:visible">
-    <defs><linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${colour}" stop-opacity=".16"/><stop offset="1" stop-color="${colour}" stop-opacity="0"/></linearGradient></defs>
-    <path d="${area}" fill="url(#${id})"/>
-    <path d="${d}" fill="none" stroke="${colour}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
-    ${dots}
-  </svg>`;
-}
+// SVG sparkline shared with Overview / agency overview (src/lib/sparkline.ts).
+// P3 model eras : boundary points get a ringed dot + old → new tooltip note.
 const runDates = trend.map((t) => t.completed_at ? new Date(t.completed_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : '');
-const mentionLabels = trend.map((t, i) => `${runDates[i]} : ${t.brand_mention_rate}%`);
-const citationLabels = trend.map((t, i) => `${runDates[i]} : ${t.total_citations.toLocaleString('en-US')}`);
+const eraNotes = trend.map((t, i) => t.model_changed ? modelChangeNote(trend[i - 1]?.models, t.models) : '');
+const trendMarkers = trend.map((t) => !!t.model_changed);
+const mentionLabels = trend.map((t, i) => `${runDates[i]} : ${t.brand_mention_rate}%${eraNotes[i] ? '\n' + eraNotes[i] : ''}`);
+const citationLabels = trend.map((t, i) => `${runDates[i]} : ${t.total_citations.toLocaleString('en-US')}${eraNotes[i] ? '\n' + eraNotes[i] : ''}`);
 function tone(vals: number[]): 'up' | 'down' | 'flat' {
   if (vals.length < 2) return 'flat';
   const d = vals[vals.length - 1] - vals[vals.length - 2];
@@ -425,7 +434,7 @@ const priorityDot: Record<string, string> = {
           {mentionVals.length >= 2 && (
             <div>
               <div class="hero__rl">Trend ({mentionVals.length} scans)</div>
-              <div set:html={sparkSvg(mentionVals, tone(mentionVals), mentionLabels, 120, 34)} />
+              <div set:html={sparkSvg(mentionVals, heroBoundary ? 'flat' : tone(mentionVals), mentionLabels, 120, 34, trendMarkers)} />
             </div>
           )}
           {heroDelta !== null && (
@@ -433,6 +442,14 @@ const priorityDot: Record<string, string> = {
               <div class="hero__rl">vs last</div>
               <div style={`font-size:18px;font-weight:700;color:${heroDelta > 0 ? 'var(--status-positive)' : heroDelta < 0 ? 'var(--status-critical)' : 'var(--color-text-muted)'}`}>
                 {heroDelta > 0 ? '▲' : heroDelta < 0 ? '▼' : '·'} {Math.abs(heroDelta)} pts
+              </div>
+            </div>
+          )}
+          {heroEraChip && (
+            <div>
+              <div class="hero__rl">vs last</div>
+              <div style="font-size:12px;font-weight:600;color:var(--color-text-muted);cursor:help;max-width:180px" title={heroEraTitle}>
+                ⟳ {heroEraChip}
               </div>
             </div>
           )}
@@ -468,9 +485,12 @@ const priorityDot: Record<string, string> = {
             {heroDelta !== null && heroDelta !== 0 && (
               <span class={`stat__delta ${heroDelta > 0 ? 'stat__delta--up' : 'stat__delta--down'}`}>{heroDelta > 0 ? '▲' : '▼'} {Math.abs(heroDelta)}</span>
             )}
+            {heroEraChip && (
+              <span class="stat__delta stat__delta--flat" style="cursor:help" title={heroEraTitle}>⟳ {heroEraChip}</span>
+            )}
           </div>
           {mentionVals.length >= 2
-            ? <div class="spark" set:html={sparkSvg(mentionVals, tone(mentionVals), mentionLabels)} />
+            ? <div class="spark" set:html={sparkSvg(mentionVals, heroBoundary ? 'flat' : tone(mentionVals), mentionLabels, 120, 34, trendMarkers)} />
             : <div class="spark spark--empty">Trend appears after your next rescan</div>}
         </div>
         <div class="card card--flat stat">
@@ -479,7 +499,7 @@ const priorityDot: Record<string, string> = {
             <div class="stat__value">{wsLatest?.total_citations != null ? wsLatest.total_citations.toLocaleString('en-US') : '–'}</div>
           </div>
           {citationVals.length >= 2
-            ? <div class="spark" set:html={sparkSvg(citationVals, tone(citationVals), citationLabels)} />
+            ? <div class="spark" set:html={sparkSvg(citationVals, heroBoundary ? 'flat' : tone(citationVals), citationLabels, 120, 34, trendMarkers)} />
             : <div class="spark spark--empty">Trend appears after your next rescan</div>}
         </div>
         <div class="card card--flat stat">
@@ -542,7 +562,9 @@ const priorityDot: Record<string, string> = {
                       <td>{g ? <span class={`score score--sm score--${g}`}>{g.toUpperCase()}</span> : <span style="color:var(--color-text-muted)">–</span>}</td>
                       <td style="color:var(--color-text-primary);font-weight:600">{rate !== null ? `${Math.round(rate)}%` : '–'}</td>
                       <td>
-                        {delta === undefined
+                        {eraNoteByScanId[s.id]
+                          ? <span class="delta flat" style="cursor:help" title={eraNoteByScanId[s.id]}>⟳ models updated</span>
+                          : delta === undefined
                           ? <span class="delta flat">·</span>
                           : delta > 0 ? <span class="delta up">▲ +{delta} pts</span>
                           : delta < 0 ? <span class="delta down">▼ {delta} pts</span>

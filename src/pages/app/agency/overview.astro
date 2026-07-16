@@ -15,6 +15,7 @@
  */
 export const prerender = false;
 import DashboardLayout from '../../../layouts/DashboardLayout.astro';
+import { sparkSvg, modelChangeNote } from '../../../lib/sparkline';
 
 const token = Astro.cookies.get('token')?.value;
 if (!token) return Astro.redirect('/login');
@@ -32,7 +33,14 @@ try {
   }
 } catch {}
 
-type TrendPoint = { completed_at: string | null; brand_mention_rate: number; total_citations: number };
+type TrendPoint = {
+  completed_at: string | null;
+  brand_mention_rate: number;
+  total_citations: number;
+  // P3 model eras : what the scan ran on + boundary flag vs previous point.
+  models?: Record<string, string>;
+  model_changed?: boolean;
+};
 type Workspace = {
   client_id: string;
   name: string;
@@ -156,9 +164,11 @@ const crisisList = workspaces.filter(w => bucketFor(w) === 'crisis');
 const rates = scanned.map(w => wsRate(w) as number);
 const avgRate = rates.length ? Math.round(rates.reduce((s, v) => s + v, 0) / rates.length) : null;
 // Avg delta vs previous run, over workspaces that have at least 2 runs.
+// P3 model eras : a workspace whose last run crossed a model-mix boundary
+// would poison the org average with an instrument change - excluded.
 const deltas = workspaces
   .map(w => w.latest_scan?.trend || [])
-  .filter(t => t.length >= 2)
+  .filter(t => t.length >= 2 && !t[t.length - 1].model_changed)
   .map(t => t[t.length - 1].brand_mention_rate - t[t.length - 2].brand_mention_rate);
 const avgDelta = deltas.length ? Math.round((deltas.reduce((s, v) => s + v, 0) / deltas.length) * 10) / 10 : null;
 const needsAttention = scanned.filter(w => (wsRate(w) as number) < 30).length;
@@ -171,48 +181,23 @@ const subtitle = workspaces.length
     + (crisisList.length ? ` ${crisisList.length === 1 ? 'One brand needs' : crisisList.length + ' brands need'} attention now.` : '')
   : activeOrg ? `Every workspace in ${activeOrg.name}.` : 'Sign in to see workspaces.';
 
-// ─── SVG sparkline (same helper as the scan Overview KPIs) ───
-// Per-run dots carry a native <title> tooltip "23 Mar : 41%" on a generous
-// invisible r=8 hit circle (Fitts) ; the last dot is the visual anchor.
-function sparkSvg(vals: number[], tone: 'up' | 'down' | 'flat' = 'up', labels: string[] = [], w = 120, h = 34): string {
-  if (!vals || vals.length < 2) return '';
-  const pad = 4;
-  const min = Math.min(...vals);
-  const max = Math.max(...vals);
-  const rng = max - min || 1;
-  const xf = (i: number) => pad + (i * (w - 2 * pad)) / (vals.length - 1);
-  const yf = (v: number) => h - pad - ((v - min) / rng) * (h - 2 * pad);
-  const pts = vals.map((v, i) => [xf(i), yf(v)] as [number, number]);
-  const d = pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ');
-  const colour = tone === 'down' ? 'var(--status-critical)' : tone === 'flat' ? 'var(--color-text-muted)' : 'var(--status-positive)';
-  const last = pts[pts.length - 1];
-  const id = 'g' + Math.random().toString(36).slice(2, 7);
-  const area = d + ` L${last[0].toFixed(1)} ${h - pad} L${pts[0][0].toFixed(1)} ${h - pad} Z`;
-  const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  const dots = pts.map((p, i) => {
-    const isLast = i === pts.length - 1;
-    const title = labels[i] ? `<title>${esc(labels[i])}</title>` : '';
-    return `<g>${title}
-      <circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="8" fill="transparent" style="cursor:${labels[i] ? 'help' : 'default'}"/>
-      <circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="${isLast ? 2.6 : 1.8}" fill="${colour}" stroke="#fff" stroke-width="${isLast ? 1.5 : 1}" pointer-events="none"/>
-    </g>`;
-  }).join('');
-  return `<svg width="${w}" height="${h}" style="display:block;overflow:visible">
-    <defs><linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${colour}" stop-opacity=".16"/><stop offset="1" stop-color="${colour}" stop-opacity="0"/></linearGradient></defs>
-    <path d="${area}" fill="url(#${id})"/>
-    <path d="${d}" fill="none" stroke="${colour}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
-    ${dots}
-  </svg>`;
-}
+// SVG sparkline shared with the scan Overview / dashboard (src/lib/sparkline.ts).
+// P3 model eras : boundary points are ringed + the tooltip carries old → new.
 function trendLabels(t: TrendPoint[]): string[] {
-  return t.map(p => {
+  return t.map((p, i) => {
     const d = p.completed_at ? new Date(p.completed_at) : null;
     const day = d ? d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : '';
-    return `${day} : ${p.brand_mention_rate}%`;
+    const note = p.model_changed ? modelChangeNote(t[i - 1]?.models, p.models) : '';
+    return `${day} : ${p.brand_mention_rate}%${note ? '\n' + note : ''}`;
   });
 }
-function trendTone(vals: number[]): 'up' | 'down' | 'flat' {
+function trendMarkers(t: TrendPoint[]): boolean[] {
+  return t.map(p => !!p.model_changed);
+}
+function trendTone(t: TrendPoint[], vals: number[]): 'up' | 'down' | 'flat' {
   if (vals.length < 2) return 'flat';
+  // Across a boundary the up/down colour would judge an instrument change.
+  if (t[t.length - 1]?.model_changed) return 'flat';
   const d = vals[vals.length - 1] - vals[vals.length - 2];
   return d > 0 ? 'up' : d < 0 ? 'down' : 'flat';
 }
@@ -449,7 +434,7 @@ function trendTone(vals: number[]): 'up' | 'down' | 'flat' {
                 )}
 
                 {vals.length >= 2 && (
-                  <div class="wscard__spark" set:html={sparkSvg(vals, trendTone(vals), trendLabels(trend), 240, 30)} />
+                  <div class="wscard__spark" set:html={sparkSvg(vals, trendTone(trend, vals), trendLabels(trend), 240, 30, trendMarkers(trend))} />
                 )}
 
                 <div class="wscard__foot">

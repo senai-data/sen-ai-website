@@ -5,6 +5,8 @@
 
 const API = 'http://api:8000/api';
 
+import { modelChangeNote } from './sparkline';
+
 export interface ScanHeaderData {
   scan: {
     id: string;
@@ -35,6 +37,9 @@ export interface ScanHeaderData {
   grade: { letter: string; bg: string; text: string; sub: string; label: string };
   currentRate: number;
   delta: number | null;
+  // P3 model eras : non-null when the last two runs ran on different AI model
+  // mixes - the header delta is suppressed and this note explains why.
+  eraNote: string | null;
   sparkSvg: string;
   tabCounts: {
     topics: number;
@@ -102,7 +107,7 @@ export async function fetchScanHeader(
     if (resScan.status === 404) {
       return {
         scan: { id: scanId, domain: '', name: '', focus_brand: null, status: 'not_found', completed_at: null },
-        overview: null, runs: [], grade: getGrade(null), currentRate: 0, delta: null, sparkSvg: '',
+        overview: null, runs: [], grade: getGrade(null), currentRate: 0, delta: null, eraNote: null, sparkSvg: '',
         tabCounts: { topics: 0, personas: 0, questions: 0, citations: 0, actions: 0 }, error: 'Scan not found',
       };
     }
@@ -124,9 +129,18 @@ export async function fetchScanHeader(
     const hasLineage = runs.length > 1;
     const sparkRates = runs.map((r: any) => r.summary?.brand_mention_rate ?? null).filter((v: any) => v !== null);
     const prevRun = hasLineage ? runs[runs.length - 2] : null;
+    const lastRun = hasLineage ? runs[runs.length - 1] : null;
     const currentRate = overview?.citation_rate ?? 0;
     const prevRate = prevRun?.summary?.brand_mention_rate ?? null;
-    const delta = prevRate !== null ? currentRate - prevRate : null;
+    // P3 model eras : "vs last run" across a model-mix change compares two
+    // different instruments - suppress the delta, surface the note instead.
+    // Unknown models on either side (empty dict) = no boundary claimed.
+    const prevModels = prevRun?.summary?.models || {};
+    const lastModels = lastRun?.summary?.models || {};
+    const crossesEra = Object.keys(prevModels).length > 0 && Object.keys(lastModels).length > 0
+      && modelChangeNote(prevModels, lastModels) !== '';
+    const eraNote = crossesEra ? modelChangeNote(prevModels, lastModels) : null;
+    const delta = prevRate !== null && !crossesEra ? currentRate - prevRate : null;
 
     // Tab counts
     const uniqueTopics = new Set(byPersona.map((p: any) => p.topic).filter(Boolean));
@@ -159,6 +173,7 @@ export async function fetchScanHeader(
       grade: getGrade(currentRate),
       currentRate,
       delta,
+      eraNote,
       sparkSvg: buildSparkline(sparkRates),
       tabCounts,
       error: null,
@@ -166,7 +181,7 @@ export async function fetchScanHeader(
   } catch (e: any) {
     return {
       scan: { id: scanId, domain: '', name: '', focus_brand: null, status: 'error', completed_at: null },
-      overview: null, runs: [], grade: getGrade(null), currentRate: 0, delta: null, sparkSvg: '',
+      overview: null, runs: [], grade: getGrade(null), currentRate: 0, delta: null, eraNote: null, sparkSvg: '',
       tabCounts: { topics: 0, personas: 0, questions: 0, citations: 0, actions: 0 }, error: e.message,
     };
   }

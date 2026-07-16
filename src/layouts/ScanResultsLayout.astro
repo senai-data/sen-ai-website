@@ -58,7 +58,7 @@ if (headerData.scan.status !== 'completed' && headerData.scan.status !== 'error'
   return Astro.redirect(`/app/scans/${scanId}`);
 }
 
-const { scan, grade, currentRate, delta, sparkSvg, runs, tabCounts, overview } = headerData;
+const { scan, grade, currentRate, delta, eraNote, sparkSvg, runs, tabCounts, overview } = headerData;
 
 // Resolve root scan ID for URL consistency
 const rootScanId = runs.length > 0 ? (runs[0]?.id || scanId) : scanId;
@@ -113,6 +113,11 @@ const rangeContext = rangeParam === 'all' && runs.length > 1 ? ` (${runs.length}
             {delta !== null && (
               <span class={`font-semibold ${delta > 0 ? 'text-emerald-600' : delta < 0 ? 'text-red-500' : 'text-charcoal-light'}`}>
                 {delta > 0 ? '\u2191' : delta < 0 ? '\u2193' : '\u2192'}{Math.abs(delta).toFixed(1)}pts
+              </span>
+            )}
+            {eraNote && (
+              <span class="font-semibold text-charcoal-light cursor-help" title={eraNote}>
+                \u27f3 models updated
               </span>
             )}
             {sparkSvg && <Fragment set:html={sparkSvg} />}

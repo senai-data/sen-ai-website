@@ -84,7 +84,7 @@ def execute(job_payload: dict, scan_id: str | None, db: Session) -> dict:
             openai_key, key_source = resolve_openai_key(db, client_id)
         except (ByokCapExceeded, ByokKeyInvalid) as e:
             _refund_web_search_credit(item, db, reason="byok_blocked")
-            logger.warning(f"suggest_media: BYOK blocked for item {item_id} — refunded")
+            logger.warning(f"suggest_media: BYOK blocked for item {item_id} - refunded")
             return {"status": "error", "error": "byok_blocked", "message": str(e)}
 
     try:

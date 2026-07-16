@@ -1270,7 +1270,7 @@ def execute(job_payload: dict, scan_id: str | None, db: Session) -> dict:
             with _silence_rich_console():
                 result = generator.generate_for_opportunity(
                     opportunity=opportunity,
-                    # Phase C.1.5 — pass ALL fan-outs (incl. primary) to the
+                    # Phase C.1.5 - pass ALL fan-outs (incl. primary) to the
                     # writer. The seo_llm pipeline uses fanout_queries for :
                     #   - content gen prompt injection (_format_fanout_section)
                     #     so the article covers each sub-intent explicitly

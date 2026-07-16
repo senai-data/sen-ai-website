@@ -225,8 +225,11 @@ def _try_openai(domain: str, api_key: str, model: str) -> tuple[dict | None, str
 
 def _try_gemini(domain: str, api_key: str, model: str) -> tuple[dict | None, str, dict]:
     """Fallback #1: Gemini with grounding (web-aware). Returns (parsed_or_None, raw_text, usage)."""
-    from seo_llm.src.llm_client import LLMClient
-    client = LLMClient(provider="gemini", api_key=api_key, model=model)
+    # Via the factory, NOT LLMClient directly : it guarantees api_key is the
+    # key actually used (the submodule's internal rotator would silently
+    # override it with platform env keys - BYOK fix 2026-07-16).
+    from adapters.llm_scanner import create_llm_client
+    client = create_llm_client("gemini", api_key, model=model)
     prompt = WEB_BRIEF_PROMPT.format(domain=domain)
     # NW.2 - inject anti-AI-detection humanizer block (compact mode).
     from services.natural_writing_helpers import inject_humanizer

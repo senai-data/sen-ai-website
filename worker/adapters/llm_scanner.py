@@ -64,11 +64,33 @@ _OPENAI_WEB_SEARCH_TOOL = {
 
 def create_llm_client(provider: str, api_key: str, model: str = None) -> LLMClient:
     """Create an LLMClient instance for Gemini (kept for backward compat — OpenAI now
-    uses the direct path test_question_openai_direct)."""
+    uses the direct path test_question_openai_direct).
+
+    GUARANTEE : the api_key argument is the key actually used. Every SaaS-side
+    gemini construction must go through this factory (never LLMClient directly).
+    """
     if provider == "openai":
         return LLMClient(provider="openai", api_key=api_key, model=model or "gpt-4.1-mini")
     elif provider == "gemini":
-        return LLMClient(provider="gemini", api_key=api_key, model=model or "gemini-2.5-flash")
+        client = LLMClient(provider="gemini", api_key=api_key, model=model or "gemini-2.5-flash")
+        # BYOK-critical : LLMClient prefers the seo_llm-internal GeminiKeyRotator
+        # (a module singleton built from the PLATFORM env GEMINI_API_KEYS) over
+        # the api_key argument - the key we pass is silently ignored whenever
+        # platform keys are in the env (proven 2026-07-16 : a fake key
+        # generated successfully through the rotator). Force the submodule's
+        # own single-key fallback state (llm_client.py:97-103) so the passed
+        # key is authoritative. Key rotation is OUR job (PoolRotatingGeminiClient :
+        # per-call draw + spend-cap parking), never the submodule's.
+        # NOTE : touches LLMClient internals (_rotator / client) - recheck after
+        # any seo_llm submodule bump (llm_client.py gemini branch).
+        from google import genai
+        from google.genai import types as genai_types
+        client._rotator = None
+        client.client = genai.Client(
+            api_key=api_key,
+            http_options=genai_types.HttpOptions(timeout=client._api_timeout * 1000),
+        )
+        return client
     else:
         raise ValueError(f"Unknown provider: {provider}")
 

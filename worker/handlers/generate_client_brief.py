@@ -165,8 +165,11 @@ def _try_openai(client_name: str, primary_brands_block: str, api_key: str,
 
 def _try_gemini(client_name: str, primary_brands_block: str, api_key: str,
                 model: str) -> tuple[dict | None, str, dict]:
-    from seo_llm.src.llm_client import LLMClient
-    llm = LLMClient(provider="gemini", api_key=api_key, model=model)
+    # Via the factory, NOT LLMClient directly : it guarantees api_key is the
+    # key actually used (the submodule's internal rotator would silently
+    # override it with platform env keys - BYOK fix 2026-07-16).
+    from adapters.llm_scanner import create_llm_client
+    llm = create_llm_client("gemini", api_key, model=model)
     prompt = CLIENT_BRIEF_PROMPT.format(
         client_name=client_name, primary_brands_block=primary_brands_block,
     )

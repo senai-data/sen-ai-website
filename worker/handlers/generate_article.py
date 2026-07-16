@@ -1215,45 +1215,72 @@ def execute(job_payload: dict, scan_id: str | None, db: Session) -> dict:
             "generate_article_writing", writing_provider,
         )
 
+    # BYOK : the seo_llm generator reads OPENAI_API_KEY / ANTHROPIC_API_KEY
+    # via os.getenv at instantiation AND call time (never edit the submodule),
+    # so org keys are injected via a per-job env patch. Fresh instance per job
+    # (verified: generator built below, only the CLASS is cached) => the patch
+    # window covers every read. GEMINI stays platform (submodule rotator is a
+    # module-level singleton - see byok.patched_llm_env docstring). Cap/invalid
+    # raise here, before any spend, with the same status reset as
+    # BudgetExceeded.
+    from services.byok import (
+        ByokCapExceeded, ByokKeyInvalid, patched_llm_env,
+        resolve_anthropic_key, resolve_openai_key,
+    )
+    _byok_cid = item.scan.client_id if item.scan else None
+    try:
+        _openai_key, _openai_src = resolve_openai_key(db, _byok_cid)
+        _anthropic_key, _anthropic_src = resolve_anthropic_key(db, _byok_cid)
+    except (ByokCapExceeded, ByokKeyInvalid):
+        item.status = "identified"
+        _clear_progress(item)
+        db.commit()
+        raise
+    _content_key_source = _anthropic_src if writing_provider == "claude" else _openai_src
+
     try:
         generator_cls = _get_workspace_aware_class()
-        generator = generator_cls(
-            workspace_brief_text=workspace_brief_text,
-            promoted_brand_names=promoted_brand_names,
-            promoted_lead_brand_name=(
-                promoted_brand_names[0] if promoted_brand_names else ""
-            ),
-            promoted_brand_domains=promoted_brand_domains,
-            promoted_brand_aliases=promoted_brand_aliases,
-            promoted_brand_expert_section_paths=promoted_brand_expert_section_paths,
-            promoted_brand_product_lines=promoted_brand_product_lines,
-            trust_domains=trust_domains,
-            competitor_domains=competitor_domains,
-            excluded_brand_names=excluded_brand_names,
-            client_industry=client_industry,
-            client_voice=client_voice,
-            client_audience=client_audience,
-            persona_name=(item.persona_name or "").strip(),
-            writing_provider=writing_provider,
-            phase_callback=lambda key, num, label: _update_progress(
-                item, db, key, num, label,
-            ),
-        )
-
-        with _silence_rich_console():
-            result = generator.generate_for_opportunity(
-                opportunity=opportunity,
-                # Phase C.1.5 — pass ALL fan-outs (incl. primary) to the
-                # writer. The seo_llm pipeline uses fanout_queries for :
-                #   - content gen prompt injection (_format_fanout_section)
-                #     so the article covers each sub-intent explicitly
-                #   - post-gen coverage check (fanout_coverage / covered /
-                #     missed in result dict)
-                #   - FAQ Schema.org Q seeds (first 5 fan-outs become FAQ Qs)
-                fanout_queries=fanouts or None,
-                faq_file=None,
-                generate_image=False,
+        with patched_llm_env(
+            openai_key=_openai_key if _openai_src == "byok" else None,
+            anthropic_key=_anthropic_key if _anthropic_src == "byok" else None,
+        ):
+            generator = generator_cls(
+                workspace_brief_text=workspace_brief_text,
+                promoted_brand_names=promoted_brand_names,
+                promoted_lead_brand_name=(
+                    promoted_brand_names[0] if promoted_brand_names else ""
+                ),
+                promoted_brand_domains=promoted_brand_domains,
+                promoted_brand_aliases=promoted_brand_aliases,
+                promoted_brand_expert_section_paths=promoted_brand_expert_section_paths,
+                promoted_brand_product_lines=promoted_brand_product_lines,
+                trust_domains=trust_domains,
+                competitor_domains=competitor_domains,
+                excluded_brand_names=excluded_brand_names,
+                client_industry=client_industry,
+                client_voice=client_voice,
+                client_audience=client_audience,
+                persona_name=(item.persona_name or "").strip(),
+                writing_provider=writing_provider,
+                phase_callback=lambda key, num, label: _update_progress(
+                    item, db, key, num, label,
+                ),
             )
+
+            with _silence_rich_console():
+                result = generator.generate_for_opportunity(
+                    opportunity=opportunity,
+                    # Phase C.1.5 — pass ALL fan-outs (incl. primary) to the
+                    # writer. The seo_llm pipeline uses fanout_queries for :
+                    #   - content gen prompt injection (_format_fanout_section)
+                    #     so the article covers each sub-intent explicitly
+                    #   - post-gen coverage check (fanout_coverage / covered /
+                    #     missed in result dict)
+                    #   - FAQ Schema.org Q seeds (first 5 fan-outs become FAQ Qs)
+                    fanout_queries=fanouts or None,
+                    faq_file=None,
+                    generate_image=False,
+                )
 
     except BudgetExceeded:
         item.status = "identified"
@@ -1391,6 +1418,7 @@ def execute(job_payload: dict, scan_id: str | None, db: Session) -> dict:
             duration_ms=duration_ms,
             scan_id=scan_id,
             client_id=str(item.scan.client_id) if item.scan else None,
+            key_source=_content_key_source,
         )
     except Exception:
         logger.exception("log_llm_usage failed for generate_article")

@@ -310,21 +310,43 @@ def execute(job_payload: dict, scan_id: str | None, db: Session) -> dict:
         f"promote={len(promoted_brand_names)}, exclude={len(excluded_brand_names)})"
     )
 
+    # BYOK : the seo_llm FAQ generator reads its keys via os.getenv (never
+    # edit the submodule) - org keys are injected via a per-job env patch.
+    # Fresh instance per job (built below, only the class is cached).
+    # Cap/invalid raise here, before any spend, with the same status reset
+    # as the generation-failure path.
+    from services.byok import (
+        ByokCapExceeded, ByokKeyInvalid, patched_llm_env,
+        resolve_anthropic_key, resolve_openai_key,
+    )
+    _byok_cid = item.scan.client_id if item.scan else None
+    try:
+        _openai_key, _openai_src = resolve_openai_key(db, _byok_cid)
+        _anthropic_key, _anthropic_src = resolve_anthropic_key(db, _byok_cid)
+    except (ByokCapExceeded, ByokKeyInvalid):
+        item.status = "identified"
+        db.commit()
+        raise
+
     start = time.time()
     try:
         generator_cls = _get_workspace_aware_class()
-        generator = generator_cls(
-            workspace_brief_text=workspace_brief_text,
-            promoted_brands_text=promoted_brands_text,
-            excluded_section=excluded_section,
-            promoted_lead_brand=(promoted_brand_names[0] if promoted_brand_names else ""),
-            trust_domains=trust_domains,
-            competitor_domains=competitor_domains,
-            writing_provider="openai",
-            model=settings.task_models.get("generate_faq") if hasattr(settings, "task_models") else None,
-            max_workers=1,
-        )
-        result = generator._generate_single(row)
+        with patched_llm_env(
+            openai_key=_openai_key if _openai_src == "byok" else None,
+            anthropic_key=_anthropic_key if _anthropic_src == "byok" else None,
+        ):
+            generator = generator_cls(
+                workspace_brief_text=workspace_brief_text,
+                promoted_brands_text=promoted_brands_text,
+                excluded_section=excluded_section,
+                promoted_lead_brand=(promoted_brand_names[0] if promoted_brand_names else ""),
+                trust_domains=trust_domains,
+                competitor_domains=competitor_domains,
+                writing_provider="openai",
+                model=settings.task_models.get("generate_faq") if hasattr(settings, "task_models") else None,
+                max_workers=1,
+            )
+            result = generator._generate_single(row)
     except Exception as e:
         # Reset status so user can retry from Kanban (without going through the full
         # _refund_scan_credits path which fires only on attempts >= max_attempts).
@@ -433,6 +455,7 @@ def execute(job_payload: dict, scan_id: str | None, db: Session) -> dict:
             duration_ms=duration_ms,
             scan_id=scan_id,
             client_id=str(item.scan.client_id) if item.scan else None,
+            key_source=_openai_src,
         )
     except Exception:
         logger.warning("log_llm_usage failed for generate_faq", exc_info=True)

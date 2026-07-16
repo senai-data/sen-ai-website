@@ -26,6 +26,11 @@ const scan = data?.scan || {};
 const client = data?.client || {};
 const triggeredBy = data?.triggered_by || {};
 const providers: any[] = data?.providers || [];
+// BYOK - providers that ran on the CUSTOMER's own API keys for this scan
+// (recorded at launch). Empty for old scans and platform-keyed scans - the
+// report keeps the platform wording in that case.
+const byokProviders: string[] = data?.byok_providers || [];
+const byokNames: Record<string, string> = { openai: 'OpenAI', anthropic: 'Anthropic', gemini: 'Google Gemini', mistral: 'Mistral' };
 const runsDepth = data?.runs_depth || {};
 const counts = data?.counts || {};
 const dataSources = data?.data_sources || {};
@@ -160,13 +165,14 @@ const runsDisplay = runsDepth.configured || runsDepth.observed_max || 1;
                 <th>Sub-processor</th>
                 <th>Model family</th>
                 <th>Hosting region</th>
+                <th>API key</th>
                 <th class="text-right">LLM calls</th>
                 <th class="text-right">Distinct runs</th>
               </tr>
             </thead>
             <tbody>
               {providers.length === 0 && (
-                <tr><td colspan="6" class="text-charcoal-light italic">No provider responses recorded.</td></tr>
+                <tr><td colspan="7" class="text-charcoal-light italic">No provider responses recorded.</td></tr>
               )}
               {providers.map((p: any) => {
                 const info = providerInfo(String(p.provider));
@@ -176,6 +182,7 @@ const runsDisplay = runsDepth.configured || runsDepth.observed_max || 1;
                     <td>{info.sub_processor}</td>
                     <td>{info.model_family}</td>
                     <td>{info.region}</td>
+                    <td>{byokProviders.includes(String(p.provider).toLowerCase()) ? 'Customer (BYOK)' : 'sen-ai platform'}</td>
                     <td class="text-right">{p.responses}</td>
                     <td class="text-right">{p.distinct_runs}</td>
                   </tr>
@@ -183,11 +190,22 @@ const runsDisplay = runsDepth.configured || runsDepth.observed_max || 1;
               })}
             </tbody>
           </table>
+          {byokProviders.length > 0 && (
+            <p class="section-prose">
+              This scan used customer-supplied API keys (BYOK) for : {byokProviders.map(p => byokNames[p] || p).join(', ')}.
+              For those providers, prompt data flowed through the customer&apos;s own provider account
+              and is governed by the customer&apos;s agreement with that provider. Providers marked
+              &quot;sen-ai platform&quot; ran on sen-ai.fr keys under the sub-processor terms below.
+            </p>
+          )}
           <p class="section-note">
             Sub-processor data-protection certifications : OpenAI &amp; Anthropic operate under the
             EU-US Data Privacy Framework. Google Gemini is contracted through Google Ireland Ltd
-            (EU controller). Mistral is EU-based (France). Full sub-processor list + changelog at
-            <a href="/app/compliance" target="_blank">organisation compliance hub</a>.
+            (EU controller). Mistral is EU-based (France). When an organization supplies its own
+            provider API keys (BYOK), the calls to that provider are made through the customer&apos;s
+            own provider account, under the customer&apos;s direct agreement with that provider - the
+            API key column above records which keys carried this scan. Full sub-processor list +
+            changelog at <a href="/app/compliance" target="_blank">organisation compliance hub</a>.
           </p>
 
           <h3 class="text-[13px] font-semibold text-charcoal-dark mt-6 mb-2">3.1 Sub-processors changelog (audit trail)</h3>

@@ -154,6 +154,12 @@ export const SUBPROCESSORS: SubProcessor[] = [
  */
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    date: '2026-07-16',
+    kind: 'scope_change',
+    subprocessor_id: 'openai',
+    summary: 'Option BYOK (cles API fournies par le client) : les organisations peuvent enregistrer leurs propres cles OpenAI, Anthropic, Gemini ou Mistral. Quand une cle client est active, les prompts du fournisseur concerne partent via le compte du client, sous son propre contrat fournisseur. Sans cle client, les cles plateforme sen-ai restent utilisees. Aucun sous-traitant ajoute ni retire - le perimetre de traitement de chaque fournisseur est inchange, seul le compte porteur change.',
+  },
+  {
     date: '2026-06-28',
     kind: 'scope_change',
     subprocessor_id: 'hetzner',

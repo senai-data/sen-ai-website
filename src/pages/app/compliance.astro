@@ -304,6 +304,11 @@ const kindChip: Record<string, string> = {
             AI providers process prompt text containing brand / domain / topic data only.
             No personal data of your end users is transmitted to any AI provider. Full
             disclosure in our <a href="/privacy" target="_blank">Privacy Policy</a>.
+            Organizations may supply their own provider API keys (BYOK); when a customer
+            key is active, prompts for that provider are sent through the customer&apos;s own
+            provider account under the customer&apos;s direct agreement with the provider.
+            Platform keys, and the sub-processor terms above, apply whenever no customer
+            key is configured.
           </p>
         </div>
 
@@ -342,7 +347,7 @@ const kindChip: Record<string, string> = {
               <tr><th>Data processor</th><td>sen-ai.fr is the processor, acting on the customer&apos;s documented instructions.</td></tr>
               <tr><th>Personal data exposure</th><td>Minimal. Only the email + name of users granted workspace access are stored. AI provider prompts contain no personal data.</td></tr>
               <tr><th>Retention period</th><td>Scan results retained for the duration of the workspace subscription, then 30 days post-cancellation before deletion.</td></tr>
-              <tr><th>International transfers</th><td>OpenAI and Anthropic (US) under EU-US Data Privacy Framework + Standard Contractual Clauses. All other sub-processors are EU-hosted.</td></tr>
+              <tr><th>International transfers</th><td>OpenAI and Anthropic (US) under EU-US Data Privacy Framework + Standard Contractual Clauses. All other sub-processors are EU-hosted. If your organization uses its own API keys (BYOK), provider traffic runs through your own provider account and transfer safeguards are governed by your agreement with that provider.</td></tr>
               <tr><th>Right to access / erase</th><td>Email <a href="mailto:contact@sen-ai.fr">contact@sen-ai.fr</a>. Workspace owner can also delete any scan from the UI at any time.</td></tr>
               <tr><th>Breach notification</th><td>72-hour notification to the customer in case of a confirmed personal data breach, per GDPR Article 33.</td></tr>
             </tbody>
@@ -413,7 +418,7 @@ const kindChip: Record<string, string> = {
           <p class="dpia-p"><strong>Risk to data subjects :</strong> LOW. The only data subjects are workspace users (employees of the customer). No biometric, health, financial, or special-category data is processed.</p>
           <p class="dpia-p"><strong>Risk of unauthorised access :</strong> Mitigated by encrypted storage at rest, TLS in transit, HttpOnly auth cookies, scoped per-workspace access controls.</p>
           <p class="dpia-p"><strong>Risk of AI bias / discrimination :</strong> The AI systems used are GENERAL-PURPOSE and outside sen-ai.fr&apos;s control. sen-ai.fr does not train or fine-tune any model. Bias risks rest with the upstream AI providers.</p>
-          <p class="dpia-p"><strong>Risk of international transfer :</strong> Two sub-processors are US-based (OpenAI, Anthropic). Mitigated by EU-US Data Privacy Framework + Standard Contractual Clauses.</p>
+          <p class="dpia-p"><strong>Risk of international transfer :</strong> Two sub-processors are US-based (OpenAI, Anthropic). Mitigated by EU-US Data Privacy Framework + Standard Contractual Clauses. Customers using the BYOK option route provider calls through their own provider accounts; the transfer assessment for those calls rests on the customer&apos;s own agreement with the provider.</p>
 
           <h3 class="dpia-h3">4. Safeguards in place</h3>
           <ul class="dpia-ul">

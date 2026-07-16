@@ -5,7 +5,7 @@ parent: "confiance"
 branch: "Données en Europe"
 priority: coeur
 order: 2
-updated: "2026-06-28"
+updated: "2026-07-16"
 related:
   - conformite-ai-act-limited-risk
 faq:
@@ -15,6 +15,8 @@ faq:
     a: "Seules les requêtes envoyées à certains fournisseurs de modèles établis hors UE, comme OpenAI et Anthropic, transitent hors d'Europe, et ce en lecture seule. Ces transferts sont encadrés par le cadre de protection des données UE-États-Unis et des clauses contractuelles types."
   - q: "Quels sous-traitants sen-ai utilise-t-il ?"
     a: "Un hébergeur, des fournisseurs de modèles IA, un service de paiement et des services d'enrichissement SEO (autorité, mots-clés, sémantique, prix médias). La liste complète, datée et tenue à jour avec un journal des changements est publique sur notre page méthodologie."
+  - q: "Puis-je utiliser mes propres clés API ?"
+    a: "Oui. Les organisations peuvent enregistrer leurs propres clés OpenAI, Anthropic, Gemini ou Mistral (option BYOK). Les requêtes concernées partent alors via leur propre compte fournisseur, dans le cadre de leur propre contrat, avec un plafond de dépense mensuel par fournisseur. Sans clé client, les clés plateforme de sen-ai s'appliquent avec les garanties décrites ici."
 cta:
   titre: "Des données européennes, en toute transparence"
   texte: "Le détail de l'hébergement et des sous-traitants est public. Premier scan gratuit."
@@ -35,6 +37,12 @@ Ce choix est délibéré. Héberger en Europe simplifie la conformité et la ren
 **Les seules données qui transitent hors d'Europe sont les requêtes envoyées à certains fournisseurs de modèles établis aux États-Unis, en lecture seule, et ces transferts sont encadrés.** Interroger ChatGPT ou Claude suppose d'envoyer la question à des services américains ; c'est inhérent à la mesure.
 
 Ces transferts s'appuient sur le cadre de protection des données UE-États-Unis et sur des clauses contractuelles types, les mécanismes reconnus pour encadrer ce type d'échange. D'autres fournisseurs, comme Gemini via Google Ireland, le paiement ou l'enrichissement de données, opèrent depuis l'Union. Et dans tous les cas, ces modèles sont interrogés en lecture seule, sans entraînement, conformément au [statut à risque limité](/guides/conformite-ai-act-limited-risk/) de sen-ai.
+
+## Vos propres clés API, si vous préférez
+
+**Les organisations peuvent enregistrer leurs propres clés API (OpenAI, Anthropic, Gemini, Mistral) : les requêtes concernées partent alors via leur propre compte fournisseur, dans le cadre de leur propre contrat.** C'est l'option BYOK (Bring Your Own Key), avec un plafond de dépense mensuel par fournisseur et des clés chiffrées, supprimables à tout moment.
+
+Pour les équipes conformité, cela déplace la relation fournisseur là où elles la maîtrisent déjà : conditions contractuelles, garanties de transfert et facturation passent par leur propre compte. Sans clé client, les clés plateforme de sen-ai s'appliquent, avec les garanties décrites ci-dessus, et la liste publique des sous-traitants reste inchangée.
 
 ## Une liste publique et datée
 

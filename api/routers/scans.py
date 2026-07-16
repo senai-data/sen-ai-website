@@ -5520,6 +5520,11 @@ async def get_compliance_data(scan_id: str, user=Depends(get_current_user), db: 
         "client": {"id": str(scan.client_id), "name": client_name},
         "triggered_by": {"email": triggered_by_email, "name": triggered_by_name},
         "providers": providers,
+        # BYOK - providers whose prompts went through the CUSTOMER's own
+        # provider account for this scan (recorded at launch time by the
+        # pre-flight). Empty/absent = fully platform-keyed scan (old scans
+        # included) - the report falls back to the platform wording.
+        "byok_providers": (scan.config or {}).get("byok_providers") or [],
         "runs_depth": {
             "configured": configured_runs,
             "observed_max": int(max_run),

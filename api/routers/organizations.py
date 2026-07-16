@@ -29,6 +29,7 @@ from models import (
 )
 from services.access import list_user_organizations, resolve_active_organization_id
 from services.auth_service import get_current_user
+from services.model_eras import models_changed
 
 
 router = APIRouter()
@@ -1014,7 +1015,8 @@ async def workspaces_overview(
             """
             SELECT s.id::text AS sid,
                    COALESCE(s.parent_scan_id::text, s.id::text) AS root_id,
-                   s.completed_at
+                   s.completed_at,
+                   s.summary->'models' AS models
               FROM scans s
              WHERE s.status = 'completed'
                AND (s.id::text = ANY(:roots) OR s.parent_scan_id::text = ANY(:roots))
@@ -1081,16 +1083,25 @@ async def workspaces_overview(
         ), {"sids": latest_scan_ids}).fetchall()
         sent_by_scan = {r.sid: r for r in sent_rows}
 
+    # P3 model eras : each point carries the scan's summary.models and a
+    # model_changed flag vs the previous EMITTED point of the same root
+    # (scans with zero run rows are skipped above, so compare against the
+    # last point actually appended, not the previous scan).
     trend_by_root: dict[str, list] = {}
+    prev_models_by_root: dict[str, dict] = {}
     for lr in lineage_rows:
         agg = agg_by_scan.get(lr.sid)
         if agg is None or not agg.total:
             continue
+        point_models = lr.models or {}
         trend_by_root.setdefault(lr.root_id, []).append({
             "completed_at": lr.completed_at.isoformat() + "Z" if lr.completed_at else None,
             "brand_mention_rate": round(agg.mentioned / agg.total * 100, 1),
             "total_citations": cit_by_scan.get(lr.sid, 0),
+            "models": point_models,
+            "model_changed": models_changed(prev_models_by_root.get(lr.root_id), point_models),
         })
+        prev_models_by_root[lr.root_id] = point_models
 
     workspaces = []
     with_scan = 0

@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 from config import settings
 from services.auth_service import get_current_user
 from services.audit import audit_log
+from services.model_eras import models_changed
 from services.rate_limit import limiter
 from services.request_context import current_request_method
 from services.sanitize import strip_tags
@@ -3406,6 +3407,7 @@ async def get_results_aggregated(
     # 6. Build overview with trend - one point per run, feeding the four
     # Overview KPI sparklines (mention rate / citations / sentiment / SoV).
     trend = []
+    prev_models: dict = {}
     for s in lineage:
         stats = per_run_stats[s.id]
         rate = round(stats["brand_mentioned"] / stats["total"] * 100, 1) if stats["total"] > 0 else 0
@@ -3413,6 +3415,12 @@ async def get_results_aggregated(
                       if stats["sent_total"] > 0 else None)
         voice_total = stats["brand_mentioned"] + stats["competitor_mentions"]
         sov = round(stats["brand_mentioned"] / voice_total * 100, 1) if voice_total > 0 else None
+        # P3 model eras - {provider: model} + "analyzer", stamped at completion
+        # (backfilled for history). model_changed marks an era boundary vs the
+        # previous EMITTED point; the UI rings the sparkline dot and swaps the
+        # delta for a chip there. Provider-filter aware: a gemini-only change
+        # must not flag an openai-filtered series.
+        point_models = (s.summary or {}).get("models") or {}
         trend.append({
             "run_index": scan_run_map.get(s.id, 0),
             "completed_at": s.completed_at.isoformat() if s.completed_at else None,
@@ -3433,13 +3441,22 @@ async def get_results_aggregated(
             # native sen-ai runs - using it masked nothing (bug caught on
             # user screenshot 2026-06-12).
             "import_origin": bool((s.config or {}).get("import_period")),
+            "models": point_models,
+            "model_changed": models_changed(prev_models, point_models, provider),
         })
+        prev_models = point_models
 
     latest_stats = per_run_stats[latest_scan.id]
     latest_total = latest_stats["total"] or 1
     latest_rate = round(latest_stats["brand_mentioned"] / latest_total * 100, 1)
     prev_rate = trend[-2]["citation_rate"] if len(trend) >= 2 else None
     delta = round(latest_rate - prev_rate, 1) if prev_rate is not None else None
+    # A delta across an era boundary compares two different instruments -
+    # suppress it and tell the UI why (chip replaces the delta).
+    delta_reason = None
+    if trend and trend[-1]["model_changed"]:
+        delta = None
+        delta_reason = "model_changed"
 
     all_rates = [t["citation_rate"] for t in trend]
     avg_rate = round(sum(all_rates) / len(all_rates), 1) if all_rates else 0
@@ -3589,6 +3606,7 @@ async def get_results_aggregated(
             "citation_rate": latest_rate,
             "avg_citation_rate": avg_rate,
             "delta": delta,
+            "delta_reason": delta_reason,
             "trend": trend,
             "providers": list({r.provider for r in all_results}),
             "scan_date": latest_scan.completed_at.isoformat() if latest_scan.completed_at else None,
@@ -5423,19 +5441,33 @@ async def get_compliance_data(scan_id: str, user=Depends(get_current_user), db: 
     client_row = db.query(Client).filter(Client.id == scan.client_id).first()
     client_name = client_row.name if client_row else None
 
-    # Provider mix + per-provider run count.
+    # Provider mix + per-provider run count. Model versions observed on the
+    # actual run rows (P3 eras) - run_index>=1 for the model list, else the
+    # consensus meta-rows would surface a fake "consensus" model.
     provider_rows = db.execute(_text(
         """
         SELECT provider, COUNT(*) AS n_responses,
-               COUNT(DISTINCT run_index) AS distinct_runs
-          FROM scan_llm_results
+               COUNT(DISTINCT run_index) AS distinct_runs,
+               ARRAY(
+                   SELECT DISTINCT r2.model FROM scan_llm_results r2
+                    WHERE r2.scan_id = r.scan_id AND r2.provider = r.provider
+                      AND r2.run_index >= 1 AND r2.model IS NOT NULL
+                      AND r2.model NOT IN ('', 'consensus')
+                    ORDER BY r2.model
+               ) AS models
+          FROM scan_llm_results r
          WHERE scan_id = :sid
-         GROUP BY provider
+         GROUP BY provider, scan_id
          ORDER BY n_responses DESC
         """
     ), {"sid": scan_id}).fetchall()
     providers = [
-        {"provider": r.provider, "responses": int(r.n_responses), "distinct_runs": int(r.distinct_runs)}
+        {
+            "provider": r.provider,
+            "responses": int(r.n_responses),
+            "distinct_runs": int(r.distinct_runs),
+            "models": list(r.models or []),
+        }
         for r in provider_rows
     ]
 
@@ -5525,6 +5557,11 @@ async def get_compliance_data(scan_id: str, user=Depends(get_current_user), db: 
         # pre-flight). Empty/absent = fully platform-keyed scan (old scans
         # included) - the report falls back to the platform wording.
         "byok_providers": (scan.config or {}).get("byok_providers") or [],
+        # P3 model eras : summary.models = what the scan ran on (+ analyzer);
+        # model_overrides = customer-selected versions (BYOK-gated selector),
+        # so the report can label a version as customer-chosen.
+        "models": (scan.summary or {}).get("models") or {},
+        "model_overrides": (scan.config or {}).get("model_overrides") or {},
         "runs_depth": {
             "configured": configured_runs,
             "observed_max": int(max_run),

@@ -59,6 +59,7 @@ def log_llm_usage(
     scan_id: str | None = None,
     client_id: str | None = None,
     error: bool = False,
+    key_source: str = "platform",
 ) -> None:
     """Insert a row into llm_usage_log.
 
@@ -89,6 +90,10 @@ def log_llm_usage(
             scan_id=scan_id,
             client_id=client_id,
             error=error,
+            # BYOK (migration 060) - 'platform' | 'byok'. The org monthly cap
+            # (services/byok.py) counts ONLY 'byok' rows, so the default keeps
+            # every unmodified caller correct.
+            key_source=key_source,
         ))
         db.flush()
     except Exception:

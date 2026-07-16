@@ -118,22 +118,47 @@ def execute(job_payload: dict, scan_id: str | None, db: Session) -> dict:
 
     target_domain = scan.domain or ""
 
+    # BYOK (services/byok.py) : org key when configured, else the platform
+    # path unchanged. ByokKeyInvalid / ByokCapExceeded propagate (fail the
+    # job before any spend) - a configured-but-broken key never silently
+    # falls back to platform keys.
+    from services.byok import (
+        ByokCapExceeded, ByokKeyInvalid, get_org_id_for_client, is_auth_error,
+        mark_org_key_invalid, resolve_openai_key, resolve_org_key,
+    )
     providers = (job_payload or {}).get("providers") or ["openai", "gemini"]
     llm_clients: dict = {}
+    key_sources: dict = {}
+    byok_org_id = get_org_id_for_client(db, scan.client_id)
     gemini_pool = get_gemini_pool()
     for p in providers:
         try:
             if p == "gemini":
+                org_key = resolve_org_key(db, scan.client_id, "gemini")
+                if org_key is not None:
+                    llm_clients[p] = create_llm_client("gemini", org_key.api_key)
+                    key_sources[p] = "byok"
+                    continue
                 if not gemini_pool.has_keys():
                     logger.warning("refresh_ai_snapshot: no Gemini key in pool")
                     continue
                 llm_clients[p] = create_llm_client("gemini", gemini_pool.next_key())
+                key_sources[p] = "platform"
+            elif p == "openai":
+                key, key_sources[p] = resolve_openai_key(db, scan.client_id)
+                if not key:
+                    logger.warning("refresh_ai_snapshot: no API key for provider openai")
+                    continue
+                llm_clients[p] = create_llm_client(p, key)
             else:
                 key = getattr(settings, f"{p}_api_key", "")
                 if not key:
                     logger.warning(f"refresh_ai_snapshot: no API key for provider {p}")
                     continue
                 llm_clients[p] = create_llm_client(p, key)
+                key_sources[p] = "platform"
+        except (ByokCapExceeded, ByokKeyInvalid):
+            raise
         except Exception as exc:
             logger.exception(f"refresh_ai_snapshot: client init failed for {p}: {exc}")
 
@@ -159,6 +184,10 @@ def execute(job_payload: dict, scan_id: str | None, db: Session) -> dict:
                 f"refresh_ai_snapshot: test_question({provider}) failed for "
                 f"item={item_id} question='{q_text[:80]}': {exc}"
             )
+            # BYOK : flip an org key to 'invalid' on auth error so the next
+            # job blocks immediately with the actionable message.
+            if key_sources.get(provider) == "byok" and is_auth_error(exc):
+                mark_org_key_invalid(db, byok_org_id, provider, str(exc))
             continue
 
         row = ScanLLMResult(
@@ -180,6 +209,21 @@ def execute(job_payload: dict, scan_id: str | None, db: Session) -> dict:
         )
         db.add(row)
         db.flush()
+
+        # Usage logging (was a gap until BYOK - without these rows the org
+        # monthly cap and the platform daily cap both undercount refreshes).
+        from adapters.llm_logger import log_llm_usage
+        log_llm_usage(
+            db, provider=provider,
+            model=result.get("model", "unknown"),
+            operation="refresh_ai_snapshot",
+            input_tokens=result.get("input_tokens") or 0,
+            output_tokens=result.get("output_tokens") or 0,
+            duration_ms=result.get("duration_ms"),
+            scan_id=str(scan.id), client_id=str(scan.client_id),
+            key_source=key_sources.get(provider, "platform"),
+        )
+
         inserted.append({
             "provider": provider,
             "id": str(row.id),

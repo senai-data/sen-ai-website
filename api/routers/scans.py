@@ -1376,6 +1376,17 @@ def _perform_rescan(db: Session, parent: "Scan", created_by_user_id) -> "Scan":
         runs_depth = 1
     credits_needed = active_questions * runs_depth
 
+    # BYOK pre-flight : same semantics as launch_scan (block before debit,
+    # record byok_providers on the CHILD config - never inherit the parent's
+    # possibly-stale list).
+    from services.byok_preflight import preflight_scan_launch
+    byok_providers = preflight_scan_launch(
+        db, parent.client_id, parent_config.get("providers", ["openai"]))
+    child_config = dict(parent.config or {})
+    child_config.pop("byok_providers", None)
+    if byok_providers:
+        child_config["byok_providers"] = byok_providers
+
     # Credit gate: same pattern as launch_scan - lock client, check balance,
     # then debit (with scan_id=child.id once it exists, so a worker failure
     # auto-refunds against the child).
@@ -1410,7 +1421,7 @@ def _perform_rescan(db: Session, parent: "Scan", created_by_user_id) -> "Scan":
         parent_scan_id=root_id,
         schedule=parent.schedule or "manual",
         run_index=max_run_index + 1,
-        config=dict(parent.config or {}),
+        config=child_config,
         created_by=created_by_user_id,
     )
     db.add(child)
@@ -2440,6 +2451,24 @@ async def launch_scan(request: Request, scan_id: str, user=Depends(get_current_u
     if runs_depth < 1:
         runs_depth = 1
     credits_needed = active_questions * runs_depth
+
+    # BYOK pre-flight : block BEFORE the credit debit when a configured org
+    # key guarantees a worker-side failure (invalid key -> 400, monthly cap
+    # hit -> 402). Also records which providers will run on the org's own
+    # keys (compliance report + audit trail). Empty list = platform scan.
+    from services.byok_preflight import preflight_scan_launch
+    byok_providers = preflight_scan_launch(
+        db, scan.client_id, config.get("providers", ["openai"]))
+    if byok_providers or config.get("byok_providers"):
+        config = dict(config)
+        if byok_providers:
+            config["byok_providers"] = byok_providers
+        else:
+            # Keys deleted since a previous launch - drop the stale record.
+            config.pop("byok_providers", None)
+        scan.config = config
+        from sqlalchemy.orm.attributes import flag_modified
+        flag_modified(scan, "config")
 
     # Credit check: debit scan credits (credits_needed = questions × runs).
     # Lock the client row FIRST so the balance read + debit are atomic.

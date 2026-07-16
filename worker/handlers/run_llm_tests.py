@@ -125,21 +125,39 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
     ).all()}
 
     # --- Build LLM clients ---
-    # Gemini goes through PoolRotatingGeminiClient: per-call key draw from the pool
-    # with park-and-retry on 429 (long cooldown for spend-cap). This rotates WITHIN
-    # a scan, so one capped/limited key no longer kills the run (both the provider
-    # tests below and the brand analyzer share this resilience).
+    # BYOK (services/byok.py) : org key if configured -> single-key client
+    # billed to the org's provider account (key_source='byok') ; otherwise the
+    # platform path, STRICTLY identical to the pre-BYOK behavior. Gemini
+    # platform goes through PoolRotatingGeminiClient: per-call key draw from
+    # the pool with park-and-retry on 429 (long cooldown for spend-cap) - a
+    # BYOK gemini key is single-key by design (their key, their quota).
+    # ByokKeyInvalid / ByokCapExceeded raise HERE, before any spend (same
+    # retry-chain semantics as BudgetExceeded above).
+    from services.byok import (
+        get_org_id_for_client, is_auth_error, make_gemini_client,
+        mark_org_key_invalid, resolve_openai_key,
+    )
     providers = job_payload.get("providers", ["openai"])
     gemini_pool = get_gemini_pool()
     llm_clients = {}
+    key_sources: dict[str, str] = {}
+    byok_org_id = get_org_id_for_client(db, scan.client_id)
+    openai_scan_key = settings.openai_api_key
     for provider in providers:
         if provider == "gemini":
-            if not gemini_pool.has_keys():
+            gemini_client, gsrc = make_gemini_client(db, scan.client_id)
+            if gemini_client is None:
                 logger.warning("No Gemini key in pool, skipping")
                 continue
-            llm_clients["gemini"] = PoolRotatingGeminiClient(gemini_pool)
+            llm_clients["gemini"] = gemini_client
+            key_sources["gemini"] = gsrc
             continue
-        api_key = getattr(settings, f"{provider}_api_key", "")
+        if provider == "openai":
+            api_key, key_sources["openai"] = resolve_openai_key(db, scan.client_id)
+            openai_scan_key = api_key
+        else:
+            api_key = getattr(settings, f"{provider}_api_key", "")
+            key_sources[provider] = "platform"
         if not api_key:
             logger.warning(f"No API key for {provider}, skipping")
             continue
@@ -162,6 +180,7 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
     scan_config = scan.config or {}
     target_domain = scan_config.get("target_domains", [scan.domain])[0] if scan_config.get("target_domains") else scan.domain
 
+    analyzer_key_source = "platform"
     try:
         from adapters.entity_analyzer import EntityAnalyzer, build_target_entities_from_scan
 
@@ -175,10 +194,15 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
 
         if not scan.focus_brand_id and not target_entities["domains"]:
             logger.warning("no focus brand AND no target domains - skipping EntityAnalyzer")
-        elif not gemini_pool.has_keys():
+            gemini_client = None
+        else:
+            # BYOK-aware analyzer client (same resolution as the gemini
+            # provider tests). None = no org key AND empty platform pool.
+            gemini_client, analyzer_key_source = make_gemini_client(
+                db, scan.client_id, model="gemini-2.5-flash-lite")
+        if gemini_client is None:
             logger.info("EntityAnalyzer skipped: no Gemini key in pool")
         else:
-            gemini_client = PoolRotatingGeminiClient(gemini_pool, model="gemini-2.5-flash-lite")
             from adapters.brief_injector import format_analysis_context
             from models import Client as _Client
             _client = db.query(_Client).filter(_Client.id == scan.client_id).first()
@@ -199,6 +223,13 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
             )
 
     except Exception as e:
+        # BYOK block signals must NOT be swallowed into a silent analyzer skip:
+        # a scan without brand analysis produces false 0% metrics (the exact
+        # 2026-05-25 incident pattern). Cap reached / invalid key = fail the
+        # job with the actionable message, like everywhere else.
+        from services.byok import ByokCapExceeded, ByokKeyInvalid
+        if isinstance(e, (ByokCapExceeded, ByokKeyInvalid)):
+            raise
         logger.warning(f"BrandAnalyzer setup failed: {e}")
 
     # Sprint 1.6 (Strategy C hybrid) - at N>1 a per-run EntityAnalyzer call
@@ -346,7 +377,8 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
                     question=question.question,
                     persona=persona.data or {},
                     target_domain=target_domain,
-                    api_key=settings.openai_api_key,
+                    # BYOK-resolved key (org key when configured, else platform)
+                    api_key=openai_scan_key,
                     model=openai_model,
                     brand_analyzer=per_run_analyzer,
                     country=scan_country,
@@ -451,6 +483,7 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
                     output_tokens=result.get("output_tokens", 0),
                     duration_ms=result.get("duration_ms"),
                     scan_id=scan_id, client_id=str(scan.client_id),
+                    key_source=key_sources.get(provider, "platform"),
                 )
 
                 # BrandAnalyzer is a separate Gemini call per test - log it
@@ -469,6 +502,7 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
                         output_tokens=ba_usage.get("output_tokens", 0)
                                       or ba_usage.get("completion_tokens", 0),
                         scan_id=scan_id, client_id=str(scan.client_id),
+                        key_source=analyzer_key_source,
                     )
 
             except Exception as e:
@@ -476,6 +510,11 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
                 errors += 1
                 completed += 1
                 breaker.record_failure(provider)
+                # BYOK : an auth error on an org key flips it to 'invalid' so
+                # the NEXT job blocks immediately with an actionable message
+                # (and the UI shows it). This job keeps its normal failure path.
+                if key_sources.get(provider) == "byok" and is_auth_error(e):
+                    mark_org_key_invalid(db, byok_org_id, provider, str(e))
 
             # Circuit breaker check: if THIS provider just crossed the
             # failure threshold, cancel its still-pending futures so we
@@ -529,6 +568,10 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
                     brand_result = cf.result() or {}
                 except Exception as e:
                     logger.warning(f"Consensus analyzer failed (q={qid}, {prov}): {e}")
+                    # The consensus analyzer always runs on gemini - flag an
+                    # org-key auth error like the main loop does.
+                    if analyzer_key_source == "byok" and is_auth_error(e):
+                        mark_org_key_invalid(db, byok_org_id, "gemini", str(e))
                     continue
                 ba = dict(brand_result.get("brand_analyse") or {})
                 mentions = brand_result.get("brand_mentions") or []
@@ -567,6 +610,7 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
                         input_tokens=ba_usage.get("input_tokens", 0) or ba_usage.get("prompt_tokens", 0),
                         output_tokens=ba_usage.get("output_tokens", 0) or ba_usage.get("completion_tokens", 0),
                         scan_id=scan_id, client_id=str(scan.client_id),
+                        key_source=analyzer_key_source,
                     )
                 db.commit()
         logger.info(f"Consensus pass done: {consensus_ok}/{len(consensus_texts)} rows written")

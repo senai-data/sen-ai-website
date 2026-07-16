@@ -220,13 +220,28 @@ def test_question_openai_direct(question: str, persona: dict, target_domain: str
     web_search_tool["user_location"] = _user_location_param(country)
 
     start = time.time()
-    response = client.responses.create(
+    create_kwargs: dict = dict(
         model=model,
         tools=[web_search_tool],
         input=prompt,
-        temperature=0.7,
         max_output_tokens=OPENAI_DIRECT_MAX_OUTPUT_TOKENS,
     )
+    # GPT-5.x models reject sampling params on the responses API
+    # ('Unsupported parameter: temperature' - proven live 2026-07-16 on
+    # gpt-5.5, 5/5 calls 400). gpt-4.x keeps the historical 0.7 : changing
+    # it would silently move the measurement baseline inside an era.
+    if model.startswith("gpt-4"):
+        create_kwargs["temperature"] = 0.7
+    try:
+        response = client.responses.create(**create_kwargs)
+    except openai.BadRequestError as e:
+        # Safety net for future families : drop temperature once when the
+        # API flags it unsupported, keep any other 400 loud.
+        if "temperature" in create_kwargs and "temperature" in str(e).lower():
+            create_kwargs.pop("temperature")
+            response = client.responses.create(**create_kwargs)
+        else:
+            raise
     duration_ms = int((time.time() - start) * 1000)
 
     response_text = response.output_text or ""

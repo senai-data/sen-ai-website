@@ -22,12 +22,14 @@ SCAN_MODEL_ALLOWLIST: dict[str, list[dict]] = {
         {
             "model": "gpt-4.1-mini",
             "label": "GPT-4.1 mini",
+            "tag": "default - most economical",
             "note": "Cost-efficient - platform default",
             "price": "$0.40 / $1.60 per 1M tokens",
         },
         {
             "model": "gpt-5.5",
             "label": "GPT-5.5",
+            "tag": "closest to consumer ChatGPT",
             "note": "Closest to consumer ChatGPT (free tier)",
             "price": "$5 / $30 per 1M tokens",
             "recommended": True,
@@ -35,6 +37,7 @@ SCAN_MODEL_ALLOWLIST: dict[str, list[dict]] = {
         {
             "model": "gpt-5.6-luna",
             "label": "GPT-5.6 Luna",
+            "tag": "budget tier of the flagship family",
             "note": "Budget tier of the current flagship family",
             "price": "$1 / $6 per 1M tokens",
         },
@@ -43,6 +46,7 @@ SCAN_MODEL_ALLOWLIST: dict[str, list[dict]] = {
         {
             "model": "gemini-3.5-flash",
             "label": "Gemini 3.5 Flash",
+            "tag": "default - matches consumer Gemini & AI Mode",
             "note": "Matches the consumer Gemini app and AI Mode - platform default",
             "price": "$1.50 / $9 per 1M tokens",
         },

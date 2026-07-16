@@ -2240,7 +2240,7 @@ const isReviewing = effectiveView !== null && (
                   <template x-for="opt in modelChoices(prov)" :key="opt.model">
                     <option :value="opt.model"
                             :title="opt.note + ' · ' + opt.price"
-                            x-text="opt.label + (opt.recommended ? ' · closest to consumer ChatGPT' : '') + ' · ' + opt.price"></option>
+                            x-text="opt.label + ' · ' + (opt.tag || opt.note) + ' · ' + opt.price"></option>
                   </template>
                 </select>
               </label>

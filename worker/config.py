@@ -65,16 +65,20 @@ class Settings(BaseSettings):
     model_generate_persona_questions: str = "claude-haiku-4-5-20251001"
     model_cleanup_brands: str = "claude-sonnet-4-6"
     model_generate_domain_brief: str = "gpt-4.1-mini"
-    model_generate_domain_brief_gemini: str = "gemini-2.5-flash"
+    # 2026-07-16 forced migration : gemini-2.5-flash + 2.5-flash-lite shut down
+    # Oct 16, 2026 (erratic early 404s reported since Jul 9) - official
+    # replacements per ai.google.dev/gemini-api/docs/deprecations. Era boundary
+    # annotated by P3 (summary.models) on every lineage's next scan.
+    model_generate_domain_brief_gemini: str = "gemini-3.5-flash"
     model_generate_domain_brief_claude: str = "claude-sonnet-4-6"
     # Phase BB per-brand brief — same 3-tier defaults as the workspace brief.
     model_generate_brand_brief: str = "gpt-4.1-mini"
-    model_generate_brand_brief_gemini: str = "gemini-2.5-flash"
+    model_generate_brand_brief_gemini: str = "gemini-3.5-flash"
     model_generate_brand_brief_claude: str = "claude-sonnet-4-6"
     model_generate_editorial: str = "claude-sonnet-4-6"
     model_scan_test_openai: str = "gpt-4.1-mini"
-    model_scan_test_gemini: str = "gemini-2.5-flash"
-    model_brand_analyzer: str = "gemini-2.5-flash-lite"
+    model_scan_test_gemini: str = "gemini-3.5-flash"
+    model_brand_analyzer: str = "gemini-3.1-flash-lite"
     model_classify_question_intent: str = "claude-haiku-4-5-20251001"
     model_judge_question_responses: str = "claude-haiku-4-5-20251001"
 

@@ -158,7 +158,7 @@ def is_buyable(site_type: str | None) -> bool:
 def classify_domains(
     domains: list[str],
     db: Session,
-    model: str = "gemini-2.5-flash",
+    model: str = "gemini-3.5-flash",
     domain_urls: dict[str, list[str]] | None = None,
 ) -> dict[str, str]:
     """Return {domain: site_type}. DB cache lookup first, Gemini for misses.
@@ -171,8 +171,8 @@ def classify_domains(
         domains: bare domains (with or without www, mixed case OK — we
                  normalize). Empty / garbage entries dropped.
         db: SQLAlchemy session (used for cache lookup + writes).
-        model: Gemini model name. gemini-2.5-flash is the prod default (fast,
-               cheap, accurate for this taxonomy task).
+        model: Gemini model name. gemini-3.5-flash is the prod default (2.5
+               shut down Oct 2026 ; fast, accurate for this taxonomy task).
         domain_urls: optional {domain: [url1, url2, ...]} hints — sample page
                  paths help the LLM disambiguate (e.g. /shop/ → E-commerce).
 

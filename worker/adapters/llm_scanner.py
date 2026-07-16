@@ -72,7 +72,7 @@ def create_llm_client(provider: str, api_key: str, model: str = None) -> LLMClie
     if provider == "openai":
         return LLMClient(provider="openai", api_key=api_key, model=model or "gpt-4.1-mini")
     elif provider == "gemini":
-        client = LLMClient(provider="gemini", api_key=api_key, model=model or "gemini-2.5-flash")
+        client = LLMClient(provider="gemini", api_key=api_key, model=model or "gemini-3.5-flash")
         # BYOK-critical : LLMClient prefers the seo_llm-internal GeminiKeyRotator
         # (a module singleton built from the PLATFORM env GEMINI_API_KEYS) over
         # the api_key argument - the key we pass is silently ignored whenever

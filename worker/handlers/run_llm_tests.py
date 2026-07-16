@@ -180,7 +180,11 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
     openai_scan_key = settings.openai_api_key
     for provider in providers:
         if provider == "gemini":
-            gemini_client, gsrc = make_gemini_client(db, scan.client_id)
+            # Model from task config (was: implicit create_llm_client default,
+            # which silently ignored a MODEL_SCAN_TEST_GEMINI override).
+            gemini_client, gsrc = make_gemini_client(
+                db, scan.client_id,
+                model=settings.task_models.get("scan_test_gemini", "gemini-3.5-flash"))
             if gemini_client is None:
                 logger.warning("No Gemini key in pool, skipping")
                 continue
@@ -219,7 +223,7 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
     # Single source for the analyzer model: the construction below AND the
     # summary.models stamp at completion (P3 eras) must agree. Was hardcoded
     # at the call site, which silently ignored a MODEL_BRAND_ANALYZER override.
-    analyzer_model = settings.task_models.get("brand_analyzer", "gemini-2.5-flash-lite")
+    analyzer_model = settings.task_models.get("brand_analyzer", "gemini-3.1-flash-lite")
     try:
         from adapters.entity_analyzer import EntityAnalyzer, build_target_entities_from_scan
 
@@ -526,9 +530,9 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
                 )
 
                 # BrandAnalyzer is a separate Gemini call per test - log it
-                # under its own operation/model so cost dashboards split scan_test
-                # (search-grounded gpt-4.1-mini / gemini-2.5-flash) from
-                # brand_analyzer (gemini-2.5-flash-lite parsing the response).
+                # under its own operation/model so cost dashboards split
+                # scan_test (the search-grounded provider models) from
+                # brand_analyzer (the extraction model parsing the response).
                 ba_usage = result.get("brand_analyzer_usage") or {}
                 ba_model = result.get("brand_analyzer_model")
                 if ba_model and (ba_usage.get("input_tokens") or ba_usage.get("output_tokens")

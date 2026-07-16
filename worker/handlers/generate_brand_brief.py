@@ -492,7 +492,7 @@ def execute(job_payload: dict, scan_id: str | None, db: Session) -> dict:
     gemini_pool = get_gemini_pool()
     if parsed_brief is None and (gemini_org is not None or gemini_pool.has_keys()):
         gemini_model = settings.task_models.get(
-            "generate_brand_brief_gemini", "gemini-2.5-flash",
+            "generate_brand_brief_gemini", "gemini-3.5-flash",
         )
         logger.warning(
             f"Falling back to Gemini ({gemini_model}) for brand brief {brand_id}"

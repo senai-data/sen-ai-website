@@ -24,11 +24,22 @@ ANTHROPIC_PRICING = {
     "claude-3-5-sonnet-20241022": {"input": 3.00, "output": 15.00},
 }
 
+# Models missing from the submodule's api_pricing.py (which we never edit) -
+# checked BEFORE the submodule so the daily/BYOK caps don't go blind on them
+# (unknown model = cost 0 there). Per 1M tokens.
+# Source : ai.google.dev/gemini-api/docs/pricing (July 2026).
+SAAS_PRICING_OVERLAY = {
+    "gemini-3.5-flash": {"input": 1.50, "output": 9.00},
+    "gemini-3.1-flash-lite": {"input": 0.25, "output": 1.50},
+}
+
 
 def estimate_cost(provider: str, model: str, input_tokens: int, output_tokens: int) -> float:
     """Estimate USD cost from tokens. Returns 0 if model unknown."""
     if provider == "anthropic":
         pricing = ANTHROPIC_PRICING.get(model)
+    elif model in SAAS_PRICING_OVERLAY:
+        pricing = SAAS_PRICING_OVERLAY[model]
     else:
         # Use seo_llm pricing for OpenAI/Gemini
         try:

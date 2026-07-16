@@ -124,8 +124,9 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
         from services.sitemap_matcher import (
             SITEMAP_THRESHOLD, find_best_pages, slugify_brand_name,
         )
-        from config import settings
-        sitemap_enabled = bool(settings.openai_api_key)
+        from services.byok import resolve_openai_key
+        _openai_key, _ = resolve_openai_key(db, scan.client_id)
+        sitemap_enabled = bool(_openai_key)
     except Exception as exc:
         logger.warning(f"rematch_target_url: sitemap_matcher import failed ({exc})")
         sitemap_enabled = False
@@ -142,7 +143,7 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
                     question_text=question_text,
                     client_brand_id=str(lead_brand.id),
                     db=db,
-                    openai_api_key=settings.openai_api_key,
+                    openai_api_key=_openai_key,
                     top_k=3,
                     exclude_urls=rejected,
                     gamme_slug=gamme_slug,

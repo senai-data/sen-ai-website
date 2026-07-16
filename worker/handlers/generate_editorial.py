@@ -216,8 +216,10 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
     # Call Claude
     import time as _time
     model = settings.task_models["generate_editorial"]
+    from services.byok import resolve_anthropic_key
+    anthropic_key, key_source = resolve_anthropic_key(db, scan.client_id)
     _t0 = _time.time()
-    editorial = asyncio.run(_call_claude(prompt, settings.anthropic_api_key, model=model))
+    editorial = asyncio.run(_call_claude(prompt, anthropic_key, model=model))
     _dur = int((_time.time() - _t0) * 1000)
 
     # Log LLM usage
@@ -229,6 +231,7 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
         scan_id=scan_id, client_id=str(scan.client_id),
         input_tokens=_usage.get("input_tokens", 0),
         output_tokens=_usage.get("output_tokens", 0),
+        key_source=key_source,
     )
 
     # Pydantic validation on editorial structure

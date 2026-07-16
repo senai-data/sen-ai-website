@@ -291,7 +291,15 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
     scan.progress_message = f"Researching {domain}..."
     db.commit()
 
-    if not settings.openai_api_key:
+    # BYOK : resolve the 3 tiers ONCE at the top (raises ByokKeyInvalid /
+    # ByokCapExceeded before any spend when an org key is configured but
+    # unusable - never a silent platform fallback).
+    from services.byok import resolve_anthropic_key, resolve_openai_key, resolve_org_key
+    openai_key, openai_src = resolve_openai_key(db, scan.client_id)
+    gemini_org = resolve_org_key(db, scan.client_id, "gemini")
+    anthropic_key, anthropic_src = resolve_anthropic_key(db, scan.client_id)
+
+    if not openai_key:
         raise ValueError("OPENAI_API_KEY not configured")
 
     brief = None
@@ -302,7 +310,7 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
     primary_model = settings.task_models["generate_domain_brief"]
     logger.info(f"Generating brief for {domain} via OpenAI ({primary_model}) + web_search")
     try:
-        parsed, raw, usage = _try_openai(domain, settings.openai_api_key, primary_model)
+        parsed, raw, usage = _try_openai(domain, openai_key, primary_model)
         raw_texts["openai"] = raw
         if parsed:
             brief = parsed
@@ -314,6 +322,7 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
                 input_tokens=usage.get("input_tokens", 0),
                 output_tokens=usage.get("output_tokens", 0),
                 scan_id=scan_id, client_id=str(scan.client_id),
+                key_source=openai_src,
             )
         else:
             logger.warning(
@@ -326,13 +335,14 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
     # ── Tier 2: Gemini with grounding ───────────────────────────────────
     from services.gemini_key_pool import get_gemini_pool
     gemini_pool = get_gemini_pool()
-    if brief is None and gemini_pool.has_keys():
+    if brief is None and (gemini_org is not None or gemini_pool.has_keys()):
         gemini_model = settings.task_models["generate_domain_brief_gemini"]
         logger.warning(
             f"OpenAI did not produce a usable brief for {domain}, "
             f"falling back to Gemini ({gemini_model}) with grounding"
         )
-        gemini_key = gemini_pool.next_key()
+        gemini_key = gemini_org.api_key if gemini_org is not None else gemini_pool.next_key()
+        gemini_src = "byok" if gemini_org is not None else "platform"
         try:
             parsed, raw, usage = _try_gemini(domain, gemini_key, gemini_model)
             raw_texts["gemini"] = raw
@@ -346,6 +356,7 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
                     input_tokens=usage.get("input_tokens", 0),
                     output_tokens=usage.get("output_tokens", 0),
                     scan_id=scan_id, client_id=str(scan.client_id),
+                    key_source=gemini_src,
                 )
             else:
                 logger.warning(
@@ -354,19 +365,19 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
                 )
         except Exception as e:
             err = str(e)
-            if "429" in err or "rate" in err.lower() or "RESOURCE_EXHAUSTED" in err:
+            if gemini_org is None and ("429" in err or "rate" in err.lower() or "RESOURCE_EXHAUSTED" in err):
                 gemini_pool.mark_rate_limited(gemini_key)
             logger.warning(f"Gemini request threw exception for {domain}: {e}")
 
     # ── Tier 3: Claude (training only, no web) ──────────────────────────
-    if brief is None and settings.anthropic_api_key:
+    if brief is None and anthropic_key:
         claude_model = settings.task_models["generate_domain_brief_claude"]
         logger.warning(
             f"Gemini did not produce a usable brief for {domain}, "
             f"falling back to Claude ({claude_model}, training-knowledge only)"
         )
         try:
-            parsed, raw, usage = _try_claude(domain, settings.anthropic_api_key, claude_model)
+            parsed, raw, usage = _try_claude(domain, anthropic_key, claude_model)
             raw_texts["claude"] = raw
             if parsed:
                 brief = parsed
@@ -378,6 +389,7 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
                     input_tokens=usage.get("input_tokens", 0),
                     output_tokens=usage.get("output_tokens", 0),
                     scan_id=scan_id, client_id=str(scan.client_id),
+                    key_source=anthropic_src,
                 )
             else:
                 logger.warning(

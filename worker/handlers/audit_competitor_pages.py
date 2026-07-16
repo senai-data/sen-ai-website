@@ -554,7 +554,9 @@ def _generate_competitor_recommendations(db, scan, scan_id: str) -> dict:
     """Per top competitor, ask Haiku for 3 actionable recommendations
     grounded in the audit delta. Returns dict keyed by brand_id with
     {recommendations: [...], comp_brand_name, comp_domain}."""
-    api_key = (getattr(settings, "anthropic_api_key", "") or "").strip()
+    from services.byok import resolve_anthropic_key
+    api_key, key_source = resolve_anthropic_key(db, scan.client_id)
+    api_key = (api_key or "").strip()
     if not api_key:
         logger.info("competitor recommendations: no anthropic_api_key, skipping")
         return {}
@@ -649,6 +651,18 @@ def _generate_competitor_recommendations(db, scan, scan_id: str) -> dict:
             usage = data.get("usage", {}) or {}
             cost = (usage.get("input_tokens", 0) / 1_000_000 * 0.80) + (usage.get("output_tokens", 0) / 1_000_000 * 4.00)
             spent += cost
+            # Usage logging (was a gap until BYOK - the daily + monthly caps
+            # both undercounted these Haiku recos).
+            from adapters.llm_logger import log_llm_usage
+            log_llm_usage(
+                db, provider="anthropic", model=_LLM_RECO_MODEL,
+                operation="competitor_recommendations",
+                input_tokens=usage.get("input_tokens", 0),
+                output_tokens=usage.get("output_tokens", 0),
+                cost_usd=cost,
+                scan_id=str(scan_id), client_id=str(scan.client_id),
+                key_source=key_source,
+            )
         except Exception:
             logger.exception(f"competitor recommendations: Haiku call failed for brand {bid}")
             continue

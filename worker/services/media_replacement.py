@@ -160,6 +160,7 @@ def suggest(
     footprint_cap: int = FOOTPRINT_CAP_DEFAULT,
     use_llm_fallback: bool = False,     # Phase MR.3 — source 5 (credit-debited)
     openai_api_key: str | None = None,
+    key_source: str = "platform",       # BYOK - 'platform' | 'byok' for usage logging
 ) -> dict:
     """Return top-K replacement-media suggestions for a netlinking content item.
 
@@ -253,6 +254,7 @@ def suggest(
             country, language, scan,
             exclude_norm | own_brand_domains | competitor_domains,
             openai_api_key,
+            key_source=key_source,
         )
 
     # ── Competitor co-citation map (built ONCE, batched — Phase MR.4) ─────
@@ -658,6 +660,7 @@ def _ingest_llm_web_search(
     country: str, language: str, scan,
     exclude_domains: set[str],
     openai_api_key: str,
+    key_source: str = "platform",
 ) -> set[str]:
     """Source 5 — LLM web_search → buyable media → LinkFinder re-validation.
 
@@ -673,16 +676,34 @@ def _ingest_llm_web_search(
     persona = content_item.persona_name or ""
     vertical = ((scan.config or {}).get("domain_brief") or {}).get("industry") or ""
 
+    _usage: dict = {}
     try:
         from services.media_web_discovery import discover_media_via_web
         discovered = discover_media_via_web(
             topic=topic, persona=persona, country=country, language=language,
             vertical=vertical, exclude_domains=exclude_domains,
             openai_api_key=openai_api_key,
+            usage_out=_usage,
         )
     except Exception:
         logger.exception("media_replacement: LLM web discovery crashed")
         return set()
+
+    # Usage logging (was a gap until BYOK - the daily + monthly caps both
+    # undercounted this web_search call).
+    try:
+        from adapters.llm_logger import log_llm_usage
+        log_llm_usage(
+            db, provider="openai", model=_usage.get("model", "gpt-4.1-mini"),
+            operation="media_web_discovery",
+            input_tokens=_usage.get("input_tokens", 0),
+            output_tokens=_usage.get("output_tokens", 0),
+            scan_id=str(scan.id) if scan else None,
+            client_id=str(scan.client_id) if scan else None,
+            key_source=key_source,
+        )
+    except Exception:
+        logger.exception("media_replacement: usage logging failed")
 
     if not discovered:
         return set()

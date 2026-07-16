@@ -231,7 +231,9 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
         ).delete()
         db.commit()
 
-    api_key = (settings.anthropic_api_key or "").strip()
+    from services.byok import resolve_anthropic_key
+    api_key, key_source = resolve_anthropic_key(db, scan.client_id)
+    api_key = (api_key or "").strip()
     if not api_key:
         logger.warning(f"judge_sentiment: no anthropic_api_key set, skipping")
         return {"judged": 0, "skipped_no_api_key": True}
@@ -286,6 +288,7 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
                 db, provider="anthropic", model=HAIKU_MODEL,
                 operation="judge_sentiment", input_tokens=0, output_tokens=0,
                 cost_usd=0.0, scan_id=scan_id, client_id=client_id, error=True,
+                key_source=key_source,
             )
             continue
         duration_ms = int((time.time() - started) * 1000)
@@ -300,6 +303,7 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
             operation="judge_sentiment",
             input_tokens=in_tok, output_tokens=out_tok, cost_usd=actual_cost,
             duration_ms=duration_ms, scan_id=scan_id, client_id=client_id,
+            key_source=key_source,
         )
 
         verdict = _normalize_verdict((parsed or {}).get("verdict"))

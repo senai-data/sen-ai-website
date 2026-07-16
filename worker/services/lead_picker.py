@@ -222,7 +222,9 @@ def pick_leads_for_items(
         )
         return {}
 
-    if not settings.anthropic_api_key:
+    from services.byok import resolve_anthropic_key
+    anthropic_key, key_source = resolve_anthropic_key(db, client_id)
+    if not anthropic_key:
         logger.warning("lead_picker: ANTHROPIC_API_KEY not set — skipping")
         return {}
 
@@ -269,7 +271,7 @@ def pick_leads_for_items(
     model = _DEFAULT_MODEL
     start = time.monotonic()
     try:
-        raw, usage = _call_claude(prompt, model, settings.anthropic_api_key)
+        raw, usage = _call_claude(prompt, model, anthropic_key)
     except Exception as e:
         logger.warning(f"lead_picker: Claude call failed for scan {scan_id}: {e}")
         try:
@@ -278,6 +280,7 @@ def pick_leads_for_items(
                 db, provider="anthropic", model=model,
                 operation="pick_leads", scan_id=str(scan_id),
                 client_id=str(client_id), error=True,
+                key_source=key_source,
             )
         except Exception:
             pass
@@ -299,6 +302,7 @@ def pick_leads_for_items(
                 output_tokens=usage.get("output_tokens", 0),
                 duration_ms=duration_ms,
                 scan_id=str(scan_id), client_id=str(client_id), error=True,
+                key_source=key_source,
             )
         except Exception:
             pass
@@ -341,6 +345,7 @@ def pick_leads_for_items(
             output_tokens=usage.get("output_tokens", 0),
             duration_ms=duration_ms,
             scan_id=str(scan_id), client_id=str(client_id),
+            key_source=key_source,
         )
     except Exception:
         pass

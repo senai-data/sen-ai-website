@@ -171,8 +171,10 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
     prompt = inject_humanizer(prompt, mode="compact")
 
     model = settings.task_models["generate_persona_questions"]
+    from services.byok import resolve_anthropic_key
+    anthropic_key, key_source = resolve_anthropic_key(db, scan.client_id)
     start = time.time()
-    result = asyncio.run(_call_claude(prompt, settings.anthropic_api_key, model=model))
+    result = asyncio.run(_call_claude(prompt, anthropic_key, model=model))
     duration_ms = int((time.time() - start) * 1000)
 
     # Log LLM usage
@@ -184,6 +186,7 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
         input_tokens=_usage.get("input_tokens", 0),
         output_tokens=_usage.get("output_tokens", 0),
         scan_id=scan_id, client_id=str(scan.client_id),
+        key_source=key_source,
     )
 
     raw_questions = result.get("questions", [])

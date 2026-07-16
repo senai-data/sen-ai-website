@@ -466,7 +466,11 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
     if not focus_brand_name:
         focus_brand_name = next(iter(target_names), "") or ""
     competitor_brand_names = sorted(list(competitor_names))[:20]
-    api_key = (settings.anthropic_api_key or "").strip() if run_sentiment else ""
+    from services.byok import resolve_anthropic_key
+    api_key, key_source = ("", "platform")
+    if run_sentiment:
+        api_key, key_source = resolve_anthropic_key(db, scan.client_id)
+        api_key = (api_key or "").strip()
 
     audited = 0
     sentiment_runs = 0
@@ -529,6 +533,19 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
                 target_sentiment = res.get("target_sentiment")
                 competitor_sentiment = res.get("competitor_sentiment")
                 sentiment_runs += 1
+                # Usage logging (was a gap until BYOK - the daily + monthly
+                # caps both undercounted these Haiku sentiment calls).
+                from adapters.llm_logger import log_llm_usage
+                from adapters.reddit_sentiment import HAIKU_MODEL as _REDDIT_HAIKU_MODEL
+                _usage = res.get("_usage") or {}
+                log_llm_usage(
+                    db, provider="anthropic", model=_REDDIT_HAIKU_MODEL,
+                    operation="reddit_sentiment",
+                    input_tokens=_usage.get("input_tokens", 0),
+                    output_tokens=_usage.get("output_tokens", 0),
+                    scan_id=str(scan_id), client_id=str(scan.client_id),
+                    key_source=key_source,
+                )
 
         # Haiku is more accurate than our regex for non-ASCII brand names
         # (e.g. "Avène" with the è word-boundary edge case). If Haiku

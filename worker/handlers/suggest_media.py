@@ -75,6 +75,18 @@ def execute(job_payload: dict, scan_id: str | None, db: Session) -> dict:
             logger.warning(f"suggest_media: budget exceeded for item {item_id} — refunded")
             return {"status": "error", "error": "budget_exceeded", "message": str(e)}
 
+    # BYOK : org key when configured (raises before any spend when the key is
+    # invalid/capped - the API-debited credit is refunded like budget_exceeded).
+    openai_key, key_source = (None, "platform")
+    if use_llm_fallback:
+        from services.byok import ByokCapExceeded, ByokKeyInvalid, resolve_openai_key
+        try:
+            openai_key, key_source = resolve_openai_key(db, client_id)
+        except (ByokCapExceeded, ByokKeyInvalid) as e:
+            _refund_web_search_credit(item, db, reason="byok_blocked")
+            logger.warning(f"suggest_media: BYOK blocked for item {item_id} — refunded")
+            return {"status": "error", "error": "byok_blocked", "message": str(e)}
+
     try:
         result = suggest(
             db,
@@ -85,7 +97,8 @@ def execute(job_payload: dict, scan_id: str | None, db: Session) -> dict:
             exclude_domains=set(job_payload.get("exclude_domains") or []),
             top_k=int(job_payload.get("top_k") or 5),
             use_llm_fallback=use_llm_fallback,
-            openai_api_key=settings.openai_api_key if use_llm_fallback else None,
+            openai_api_key=openai_key,
+            key_source=key_source,
         )
     except IntentNotEligibleError as e:
         if use_llm_fallback:

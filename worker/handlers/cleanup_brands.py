@@ -111,13 +111,15 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
     # automotive parts, etc.) without burning Claude tokens on obvious junk.
     _brief = (scan.config or {}).get("domain_brief") or {}
     _noise_prefixes = _brief.get("noise_patterns") or []
+    from services.byok import resolve_anthropic_key
+    anthropic_key, key_source = resolve_anthropic_key(db, scan.client_id)
     classify_result = asyncio.run(
         classify_brands(
             domain=scan.domain,
             site_brand=site_brand_name,
             unclassified=unclassified_names,
             existing=existing_context,
-            anthropic_api_key=settings.anthropic_api_key,
+            anthropic_api_key=anthropic_key,
             domain_context=format_analysis_context(scan.config, _client.apps if _client else None),
             noise_prefixes=_noise_prefixes,
         )
@@ -133,6 +135,7 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
         output_tokens=classify_result.get("output_tokens", 0),
         duration_ms=classify_result.get("duration_ms"),
         scan_id=scan_id, client_id=str(scan.client_id),
+        key_source=key_source,
     )
 
     # 5 + 6 + 7 + 8 + 9. Apply classifications to SBC rows

@@ -100,7 +100,9 @@ def execute(job_payload: dict, scan_id: str | None, db: Session) -> dict:
     client_id = str(brand.client_id)
     domain = brand.domain
 
-    if not settings.openai_api_key:
+    from services.byok import resolve_openai_key
+    openai_key, key_source = resolve_openai_key(db, client_id)
+    if not openai_key:
         logger.warning(
             "OPENAI_API_KEY not configured — cannot run embed_brand_pages"
         )
@@ -171,7 +173,7 @@ def execute(job_payload: dict, scan_id: str | None, db: Session) -> dict:
         ]
 
         try:
-            result = embed_batch(texts, openai_api_key=settings.openai_api_key)
+            result = embed_batch(texts, openai_api_key=openai_key)
         except Exception as exc:
             errors += len(batch)
             logger.exception(
@@ -211,6 +213,7 @@ def execute(job_payload: dict, scan_id: str | None, db: Session) -> dict:
             cost_usd=result["cost_usd"],
             duration_ms=result["duration_ms"],
             client_id=client_id,
+            key_source=key_source,
         )
         db.commit()
 

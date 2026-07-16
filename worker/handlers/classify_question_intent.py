@@ -169,7 +169,8 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
     assert_within_budget(client_id_for_budget, db, projected_cost_usd=projected_cost)
 
     model = settings.task_models["classify_question_intent"]
-    api_key = settings.anthropic_api_key
+    from services.byok import resolve_anthropic_key
+    api_key, key_source = resolve_anthropic_key(db, scan.client_id)
     if not api_key:
         # No key — keep the rows NULL (= legacy promotional_fit treatment
         # in the scorer). Log and move on so the pipeline isn't blocked.
@@ -230,6 +231,7 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
             duration_ms=duration_ms,
             scan_id=scan_id,
             client_id=str(scan.client_id),
+            key_source=key_source,
         )
     except Exception:
         logger.exception("log_llm_usage failed for classify_question_intent")

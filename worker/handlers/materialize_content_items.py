@@ -401,8 +401,9 @@ def _auto_match_target_urls(items: list, scan, db) -> dict:
         from services.sitemap_matcher import (
             SITEMAP_THRESHOLD, find_best_pages, slugify_brand_name,
         )
-        from config import settings
-        sitemap_enabled = bool(settings.openai_api_key)
+        from services.byok import resolve_openai_key
+        _openai_key, _ = resolve_openai_key(db, scan.client_id)
+        sitemap_enabled = bool(_openai_key)
     except Exception as exc:
         logger.warning(f"materialize: sitemap_matcher import failed ({exc}) — skipping Layer 1")
         sitemap_enabled = False
@@ -426,7 +427,7 @@ def _auto_match_target_urls(items: list, scan, db) -> dict:
                     question_text=question_text or "",
                     client_brand_id=str(lead_brand.id),
                     db=db,
-                    openai_api_key=settings.openai_api_key,
+                    openai_api_key=_openai_key,
                     top_k=3,
                     gamme_slug=gamme_slug,
                 )

@@ -77,11 +77,13 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
         _fb = db.query(_ClientBrand).filter(_ClientBrand.id == scan.focus_brand_id).first()
         if _fb and _fb.brief:
             _focus_brief = _fb.brief
+    from services.byok import resolve_anthropic_key
+    anthropic_key, key_source = resolve_anthropic_key(db, scan.client_id)
     result = asyncio.run(generate_all_topics(
         domain=scan.domain,
         topics_with_keywords=topics_with_keywords,
         nb_personas=nb_personas,
-        anthropic_api_key=settings.anthropic_api_key,
+        anthropic_api_key=anthropic_key,
         # BB.9 audience-only render : strip brand voice fields (editorial_voice,
         # tone_dos/donts, brand_story, heritage, taglines, claims_guidelines)
         # from the persona prompt so Claude doesn't mirror them into persona
@@ -104,6 +106,7 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
                 model=topic_result.get("model", "claude-haiku-4-5-20251001"),
                 operation="generate_personas", error=True,
                 scan_id=scan_id, client_id=str(scan.client_id),
+                key_source=key_source,
             )
         else:
             log_llm_usage(
@@ -114,6 +117,7 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
                 output_tokens=topic_result.get("output_tokens", 0),
                 duration_ms=topic_result.get("duration_ms"),
                 scan_id=scan_id, client_id=str(scan.client_id),
+                key_source=key_source,
             )
 
     # --- Store in DB ---

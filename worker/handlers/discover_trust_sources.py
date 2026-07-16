@@ -88,17 +88,34 @@ def execute(job_payload: dict, scan_id: str | None, db: Session) -> dict:
     from services.llm_budget import assert_within_budget
     assert_within_budget(client_id, db, projected_cost_usd=0.05)
 
-    if not settings.openai_api_key:
+    from services.byok import resolve_openai_key
+    openai_key, key_source = resolve_openai_key(db, client_id)
+    if not openai_key:
         logger.warning(
             "OPENAI_API_KEY not configured — cannot discover trust sources"
         )
         return {"status": "skipped", "reason": "no_api_key"}
 
+    _usage: dict = {}
     sources = discover_trust_sources(
         industry=industry,
         language=language,
-        openai_api_key=settings.openai_api_key,
+        openai_api_key=openai_key,
         model="gpt-4.1-mini",
+        usage_out=_usage,
+    )
+
+    # Usage logging (was a gap until BYOK - the daily + monthly caps both
+    # undercounted this web_search call).
+    from adapters.llm_logger import log_llm_usage
+    log_llm_usage(
+        db, provider="openai", model="gpt-4.1-mini",
+        operation="discover_trust_sources",
+        input_tokens=_usage.get("input_tokens", 0),
+        output_tokens=_usage.get("output_tokens", 0),
+        client_id=str(client_id),
+        key_source=key_source,
+        error=not sources,
     )
 
     if not sources:

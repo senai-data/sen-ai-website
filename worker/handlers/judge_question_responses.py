@@ -233,7 +233,8 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
     if not scan:
         raise RuntimeError("Scan not found")
 
-    api_key = settings.anthropic_api_key
+    from services.byok import resolve_anthropic_key
+    api_key, key_source = resolve_anthropic_key(db, scan.client_id)
     if not api_key:
         logger.warning(
             f"ANTHROPIC_API_KEY missing; skipping judge for scan {scan_id}"
@@ -374,6 +375,7 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
             duration_ms=duration_ms,
             scan_id=scan_id,
             client_id=str(scan.client_id),
+            key_source=key_source,
         )
     except Exception:
         logger.exception("log_llm_usage failed for judge_question_responses")

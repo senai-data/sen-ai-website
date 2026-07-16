@@ -115,11 +115,14 @@ def discover_media_via_web(
     exclude_domains: set[str] | None = None,
     openai_api_key: str = "",
     model: str = "gpt-4.1-mini",
+    usage_out: dict | None = None,
 ) -> list[dict]:
     """One OpenAI web_search call → list of buyable-media dicts.
 
     Returns ``[{"domain","name","reason"}, ...]`` (possibly empty on failure).
-    Caller re-validates via LinkFinder + hard filters. Pure function.
+    Caller re-validates via LinkFinder + hard filters. Pure function
+    (``usage_out`` is mutated in place with token counts for the caller's
+    llm_usage_log row - BYOK/daily cap accounting).
     """
     if not topic or not openai_api_key:
         logger.warning("discover_media_via_web: missing topic=%r or api_key", topic)
@@ -159,6 +162,11 @@ def discover_media_via_web(
             temperature=0.3,
         )
         text = response.output_text or ""
+        if usage_out is not None:
+            u = getattr(response, "usage", None)
+            usage_out["input_tokens"] = getattr(u, "input_tokens", 0) or 0
+            usage_out["output_tokens"] = getattr(u, "output_tokens", 0) or 0
+            usage_out["model"] = model
     except Exception as e:
         logger.warning(f"discover_media_via_web OpenAI call failed: {e}")
         return []

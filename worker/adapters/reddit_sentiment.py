@@ -123,20 +123,28 @@ async def _call_haiku(prompt: str, api_key: str) -> dict:
         resp.raise_for_status()
         data = resp.json()
         body = data["content"][0]["text"]
+        usage = data.get("usage", {}) or {}
         # Be permissive : the model sometimes wraps in ```json...```.
         body = body.strip()
         if body.startswith("```"):
             body = body.strip("` \n")
             if body.lower().startswith("json"):
                 body = body[4:].lstrip()
+
+        def _with_usage(parsed: dict) -> dict:
+            # Token usage rides along for the caller's llm_usage_log row
+            # (BYOK/daily cap accounting) - stripped before persistence.
+            parsed["_usage"] = usage
+            return parsed
+
         try:
-            return json.loads(body)
+            return _with_usage(json.loads(body))
         except json.JSONDecodeError:
             # Salvage : find the first {...} block.
             i, j = body.find("{"), body.rfind("}")
             if i >= 0 and j > i:
                 try:
-                    return json.loads(body[i:j + 1])
+                    return _with_usage(json.loads(body[i:j + 1]))
                 except json.JSONDecodeError:
                     pass
             raise
@@ -201,4 +209,5 @@ def classify_snippets(
         "competitor_sentiment": _norm_per_brand(result.get("competitor_sentiment")),
         "sentiment":            _norm_overall(result.get("overall_sentiment") or result.get("sentiment")),
         "summary":              (result.get("summary") or "").strip()[:300],
+        "_usage":               result.get("_usage") or {},
     }

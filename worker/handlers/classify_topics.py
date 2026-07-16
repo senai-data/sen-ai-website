@@ -39,11 +39,13 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
     # guessing from the URL alone.
     from adapters.brief_injector import format_analysis_context
     from models import Client as _Client
+    from services.byok import resolve_anthropic_key
     _client = db.query(_Client).filter(_Client.id == scan.client_id).first()
+    anthropic_key, key_source = resolve_anthropic_key(db, scan.client_id)
     result = asyncio.run(classify_urls_into_topics(
         domain=scan.domain,
         keywords=kw_data,
-        anthropic_api_key=settings.anthropic_api_key,
+        anthropic_api_key=anthropic_key,
         domain_context=format_analysis_context(scan.config, _client.apps if _client else None),
     ))
 
@@ -305,6 +307,7 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
         duration_ms=result.get("duration_ms"),
         scan_id=scan_id,
         client_id=str(scan.client_id),
+        key_source=key_source,
     )
 
     scan.status = "topics_ready"

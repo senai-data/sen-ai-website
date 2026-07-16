@@ -208,6 +208,7 @@ def discover_trust_sources(
     language: str = "en",
     openai_api_key: str = "",
     model: str = "gpt-4.1-mini",
+    usage_out: dict | None = None,
 ) -> list[dict]:
     """One OpenAI Responses API web_search call → de-duplicated list of trust
     source dicts. Pure function : no DB I/O, caller persists the result.
@@ -252,6 +253,12 @@ def discover_trust_sources(
             temperature=0.2,
         )
         text = response.output_text or ""
+        if usage_out is not None:
+            # Token usage for the caller's llm_usage_log row (the function
+            # stays pure/DB-free; the handler logs).
+            u = getattr(response, "usage", None)
+            usage_out["input_tokens"] = getattr(u, "input_tokens", 0) or 0
+            usage_out["output_tokens"] = getattr(u, "output_tokens", 0) or 0
     except Exception as e:
         logger.warning(f"discover_trust_sources OpenAI call failed: {e}")
         return []

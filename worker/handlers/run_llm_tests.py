@@ -173,6 +173,38 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
         mark_org_key_invalid, resolve_openai_key,
     )
     providers = job_payload.get("providers", ["openai"])
+
+    # Per-scan model-version overrides (BYOK-gated selector, scan.config).
+    # Safety belts, in order :
+    #  - unknown model (api/worker allowlist drift) -> platform default +
+    #    warning, never an arbitrary string ;
+    #  - a validated override applies ONLY when the provider key resolved to
+    #    'byok'. Keys deleted between debit and pickup would silently run a
+    #    customer-chosen model on PLATFORM keys - that breaks the pricing
+    #    gate, so the job fails with an actionable message instead (same
+    #    no-silent-fallback principle as ByokKeyInvalid).
+    from services.model_allowlist import is_allowed as _model_allowed
+    model_overrides = (scan.config or {}).get("model_overrides") or {}
+
+    def resolved_scan_model(provider: str, default: str) -> tuple[str, bool]:
+        override = model_overrides.get(provider)
+        if not override or override == default:
+            return default, False
+        if not _model_allowed(provider, override):
+            logger.warning(
+                f"model_overrides[{provider}]={override!r} not in worker allowlist - "
+                f"falling back to platform default {default!r}")
+            return default, False
+        return override, True
+
+    def assert_override_on_byok(provider: str, key_source: str) -> None:
+        if key_source != "byok":
+            raise RuntimeError(
+                f"This scan was launched with a customer-selected {provider} model, "
+                f"but the {provider} key resolved to the platform pool. Restore the "
+                f"organization's {provider} API key (Settings > API keys) or clear "
+                f"the model selection, then retry.")
+
     gemini_pool = get_gemini_pool()
     llm_clients = {}
     key_sources: dict[str, str] = {}
@@ -181,10 +213,14 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
     for provider in providers:
         if provider == "gemini":
             # Model from task config (was: implicit create_llm_client default,
-            # which silently ignored a MODEL_SCAN_TEST_GEMINI override).
+            # which silently ignored a MODEL_SCAN_TEST_GEMINI override), or the
+            # customer-selected version when the scan carries one.
+            gemini_model, gemini_is_override = resolved_scan_model(
+                "gemini", settings.task_models.get("scan_test_gemini", "gemini-3.5-flash"))
             gemini_client, gsrc = make_gemini_client(
-                db, scan.client_id,
-                model=settings.task_models.get("scan_test_gemini", "gemini-3.5-flash"))
+                db, scan.client_id, model=gemini_model)
+            if gemini_is_override:
+                assert_override_on_byok("gemini", gsrc)
             if gemini_client is None:
                 logger.warning("No Gemini key in pool, skipping")
                 continue
@@ -347,7 +383,10 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
     # Country hint for OpenAI web_search user_location (FR scans get FR-grounded URLs).
     # Falls back to FR if domain brief didn't capture a country code.
     scan_country = (scan.config or {}).get("domain_brief", {}).get("country") or "FR"
-    openai_model = settings.task_models.get("scan_test_openai", "gpt-4.1-mini")
+    openai_model, openai_is_override = resolved_scan_model(
+        "openai", settings.task_models.get("scan_test_openai", "gpt-4.1-mini"))
+    if openai_is_override and "openai" in llm_clients:
+        assert_override_on_byok("openai", key_sources.get("openai", "platform"))
 
     # Per-scan circuit breaker. Trips a provider when its failure rate exceeds
     # threshold (default 80%) AND we have at least min_sample tests recorded

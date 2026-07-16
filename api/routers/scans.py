@@ -105,6 +105,9 @@ class ScanConfigUpdate(BaseModel):
     providers: list[str] | None = None
     # N-runs (T4) - samples per (question, provider). Clamped 1..20 server-side.
     runs_depth: int | None = None
+    # Model-version selector (BYOK-gated) - {provider: model}, validated
+    # against the allowlist. Empty dict clears the selection.
+    model_overrides: dict[str, str] | None = None
 
 
 class BrandClassify(BaseModel):
@@ -443,6 +446,34 @@ async def update_scan_config(scan_id: str, req: ScanConfigUpdate, user=Depends(g
         if scan.status in ("scanning", "completed"):
             raise HTTPException(400, "runs_depth can only change before launch")
         config["runs_depth"] = max(1, min(20, int(req.runs_depth)))
+    if req.model_overrides is not None:
+        # Model-version selector : root-only choice (rescans inherit it so the
+        # lineage stays homogeneous), gated on a complete BYOK setup - custom
+        # models run on the customer's own provider accounts, never on
+        # platform keys (credit pricing is not model-weighted).
+        if scan.status in ("scanning", "completed"):
+            raise HTTPException(400, "Model selection can only change before launch")
+        from services.model_allowlist import SCAN_MODEL_ALLOWLIST, default_model, is_allowed
+        cleaned: dict[str, str] = {}
+        for prov, model in req.model_overrides.items():
+            if prov not in SCAN_MODEL_ALLOWLIST:
+                raise HTTPException(400, f"Model selection is not available for provider '{prov}'")
+            if not is_allowed(prov, model):
+                raise HTTPException(400, f"Model '{model}' is not in the allowed list for {prov}")
+            if model != default_model(prov):
+                cleaned[prov] = model  # storing the default = no override
+        if cleaned:
+            from services.byok_preflight import _org_id_for_client, is_byok_complete
+            org_id = _org_id_for_client(db, scan.client_id)
+            if not (org_id and is_byok_complete(db, org_id)):
+                raise HTTPException(400, {
+                    "code": "byok_incomplete_for_model_overrides",
+                    "message": "Model selection requires your own API keys for OpenAI, "
+                               "Anthropic and Gemini (Settings > API keys).",
+                })
+            config["model_overrides"] = cleaned
+        else:
+            config.pop("model_overrides", None)
     scan.config = config
     flag_modified(scan, "config")
     scan.updated_at = datetime.utcnow()
@@ -1394,6 +1425,17 @@ def _perform_rescan(db: Session, parent: "Scan", created_by_user_id) -> "Scan":
         import math
         credits_needed = math.ceil(credits_needed / 2)
         child_config["byok_discount"] = True
+    # Model-version selector gate (inherited via child_config for a
+    # homogeneous lineage) : 402 - NOT 400 - so the auto-rescan sweep defers
+    # 24h like a credit-out instead of disabling the schedule
+    # (worker/main.py flips schedule to manual on any 400).
+    if (child_config.get("model_overrides") or {}) and not byok_discount:
+        raise HTTPException(402, {
+            "code": "byok_incomplete_for_model_overrides",
+            "message": "This tracker's scans use a customer-selected AI model version, which "
+                       "requires active API keys for OpenAI, Anthropic and Gemini "
+                       "(Settings > API keys). Restore the keys or clear the model selection.",
+        })
 
     # Credit gate: same pattern as launch_scan - lock client, check balance,
     # then debit (with scan_id=child.id once it exists, so a worker failure
@@ -2428,6 +2470,11 @@ async def cost_estimate(
     from routers.stripe import get_credit_balance
     balance = get_credit_balance(str(scan.client_id), "scan", db)
 
+    # Model-version selector (BYOK-gated) : ship the allowlist + the current
+    # selection with the estimate the launch UI already fetches - no extra
+    # endpoint, no front-side copy of the list to drift.
+    from services.model_allowlist import SCAN_MODEL_ALLOWLIST
+
     return {
         "active_questions": active_questions,
         "runs_depth": runs_depth,
@@ -2438,6 +2485,8 @@ async def cost_estimate(
         "byok_pricing": "discount50" if byok_covered else "none",
         "scan_credits_available": balance,
         "sufficient": balance >= credits_to_debit or bool(config.get("credits_already_debited")),
+        "model_options": SCAN_MODEL_ALLOWLIST,
+        "model_overrides": config.get("model_overrides") or {},
     }
 
 
@@ -2485,6 +2534,16 @@ async def launch_scan(request: Request, scan_id: str, user=Depends(get_current_u
     if byok_discount:
         import math
         credits_needed = math.ceil(credits_needed / 2)
+    # Model-version selector gate : customer-selected models run on the
+    # customer's own keys only. 402 (not 400) so a schedule hitting this
+    # defers 24h instead of being disabled (worker/main.py 400-handling).
+    if (config.get("model_overrides") or {}) and not byok_discount:
+        raise HTTPException(402, {
+            "code": "byok_incomplete_for_model_overrides",
+            "message": "This scan has a customer-selected AI model version, which requires "
+                       "active API keys for OpenAI, Anthropic and Gemini (Settings > API keys). "
+                       "Restore the keys or clear the model selection, then relaunch.",
+        })
     if byok_providers or config.get("byok_providers") or config.get("byok_discount"):
         config = dict(config)
         if byok_providers:

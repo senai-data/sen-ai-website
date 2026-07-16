@@ -31,6 +31,10 @@ ANTHROPIC_PRICING = {
 SAAS_PRICING_OVERLAY = {
     "gemini-3.5-flash": {"input": 1.50, "output": 9.00},
     "gemini-3.1-flash-lite": {"input": 0.25, "output": 1.50},
+    # Model-version selector allowlist (BYOK) - the org monthly cap must see
+    # real costs when a customer selects these.
+    "gpt-5.5": {"input": 5.00, "output": 30.00},
+    "gpt-5.6-luna": {"input": 1.00, "output": 6.00},
 }
 
 

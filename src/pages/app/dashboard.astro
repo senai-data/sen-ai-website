@@ -77,10 +77,24 @@ try {
   }
 } catch {}
 
+// Pending org invitations addressed to this user (Phase E.C.4.2) - the
+// "You've been invited to X" banner. Until now the only surface for a
+// received invite was the email link. Fail-open : no banner on hiccups.
+let receivedInvites: any[] = [];
+try {
+  const invRes = await fetch('http://api:8000/api/invitations/received', {
+    headers: { Cookie: `token=${token}` },
+    signal: AbortSignal.timeout(3000),
+  });
+  if (invRes.ok) receivedInvites = await invRes.json();
+} catch {}
+
 // First-time user → onboarding. Only true first-timers go to the wizard ;
 // anyone who already belongs to an org has been onboarded and an empty
 // dashboard means "ask your admin", not "set up your first scan"
 // (cf. Phase E.C.2/4 - /welcome has no org switcher, it would dead-end).
+// A pending invitation also skips the wizard : the invitee's next step is
+// joining the team, not creating a parallel workspace of their own.
 let orgs: any[] = [];
 try {
   const orgsRes = await fetch('http://api:8000/api/organizations/', {
@@ -89,7 +103,7 @@ try {
   });
   if (orgsRes.ok) orgs = await orgsRes.json();
 } catch {}
-if (scans.length === 0 && orgs.length === 0) {
+if (scans.length === 0 && orgs.length === 0 && receivedInvites.length === 0) {
   // Forward agency signup intent so /welcome keeps the agency framing
   // across re-logins (URL param first, persisted users.signup_intent second).
   const urlIntent = (Astro.url.searchParams.get('intent') || '').toLowerCase();
@@ -376,6 +390,20 @@ const priorityDot: Record<string, string> = {
   </style>
 
   <main class="wsd">
+    {receivedInvites.map((inv: any) => (
+      <div class="notice notice--info" style="margin-bottom:var(--space-5);display:flex;align-items:center;justify-content:space-between;gap:12px">
+        <div>
+          <p style="font-size:13px;font-weight:600;color:var(--color-text-primary)">
+            {inv.inviter_name ? `${inv.inviter_name} invited you to join ${inv.organization_name}` : `You've been invited to join ${inv.organization_name}`}
+          </p>
+          <p style="font-size:12px;color:var(--color-text-secondary);margin-top:4px">
+            Role: {inv.org_role}. This invitation expires on {new Date(inv.expires_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}.
+          </p>
+        </div>
+        <a href={`/invite/${inv.token}`} class="btn btn--primary btn--sm" style="flex:none">View invitation</a>
+      </div>
+    ))}
+
     {hasNoClientAccess && orgs.length >= 1 && (
       <div class="notice notice--info" style="margin-bottom:var(--space-5)">
         <p style="font-size:13px;font-weight:600;color:var(--color-text-primary)">You haven't been added to a workspace yet</p>

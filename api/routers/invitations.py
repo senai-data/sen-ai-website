@@ -27,7 +27,8 @@ from sqlalchemy.orm import Session
 
 from config import settings
 from models import (
-    Invitation, Organization, OrganizationUser, User, get_db,
+    Client, Invitation, Organization, OrganizationUser, OrgUserClient,
+    User, UserClient, get_db,
 )
 from services.auth_service import get_current_user
 from services.rate_limit import limiter
@@ -77,6 +78,52 @@ def _require_org_inviter(org_id: str, user, db: Session) -> OrganizationUser:
             f"Only owners and admins can manage invitations (your role: '{membership.role}')",
         )
     return membership
+
+
+def _grant_all_org_clients(db: Session, organization_id, user_id) -> int:
+    """Give a newly-joined org owner/admin manager access to every current
+    client workspace of the org. Returns the number of grants written.
+
+    Rationale : the members-grid endpoints (PUT /members/{uid}/clients/{cid})
+    let any org owner/admin set ANY member's workspace access, including
+    their own - so a 'No access' default for an owner/admin is friction,
+    not security (observed live : invited admin accepted, landed on an
+    empty dashboard with their own row at 'No access' and concluded the
+    accept had failed). Plain members stay no-access by design - they
+    cannot self-grant, so the manual grant IS the security boundary.
+
+    Mirrors the S15.3 create-client pattern : writes both OrgUserClient
+    (modern) and UserClient (legacy fallback) rows. Idempotent - existing
+    rows are left untouched (never downgrade a role someone already set).
+    """
+    granted = 0
+    clients = db.query(Client).filter(Client.organization_id == organization_id).all()
+    for client in clients:
+        ouc = (
+            db.query(OrgUserClient)
+            .filter(
+                OrgUserClient.organization_id == organization_id,
+                OrgUserClient.user_id == user_id,
+                OrgUserClient.client_id == client.id,
+            )
+            .first()
+        )
+        if not ouc:
+            db.add(OrgUserClient(
+                organization_id=organization_id,
+                user_id=user_id,
+                client_id=client.id,
+                role="manager",
+            ))
+            granted += 1
+        legacy = (
+            db.query(UserClient)
+            .filter(UserClient.user_id == user_id, UserClient.client_id == client.id)
+            .first()
+        )
+        if not legacy:
+            db.add(UserClient(user_id=user_id, client_id=client.id, role="manager"))
+    return granted
 
 
 def _send_invitation_email(
@@ -270,7 +317,78 @@ async def revoke_invitation(
     return {"ok": True, "revoked_at": invite.revoked_at.isoformat()}
 
 
-# ───────── Token-scoped routes : preview / accept ─────────
+# ───────── Token-scoped routes : received / preview / accept ─────────
+
+class ReceivedInvitation(BaseModel):
+    token: str
+    organization_id: str
+    organization_name: str
+    org_role: str
+    inviter_name: str | None
+    message: str | None
+    expires_at: str
+
+
+@token_scoped_router.get("/received", response_model=list[ReceivedInvitation])
+async def list_received_invitations(
+    user=Depends(get_current_user), db: Session = Depends(get_db),
+):
+    """Pending invitations addressed to the signed-in user's email.
+
+    Powers the dashboard "You've been invited to X" banner - before this,
+    the ONLY surface for a received invite was the email link itself, so an
+    invitee browsing the app had no clue an invite was waiting (the members
+    page lists invitations SENT by the active org, not received ones).
+
+    Returns the token because the banner links to /invite/{token} - safe :
+    the caller is authenticated AND is the invite's addressee, i.e. the
+    same person who already holds the token in their inbox.
+
+    Excludes orgs the user already belongs to (accept would be a member-
+    level no-op) plus anything expired / revoked / accepted.
+
+    Registered before the /{invite_token}/* routes on purpose - no GET
+    /{invite_token} exists today so there is no ambiguity, but keeping the
+    literal path first makes that invariant obvious.
+    """
+    member_org_ids = {
+        row.organization_id
+        for row in db.query(OrganizationUser.organization_id)
+        .filter(OrganizationUser.user_id == user.id)
+        .all()
+    }
+    now = datetime.utcnow()
+    invites = (
+        db.query(Invitation)
+        .filter(
+            func.lower(Invitation.email) == (user.email or "").lower(),
+            Invitation.accepted_at.is_(None),
+            Invitation.revoked_at.is_(None),
+            Invitation.expires_at > now,
+        )
+        .order_by(Invitation.created_at.desc())
+        .all()
+    )
+    out: list[ReceivedInvitation] = []
+    for inv in invites:
+        if inv.organization_id in member_org_ids:
+            continue
+        org = db.query(Organization).filter(Organization.id == inv.organization_id).first()
+        inviter = (
+            db.query(User).filter(User.id == inv.invited_by_user_id).first()
+            if inv.invited_by_user_id else None
+        )
+        out.append(ReceivedInvitation(
+            token=inv.token,
+            organization_id=str(inv.organization_id),
+            organization_name=(org.name if org else "Unknown organization"),
+            org_role=inv.org_role,
+            inviter_name=(inviter.name or inviter.email) if inviter else None,
+            message=inv.message,
+            expires_at=inv.expires_at.isoformat(),
+        ))
+    return out
+
 
 class InvitationPreview(BaseModel):
     organization_name: str
@@ -407,6 +525,8 @@ async def accept_invitation(
             role=invite.org_role,
             invited_by_user_id=invite.invited_by_user_id,
         ))
+        if invite.org_role in ("owner", "admin"):
+            _grant_all_org_clients(db, invite.organization_id, user.id)
 
     if not invite.accepted_at:
         invite.accepted_at = datetime.utcnow()
@@ -496,6 +616,8 @@ async def accept_and_register(
         role=invite.org_role,
         invited_by_user_id=invite.invited_by_user_id,
     ))
+    if invite.org_role in ("owner", "admin"):
+        _grant_all_org_clients(db, invite.organization_id, user.id)
 
     invite.accepted_at = datetime.utcnow()
     invite.accepted_by_user_id = user.id

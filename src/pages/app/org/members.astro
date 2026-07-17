@@ -1,17 +1,27 @@
 ---
 /**
- * Org members + invitations — Phase E.C.4 UI.
+ * Org members + invitations - Phase E.C.4/E.C.5 UI, redesigned 2026-07-17.
  *
- * Owner/admin of the active org : invite teammates by email, see pending
- * invitations, revoke, audit recent acceptance / revoke history.
+ * Owner/admin of the active org : see every member and their workspace
+ * access, invite teammates by email, revoke pending invitations, audit
+ * recent activity.
  *
  * UX Laws :
- *   - Cognitive Load : invite form + pending + audit cleanly separated
- *   - Recognition over Recall : email + role + sent date for each invite
- *   - Doherty Threshold : POST invite returns instantly, list refreshes
- *     on success; no spinner-on-network round-trip blocking the UI
- *   - Postel's Law : server validates email format ; client doesn't fight
- *     the user about obviously-invalid input until submit
+ *   - Hick's Law : the page opens on its main content (the member list).
+ *     The invite form is collapsed behind ONE coral CTA - inviting is a
+ *     one-off action, not something to hold the top of the page hostage.
+ *   - Von Restorff : "Invite a teammate" is the single colored action on
+ *     the page header. Everything passive stays neutral.
+ *   - Inline > modal (project rule) : per-workspace access lives in an
+ *     inline row expansion, not a member × workspace matrix. The matrix
+ *     overflowed horizontally at 7 workspaces and dies at 15+ ; the
+ *     expansion scales vertically forever.
+ *   - Jakob's Law : row-click-to-expand mirrors questions/audit/schema
+ *     tabs. Search input on the table mirrors every other table.
+ *   - Doherty Threshold : role changes save instantly with a ✓ flash ;
+ *     the "N of M workspaces" summary updates live after each change.
+ *   - Recognition over Recall : summary chip answers "who can see what"
+ *     without opening anything ; zero-access members flagged in amber.
  *
  * Access control : page renders only for owner/admin of active org.
  * Members (read-only) see a "you can't manage members" notice.
@@ -81,7 +91,7 @@ if (canInvite) {
 const pendingInvites = invitations.filter(i => i.is_pending);
 const recentInvites = invitations.filter(i => !i.is_pending);
 
-// Phase E.C.5 — fetch members + per-client access matrix.
+// Phase E.C.5 - fetch members + per-client access matrix.
 type ClientLite = { id: string; name: string; brand: string | null };
 type ClientGrant = { client_id: string; client_name: string; role: string | null };
 type Member = {
@@ -112,7 +122,7 @@ if (canInvite) {
 }
 
 function relativeDate(iso: string | null): string {
-  if (!iso) return '—';
+  if (!iso) return '-';
   const ms = Date.now() - new Date(iso).getTime();
   const days = Math.floor(ms / 86400000);
   if (days < 1) {
@@ -135,16 +145,33 @@ function expiresIn(iso: string): string {
 function roleLabel(r: string): string {
   return { owner: 'Owner', admin: 'Admin', member: 'Member' }[r] || r;
 }
+
+function grantedCount(m: Member): number {
+  return m.client_access.filter(ca => ca.role).length;
+}
 ---
 
-<DashboardLayout title={`${activeOrg.name} — Members`} activeSection="members">
-  <div class="p-8 max-w-4xl">
+<DashboardLayout title={`${activeOrg.name} - Members`} activeSection="members">
+  <div class="p-8 max-w-4xl" x-data="{ invite: false, q: '', open: null }">
 
-    <div class="mb-8">
-      <h1 class="text-2xl font-bold text-charcoal-dark">Members</h1>
-      <p class="text-charcoal-light mt-1">
-        Manage who can access <strong>{activeOrg.name}</strong>.
-      </p>
+    {/* Page header : title left, the ONE colored action right (Von Restorff) */}
+    <div class="mb-6 flex items-start justify-between gap-4 flex-wrap">
+      <div>
+        <h1 class="text-2xl font-bold text-charcoal-dark">Members</h1>
+        <p class="text-charcoal-light mt-1">
+          Manage who can access <strong>{activeOrg.name}</strong>.
+        </p>
+      </div>
+      {canInvite && (
+        <button
+          type="button"
+          @click="invite = !invite; if (invite) $nextTick(() => $refs.inviteEmail && $refs.inviteEmail.focus())"
+          class="px-4 py-2 bg-coral text-white text-sm font-medium rounded-lg hover:bg-coral-dark transition-colors shrink-0"
+        >
+          <span x-show="!invite">+ Invite a teammate</span>
+          <span x-show="invite" x-cloak>Close invite form</span>
+        </button>
+      )}
     </div>
 
     {!canInvite && (
@@ -153,8 +180,16 @@ function roleLabel(r: string): string {
       </div>
     )}
 
+    {/* Invite form : collapsed by default (Hick's Law - the member list is
+        the page's job, inviting is occasional). Expands inline, no modal. */}
     {canInvite && (
-      <div class="bg-white rounded-xl border border-gray-200 p-6 mb-8">
+      <div
+        x-show="invite" x-cloak
+        x-transition:enter="transition ease-out duration-150"
+        x-transition:enter-start="opacity-0 -translate-y-1"
+        x-transition:enter-end="opacity-100 translate-y-0"
+        class="bg-white rounded-xl border border-gray-200 p-6 mb-6"
+      >
         <h2 class="text-base font-semibold text-charcoal-dark mb-1">Invite a teammate</h2>
         <p class="text-xs text-charcoal-light mb-4">
           They'll receive an email with a link to accept. Invitations expire after 7 days.
@@ -164,13 +199,15 @@ function roleLabel(r: string): string {
             <div class="md:col-span-2">
               <label class="block text-xs font-medium text-charcoal-light mb-1">Email</label>
               <input
-                type="email" name="email" required
+                type="email" name="email" required x-ref="inviteEmail"
                 placeholder="teammate@company.com"
                 class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-coral/50 focus:border-coral"
               />
             </div>
             <div>
-              <label class="block text-xs font-medium text-charcoal-light mb-1">Role</label>
+              <label class="block text-xs font-medium text-charcoal-light mb-1">
+                <Tip id="org_role_column" position="bottom"><span class="border-b border-dotted border-gray-400 cursor-help">Org role</span></Tip>
+              </label>
               <select
                 name="org_role"
                 class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-coral/50 focus:border-coral bg-white"
@@ -203,16 +240,32 @@ function roleLabel(r: string): string {
       </div>
     )}
 
-    {canInvite && orgDetail && (orgDetail.members.length >= 2 || orgDetail.clients.length >= 2) && (
+    {/* Members list : one row per member, workspace access in an inline
+        expansion (inline > modal rule ; the old matrix overflowed at 7
+        workspaces and would be unusable at 15+). */}
+    {canInvite && orgDetail && (
       <div class="bg-white rounded-xl border border-gray-200 mb-6">
-        <div class="px-5 py-4 border-b border-gray-200 flex items-center justify-between">
+        <div class="px-5 py-4 border-b border-gray-200 flex items-center justify-between gap-3 flex-wrap">
           <div>
             <h2 class="text-base font-semibold text-charcoal-dark">Members & workspace access</h2>
             <p class="text-xs text-charcoal-light mt-0.5">
-              Each member's org role + which workspaces they can access. Changes save instantly.
+              Click a member's workspace count to edit their access. Changes save instantly.
             </p>
           </div>
-          <span class="text-xs text-charcoal-light">{orgDetail.members.length} {orgDetail.members.length === 1 ? 'member' : 'members'}</span>
+          <div class="flex items-center gap-3">
+            {orgDetail.members.length >= 4 && (
+              <div class="relative">
+                <svg class="w-4 h-4 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-4.35-4.35M17 11a6 6 0 11-12 0 6 6 0 0112 0z" />
+                </svg>
+                <input
+                  type="search" x-model="q" placeholder="Search members"
+                  class="pl-8 pr-3 py-1.5 border border-gray-300 rounded-lg text-sm w-44 focus:outline-none focus:ring-2 focus:ring-coral/50 focus:border-coral"
+                />
+              </div>
+            )}
+            <span class="text-xs text-charcoal-light whitespace-nowrap">{orgDetail.members.length} {orgDetail.members.length === 1 ? 'member' : 'members'}</span>
+          </div>
         </div>
 
         {orgDetail.clients.length === 0 ? (
@@ -220,87 +273,127 @@ function roleLabel(r: string): string {
             No workspaces in this organization yet.
           </div>
         ) : (
-          <div>
-            <table class="w-full text-sm">
+          <div class="overflow-x-auto">
+            <table class="w-full text-sm" style="min-width: 560px">
               <thead class="bg-gray-50 text-[11px] uppercase tracking-wider text-gray-500">
                 <tr>
                   <th class="px-4 py-3 text-left font-medium">Member</th>
                   <th class="px-3 py-3 text-left font-medium">
                     <Tip id="org_role_column" position="bottom"><span class="border-b border-dotted border-gray-400 cursor-help">Org role</span></Tip>
                   </th>
-                  {orgDetail.clients.map(c => (
-                    <th class="px-3 py-3 text-left font-medium whitespace-nowrap">
-                      <Tip id="client_role_column" position="bottom"><span class="border-b border-dotted border-gray-400 cursor-help">{c.name}</span></Tip>
-                    </th>
-                  ))}
+                  <th class="px-3 py-3 text-left font-medium">
+                    <Tip id="client_role_column" position="bottom"><span class="border-b border-dotted border-gray-400 cursor-help">Workspace access</span></Tip>
+                  </th>
                   <th class="px-3 py-3"></th>
                 </tr>
               </thead>
               <tbody class="divide-y divide-gray-100">
                 {orgDetail.members.map(m => (
-                  <tr data-member-row={m.user_id} class:list={[m.is_self && 'bg-coral/5']}>
-                    <td class="px-4 py-3">
-                      <div class="font-medium text-charcoal-dark flex items-center gap-1.5">
-                        <span class="truncate max-w-[180px]">{m.name || m.email}</span>
-                        {m.is_self && <span class="text-[10px] font-medium uppercase tracking-wide text-coral bg-coral/10 px-1.5 py-0.5 rounded shrink-0">you</span>}
-                      </div>
-                      <div class="text-xs text-charcoal-light truncate max-w-[220px]">{m.email}</div>
-                    </td>
-                    <td class="px-3 py-3">
-                      <span class="inline-flex items-center gap-1.5">
-                        <select
-                          class="member-role-select px-2 py-1 border border-gray-300 rounded text-xs bg-white focus:outline-none focus:ring-2 focus:ring-coral/50 disabled:bg-gray-50 disabled:text-gray-500"
-                          data-user-id={m.user_id}
-                          data-original-role={m.org_role}
-                          title="Hover the column header for a description of each role."
-                          disabled={
-                            // owner-tier moves require owner caller
-                            (orgDetail.your_role !== 'owner' && (m.org_role === 'owner'))
-                          }
-                        >
-                          <option value="member" selected={m.org_role === 'member'}>Member</option>
-                          <option value="admin" selected={m.org_role === 'admin'}>Admin</option>
-                          {(orgDetail.your_role === 'owner' || m.org_role === 'owner') && (
-                            <option value="owner" selected={m.org_role === 'owner'}>Owner</option>
-                          )}
-                        </select>
-                        <span class="save-flash text-emerald-500 text-sm opacity-0 transition-opacity duration-300" aria-hidden="true">✓</span>
-                      </span>
-                    </td>
-                    {m.client_access.map(ca => (
+                  <>
+                    <tr
+                      data-member-row={m.user_id}
+                      data-search={`${m.name || ''} ${m.email}`.toLowerCase()}
+                      x-show="!q.trim() || $el.dataset.search.includes(q.toLowerCase().trim())"
+                    >
+                      <td class="px-4 py-3">
+                        <div class="font-medium text-charcoal-dark flex items-center gap-1.5">
+                          <span class="truncate max-w-[200px]">{m.name || m.email}</span>
+                          {m.is_self && <span class="text-[10px] font-medium uppercase tracking-wide text-coral bg-coral/10 px-1.5 py-0.5 rounded shrink-0">you</span>}
+                        </div>
+                        <div class="text-xs text-charcoal-light truncate max-w-[240px]">{m.email}</div>
+                      </td>
                       <td class="px-3 py-3">
                         <span class="inline-flex items-center gap-1.5">
                           <select
-                            class="client-grant-select px-2 py-1 border border-gray-300 rounded text-xs bg-white focus:outline-none focus:ring-2 focus:ring-coral/50"
+                            class="member-role-select px-2 py-1 border border-gray-300 rounded text-xs bg-white focus:outline-none focus:ring-2 focus:ring-coral/50 disabled:bg-gray-50 disabled:text-gray-500"
                             data-user-id={m.user_id}
-                            data-client-id={ca.client_id}
-                            data-original-role={ca.role || ''}
-                            title="Hover the column header for a description of each role."
+                            data-original-role={m.org_role}
+                            title="Hover the Org role header for a description of each role."
+                            disabled={
+                              // owner-tier moves require owner caller
+                              (orgDetail.your_role !== 'owner' && (m.org_role === 'owner'))
+                            }
                           >
-                            <option value="" selected={!ca.role}>No access</option>
-                            <option value="viewer" selected={ca.role === 'viewer'}>Viewer</option>
-                            <option value="editor" selected={ca.role === 'editor'}>Editor</option>
-                            <option value="manager" selected={ca.role === 'manager'}>Manager</option>
+                            <option value="member" selected={m.org_role === 'member'}>Member</option>
+                            <option value="admin" selected={m.org_role === 'admin'}>Admin</option>
+                            {(orgDetail.your_role === 'owner' || m.org_role === 'owner') && (
+                              <option value="owner" selected={m.org_role === 'owner'}>Owner</option>
+                            )}
                           </select>
                           <span class="save-flash text-emerald-500 text-sm opacity-0 transition-opacity duration-300" aria-hidden="true">✓</span>
                         </span>
                       </td>
-                    ))}
-                    <td class="px-3 py-3 text-right">
-                      {!m.is_self && (orgDetail.your_role === 'owner' || m.org_role !== 'owner') && (
-                        <Tip id="members_remove">
-                          <button
-                            type="button"
-                            data-user-id={m.user_id}
-                            data-email={m.email}
-                            class="member-remove-btn text-xs font-medium text-red-600 hover:underline"
+                      <td class="px-3 py-3">
+                        <button
+                          type="button"
+                          class="group inline-flex items-center gap-1.5 text-left"
+                          @click={`open = open === '${m.user_id}' ? null : '${m.user_id}'`}
+                        >
+                          {grantedCount(m) === 0 ? (
+                            <span data-ws-count-for={m.user_id} class="text-xs font-medium text-amber-600">No workspace access</span>
+                          ) : (
+                            <span data-ws-count-for={m.user_id} class="text-xs text-charcoal-dark">{grantedCount(m)} of {m.client_access.length} workspaces</span>
+                          )}
+                          <svg
+                            class="w-3.5 h-3.5 text-gray-400 group-hover:text-coral transition-transform"
+                            :class={`open === '${m.user_id}' && 'rotate-180'`}
+                            fill="none" stroke="currentColor" viewBox="0 0 24 24"
                           >
-                            Remove
-                          </button>
-                        </Tip>
-                      )}
-                    </td>
-                  </tr>
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                          </svg>
+                        </button>
+                      </td>
+                      <td class="px-3 py-3 text-right">
+                        {!m.is_self && (orgDetail.your_role === 'owner' || m.org_role !== 'owner') && (
+                          <Tip id="members_remove">
+                            <button
+                              type="button"
+                              data-user-id={m.user_id}
+                              data-email={m.email}
+                              class="member-remove-btn text-xs font-medium text-red-600 hover:underline"
+                            >
+                              Remove
+                            </button>
+                          </Tip>
+                        )}
+                      </td>
+                    </tr>
+                    <tr
+                      data-search={`${m.name || ''} ${m.email}`.toLowerCase()}
+                      x-show={`open === '${m.user_id}' && (!q.trim() || $el.dataset.search.includes(q.toLowerCase().trim()))`}
+                      x-cloak
+                    >
+                      <td colspan="4" class="bg-gray-50 px-5 py-4">
+                        <div class="flex items-center justify-between mb-3">
+                          <span class="text-xs font-medium text-charcoal-dark">
+                            Workspace access for {m.name || m.email}
+                          </span>
+                          <Tip id="client_role_column"><span class="text-[11px] text-charcoal-light border-b border-dotted border-gray-400 cursor-help">What can each role do?</span></Tip>
+                        </div>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-2.5">
+                          {m.client_access.map(ca => (
+                            <div class="flex items-center justify-between gap-2">
+                              <span class="text-xs text-charcoal-dark truncate" title={ca.client_name}>{ca.client_name}</span>
+                              <span class="inline-flex items-center gap-1.5 shrink-0">
+                                <select
+                                  class="client-grant-select px-2 py-1 border border-gray-300 rounded text-xs bg-white focus:outline-none focus:ring-2 focus:ring-coral/50"
+                                  data-user-id={m.user_id}
+                                  data-client-id={ca.client_id}
+                                  data-original-role={ca.role || ''}
+                                >
+                                  <option value="" selected={!ca.role}>No access</option>
+                                  <option value="viewer" selected={ca.role === 'viewer'}>Viewer</option>
+                                  <option value="editor" selected={ca.role === 'editor'}>Editor</option>
+                                  <option value="manager" selected={ca.role === 'manager'}>Manager</option>
+                                </select>
+                                <span class="save-flash text-emerald-500 text-sm opacity-0 transition-opacity duration-300" aria-hidden="true">✓</span>
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </td>
+                    </tr>
+                  </>
                 ))}
               </tbody>
             </table>
@@ -325,7 +418,7 @@ function roleLabel(r: string): string {
         )}
         {!inviteFetchError && pendingInvites.length === 0 && (
           <div class="px-5 py-8 text-center text-sm text-charcoal-light">
-            No pending invitations. Send one above to add a teammate.
+            No pending invitations. Use the Invite a teammate button to add someone.
           </div>
         )}
         {pendingInvites.length > 0 && (
@@ -364,20 +457,20 @@ function roleLabel(r: string): string {
     )}
 
     {canInvite && recentInvites.length > 0 && (
-      <div x-data="{ open: false }" class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      <div x-data="{ openHistory: false }" class="bg-white rounded-xl border border-gray-200 overflow-hidden">
         <button
-          @click="open = !open"
+          @click="openHistory = !openHistory"
           class="w-full px-5 py-4 flex items-center justify-between text-left hover:bg-gray-50 transition-colors"
         >
           <h2 class="text-base font-semibold text-charcoal-dark">
             Recent activity
             <span class="text-xs font-normal text-charcoal-light ml-2">{recentInvites.length} in last 30 days</span>
           </h2>
-          <svg class="w-4 h-4 text-gray-400 transition-transform" :class="open && 'rotate-180'" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg class="w-4 h-4 text-gray-400 transition-transform" :class="openHistory && 'rotate-180'" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
           </svg>
         </button>
-        <div x-show="open" x-cloak class="border-t border-gray-200">
+        <div x-show="openHistory" x-cloak class="border-t border-gray-200">
           <table class="w-full">
             <thead class="bg-gray-50 text-[11px] uppercase tracking-wider text-gray-500">
               <tr>
@@ -459,7 +552,25 @@ function roleLabel(r: string): string {
       flash._t = setTimeout(() => { flash.style.opacity = '0'; }, 1200);
     }
 
-    // Phase E.C.5 — member org-role dropdown : PATCH /members/{user_id}
+    // Doherty Threshold : keep the row's "N of M workspaces" summary in sync
+    // after a grant change, without a reload.
+    function refreshWsCount(userId) {
+      const el = document.querySelector(`[data-ws-count-for="${userId}"]`);
+      if (!el) return;
+      const sels = document.querySelectorAll(`.client-grant-select[data-user-id="${userId}"]`);
+      const n = Array.from(sels).filter(s => s.value).length;
+      if (n === 0) {
+        el.textContent = 'No workspace access';
+        el.classList.add('text-amber-600', 'font-medium');
+        el.classList.remove('text-charcoal-dark');
+      } else {
+        el.textContent = `${n} of ${sels.length} workspaces`;
+        el.classList.remove('text-amber-600', 'font-medium');
+        el.classList.add('text-charcoal-dark');
+      }
+    }
+
+    // Phase E.C.5 - member org-role dropdown : PATCH /members/{user_id}
     document.querySelectorAll('.member-role-select').forEach(sel => {
       sel.addEventListener('change', async () => {
         const userId = sel.getAttribute('data-user-id');
@@ -489,7 +600,7 @@ function roleLabel(r: string): string {
       });
     });
 
-    // Phase E.C.5 — per-client access dropdown : PUT (grant/update) or DELETE (revoke)
+    // Phase E.C.5 - per-client access dropdown : PUT (grant/update) or DELETE (revoke)
     document.querySelectorAll('.client-grant-select').forEach(sel => {
       sel.addEventListener('change', async () => {
         const userId = sel.getAttribute('data-user-id');
@@ -509,6 +620,7 @@ function roleLabel(r: string): string {
           if (res.ok) {
             sel.setAttribute('data-original-role', newRole);
             flashSaved(sel);
+            refreshWsCount(userId);
           } else {
             const data = await res.json().catch(() => ({}));
             alert(typeof data.detail === 'string' ? data.detail : 'Could not update access.');
@@ -523,7 +635,7 @@ function roleLabel(r: string): string {
       });
     });
 
-    // Phase E.C.5 — remove member from org (cascades client grants)
+    // Phase E.C.5 - remove member from org (cascades client grants)
     document.querySelectorAll('.member-remove-btn').forEach(btn => {
       btn.addEventListener('click', async () => {
         const email = btn.getAttribute('data-email');

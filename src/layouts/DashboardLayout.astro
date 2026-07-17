@@ -71,6 +71,9 @@ let activeOrg: OrgItem | null = null;
 type ClientItem = { id: string; name: string; brand?: string | null; apps?: Record<string, any> };
 let scanCredits = 0;
 let contentCredits = 0;
+// False when the credits fetch failed (deploy window, timeout) - the sidebar
+// then says "unavailable" instead of lying with a 0 balance.
+let creditsOk = false;
 let clientApps: Record<string, any> = {};
 let isSuperadmin = false;
 // Sprint 15.3 - expose the full client list + active one to the sidebar so
@@ -106,7 +109,10 @@ try {
         const credits = await creditsRes.json();
         scanCredits = credits.scan || 0;
         contentCredits = credits.content || 0;
+        creditsOk = true;
       }
+    } else {
+      creditsOk = true; // no workspace yet = a legit 0, not a fetch failure
     }
   }
 } catch {}
@@ -676,16 +682,20 @@ const icons = {
           <span>My credits</span>
           <a href="/app/settings" class="text-coral hover:underline">Buy</a>
         </div>
-        <div class="flex gap-3 text-xs">
-          <div class="flex items-center gap-1.5">
-            <span class="w-2 h-2 rounded-full bg-blue-400"></span>
-            <span class="text-gray-300 tabular-nums">{scanCredits.toLocaleString('fr-FR')} scans</span>
+        {creditsOk ? (
+          <div class="flex gap-3 text-xs">
+            <div class="flex items-center gap-1.5">
+              <span class="w-2 h-2 rounded-full bg-blue-400"></span>
+              <span class="text-gray-300 tabular-nums">{scanCredits.toLocaleString('fr-FR')} scans</span>
+            </div>
+            <div class="flex items-center gap-1.5">
+              <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+              <span class="text-gray-300 tabular-nums">{contentCredits.toLocaleString('fr-FR')} content</span>
+            </div>
           </div>
-          <div class="flex items-center gap-1.5">
-            <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
-            <span class="text-gray-300 tabular-nums">{contentCredits.toLocaleString('fr-FR')} content</span>
-          </div>
-        </div>
+        ) : (
+          <p class="text-xs text-gray-500">Balance unavailable - refresh to retry</p>
+        )}
       </div>
 
       <!-- User + Settings (Serial Position: bottom) -->

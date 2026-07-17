@@ -34,6 +34,9 @@ export interface ScanHeaderData {
     completed_at: string | null;
     summary: any;
   }>;
+  // In-flight rescan of this lineage (status pending/scanning, < 24h old).
+  // Feeds the header's "Rescan running" chip ; null when nothing is running.
+  activeRun: { id: string; status: string; progress_pct: number; progress_message: string | null } | null;
   grade: { letter: string; bg: string; text: string; sub: string; label: string };
   currentRate: number;
   delta: number | null;
@@ -107,7 +110,7 @@ export async function fetchScanHeader(
     if (resScan.status === 404) {
       return {
         scan: { id: scanId, domain: '', name: '', focus_brand: null, status: 'not_found', completed_at: null },
-        overview: null, runs: [], grade: getGrade(null), currentRate: 0, delta: null, eraNote: null, sparkSvg: '',
+        overview: null, runs: [], activeRun: null, grade: getGrade(null), currentRate: 0, delta: null, eraNote: null, sparkSvg: '',
         tabCounts: { topics: 0, personas: 0, questions: 0, citations: 0, actions: 0 }, error: 'Scan not found',
       };
     }
@@ -123,9 +126,27 @@ export async function fetchScanHeader(
     const oppsSummary = oppsData?.summary || {};
 
     // Lineage
-    const runs = (lineageData?.runs || [])
+    const allRuns = lineageData?.runs || [];
+    const runs = allRuns
       .filter((r: any) => r.status === 'completed')
       .sort((a: any, b: any) => (a.run_index ?? 0) - (b.run_index ?? 0));
+    // In-flight rescan detection. The 24h cut guards against crashed runs
+    // stuck at status='scanning' forever - a real rescan takes < 1h.
+    const IN_FLIGHT_MAX_AGE_MS = 24 * 3600 * 1000;
+    const activeRaw = allRuns.find((r: any) => {
+      if (r.status !== 'pending' && r.status !== 'scanning') return false;
+      if (!r.created_at) return false;
+      const iso = r.created_at.endsWith('Z') || r.created_at.includes('+') ? r.created_at : r.created_at + 'Z';
+      return Date.now() - new Date(iso).getTime() < IN_FLIGHT_MAX_AGE_MS;
+    });
+    const activeRun = activeRaw
+      ? {
+          id: activeRaw.id,
+          status: activeRaw.status,
+          progress_pct: activeRaw.progress_pct || 0,
+          progress_message: activeRaw.progress_message || null,
+        }
+      : null;
     const hasLineage = runs.length > 1;
     const sparkRates = runs.map((r: any) => r.summary?.brand_mention_rate ?? null).filter((v: any) => v !== null);
     const prevRun = hasLineage ? runs[runs.length - 2] : null;
@@ -170,6 +191,7 @@ export async function fetchScanHeader(
       },
       overview,
       runs,
+      activeRun,
       grade: getGrade(currentRate),
       currentRate,
       delta,
@@ -181,7 +203,7 @@ export async function fetchScanHeader(
   } catch (e: any) {
     return {
       scan: { id: scanId, domain: '', name: '', focus_brand: null, status: 'error', completed_at: null },
-      overview: null, runs: [], grade: getGrade(null), currentRate: 0, delta: null, eraNote: null, sparkSvg: '',
+      overview: null, runs: [], activeRun: null, grade: getGrade(null), currentRate: 0, delta: null, eraNote: null, sparkSvg: '',
       tabCounts: { topics: 0, personas: 0, questions: 0, citations: 0, actions: 0 }, error: e.message,
     };
   }

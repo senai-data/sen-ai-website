@@ -545,6 +545,36 @@ def _send_reset_email(email: str, reset_url: str) -> bool:
         return False
 
 
+def _send_google_signin_email(email: str, signin_url: str) -> bool:
+    """Nudge a Google-OAuth-only account (no password) back to the Google button
+    instead of a reset link it can't use. Returns False if Resend is not configured."""
+    if not settings.resend_api_key:
+        logger.warning(f"RESEND_API_KEY not set — Google sign-in hint for {email}: {signin_url}")
+        return False
+    try:
+        import resend
+        resend.api_key = settings.resend_api_key
+        resend.Emails.send({
+            "from": settings.resend_from_email,
+            "to": [email],
+            "subject": "Sign in to sen-ai.fr with Google",
+            "html": (
+                f"<p>You asked to reset your sen-ai.fr password, but this account "
+                f"was created with <strong>Google Sign-In</strong> and has no password.</p>"
+                f'<p><a href="{signin_url}" style="display:inline-block;padding:12px 24px;'
+                f'background:#E8604C;color:white;border-radius:8px;text-decoration:none;'
+                f'font-weight:bold;">Continue with Google</a></p>'
+                f"<p>You can add a password later from your account settings once signed in.</p>"
+                f"<p>If you didn't request this, you can safely ignore this email.</p>"
+                f"<p>— sen-ai.fr</p>"
+            ),
+        })
+        return True
+    except Exception:
+        logger.exception(f"Failed to send Google sign-in hint to {email}")
+        return False
+
+
 @router.post("/forgot-password")
 @limiter.limit("5/minute")
 async def forgot_password(request: Request, req: ForgotPasswordRequest, db: Session = Depends(get_db)):
@@ -554,6 +584,10 @@ async def forgot_password(request: Request, req: ForgotPasswordRequest, db: Sess
         token = _create_reset_token(str(user.id), user.email)
         reset_url = f"{settings.frontend_url}/reset-password?token={token}"
         _send_reset_email(user.email, reset_url)
+    elif user and user.google_id:
+        # Google-OAuth-only account (no password): a reset link is useless, so
+        # point them back to the Google button instead of silently doing nothing.
+        _send_google_signin_email(user.email, f"{settings.frontend_url}/api/auth/google")
     # Always return success to prevent account enumeration
     return {"ok": True, "message": "If this email exists, a reset link has been sent."}
 

@@ -60,8 +60,15 @@ if (headerData.scan.status !== 'completed' && headerData.scan.status !== 'error'
 
 const { scan, grade, currentRate, delta, eraNote, sparkSvg, runs, tabCounts, overview } = headerData;
 
-// Resolve root scan ID for URL consistency
-const rootScanId = runs.length > 0 ? (runs[0]?.id || scanId) : scanId;
+// Resolve the TRUE root (parent_scan_id null) - NOT runs[0] : imported
+// lineages carry the root at run_index 5 with antedated children 1-4
+// (seo-llm history import), so position in the run order proves nothing.
+// The root is where lineage settings (model_overrides, runs_depth) live.
+const rootRun: any = runs.find((r: any) => !(r as any).parent_scan_id) || runs[0] || null;
+const rootScanId = rootRun?.id || scanId;
+// Custom model override active on this lineage ? (root config rides the
+// lineage payload - no extra fetch). Feeds the state dot on Rescan settings.
+const hasModelOverrides = Object.keys((rootRun?.config?.model_overrides) || {}).length > 0;
 
 // Tab label mapping for breadcrumb
 const tabLabels: Record<string, string> = {
@@ -200,54 +207,94 @@ const rangeContext = rangeParam === 'all' && runs.length > 1 ? ` (${runs.length}
           <span x-show="nextLabel && !err" x-text="nextLabel" class="text-[10px] text-charcoal-light"></span>
           <span x-show="err" x-text="err" class="text-[10px] text-red-500"></span>
         </div>
-        {/* Model versions (BYOK selector) - a LINEAGE setting stored on the
-            root, editable between scans. The next rescan applies it and the
-            trend marks a new model era (P3) : history stays one continuous
-            series across model changes, platform upgrades included. */}
+        {/* Rescan settings - LINEAGE settings stored on the root, editable
+            between scans : Sampling (N runs, precision - no era needed, the
+            CI display carries it) + model versions (BYOK selector - the next
+            rescan applies it and the trend marks a new model era, P3).
+            History stays one continuous series across every change. */}
         <div x-data={`modelsPanel('${rootScanId}')`} class="relative">
           <button
             @click="toggle()"
             class="text-xs border border-gray-200 rounded-lg px-2 py-1.5 text-charcoal-dark bg-white hover:border-coral focus:outline-none focus:border-coral"
-            title="AI model versions used by the next rescan"
+            title={hasModelOverrides
+              ? 'Sampling and AI model versions used by the next rescan - custom model version active'
+              : 'Sampling and AI model versions used by the next rescan'}
           >
-            AI models
+            Rescan settings
+            {hasModelOverrides && <span class="inline-block w-1.5 h-1.5 rounded-full bg-coral ml-1 align-middle"></span>}
           </button>
           <div x-show="open" @click.outside="open = false" style="display:none"
                class="absolute right-0 mt-2 w-80 bg-white border border-gray-200 rounded-xl shadow-lg p-4 z-30 text-left">
-            <p class="text-xs font-semibold text-charcoal-dark mb-2">Next rescan runs on</p>
+            <p class="text-xs font-semibold text-charcoal-dark mb-2">Next rescan</p>
             <template x-if="loading">
               <p class="text-xs text-charcoal-light">Loading...</p>
             </template>
-            <template x-if="!loading && loaded && !byokCovered">
-              <p class="text-xs text-charcoal-light">
-                Scans run on the sen-ai platform models. Platform model upgrades are applied
-                automatically and annotated on your trend as a model era - your history stays
-                one continuous series. Choosing specific model versions requires your own API
-                keys for OpenAI, Anthropic and Gemini :
-                <a href="/app/settings/api-keys" class="text-coral hover:underline">Manage API keys</a>.
-              </p>
-            </template>
-            <template x-if="!loading && loaded && byokCovered">
+            <template x-if="!loading && loaded">
               <div>
-                <template x-for="prov in Object.keys(options)" :key="prov">
-                  <label class="block mb-2 text-[11px] text-charcoal-light">
-                    <span class="font-semibold text-charcoal-dark" x-text="prov === 'openai' ? 'OpenAI' : 'Gemini'"></span>
-                    <select class="mt-1 w-full text-[11px] border border-gray-200 rounded px-1.5 py-1 bg-white"
-                            :disabled="saving || (options[prov] || []).length < 2"
-                            :value="selected(prov)"
-                            @change="save(prov, $event.target.value)">
-                      <template x-for="opt in options[prov]" :key="opt.model">
-                        <option :value="opt.model" :title="opt.note + ' - ' + opt.price"
-                                x-text="opt.label + ' - ' + (opt.tag || '') + ' - ' + opt.price"></option>
-                      </template>
-                    </select>
-                  </label>
+                <label class="block mb-1 text-[11px] text-charcoal-light">
+                  <span class="font-semibold text-charcoal-dark">Sampling</span>
+                  <select class="mt-1 w-full text-[11px] border border-gray-200 rounded px-1.5 py-1 bg-white"
+                          :disabled="saving"
+                          @change="saveSampling($event.target.value)"
+                          title="How many times each question is asked to each AI. More runs = a mention rate with a real margin of error. 1 credit = 1 question x 1 run.">
+                    <option value="1" :selected="runsDepth === 1">1 run (single pass)</option>
+                    <option value="5" :selected="runsDepth === 5">5 runs</option>
+                    <option value="10" :selected="runsDepth === 10">10 runs (recommended)</option>
+                    <option value="20" :selected="runsDepth === 20">20 runs</option>
+                  </select>
+                </label>
+                <p class="text-[10px] text-charcoal-light mb-2" x-text="creditsLine()"></p>
+
+                <div class="mb-2 text-[11px] text-charcoal-light border-t border-gray-100 pt-2">
+                  <span class="font-semibold text-charcoal-dark">AIs surveyed</span>
+                  <div class="flex gap-4 mt-1">
+                    <label class="inline-flex items-center gap-1.5 cursor-pointer">
+                      <input type="checkbox" :checked="providers.includes('openai')" :disabled="saving" @change="toggleProvider('openai')" />
+                      OpenAI
+                    </label>
+                    <label class="inline-flex items-center gap-1.5 cursor-pointer">
+                      <input type="checkbox" :checked="providers.includes('gemini')" :disabled="saving" @change="toggleProvider('gemini')" />
+                      Gemini
+                    </label>
+                  </div>
+                  <p class="text-[10px] text-charcoal-light mt-1">
+                    Adding or removing an AI is annotated on your trend as a coverage change.
+                    More AIs (Mistral, Claude) will appear here when their scanning ships.
+                  </p>
+                </div>
+
+                <template x-if="!byokCovered">
+                  <p class="text-[11px] text-charcoal-light border-t border-gray-100 pt-2">
+                    <span class="font-semibold text-charcoal-dark">AI model versions :</span>
+                    sen-ai platform models. Platform upgrades apply automatically and are
+                    annotated on your trend as a model era - your history stays one continuous
+                    series. Choosing specific versions requires your own API keys :
+                    <a href="/app/settings/api-keys" class="text-coral hover:underline">Manage API keys</a>.
+                  </p>
                 </template>
-                <p class="text-[10px] text-charcoal-light mt-2">
-                  Applies from the next rescan, to this tracker's whole future. Changing models
-                  never breaks your history : the trend marks a new model era at that point
-                  instead of pretending the numbers are comparable across it.
-                </p>
+                <template x-if="byokCovered">
+                  <div class="border-t border-gray-100 pt-2">
+                    <template x-for="prov in Object.keys(options)" :key="prov">
+                      <label class="block mb-1 text-[11px] text-charcoal-light" x-show="providers.includes(prov)">
+                        <span class="font-semibold text-charcoal-dark" x-text="prov === 'openai' ? 'OpenAI model' : 'Gemini model'"></span>
+                        <select class="mt-1 w-full text-[11px] border border-gray-200 rounded px-1.5 py-1 bg-white"
+                                :disabled="saving || (options[prov] || []).length < 2"
+                                @change="save(prov, $event.target.value)">
+                          <template x-for="opt in options[prov]" :key="opt.model">
+                            <option :value="opt.model" :title="(opt.tag || opt.note) + ' - ' + opt.price"
+                                    :selected="selected(prov) === opt.model"
+                                    x-text="opt.label"></option>
+                          </template>
+                        </select>
+                        <span class="block text-[10px] text-charcoal-light mt-0.5" x-text="optionNote(prov)"></span>
+                      </label>
+                    </template>
+                    <p class="text-[10px] text-charcoal-light mt-1">
+                      Changing models never breaks your history : the trend marks a new model
+                      era at that point instead of pretending the numbers are comparable across it.
+                    </p>
+                  </div>
+                </template>
                 <p class="text-[10px] mt-1" :class="err ? 'text-red-500' : 'text-emerald-600'"
                    x-show="err || savedMsg" x-text="err || savedMsg"></p>
               </div>
@@ -447,6 +494,7 @@ const rangeContext = rangeParam === 'all' && runs.length > 1 ? ` (${runs.length}
       Alpine.data('modelsPanel', (rootId) => ({
         open: false, loading: false, loaded: false,
         byokCovered: false, options: {}, overrides: {},
+        runsDepth: 1, activeQuestions: 0, providers: [],
         saving: false, err: '', savedMsg: '',
         toggle() { this.open = !this.open; if (this.open && !this.loaded && !this.loading) this.load(); },
         async load() {
@@ -458,14 +506,74 @@ const rangeContext = rangeParam === 'all' && runs.length > 1 ? ` (${runs.length}
               this.byokCovered = !!j.byok_covered;
               this.options = j.model_options || {};
               this.overrides = j.model_overrides || {};
+              this.runsDepth = j.runs_depth || 1;
+              this.activeQuestions = j.active_questions || 0;
+              this.providers = j.providers || ['openai'];
               this.loaded = true;
             } else { this.err = 'Could not load model options (' + r.status + ')'; }
           } catch { this.err = 'Network error'; }
           this.loading = false;
         },
+        creditsLine() {
+          const full = this.activeQuestions * this.runsDepth;
+          const credits = this.byokCovered ? Math.ceil(full / 2) : full;
+          return this.activeQuestions + ' questions x ' + this.runsDepth + ' run' + (this.runsDepth > 1 ? 's' : '')
+            + (this.byokCovered ? ' x 50% BYOK' : '') + ' = ' + credits.toLocaleString('en-US')
+            + ' credit' + (credits !== 1 ? 's' : '') + ' per rescan';
+        },
+        async saveSampling(v) {
+          const n = Math.max(1, Math.min(20, parseInt(v, 10) || 1));
+          const prev = this.runsDepth;
+          this.runsDepth = n; this.saving = true; this.err = ''; this.savedMsg = '';
+          try {
+            const r = await fetch('/api/scans/' + rootId + '/config', {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ runs_depth: n }),
+            });
+            if (r.ok) { this.savedMsg = 'Saved - applies from the next rescan'; }
+            else {
+              const j = await r.json().catch(() => ({}));
+              const d = j && j.detail;
+              this.err = (typeof d === 'string' ? d : 'Save failed (' + r.status + ')');
+              this.runsDepth = prev;
+            }
+          } catch { this.err = 'Network error'; this.runsDepth = prev; }
+          this.saving = false;
+        },
         selected(p) {
           const list = this.options[p] || [];
           return this.overrides[p] || (list[0] && list[0].model) || '';
+        },
+        optionNote(p) {
+          const e = (this.options[p] || []).find(o => o.model === this.selected(p));
+          return e ? (e.tag || e.note) + ' - ' + e.price : '';
+        },
+        async toggleProvider(p) {
+          const has = this.providers.includes(p);
+          const next = has ? this.providers.filter(x => x !== p) : this.providers.concat([p]);
+          if (!next.length) {
+            this.err = 'Keep at least one AI';
+            this.providers = this.providers.slice(); // re-sync the checkbox
+            return;
+          }
+          const prev = this.providers;
+          this.providers = next; this.saving = true; this.err = ''; this.savedMsg = '';
+          try {
+            const r = await fetch('/api/scans/' + rootId + '/config', {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ providers: next }),
+            });
+            if (r.ok) { this.savedMsg = 'Saved - applies from the next rescan'; }
+            else {
+              const j = await r.json().catch(() => ({}));
+              const d = j && j.detail;
+              this.err = (typeof d === 'string' ? d : 'Save failed (' + r.status + ')');
+              this.providers = prev;
+            }
+          } catch { this.err = 'Network error'; this.providers = prev; }
+          this.saving = false;
         },
         async save(p, model) {
           const prev = Object.assign({}, this.overrides);

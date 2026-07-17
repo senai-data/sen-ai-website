@@ -2235,11 +2235,14 @@ const isReviewing = effectiveView !== null && (
                 <span x-text="prov === 'openai' ? 'OpenAI' : 'Gemini'"></span>
                 <select class="text-[11px] border border-gray-200 rounded px-1.5 py-0.5 bg-white"
                         :disabled="savingModels"
-                        :value="selectedModel(prov)"
                         @change="saveModelChoice(prov, $event.target.value)">
+                  {/* :selected per option, NOT :value on the select - Alpine
+                      evaluates :value before the template options exist, so
+                      a stored override silently displayed the default. */}
                   <template x-for="opt in modelChoices(prov)" :key="opt.model">
                     <option :value="opt.model"
-                            :title="opt.note + ' · ' + opt.price"
+                            :title="(opt.tag || opt.note) + ' · ' + opt.price"
+                            :selected="selectedModel(prov) === opt.model"
                             x-text="opt.label + ' · ' + (opt.tag || opt.note) + ' · ' + opt.price"></option>
                   </template>
                 </select>

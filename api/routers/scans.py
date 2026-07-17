@@ -441,10 +441,16 @@ async def update_scan_config(scan_id: str, req: ScanConfigUpdate, user=Depends(g
             raise HTTPException(400, "At least one valid provider required (openai, gemini)")
         config["providers"] = providers
     if req.runs_depth is not None:
-        # N-runs (T4) - only meaningful before launch ; credits are computed
-        # at launch time from this value (questions x runs_depth).
-        if scan.status in ("scanning", "completed"):
-            raise HTTPException(400, "runs_depth can only change before launch")
+        # N-runs sampling - a LINEAGE-level setting like model_overrides :
+        # editable BETWEEN scans on the ROOT (credits are computed at launch/
+        # rescan time from the current value, so billing stays correct),
+        # never mid-scan, never on a child (rescans copy the root config).
+        # Changing N changes precision, not the instrument - the CI display
+        # already carries it, no era boundary needed.
+        if scan.parent_scan_id is not None:
+            raise HTTPException(400, "Sampling lives on the tracker root scan - edit it there")
+        if scan.status == "scanning":
+            raise HTTPException(400, "Sampling cannot change while a scan is running")
         config["runs_depth"] = max(1, min(20, int(req.runs_depth)))
     if req.model_overrides is not None:
         # Model-version selector : a LINEAGE-level setting stored on the ROOT

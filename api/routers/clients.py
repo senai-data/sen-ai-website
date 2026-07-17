@@ -8,7 +8,11 @@ from sqlalchemy.orm import Session
 
 from sqlalchemy.orm.attributes import flag_modified
 
-from models import Client, ClientBrand, ClientBrandPage, ClientCredit, Job, ScanBrandClassification, UserClient, get_db
+from models import (
+    Client, ClientBrand, ClientBrandPage, ClientCredit, Job,
+    OrganizationUser, OrgUserClient, Scan, ScanBrandClassification,
+    UserClient, get_db,
+)
 from services.access import (
     check_client_access, list_user_clients,
     resolve_active_client_id, resolve_active_organization_id,
@@ -144,6 +148,83 @@ async def set_active_client(
 async def clear_active_client(response: Response, user=Depends(get_current_user)):
     response.delete_cookie("active_client_id", path="/")
     return {"ok": True}
+
+
+# NB : keep this registered AFTER the literal "/active" route above -
+# otherwise DELETE /api/clients/active would match {client_id}="active".
+@router.delete("/{client_id}")
+async def delete_client(
+    client_id: str,
+    response: Response,
+    active_client_id: str | None = Cookie(default=None),
+    user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Delete an EMPTY client workspace - the 'created one by mistake'
+    case (observed live 2026-07-17 : stray workspace, no way to remove it).
+
+    Guards :
+      - caller must be owner/admin of the workspace's organization.
+        Workspace managers can rename ; deleting changes the org's
+        structure, so it follows the same bar as creating workspaces.
+      - the workspace must be empty : any scan or credit-ledger row
+        -> 409 with the reason. Content + brands + topics all hang off
+        scans, so the scan guard covers them ; credits are money and
+        never silently destroyed. Deleting a workspace with real history
+        stays a support operation on purpose.
+    """
+    client = db.query(Client).filter(Client.id == client_id).first()
+    if not client:
+        raise HTTPException(404, "Workspace not found")
+    if not client.organization_id:
+        raise HTTPException(
+            409, "This workspace isn't attached to an organization - contact support.",
+        )
+
+    membership = (
+        db.query(OrganizationUser)
+        .filter(
+            OrganizationUser.organization_id == client.organization_id,
+            OrganizationUser.user_id == user.id,
+        )
+        .first()
+    )
+    if not membership or membership.role not in ("owner", "admin"):
+        raise HTTPException(
+            403, "Only an organization owner or admin can delete a workspace",
+        )
+
+    scan_count = db.query(Scan).filter(Scan.client_id == client.id).count()
+    if scan_count:
+        raise HTTPException(
+            409,
+            f"This workspace has {scan_count} scan{'s' if scan_count > 1 else ''}. "
+            f"Only empty workspaces can be deleted - contact support to remove one with history.",
+        )
+    credit_rows = db.query(ClientCredit).filter(ClientCredit.client_id == client.id).count()
+    if credit_rows:
+        raise HTTPException(
+            409,
+            "This workspace has a credit history. "
+            "Only empty workspaces can be deleted - contact support.",
+        )
+
+    name = client.name
+    db.query(OrgUserClient).filter(OrgUserClient.client_id == client.id).delete(synchronize_session=False)
+    db.query(UserClient).filter(UserClient.client_id == client.id).delete(synchronize_session=False)
+    try:
+        db.delete(client)
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger_msg = "Workspace still has attached data and can't be deleted - contact support."
+        raise HTTPException(409, logger_msg)
+
+    # Only clear the pinned-workspace cookie when it pointed at the deleted
+    # workspace - deleting workspace B shouldn't unpin workspace A.
+    if active_client_id == str(client_id):
+        response.delete_cookie("active_client_id", path="/")
+    return {"ok": True, "deleted": name}
 
 
 @router.post("/")

@@ -286,7 +286,11 @@ const icons = {
                 />
                 <p x-show="error" x-text="error" class="text-[9px] text-red-400 mt-0.5"></p>
               </div>
-              {(activeOrg.role === 'owner' || activeOrg.role === 'admin') && !activeOrg.is_personal && (
+              {/* Rename allowed on personal orgs too : the auto-generated
+                  name shows everywhere (switcher, members page) and some
+                  'personal' orgs are de facto shared (4-member org observed
+                  live 2026-07-17) - the API has always allowed it. */}
+              {(activeOrg.role === 'owner' || activeOrg.role === 'admin') && (
                 <button
                   type="button"
                   @click="editing = !editing; if (editing) { name = $el.closest('.org-edit-row').dataset.orgName; $nextTick(() => $refs.orgInput?.focus()); }"
@@ -300,11 +304,12 @@ const icons = {
               )}
             </div>
           ) : (
-            <div x-data="{ open: false }" class="relative">
+            <div x-data="{ open: false }" class="relative" @click.outside="open = false" @keydown.escape.window="open = false">
+              {/* @click.outside sits on the wrapper (not the trigger) so
+                  clicks INSIDE the panel - e.g. the inline rename input on
+                  the active row - don't close the dropdown. */}
               <button
                 @click="open = !open"
-                @click.outside="open = false"
-                @keydown.escape.window="open = false"
                 class="w-full flex items-center gap-2.5 px-2 py-1.5 rounded-md hover:bg-white/5 transition-colors group"
                 aria-haspopup="listbox"
                 :aria-expanded="open"
@@ -331,33 +336,76 @@ const icons = {
                 class="absolute left-0 right-0 top-full mt-1 bg-charcoal border border-white/10 rounded-md shadow-xl py-1 z-50"
                 role="listbox"
               >
+                {/* Active org row : not a switch target, so it hosts the
+                    rename affordance instead. Before this, org rename only
+                    existed in the mono-org chip - a user in 2+ orgs had NO
+                    way to rename any org (reported live 2026-07-17). */}
                 {organizations.map(org => (
-                  <button
-                    type="button"
-                    data-org-id={org.id}
-                    data-client-count={org.client_count}
-                    class:list={[
-                      'org-switch-btn w-full flex items-center gap-2.5 px-2.5 py-2 hover:bg-white/5 transition-colors text-left',
-                      org.is_active && 'bg-white/[0.03]',
-                    ]}
-                    role="option"
-                    aria-selected={org.is_active ? 'true' : 'false'}
-                  >
-                    <div class="w-6 h-6 rounded bg-white/10 flex items-center justify-center text-white text-[11px] font-bold uppercase shrink-0">
-                      {org.name?.[0] || '?'}
-                    </div>
-                    <div class="min-w-0 flex-1">
-                      <div class="text-[13px] text-white truncate">{org.name}</div>
-                      <div class="text-[10px] text-gray-500">
-                        {org.is_personal ? 'Personal' : `${org.client_count} workspace${org.client_count !== 1 ? 's' : ''} · ${org.member_count} member${org.member_count !== 1 ? 's' : ''}`}
+                  org.is_active ? (
+                    <div
+                      x-data="{ editing: false, name: '', loading: false, error: '' }"
+                      data-org-id={org.id}
+                      data-org-name={org.name}
+                      class="org-edit-row group flex items-center gap-2.5 px-2.5 py-2 bg-white/[0.03]"
+                      role="option"
+                      aria-selected="true"
+                    >
+                      <div class="w-6 h-6 rounded bg-white/10 flex items-center justify-center text-white text-[11px] font-bold uppercase shrink-0">
+                        {org.name?.[0] || '?'}
                       </div>
-                    </div>
-                    {org.is_active && (
-                      <svg class="w-4 h-4 text-coral shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <div class="min-w-0 flex-1" x-show="!editing">
+                        <div class="text-[13px] text-white truncate">{org.name}</div>
+                        <div class="text-[10px] text-gray-500">
+                          {org.is_personal ? 'Personal' : `${org.client_count} workspace${org.client_count !== 1 ? 's' : ''} · ${org.member_count} member${org.member_count !== 1 ? 's' : ''}`}
+                        </div>
+                      </div>
+                      <div class="min-w-0 flex-1" x-show="editing" x-cloak>
+                        <input
+                          x-ref="orgInput"
+                          x-model="name"
+                          type="text" maxlength="120"
+                          @keydown.enter.prevent="window.__renameOrg($el.closest('.org-edit-row'), name, $data)"
+                          @keydown.escape.stop="editing = false; error = ''"
+                          class="w-full bg-white/5 border border-white/20 rounded text-[12px] text-white px-2 py-1 focus:outline-none focus:border-coral"
+                        />
+                        <p x-show="error" x-text="error" class="text-[9px] text-red-400 mt-0.5"></p>
+                      </div>
+                      {(activeOrg.role === 'owner' || activeOrg.role === 'admin') && (
+                        <button
+                          type="button"
+                          @click="editing = !editing; if (editing) { name = $el.closest('.org-edit-row').dataset.orgName; $nextTick(() => $refs.orgInput?.focus()); }"
+                          class="opacity-0 group-hover:opacity-100 transition-opacity text-gray-500 hover:text-white p-1 shrink-0"
+                          :class="editing && 'opacity-100 text-coral'"
+                          title="Rename organization"
+                        >
+                          <svg x-show="!editing" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+                          <svg x-show="editing" x-cloak class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                        </button>
+                      )}
+                      <svg x-show="!editing" class="w-4 h-4 text-coral shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7" />
                       </svg>
-                    )}
-                  </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      data-org-id={org.id}
+                      data-client-count={org.client_count}
+                      class="org-switch-btn w-full flex items-center gap-2.5 px-2.5 py-2 hover:bg-white/5 transition-colors text-left"
+                      role="option"
+                      aria-selected="false"
+                    >
+                      <div class="w-6 h-6 rounded bg-white/10 flex items-center justify-center text-white text-[11px] font-bold uppercase shrink-0">
+                        {org.name?.[0] || '?'}
+                      </div>
+                      <div class="min-w-0 flex-1">
+                        <div class="text-[13px] text-white truncate">{org.name}</div>
+                        <div class="text-[10px] text-gray-500">
+                          {org.is_personal ? 'Personal' : `${org.client_count} workspace${org.client_count !== 1 ? 's' : ''} · ${org.member_count} member${org.member_count !== 1 ? 's' : ''}`}
+                        </div>
+                      </div>
+                    </button>
+                  )
                 ))}
               </div>
             </div>
@@ -371,13 +419,13 @@ const icons = {
             <div class="mt-2">
               {clients.length < 2 ? (
                 <div
-                  x-data="{ editing: false, name: '', loading: false, error: '' }"
+                  x-data="{ editing: false, confirming: false, name: '', loading: false, error: '' }"
                   data-client-id={activeClient.id}
                   data-client-name={activeClient.name}
                   class="client-edit-row group flex items-center gap-2 px-2 py-1.5 rounded-md bg-white/[0.03]"
                 >
                   <svg class="w-4 h-4 text-gray-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
-                  <div class="min-w-0 flex-1" x-show="!editing">
+                  <div class="min-w-0 flex-1" x-show="!editing && !confirming">
                     <div class="text-[12px] text-white truncate">{activeClient.name}</div>
                     <div class="text-[10px] text-gray-500">Active workspace</div>
                   </div>
@@ -392,9 +440,22 @@ const icons = {
                     />
                     <p x-show="error" x-text="error" class="text-[9px] text-red-400 mt-0.5"></p>
                   </div>
+                  <div class="min-w-0 flex-1" x-show="confirming" x-cloak>
+                    <div class="text-[11px] text-red-300">Delete this workspace?</div>
+                    <div class="flex items-center gap-2.5 mt-0.5">
+                      <button
+                        type="button"
+                        @click="window.__deleteClient($el.closest('.client-edit-row'), $data)"
+                        :disabled="loading"
+                        class="text-[11px] font-medium text-red-400 hover:text-red-300 disabled:text-gray-500"
+                      ><span x-show="!loading">Delete</span><span x-show="loading" x-cloak>Deleting...</span></button>
+                      <button type="button" @click="confirming = false; error = ''" class="text-[11px] text-gray-400 hover:text-white">Cancel</button>
+                    </div>
+                    <p x-show="error" x-text="error" class="text-[9px] text-red-400 mt-0.5"></p>
+                  </div>
                   <button
                     type="button"
-                    @click="editing = !editing; if (editing) { name = $el.closest('.client-edit-row').dataset.clientName; $nextTick(() => $refs.wsInput?.focus()); }"
+                    @click="confirming = false; editing = !editing; if (editing) { name = $el.closest('.client-edit-row').dataset.clientName; $nextTick(() => $refs.wsInput?.focus()); }"
                     class="opacity-0 group-hover:opacity-100 transition-opacity text-gray-500 hover:text-white p-1 -mr-1"
                     :class="editing && 'opacity-100 text-coral'"
                     title="Rename workspace"
@@ -402,13 +463,25 @@ const icons = {
                     <svg x-show="!editing" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
                     <svg x-show="editing" x-cloak class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
                   </button>
+                  {/* Delete : org owner/admin only (same bar as creating a
+                      workspace). The API refuses non-empty workspaces with
+                      an explicit 409, surfaced inline. */}
+                  {(activeOrg.role === 'owner' || activeOrg.role === 'admin') && (
+                    <button
+                      type="button"
+                      @click="editing = false; confirming = !confirming; error = ''"
+                      class="opacity-0 group-hover:opacity-100 transition-opacity text-gray-500 hover:text-red-400 p-1 -mr-1"
+                      :class="confirming && 'opacity-100 text-red-400'"
+                      title="Delete workspace"
+                    >
+                      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                    </button>
+                  )}
                 </div>
               ) : (
-                <div x-data="{ open: false }" class="relative">
+                <div x-data="{ open: false }" class="relative" @click.outside="open = false" @keydown.escape.window="open = false">
                   <button
                     @click="open = !open"
-                    @click.outside="open = false"
-                    @keydown.escape.window="open = false"
                     class="w-full flex items-center gap-2 px-2 py-1.5 rounded-md bg-white/[0.03] hover:bg-white/[0.06] transition-colors group"
                   >
                     <svg class="w-4 h-4 text-gray-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
@@ -420,21 +493,77 @@ const icons = {
                   </button>
                   <div x-show="open" x-transition.opacity.duration.100ms x-cloak
                        class="absolute left-0 right-0 top-full mt-1 bg-charcoal border border-white/10 rounded-md shadow-xl py-1 z-50 max-h-72 overflow-y-auto">
+                    {/* Active workspace row : hosts rename + delete (it is
+                        not a switch target). Before this, workspace rename
+                        only existed in the mono-client pill - agencies with
+                        2+ workspaces had no rename affordance at all. */}
                     {clients.map(c => (
-                      <button
-                        type="button"
-                        data-client-id={c.id}
-                        class:list={[
-                          'workspace-switch-btn w-full flex items-center gap-2 px-2.5 py-2 hover:bg-white/5 transition-colors text-left',
-                          c.id === activeClient.id && 'bg-white/[0.03]',
-                        ]}
-                      >
-                        <svg class="w-3.5 h-3.5 text-gray-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
-                        <span class="text-[12px] text-white truncate flex-1">{c.name}</span>
-                        {c.id === activeClient.id && (
-                          <svg class="w-3.5 h-3.5 text-coral shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg>
-                        )}
-                      </button>
+                      c.id === activeClient.id ? (
+                        <div
+                          x-data="{ editing: false, confirming: false, name: '', loading: false, error: '' }"
+                          data-client-id={c.id}
+                          data-client-name={c.name}
+                          class="client-edit-row group flex items-center gap-2 px-2.5 py-2 bg-white/[0.03]"
+                        >
+                          <svg class="w-3.5 h-3.5 text-gray-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
+                          <span class="text-[12px] text-white truncate flex-1" x-show="!editing && !confirming">{c.name}</span>
+                          <div class="min-w-0 flex-1" x-show="editing" x-cloak>
+                            <input
+                              x-ref="wsInput"
+                              x-model="name"
+                              type="text" maxlength="120"
+                              @keydown.enter.prevent="window.__renameClient($el.closest('.client-edit-row'), name, $data)"
+                              @keydown.escape.stop="editing = false; error = ''"
+                              class="w-full bg-white/5 border border-white/20 rounded text-[11px] text-white px-2 py-1 focus:outline-none focus:border-coral"
+                            />
+                            <p x-show="error" x-text="error" class="text-[9px] text-red-400 mt-0.5"></p>
+                          </div>
+                          <div class="min-w-0 flex-1" x-show="confirming" x-cloak>
+                            <div class="text-[11px] text-red-300">Delete this workspace?</div>
+                            <div class="flex items-center gap-2.5 mt-0.5">
+                              <button
+                                type="button"
+                                @click="window.__deleteClient($el.closest('.client-edit-row'), $data)"
+                                :disabled="loading"
+                                class="text-[11px] font-medium text-red-400 hover:text-red-300 disabled:text-gray-500"
+                              ><span x-show="!loading">Delete</span><span x-show="loading" x-cloak>Deleting...</span></button>
+                              <button type="button" @click="confirming = false; error = ''" class="text-[11px] text-gray-400 hover:text-white">Cancel</button>
+                            </div>
+                            <p x-show="error" x-text="error" class="text-[9px] text-red-400 mt-0.5"></p>
+                          </div>
+                          <button
+                            type="button"
+                            @click="confirming = false; editing = !editing; if (editing) { name = $el.closest('.client-edit-row').dataset.clientName; $nextTick(() => $refs.wsInput?.focus()); }"
+                            class="opacity-0 group-hover:opacity-100 transition-opacity text-gray-500 hover:text-white p-0.5 shrink-0"
+                            :class="editing && 'opacity-100 text-coral'"
+                            title="Rename workspace"
+                          >
+                            <svg x-show="!editing" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+                            <svg x-show="editing" x-cloak class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                          </button>
+                          {(activeOrg.role === 'owner' || activeOrg.role === 'admin') && (
+                            <button
+                              type="button"
+                              @click="editing = false; confirming = !confirming; error = ''"
+                              class="opacity-0 group-hover:opacity-100 transition-opacity text-gray-500 hover:text-red-400 p-0.5 shrink-0"
+                              :class="confirming && 'opacity-100 text-red-400'"
+                              title="Delete workspace"
+                            >
+                              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                            </button>
+                          )}
+                          <svg x-show="!editing && !confirming" class="w-3.5 h-3.5 text-coral shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          data-client-id={c.id}
+                          class="workspace-switch-btn w-full flex items-center gap-2 px-2.5 py-2 hover:bg-white/5 transition-colors text-left"
+                        >
+                          <svg class="w-3.5 h-3.5 text-gray-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
+                          <span class="text-[12px] text-white truncate flex-1">{c.name}</span>
+                        </button>
+                      )
                     ))}
                   </div>
                 </div>
@@ -749,6 +878,32 @@ const icons = {
           return;
         }
         location.reload();
+      } catch (e) {
+        state.error = String(e && e.message || e);
+        state.loading = false;
+      }
+    };
+
+    // 2026-07-17 - delete an EMPTY workspace (created by mistake). The API
+    // enforces org owner/admin + refuses non-empty workspaces with a 409
+    // whose message we surface inline in the confirm block. On success we
+    // land on the dashboard : the active_client_id cookie was cleared
+    // server-side if it pointed at the deleted workspace, so the resolver
+    // falls back to another workspace naturally.
+    window.__deleteClient = async function (rowEl, state) {
+      if (state.loading) return;
+      const clientId = rowEl?.dataset?.clientId;
+      if (!clientId) { state.error = 'Missing client id'; return; }
+      state.loading = true; state.error = '';
+      try {
+        const res = await fetch('/api/clients/' + clientId, { method: 'DELETE' });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          state.error = (body && body.detail) || ('HTTP ' + res.status);
+          state.loading = false;
+          return;
+        }
+        window.location.href = '/app/dashboard';
       } catch (e) {
         state.error = String(e && e.message || e);
         state.loading = false;

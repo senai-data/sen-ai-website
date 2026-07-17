@@ -17,11 +17,18 @@ Doctrine (decided 2026-07-16 with the user) :
 - only openai + gemini : the only providers with a live scan runtime.
 """
 
+# Estimated USD per scan call, from OBSERVED prod usage (2026-07-16 e2e :
+# tokens per call x current prices ; gpt-5.x carry ~65k input tokens of web
+# search + reasoning). Feeds the "~$X per rescan" hints - estimates, the
+# provider invoice is authoritative. Analyzer runs once per AI answer.
+EST_ANALYZER_COST_PER_RESPONSE = 0.005
+
 SCAN_MODEL_ALLOWLIST: dict[str, list[dict]] = {
     "openai": [
         {
             "model": "gpt-4.1-mini",
             "label": "GPT-4.1 mini",
+            "est_cost_per_call": 0.0015,
             "tag": "default - most economical",
             "note": "Cost-efficient - platform default",
             "price": "$0.40 / $1.60 per 1M tokens",
@@ -29,6 +36,7 @@ SCAN_MODEL_ALLOWLIST: dict[str, list[dict]] = {
         {
             "model": "gpt-5.5",
             "label": "GPT-5.5",
+            "est_cost_per_call": 0.43,
             "tag": "closest to consumer ChatGPT",
             "note": "Closest to consumer ChatGPT (free tier)",
             "price": "$5 / $30 per 1M tokens",
@@ -37,6 +45,7 @@ SCAN_MODEL_ALLOWLIST: dict[str, list[dict]] = {
         {
             "model": "gpt-5.6-luna",
             "label": "GPT-5.6 Luna",
+            "est_cost_per_call": 0.09,
             "tag": "budget tier of the flagship family",
             "note": "Budget tier of the current flagship family",
             "price": "$1 / $6 per 1M tokens",
@@ -46,6 +55,7 @@ SCAN_MODEL_ALLOWLIST: dict[str, list[dict]] = {
         {
             "model": "gemini-3.5-flash",
             "label": "Gemini 3.5 Flash",
+            "est_cost_per_call": 0.014,
             "tag": "default - matches consumer Gemini & AI Mode",
             "note": "Matches the consumer Gemini app and AI Mode - platform default",
             "price": "$1.50 / $9 per 1M tokens",

@@ -233,17 +233,21 @@ const rangeContext = rangeParam === 'all' && runs.length > 1 ? ` (${runs.length}
               <div>
                 <label class="block mb-1 text-[11px] text-charcoal-light">
                   <span class="font-semibold text-charcoal-dark">Sampling</span>
-                  <select class="mt-1 w-full text-[11px] border border-gray-200 rounded px-1.5 py-1 bg-white"
-                          :disabled="saving"
-                          @change="saveSampling($event.target.value)"
-                          title="How many times each question is asked to each AI. More runs = a mention rate with a real margin of error. 1 credit = 1 question x 1 run.">
-                    <option value="1" :selected="runsDepth === 1">1 run (single pass)</option>
-                    <option value="5" :selected="runsDepth === 5">5 runs</option>
-                    <option value="10" :selected="runsDepth === 10">10 runs (recommended)</option>
-                    <option value="20" :selected="runsDepth === 20">20 runs</option>
-                  </select>
+                  <span class="float-right font-semibold text-charcoal-dark" x-text="runsDepth + ' run' + (runsDepth > 1 ? 's' : '')"></span>
+                  {/* Free 1-20 (the server always allowed it - only the UI was
+                      preset-locked). A slider works HERE because the credits
+                      line below updates live while dragging ; save on release. */}
+                  <input type="range" min="1" max="20" step="1" class="w-full mt-1 accent-coral"
+                         :value="runsDepth"
+                         :disabled="saving"
+                         @input="runsDepth = parseInt($event.target.value, 10) || 1"
+                         @change="saveSampling($event.target.value)"
+                         title="How many times each question is asked to each AI. More runs = a mention rate with a real margin of error. 1 credit = 1 question x 1 run." />
+                  <span class="flex justify-between text-[9px] text-gray-400"><span>1</span><span>10 recommended</span><span>20</span></span>
                 </label>
-                <p class="text-[10px] text-charcoal-light mb-2" x-text="creditsLine()"></p>
+                <p class="text-[10px] text-charcoal-light" x-text="creditsLine()"></p>
+                <p class="text-[10px] text-charcoal-light mb-2" x-show="estCostLine()" x-text="estCostLine()"
+                   title="Estimated from observed token usage per model - your provider invoices are authoritative. Includes the selected AIs at their chosen versions plus the brand-extraction analyzer reading every answer."></p>
 
                 <div class="mb-2 text-[11px] text-charcoal-light border-t border-gray-100 pt-2">
                   <span class="font-semibold text-charcoal-dark">AIs surveyed</span>
@@ -494,7 +498,7 @@ const rangeContext = rangeParam === 'all' && runs.length > 1 ? ` (${runs.length}
       Alpine.data('modelsPanel', (rootId) => ({
         open: false, loading: false, loaded: false,
         byokCovered: false, options: {}, overrides: {},
-        runsDepth: 1, activeQuestions: 0, providers: [],
+        runsDepth: 1, activeQuestions: 0, providers: [], analyzerCost: 0,
         saving: false, err: '', savedMsg: '',
         toggle() { this.open = !this.open; if (this.open && !this.loaded && !this.loading) this.load(); },
         async load() {
@@ -509,6 +513,7 @@ const rangeContext = rangeParam === 'all' && runs.length > 1 ? ` (${runs.length}
               this.runsDepth = j.runs_depth || 1;
               this.activeQuestions = j.active_questions || 0;
               this.providers = j.providers || ['openai'];
+              this.analyzerCost = j.est_analyzer_cost_per_response || 0;
               this.loaded = true;
             } else { this.err = 'Could not load model options (' + r.status + ')'; }
           } catch { this.err = 'Network error'; }
@@ -545,9 +550,32 @@ const rangeContext = rangeParam === 'all' && runs.length > 1 ? ` (${runs.length}
           const list = this.options[p] || [];
           return this.overrides[p] || (list[0] && list[0].model) || '';
         },
+        fmtUsd(v) { return v < 1 ? '$' + v.toFixed(2) : '$' + Math.round(v).toLocaleString('en-US'); },
         optionNote(p) {
           const e = (this.options[p] || []).find(o => o.model === this.selected(p));
-          return e ? (e.tag || e.note) + ' - ' + e.price : '';
+          if (!e) return '';
+          let note = (e.tag || e.note) + ' - ' + e.price;
+          if (e.est_cost_per_call && this.byokCovered) {
+            note += ' - est. ~' + this.fmtUsd(e.est_cost_per_call * this.activeQuestions * this.runsDepth) + ' per rescan on your key';
+          }
+          return note;
+        },
+        estCostLine() {
+          // Estimated provider spend per rescan on the org's own keys :
+          // selected AIs at their chosen versions + the analyzer reading
+          // every answer. Estimates from observed usage - the provider
+          // invoice is authoritative.
+          if (!this.byokCovered) return '';
+          const calls = this.activeQuestions * this.runsDepth;
+          let total = 0;
+          for (const p of this.providers) {
+            const e = (this.options[p] || []).find(o => o.model === this.selected(p));
+            if (e && e.est_cost_per_call) total += e.est_cost_per_call * calls;
+          }
+          // Analyzer : per-answer at N=1 ; ONE consensus call per question x AI
+          // over the N concatenated answers at N>1 (~2x a single read).
+          total += (this.analyzerCost || 0) * this.activeQuestions * this.providers.length * (this.runsDepth > 1 ? 2 : 1);
+          return total > 0 ? 'Estimated AI cost : ~' + this.fmtUsd(total) + ' per rescan, billed to your API keys' : '';
         },
         async toggleProvider(p) {
           const has = this.providers.includes(p);

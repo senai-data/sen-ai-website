@@ -2486,7 +2486,7 @@ async def cost_estimate(
     # Model-version selector (BYOK-gated) : ship the allowlist + the current
     # selection with the estimate the launch UI already fetches - no extra
     # endpoint, no front-side copy of the list to drift.
-    from services.model_allowlist import SCAN_MODEL_ALLOWLIST
+    from services.model_allowlist import EST_ANALYZER_COST_PER_RESPONSE, SCAN_MODEL_ALLOWLIST
 
     return {
         "active_questions": active_questions,
@@ -2500,6 +2500,7 @@ async def cost_estimate(
         "sufficient": balance >= credits_to_debit or bool(config.get("credits_already_debited")),
         "model_options": SCAN_MODEL_ALLOWLIST,
         "model_overrides": config.get("model_overrides") or {},
+        "est_analyzer_cost_per_response": EST_ANALYZER_COST_PER_RESPONSE,
     }
 
 

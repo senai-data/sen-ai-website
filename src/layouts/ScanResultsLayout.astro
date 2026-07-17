@@ -473,7 +473,9 @@ const rangeContext = rangeParam === 'all' && runs.length > 1 ? ` (${runs.length}
         });
         if (res.ok) {
           const data = await res.json();
-          window.location.href = '/app/scans/' + data.scan_id;
+          // The rescan endpoint returns a serialized scan : the id field is
+          // `id` (scan_id was undefined -> redirected to /app/scans/undefined).
+          window.location.href = '/app/scans/' + (data.id || data.scan_id);
         } else {
           const err = await res.json().catch(() => ({}));
           const d = err && err.detail;

@@ -903,11 +903,18 @@ async def bulk_create_clients_in_org(
 
 
 @router.get("/{org_id}/workspaces/overview")
-async def workspaces_overview(
+def workspaces_overview(
     org_id: str,
     user=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    # Perf 2026-07-17 : plain `def` on purpose. This is the API's heaviest
+    # read (~550ms of synchronous SQLAlchemy) ; as `async def` it blocked
+    # the event loop for its whole runtime, serializing every concurrent
+    # request on the same uvicorn worker (measured : the dashboard's
+    # parallel SSR fetches gained nothing). As `def`, FastAPI runs it in
+    # the threadpool and the loop stays free. Same fix applies to any
+    # future no-await endpoint doing heavy sync DB work.
     """S15.4 - cross-workspace dashboard for agencies. Returns one row per
     Client in the org with the latest completed scan summary + auto-rescan
     schedule + focus-brand crisis severity. Any org member (owner / admin /

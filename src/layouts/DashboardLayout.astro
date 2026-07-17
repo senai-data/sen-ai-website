@@ -55,18 +55,17 @@ type OrgItem = {
   id: string; name: string; slug: string | null; is_personal: boolean;
   role: string | null; member_count: number; client_count: number; is_active: boolean;
 };
+// Perf 2026-07-17 : these layout fetches are paid by EVERY app page on top
+// of the page's own SSR fetches. orgs / clients / admin-check are mutually
+// independent → one parallel wave ; only credits needs the resolved client.
+const layoutGet = async (url: string, cookie: string): Promise<Response | null> => {
+  try {
+    return await fetch(url, { headers: { Cookie: cookie }, signal: AbortSignal.timeout(3000) });
+  } catch { return null; }
+};
+
 let organizations: OrgItem[] = [];
 let activeOrg: OrgItem | null = null;
-try {
-  const orgsRes = await fetch('http://api:8000/api/organizations/', {
-    headers: { Cookie: upstreamCookie },
-    signal: AbortSignal.timeout(3000),
-  });
-  if (orgsRes.ok) {
-    organizations = await orgsRes.json();
-    activeOrg = organizations.find(o => o.is_active) || organizations[0] || null;
-  }
-} catch {}
 
 // Fetch client data (apps + credits) server-side
 type ClientItem = { id: string; name: string; brand?: string | null; apps?: Record<string, any> };
@@ -81,38 +80,35 @@ let isSuperadmin = false;
 let clients: ClientItem[] = [];
 let activeClient: ClientItem | null = null;
 
+const [orgsRes, clientsRes, adminRes] = await Promise.all([
+  layoutGet('http://api:8000/api/organizations/', upstreamCookie),
+  layoutGet('http://api:8000/api/clients/', upstreamCookie),
+  // Superadmin check (cheap — no extra DB hit, just JWT decode + is_superadmin check)
+  layoutGet('http://api:8000/api/admin/me', `token=${token}`),
+]);
+isSuperadmin = !!adminRes?.ok;
 try {
-  const clientsRes = await fetch('http://api:8000/api/clients/', {
-    headers: { Cookie: upstreamCookie },
-    signal: AbortSignal.timeout(3000),
-  });
-  if (clientsRes.ok) {
+  if (orgsRes?.ok) {
+    organizations = await orgsRes.json();
+    activeOrg = organizations.find(o => o.is_active) || organizations[0] || null;
+  }
+} catch {}
+try {
+  if (clientsRes?.ok) {
     clients = await clientsRes.json();
     if (clients.length > 0) {
       activeClient =
         (activeClientCookie && clients.find(c => c.id === activeClientCookie)) ||
         clients[0];
       clientApps = activeClient?.apps || {};
-      const creditsRes = await fetch(`http://api:8000/api/stripe/credits/${activeClient.id}`, {
-        headers: { Cookie: `token=${token}` },
-        signal: AbortSignal.timeout(3000),
-      });
-      if (creditsRes.ok) {
+      const creditsRes = await layoutGet(`http://api:8000/api/stripe/credits/${activeClient.id}`, `token=${token}`);
+      if (creditsRes?.ok) {
         const credits = await creditsRes.json();
         scanCredits = credits.scan || 0;
         contentCredits = credits.content || 0;
       }
     }
   }
-} catch {}
-
-// Check superadmin (cheap — no extra DB hit, just JWT decode + is_superadmin check)
-try {
-  const adminRes = await fetch('http://api:8000/api/admin/me', {
-    headers: { Cookie: `token=${token}` },
-    signal: AbortSignal.timeout(3000),
-  });
-  isSuperadmin = adminRes.ok;
 } catch {}
 
 // Dynamic nav based on client.apps.

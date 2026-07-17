@@ -22,9 +22,6 @@ import { sparkSvg, modelChangeNote, boundaryChipLabel } from '../../lib/sparklin
 const token = Astro.cookies.get('token')?.value;
 if (!token) return Astro.redirect('/login');
 
-let scans: any[] = [];
-let scanCredits = 0;
-
 const activeOrgCookie = Astro.cookies.get('active_organization_id')?.value;
 const activeClientCookie = Astro.cookies.get('active_client_id')?.value;
 const upstreamCookie = [
@@ -33,61 +30,70 @@ const upstreamCookie = [
   activeClientCookie ? `active_client_id=${activeClientCookie}` : null,
 ].filter(Boolean).join('; ');
 
-let hasNoClientAccess = false;
-let activeClient: any = null;
-try {
-  const clientsRes = await fetch('http://api:8000/api/clients/', {
-    headers: { Cookie: upstreamCookie },
-    signal: AbortSignal.timeout(3000),
-  });
-  const clients = clientsRes.ok ? await clientsRes.json() : [];
-  hasNoClientAccess = clients.length === 0;
-  activeClient = clients.find((c: any) => c.id === activeClientCookie) || clients[0] || null;
+// Fail-open JSON GET against the internal API - null on any failure.
+// Perf (RUM 2026-07-17) : this page's TTFB was dominated by NINE upstream
+// fetches running back-to-back, one full API round-trip each. The
+// dependency graph only has three levels (nothing → activeClient/activeOrg
+// → latestCompleted), so the fetches run in three parallel waves instead.
+const jget = async (url: string, cookie: string, timeoutMs = 3000): Promise<any> => {
+  try {
+    const r = await fetch(url, { headers: { Cookie: cookie }, signal: AbortSignal.timeout(timeoutMs) });
+    return r.ok ? await r.json() : null;
+  } catch { return null; }
+};
 
-  if (activeClient) {
-    const scansRes = await fetch(`http://api:8000/api/scans?client_id=${activeClient.id}`, {
-      headers: { Cookie: `token=${token}` },
-      signal: AbortSignal.timeout(3000),
-    });
-    scans = scansRes.ok ? await scansRes.json() : [];
+// Wave 1 - independent of everything.
+const [clientsJ, meJ, invitesJ, orgsJ] = await Promise.all([
+  jget('http://api:8000/api/clients/', upstreamCookie),
+  // Email verification + signup intent (S15.1)
+  jget('http://api:8000/api/auth/me', `token=${token}`),
+  // Pending org invitations addressed to this user (Phase E.C.4.2) - the
+  // "You've been invited to X" banner. Fail-open : no banner on hiccups.
+  jget('http://api:8000/api/invitations/received', `token=${token}`),
+  jget('http://api:8000/api/organizations/', upstreamCookie),
+]);
 
-    const creditsRes = await fetch(`http://api:8000/api/stripe/credits/${activeClient.id}`, {
-      headers: { Cookie: `token=${token}` },
-      signal: AbortSignal.timeout(3000),
-    });
-    if (creditsRes.ok) {
-      const credits = await creditsRes.json();
-      scanCredits = credits.scan || 0;
-    }
-  }
-} catch {}
+const clients: any[] = clientsJ || [];
+const hasNoClientAccess = clients.length === 0;
+const activeClient: any = clients.find((c: any) => c.id === activeClientCookie) || clients[0] || null;
+const isEmailVerified = meJ ? meJ.is_email_verified : true;
+const userSignupIntent = ((meJ && meJ.signup_intent) || '').toLowerCase();
+const receivedInvites: any[] = invitesJ || [];
+const orgs: any[] = orgsJ || [];
+const activeOrg = orgs.find((o: any) => o.is_active) || orgs[0] || null;
 
-// Email verification + signup intent (S15.1)
-let isEmailVerified = true;
-let userSignupIntent = '';
-try {
-  const meRes = await fetch('http://api:8000/api/auth/me', {
-    headers: { Cookie: `token=${token}` },
-    signal: AbortSignal.timeout(3000),
-  });
-  if (meRes.ok) {
-    const me = await meRes.json();
-    isEmailVerified = me.is_email_verified;
-    userSignupIntent = (me.signup_intent || '').toLowerCase();
-  }
-} catch {}
+// Wave 2 - needs activeClient / activeOrg. Profiled 2026-07-17 : every
+// endpoint here is 15-60ms EXCEPT workspaces/overview (~550ms) and
+// opportunities (~570ms). Opportunities only depends on the scan list
+// (60ms), so it chains off the scans promise and overlaps overview -
+// wave-2 wall time is max(overview, scans+opportunities), not their sum.
+const scansP: Promise<any> = activeClient
+  ? jget(`http://api:8000/api/scans?client_id=${activeClient.id}`, `token=${token}`)
+  : Promise.resolve(null);
+// Top gaps : top opportunities of the latest completed scan (list is
+// created_at DESC - same latestCompleted rule as the derived state below).
+const oppsP: Promise<any> = scansP.then((sj: any) => {
+  const firstCompleted = (sj || []).filter((s: any) => s.status === 'completed')[0];
+  return firstCompleted
+    ? jget(`http://api:8000/api/scans/${firstCompleted.id}/opportunities`, `token=${token}`, 5000)
+    : null;
+});
+const [scansJ, oppJ, creditsJ, overviewJ, keysJ] = await Promise.all([
+  scansP,
+  oppsP,
+  activeClient ? jget(`http://api:8000/api/stripe/credits/${activeClient.id}`, `token=${token}`) : null,
+  // Per-run trend + citations + sentiment for this workspace, from the same
+  // org-level endpoint the agency overview reads. Non-fatal on failure.
+  (activeOrg && activeClient)
+    ? jget(`http://api:8000/api/organizations/${activeOrg.id}/workspaces/overview`, upstreamCookie, 8000)
+    : null,
+  // BYOK - key issues (cap reached / invalid) for the warning banner.
+  // Fail-open: no banner if the fetch hiccups. Mistral excluded (dormant).
+  activeOrg ? jget(`http://api:8000/api/organizations/${activeOrg.id}/api-keys`, upstreamCookie) : null,
+]);
 
-// Pending org invitations addressed to this user (Phase E.C.4.2) - the
-// "You've been invited to X" banner. Until now the only surface for a
-// received invite was the email link. Fail-open : no banner on hiccups.
-let receivedInvites: any[] = [];
-try {
-  const invRes = await fetch('http://api:8000/api/invitations/received', {
-    headers: { Cookie: `token=${token}` },
-    signal: AbortSignal.timeout(3000),
-  });
-  if (invRes.ok) receivedInvites = await invRes.json();
-} catch {}
+const scans: any[] = scansJ || [];
+const scanCredits = (creditsJ && creditsJ.scan) || 0;
 
 // First-time user → onboarding. Only true first-timers go to the wizard ;
 // anyone who already belongs to an org has been onboarded and an empty
@@ -95,14 +101,6 @@ try {
 // (cf. Phase E.C.2/4 - /welcome has no org switcher, it would dead-end).
 // A pending invitation also skips the wizard : the invitee's next step is
 // joining the team, not creating a parallel workspace of their own.
-let orgs: any[] = [];
-try {
-  const orgsRes = await fetch('http://api:8000/api/organizations/', {
-    headers: { Cookie: upstreamCookie },
-    signal: AbortSignal.timeout(3000),
-  });
-  if (orgsRes.ok) orgs = await orgsRes.json();
-} catch {}
 if (scans.length === 0 && orgs.length === 0 && receivedInvites.length === 0) {
   // Forward agency signup intent so /welcome keeps the agency framing
   // across re-logins (URL param first, persisted users.signup_intent second).
@@ -113,11 +111,8 @@ if (scans.length === 0 && orgs.length === 0 && receivedInvites.length === 0) {
   }
   return Astro.redirect('/welcome');
 }
-const activeOrg = orgs.find((o: any) => o.is_active) || orgs[0] || null;
 const isAgencyOrg = !!activeOrg && !activeOrg.is_personal;
 
-// Per-run trend + citations + sentiment for this workspace, from the same
-// org-level endpoint the agency overview reads. Non-fatal on failure.
 type TrendPoint = {
   completed_at: string | null;
   brand_mention_rate: number;
@@ -127,36 +122,16 @@ type TrendPoint = {
   model_changed?: boolean;
 };
 let wsLatest: any = null;
-if (activeOrg && activeClient) {
-  try {
-    const r = await fetch(`http://api:8000/api/organizations/${activeOrg.id}/workspaces/overview`, {
-      headers: { Cookie: upstreamCookie },
-      signal: AbortSignal.timeout(8000),
-    });
-    if (r.ok) {
-      const data = await r.json();
-      const ws = (data.workspaces || []).find((w: any) => w.client_id === activeClient.id);
-      wsLatest = ws?.latest_scan || null;
-    }
-  } catch {}
+if (overviewJ && activeClient) {
+  const ws = (overviewJ.workspaces || []).find((w: any) => w.client_id === activeClient.id);
+  wsLatest = ws?.latest_scan || null;
 }
 
-// BYOK - key issues (cap reached / invalid) for the warning banner.
-// Fail-open: no banner if the fetch hiccups. Mistral excluded (dormant).
 let byokIssues: { provider: string; kind: string }[] = [];
-if (activeOrg) {
-  try {
-    const r = await fetch(`http://api:8000/api/organizations/${activeOrg.id}/api-keys`, {
-      headers: { Cookie: upstreamCookie },
-      signal: AbortSignal.timeout(3000),
-    });
-    if (r.ok) {
-      const kj = await r.json();
-      byokIssues = (kj.providers || [])
-        .filter((k: any) => k.configured && k.provider !== 'mistral' && (k.status === 'invalid' || k.cap_reached))
-        .map((k: any) => ({ provider: k.provider, kind: k.status === 'invalid' ? 'invalid' : 'cap' }));
-    }
-  } catch {}
+if (keysJ) {
+  byokIssues = (keysJ.providers || [])
+    .filter((k: any) => k.configured && k.provider !== 'mistral' && (k.status === 'invalid' || k.cap_reached))
+    .map((k: any) => ({ provider: k.provider, kind: k.status === 'invalid' ? 'invalid' : 'cap' }));
 }
 
 // ─── Derived state ───
@@ -194,21 +169,12 @@ function gradeFor(rate: number | null): string | null {
 }
 const heroGrade = gradeFor(heroRate);
 
-// Top gaps : top opportunities of the latest completed scan.
+// Top gaps - fetched in wave 2 (oppsP chained off the scans promise).
 let topGaps: any[] = [];
 let oppsCritical = 0;
-if (latestCompleted) {
-  try {
-    const r = await fetch(`http://api:8000/api/scans/${latestCompleted.id}/opportunities`, {
-      headers: { Cookie: `token=${token}` },
-      signal: AbortSignal.timeout(5000),
-    });
-    if (r.ok) {
-      const data = await r.json();
-      topGaps = (data.opportunities || []).slice(0, 3);
-      oppsCritical = data.summary?.critique || 0;
-    }
-  } catch {}
+if (oppJ) {
+  topGaps = (oppJ.opportunities || []).slice(0, 3);
+  oppsCritical = oppJ.summary?.critique || 0;
 }
 
 // Next scheduled run : soonest future next_run_at across the workspace.

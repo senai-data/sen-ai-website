@@ -1395,6 +1395,27 @@ def _perform_rescan(db: Session, parent: "Scan", created_by_user_id) -> "Scan":
     Mutates the DB but does NOT commit ; callers commit when they're done
     setting up surrounding context (e.g. updating parent.next_run_at).
     """
+    # Double-launch guard : one in-flight run per lineage. Keyed on the jobs
+    # table, not scan.status - a crashed run can leave status='scanning'
+    # forever, which would lock the lineage out of rescans permanently.
+    root_id = parent.parent_scan_id or parent.id
+    in_flight = (
+        db.query(Job.id)
+        .join(Scan, Scan.id == Job.scan_id)
+        .filter(
+            (Scan.id == root_id) | (Scan.parent_scan_id == root_id),
+            Job.job_type == "run_llm_tests",
+            Job.status.in_(["pending", "running"]),
+        )
+        .first()
+    )
+    if in_flight:
+        raise HTTPException(409, {
+            "code": "rescan_in_progress",
+            "message": "A rescan is already running for this tracker. "
+                       "Wait for it to finish before launching another.",
+        })
+
     # Count the active questions that will be copied to the child - this is
     # what `run_llm_tests` will execute, and what we must charge for.
     active_personas = db.query(ScanPersona).filter(
@@ -1470,7 +1491,6 @@ def _perform_rescan(db: Session, parent: "Scan", created_by_user_id) -> "Scan":
         })
 
     # Compute run_index: (max run_index of the lineage) + 1
-    root_id = parent.parent_scan_id or parent.id
     max_run_index = db.query(func.max(Scan.run_index)).filter(
         (Scan.id == root_id) | (Scan.parent_scan_id == root_id)
     ).scalar() or 1
@@ -3923,10 +3943,15 @@ async def get_persona_insights(scan_id: str, provider: str | None = Query(None),
 
 
 @router.get("/{scan_id}/opportunities")
-async def get_opportunities(scan_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
+def get_opportunities(scan_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
     """All scored opportunities for a scan, grouped by priority.
 
     Each opportunity = 1 question where the brand is weak + recommended action.
+
+    Perf 2026-07-17 : plain `def` on purpose (same fix as workspaces_overview).
+    ~570ms of synchronous SQLAlchemy in an `async def` blocked the event loop
+    and serialized every concurrent request on the worker ; as `def` FastAPI
+    runs it in the threadpool and the loop stays free.
     """
     scan = _check_scan_access(scan_id, user, db)
 

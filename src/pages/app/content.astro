@@ -58,7 +58,7 @@ function moreUrl(nextLimit: number | 'all'): string {
 }
 
 let clientId: string | null = null;
-let kanban: any = { items: [], by_column: {}, counts: {}, total: 0 };
+let kanban: any = { by_column: {}, counts: {}, total: 0 };
 let scans: any[] = [];
 
 try {
@@ -78,15 +78,6 @@ try {
   clientId = (clients.find((c: any) => c.id === activeClientCookie) || clients[0])?.id || null;
 
   if (clientId) {
-    // Fetch scans for filter dropdown (latest 20)
-    const scansRes = await fetch(`http://api:8000/api/scans?client_id=${clientId}`, {
-      headers: { Cookie: `token=${token}` },
-      signal: AbortSignal.timeout(3000),
-    });
-    if (scansRes.ok) {
-      scans = (await scansRes.json()).slice(0, 20);
-    }
-
     // Build content-items query
     const params = new URLSearchParams();
     if (ctParam !== 'all') params.set('content_type', ctParam);
@@ -94,11 +85,24 @@ try {
     if (showRejected) params.set('include_rejected', 'true');
     const qs = params.toString();
     const url = `http://api:8000/api/clients/${clientId}/content-items${qs ? '?' + qs : ''}`;
-    const itemsRes = await fetch(url, {
-      headers: { Cookie: `token=${token}` },
-      signal: AbortSignal.timeout(5000),
-    });
-    if (itemsRes.ok) {
+
+    // Perf 2026-07-17 : scans (filter dropdown) and the kanban items only
+    // depend on clientId, not on each other - fetch them in parallel
+    // (same wave pattern as dashboard.astro ; this page's RUM TTFB was 3.6s).
+    const [scansRes, itemsRes] = await Promise.all([
+      fetch(`http://api:8000/api/scans?client_id=${clientId}`, {
+        headers: { Cookie: `token=${token}` },
+        signal: AbortSignal.timeout(3000),
+      }).catch(() => null),
+      fetch(url, {
+        headers: { Cookie: `token=${token}` },
+        signal: AbortSignal.timeout(5000),
+      }).catch(() => null),
+    ]);
+    if (scansRes?.ok) {
+      scans = (await scansRes.json()).slice(0, 20);
+    }
+    if (itemsRes?.ok) {
       kanban = await itemsRes.json();
     }
   }

@@ -148,7 +148,8 @@ def _serialize_item(item: ScanContentItem, brand_names: dict[str, str] | None = 
                     target_url_share_count: int = 0,
                     scan_brand_groups: dict[str, list[str]] | None = None,
                     competitor_snapshot: dict | None = None,
-                    primary_brand_info: list[dict] | None = None) -> dict:
+                    primary_brand_info: list[dict] | None = None,
+                    include_content: bool = True) -> dict:
     """Convert a ScanContentItem ORM row into the dict shape the UI consumes.
 
     `primary_brand_domains` is the list of domains from the client's
@@ -193,9 +194,13 @@ def _serialize_item(item: ScanContentItem, brand_names: dict[str, str] | None = 
         "target_question": item.target_question,
         "rejected_target_urls": list(item.rejected_target_urls or []),
         "content_metadata": dict(item.content_metadata or {}),
-        "content_html": item.content_html,
-        "content_text": item.content_text,
-        "article_outline": item.article_outline,
+        # Perf : the kanban LIST passes include_content=False - the cards
+        # never render the generated bodies (the detail endpoint serves
+        # them) and 1000+ items each carrying full article HTML made the
+        # list payload multi-MB.
+        "content_html": item.content_html if include_content else None,
+        "content_text": item.content_text if include_content else None,
+        "article_outline": item.article_outline if include_content else None,
         "gdrive_doc_url": item.gdrive_doc_url,
         "priority": item.priority,
         "opportunity_score": item.opportunity_score,
@@ -318,7 +323,7 @@ def _resolve_primary_brand_info(client_id: str, db: Session) -> list[dict]:
 # ── Endpoints ───────────────────────────────────────────────────────────
 
 @router.get("/clients/{client_id}/content-items")
-async def list_content_items(
+def list_content_items(
     client_id: str,
     status: str | None = Query(None, description="Filter by single status"),
     content_type: str | None = Query(None, description="'faq' or 'netlinking_article'"),
@@ -327,7 +332,14 @@ async def list_content_items(
     user=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """List ScanContentItem rows for a client, ordered by priority then identified_at desc."""
+    """List ScanContentItem rows for a client, ordered by priority then identified_at desc.
+
+    Perf 2026-07-17 : plain `def` (threadpool - was blocking the event loop
+    for ~1.7s of sync SQLAlchemy as `async def`, cf. workspaces_overview).
+    Response = by_column/counts/total ONLY : the old shape ALSO shipped every
+    item a second time in a flat `items` list nobody consumed - at 1000+
+    items that duplication alone was ~1.9 MB.
+    """
     _check_client_access(client_id, user, db)
 
     q = (
@@ -359,7 +371,10 @@ async def list_content_items(
         for bid in (it.promoted_brand_ids or []):
             all_brand_ids.add(str(bid))
     brand_names = _resolve_brand_names(client_id, all_brand_ids, db)
-    primary_domains = _resolve_primary_brand_domains(client_id, db)
+    # primary_brand_domains deliberately NOT resolved here : it is a
+    # client-level constant the old shape repeated on every single item
+    # (60 KB of duplication at 1180 items) and only the DETAIL page reads
+    # it - from the detail endpoint.
 
     # Build per-scan target_url frequency map so each card knows whether its
     # URL is shared with sibling items (SEO best-practice : one FAQ per page).
@@ -379,7 +394,7 @@ async def list_content_items(
         return max(0, counter[it.target_url] - 1)
 
     serialized = [
-        _serialize_item(it, brand_names, primary_domains, _share_count_for(it))
+        _serialize_item(it, brand_names, None, _share_count_for(it), include_content=False)
         for it in items
     ]
 
@@ -393,7 +408,6 @@ async def list_content_items(
             by_column[col].append(d)
 
     return {
-        "items": serialized,
         "by_column": by_column,
         "counts": {col: len(rows) for col, rows in by_column.items()},
         "total": len(serialized),

@@ -312,8 +312,8 @@ const TIPS: Record<string, string> = {
   // ── BYOK - org LLM API keys ──────────────────────────────────────────
   byok_status: 'Which key this provider uses for scans in this organization.<br/>'
     + '<em>Platform default = sen-ai keys. Your key active = calls billed to your provider account. Invalid = provider rejected the key, jobs blocked. Cap reached = monthly cap hit, jobs blocked.</em>',
-  byok_monthly_cap: 'Hard monthly spend limit for this provider, in USD.<br/>'
-    + '<em>When estimated month-to-date spend reaches the cap, scans needing this provider are blocked until the next calendar month or a higher cap.</em>',
+  byok_monthly_cap: 'Hard monthly spend limit for this provider, in USD - computed by sen-ai, not read from the provider.<br/>'
+    + '<em>Every LLM call on your key logs its real token usage ; we convert it to USD with public per-token prices and sum the calendar month (UTC). A faithful estimate, not your official invoice (small gaps possible : rounding, cached/batch pricing). When it reaches the cap, sen-ai blocks jobs needing this provider BEFORE calling - it does not buy anything and does not limit anything on the provider side. For a hard provider-side limit, set one in the provider billing console (link in the card guide).</em>',
   byok_spend: 'Estimated spend on your key this calendar month, computed from token usage and public provider prices.<br/>'
     + '<em>Indicative - your provider invoice is authoritative.</em>',
   byok_fallback: 'Providers without a key of yours keep running on sen-ai platform keys and consume scan credits as usual.',

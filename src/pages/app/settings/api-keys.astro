@@ -40,11 +40,36 @@ type KeyItem = {
   monthly_cap_usd: number | null; mtd_cost_usd: number; cap_reached: boolean;
   last_validated_at: string | null; last_error: string | null;
 };
+// Per-provider help : where the key is created, where it gets funded, and
+// what sen-ai actually calls it for (so a user knows which key matters for
+// which feature). Mistral is comingSoon : the card is locked until the
+// Mistral scan runtime ships - no input, no storage.
 const PROVIDER_META = [
-  { id: 'openai', name: 'OpenAI', family: 'GPT family', placeholder: 'sk-...' },
-  { id: 'anthropic', name: 'Anthropic', family: 'Claude family (also used for mention extraction and sentiment judging)', placeholder: 'sk-ant-...' },
-  { id: 'gemini', name: 'Google Gemini', family: 'Gemini family', placeholder: 'AIza...' },
-  { id: 'mistral', name: 'Mistral', family: 'Stored for when Mistral scanning ships', placeholder: 'Mistral API key' },
+  {
+    id: 'openai', name: 'OpenAI', family: 'GPT family', placeholder: 'sk-...',
+    usedFor: 'The ChatGPT answers in your scans (one call per question and per run) and workspace/brand briefs.',
+    keyUrl: 'https://platform.openai.com/api-keys',
+    billingUrl: 'https://platform.openai.com/settings/organization/billing/overview',
+    fundingNote: 'OpenAI is prepaid : add funds under Billing, the key stops working at $0 balance.',
+  },
+  {
+    id: 'anthropic', name: 'Anthropic', family: 'Claude family (also used for mention extraction and sentiment judging)', placeholder: 'sk-ant-...',
+    usedFor: 'Question and persona generation, sentiment judging, brand cleanup and editorial synthesis.',
+    keyUrl: 'https://console.anthropic.com/settings/keys',
+    billingUrl: 'https://console.anthropic.com/settings/billing',
+    fundingNote: 'Anthropic is prepaid : top up credits under Billing (auto-reload available).',
+  },
+  {
+    id: 'gemini', name: 'Google Gemini', family: 'Gemini family', placeholder: 'AIza...',
+    usedFor: 'The Gemini answers in your scans AND the brand-extraction analyzer that reads every AI answer - every scan needs a working Gemini key, even a ChatGPT-only scan.',
+    keyUrl: 'https://aistudio.google.com/apikey',
+    billingUrl: 'https://console.cloud.google.com/billing',
+    fundingNote: 'Create the key in Google AI Studio, then make sure its Google Cloud project has billing enabled (pay-as-you-go ; a per-project spend cap can be set in AI Studio).',
+  },
+  {
+    id: 'mistral', name: 'Mistral', family: 'Mistral scanning has not shipped yet', placeholder: '',
+    comingSoon: true,
+  },
 ];
 
 // Fail-open default: all providers unconfigured (page still renders if the
@@ -113,12 +138,12 @@ const problems = keys.filter(k => k.configured && k.provider !== 'mistral' && (k
       <ul class="text-xs text-charcoal-light space-y-2 list-disc pl-4">
         <li><strong>Fallback:</strong> providers without a key of yours keep running on sen-ai platform keys and consume scan credits as usual. Add a key and every scan in this organization uses it for that provider.</li>
         <li><strong>Validation:</strong> we verify each key with one small test call when you save it. Invalid keys are rejected with the provider's error message.</li>
-        <li><strong>Monthly cap:</strong> an optional hard stop in USD per provider. When your estimated month-to-date spend reaches the cap, scans that need this provider are blocked until the next calendar month or until you raise the cap.</li>
+        <li><strong>Monthly cap:</strong> an optional hard stop in USD per provider, computed by sen-ai from your real token usage and public per-token prices (not read from the provider - a faithful estimate, not your official invoice). When your estimated month-to-date spend reaches the cap, scans that need this provider are blocked BEFORE calling, until the next calendar month or until you raise the cap. It does not limit anything on the provider side - set a hard limit there via each card's billing link.</li>
         <li><strong>Security:</strong> keys are encrypted at rest, shown only as a masked hint after saving, and can be deleted at any time.</li>
         <li><strong>Compliance:</strong> with your own key, prompts for that provider are sent through your own provider account, under your direct agreement with that provider. See the <a href="/app/compliance" class="text-coral hover:underline">compliance hub</a> for details.</li>
         <li><strong>Pricing:</strong> scans that run entirely on your own keys (OpenAI, Anthropic and Gemini all active) cost 50% fewer credits. Provider usage is billed by the provider to your account.</li>
         <li><strong>Beta bonus:</strong> the first time your organization has active keys for OpenAI, Anthropic and Gemini, you get 200 free scan credits (one time, credited to your active workspace).</li>
-        <li><strong>Mistral:</strong> keys can be stored and validated today, but Mistral scanning is not live yet. Your key stays dormant until it ships.</li>
+        <li><strong>Mistral:</strong> coming soon - Mistral scanning has not shipped yet, so key storage is disabled for now.</li>
       </ul>
     </div>
 
@@ -130,11 +155,33 @@ const problems = keys.filter(k => k.configured && k.provider !== 'mistral' && (k
               <div>
                 <h2 class="text-sm font-semibold text-charcoal-dark">{p.name}</h2>
                 <p class="text-xs text-charcoal-light">{p.family}</p>
+                {!p.comingSoon && (
+                  <p class="text-xs text-charcoal-light mt-1"><strong>Used for :</strong> {p.usedFor}</p>
+                )}
               </div>
               <Tip id="byok_status">
                 <span class="chip" :class={`chipCls('${p.id}')`} x-text={`chipLabel('${p.id}')`}></span>
               </Tip>
             </div>
+
+            {/* Where to create + fund the key (collapsed - Hick's Law, the
+                links matter the day you set the key up, not every visit) */}
+            {!p.comingSoon && (
+              <details class="mb-4 text-xs text-charcoal-light">
+                <summary class="cursor-pointer text-coral hover:underline">How to create and fund this key</summary>
+                <ul class="list-disc pl-4 mt-2 space-y-1">
+                  <li><a href={p.keyUrl} target="_blank" rel="noopener" class="text-coral hover:underline">Create an API key &#8599;</a></li>
+                  <li><a href={p.billingUrl} target="_blank" rel="noopener" class="text-coral hover:underline">Billing / add funds &#8599;</a> - {p.fundingNote}</li>
+                  <li>Paste the key below and Save - we validate it with one small free test call. The monthly cap here is sen-ai's own estimate and blocks our jobs only ; a hard provider-side limit is set in the billing console above.</li>
+                </ul>
+              </details>
+            )}
+
+            {p.comingSoon && (
+              <p class="text-xs text-charcoal-light mb-1">
+                Key storage is disabled until Mistral scanning ships - nothing to configure yet.
+              </p>
+            )}
 
             {/* Configured state: masked hint + actions */}
             <template x-if={`st('${p.id}').configured`}>
@@ -142,12 +189,15 @@ const problems = keys.filter(k => k.configured && k.provider !== 'mistral' && (k
                 <div class="flex items-center gap-3 flex-wrap">
                   <span class="font-mono text-sm text-charcoal-dark" x-text={`st('${p.id}').key_hint`}></span>
                   <span class="text-xs text-gray-400" x-text={`lastValidated('${p.id}')`}></span>
-                  {isManager && (
+                  {isManager && !p.comingSoon && (
                     <>
                       <button class="btn btn--secondary btn--sm" x-show={`!st('${p.id}').editing`} @click={`st('${p.id}').editing = true`}>Replace key</button>
                       <button class="btn btn--secondary btn--sm" x-show={`st('${p.id}').status === 'invalid'`} :disabled={`st('${p.id}').saving`} @click={`revalidate('${p.id}')`}>Re-validate</button>
                       <button class="btn btn--danger btn--sm" @click={`del('${p.id}')`}>Delete</button>
                     </>
+                  )}
+                  {isManager && p.comingSoon && (
+                    <button class="btn btn--danger btn--sm" @click={`del('${p.id}')`}>Delete</button>
                   )}
                 </div>
                 <p class="text-xs text-red-600 mt-2" x-show={`st('${p.id}').status === 'invalid' && st('${p.id}').last_error`} x-text={`st('${p.id}').last_error`}></p>
@@ -171,7 +221,7 @@ const problems = keys.filter(k => k.configured && k.provider !== 'mistral' && (k
               </div>
             </template>
 
-            {isManager && (
+            {isManager && !p.comingSoon && (
               <div>
                 {/* Key input: shown when not configured, or replacing */}
                 <div x-show={`!st('${p.id}').configured || st('${p.id}').editing`} class="mb-3">
@@ -228,6 +278,7 @@ const problems = keys.filter(k => k.configured && k.provider !== 'mistral' && (k
       dirty(p) { const s = this.st(p); s.saved = false; s.err = ''; },
       chipLabel(p) {
         const s = this.st(p);
+        if (p === 'mistral' && (!s || !s.configured)) return 'Coming soon';
         if (!s || !s.configured) return 'Platform default';
         if (s.status === 'invalid') return 'Invalid key';
         if (s.cap_reached) return 'Cap reached';

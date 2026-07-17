@@ -447,12 +447,19 @@ async def update_scan_config(scan_id: str, req: ScanConfigUpdate, user=Depends(g
             raise HTTPException(400, "runs_depth can only change before launch")
         config["runs_depth"] = max(1, min(20, int(req.runs_depth)))
     if req.model_overrides is not None:
-        # Model-version selector : root-only choice (rescans inherit it so the
-        # lineage stays homogeneous), gated on a complete BYOK setup - custom
-        # models run on the customer's own provider accounts, never on
-        # platform keys (credit pricing is not model-weighted).
-        if scan.status in ("scanning", "completed"):
-            raise HTTPException(400, "Model selection can only change before launch")
+        # Model-version selector : a LINEAGE-level setting stored on the ROOT
+        # (rescans copy the root config, so a child-side edit would silently
+        # do nothing). Editable BETWEEN scans - never mid-scan - and the next
+        # rescan applies it ; P3 annotates the change as a new model era on
+        # the trend, exactly like a platform default upgrade. History stays
+        # ONE continuous series across model changes (user decision
+        # 2026-07-17, supersedes the launch-only restriction). Still gated on
+        # a complete BYOK setup : custom models run on the customer's own
+        # provider accounts, never on platform keys.
+        if scan.parent_scan_id is not None:
+            raise HTTPException(400, "Model selection lives on the tracker root scan - edit it there")
+        if scan.status == "scanning":
+            raise HTTPException(400, "Model selection cannot change while a scan is running")
         from services.model_allowlist import SCAN_MODEL_ALLOWLIST, default_model, is_allowed
         cleaned: dict[str, str] = {}
         for prov, model in req.model_overrides.items():

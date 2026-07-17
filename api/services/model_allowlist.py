@@ -19,9 +19,10 @@ Doctrine (decided 2026-07-16 with the user) :
 
 # Estimated USD per scan call, from OBSERVED prod usage (2026-07-16 e2e :
 # tokens per call x current prices ; gpt-5.x carry ~65k input tokens of web
-# search + reasoning). Feeds the "~$X per rescan" hints - estimates, the
+# search + reasoning ; luna measured at ~20k in / $0.030 per call on a
+# 288-question real scan 2026-07-17). Feeds the "~$X per rescan" hints - estimates, the
 # provider invoice is authoritative. Analyzer runs once per AI answer.
-EST_ANALYZER_COST_PER_RESPONSE = 0.005
+EST_ANALYZER_COST_PER_RESPONSE = 0.003
 
 SCAN_MODEL_ALLOWLIST: dict[str, list[dict]] = {
     "openai": [
@@ -45,7 +46,7 @@ SCAN_MODEL_ALLOWLIST: dict[str, list[dict]] = {
         {
             "model": "gpt-5.6-luna",
             "label": "GPT-5.6 Luna",
-            "est_cost_per_call": 0.09,
+            "est_cost_per_call": 0.03,
             "tag": "budget tier of the flagship family",
             "note": "Budget tier of the current flagship family",
             "price": "$1 / $6 per 1M tokens",

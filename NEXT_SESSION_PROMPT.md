@@ -1,6 +1,28 @@
-# Reprise session sen-ai-website - post 2026-07-17 (invitations + forgot-password)
+# Reprise session sen-ai-website - post 2026-07-17 (invitations + workspace management)
 
-## Bilan session 2026-07-17 (2 commits, tout déployé + smoke prod)
+## Bilan session 2026-07-17 - tranche 2 (workspace management, commit 5d45f28)
+
+- **DELETE /api/clients/{id}** : org owner/admin only, refus 409 si scans ou
+  credit rows (self-service = workspaces vides créés par erreur uniquement).
+  Déclaré APRÈS la route littérale /active. Smoke : jetable 200, member 403,
+  PF 26 scans 409, /active intact.
+- **Sidebar : la ligne ACTIVE des dropdowns porte les actions de gestion**
+  (elle n'est pas une cible de switch) : org dropdown multi → crayon rename ;
+  workspace dropdown multi → crayon + corbeille ; pill mono-client → corbeille
+  ajoutée. Avant : aucun rename/delete accessible dès 2+ orgs ou 2+ workspaces.
+  Confirm delete inline, erreur 409 affichée sur place.
+- **Foot-gun Alpine** : @click.outside déplacé du bouton trigger vers le div
+  wrapper des 2 dropdowns, sinon tout clic dans le panneau (input de rename
+  inline) fermait le dropdown. Validé en navigateur réel.
+- **Org "Pierre Fabre workspace" convertie en org standard** (is_personal=false,
+  feu vert user) : c'était l'ex-org personnelle de data@ (backfill C.1) devenue
+  de facto partagée (4 membres). Fallback cookie-less testé pour les 4 comptes
+  (plus personne n'a d'org personal → union clients OK). Rename d'org autorisé
+  sur les orgs personal restantes (gate !is_personal retiré du crayon).
+- Workspace "Damien" (erreur user, vide) supprimé manuellement en DB avant que
+  le self-service delete n'existe.
+
+## Bilan session 2026-07-17 - tranche 1 (2 commits, tout déployé + smoke prod)
 
 - **fix(auth) forgot-password OAuth-only** (`6aaeecd`) : la branche
   `if user.password_hash` ignorait silencieusement les comptes Google
@@ -44,6 +66,8 @@ Candidats de session (par priorité) :
    (create-client ne grante que le créateur ; l'auto-grant à l'accept ne
    couvre que les workspaces existants à ce moment-là). Si fait, refléter
    l'implicite dans la grille members (ne pas afficher un "No access" qui ment).
+   Nit UI connexe : Escape dans l'input de rename inline ne referme pas le
+   dropdown (le .stop coupe la propagation vers @keydown.escape.window).
 2. Act-scope P4 streak opportunities (~2j, cf project_act_scope_plan) -
    status persisting/new + resolved[], cross-ère = feature.
 3. Décision pricing : défaut plateforme OpenAI vers un modèle consommateur

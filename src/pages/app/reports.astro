@@ -19,7 +19,8 @@ try {
     signal: AbortSignal.timeout(3000),
   });
   const clients = clientsRes.ok ? await clientsRes.json() : [];
-  const clientId = clients[0]?.id;
+  // Resolve the ACTIVE workspace (cookie), never clients[0] - arbitrary for multi-org users.
+  const clientId = (clients.find((c) => c.id === activeClientCookie) || clients[0])?.id;
 
   if (clientId) {
     const scansRes = await fetch(`http://api:8000/api/scans?client_id=${clientId}`, {

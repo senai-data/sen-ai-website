@@ -38,9 +38,11 @@ try {
     signal: AbortSignal.timeout(3000),
   });
   const clients = res.ok ? await res.json() : [];
-  if (clients[0]) {
-    clientId = clients[0].id;
-    clientName = clients[0].name;
+  // Resolve the ACTIVE workspace (cookie), never clients[0] - arbitrary for multi-org users.
+  const active = clients.find((c: any) => c.id === activeClientCookie) || clients[0];
+  if (active) {
+    clientId = active.id;
+    clientName = active.name;
   }
 } catch {}
 

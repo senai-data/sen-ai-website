@@ -74,7 +74,8 @@ try {
     signal: AbortSignal.timeout(3000),
   });
   const clients = clientsRes.ok ? await clientsRes.json() : [];
-  clientId = clients[0]?.id || null;
+  // Resolve the ACTIVE workspace (cookie), never clients[0] - arbitrary for multi-org users.
+  clientId = (clients.find((c: any) => c.id === activeClientCookie) || clients[0])?.id || null;
 
   if (clientId) {
     // Fetch scans for filter dropdown (latest 20)

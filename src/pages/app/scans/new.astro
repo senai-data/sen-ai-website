@@ -35,7 +35,8 @@ try {
     headers: { Cookie: upstreamCookie },
   });
   const clients = res.ok ? await res.json() : [];
-  clientId = clients[0]?.id;
+  // Resolve the ACTIVE workspace (cookie), never clients[0] - arbitrary for multi-org users.
+  clientId = (clients.find((c) => c.id === activeClientCookie) || clients[0])?.id;
 } catch {}
 
 const COUNTRIES = [

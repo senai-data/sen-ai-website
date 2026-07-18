@@ -15,7 +15,7 @@ import { SUBPROCESSORS, CHANGELOG, changelogKindLabel, changelogKindClass } from
 const lastUpdated = "2026-05-29";
 ---
 
-<BaseLayout title="Méthodologie | sen-ai.fr" description="Comment sen-ai.fr mesure la visibilité IA : paradigme N-runs, mix de fournisseurs, classification de marques, extraction des citations, intervalle de variance, posture EU AI Act.">
+<BaseLayout lang="fr" title="Méthodologie | sen-ai.fr" description="Comment sen-ai.fr mesure la visibilité IA : paradigme N-runs, mix de fournisseurs, classification de marques, extraction des citations, intervalle de variance, posture EU AI Act." alternates={{ fr: '/fr/methodology', en: '/methodology' }}>
   <Nav />
   <main class="pt-24 pb-20 px-4">
     <div class="max-w-3xl mx-auto prose prose-charcoal">
@@ -60,7 +60,7 @@ const lastUpdated = "2026-05-29";
           Chaque scan répète chaque question <strong>N fois par fournisseur</strong> au lieu de la
           poser une fois. Par défaut sur les offres payantes : N=10. Les équipes peuvent configurer
           plus bas pour le coût ou plus haut pour la confiance. Le résultat est ensuite moyenné avec
-          un intervalle de variance publié, pour que l&apos;utilisateur sache si un taux de citation
+          un intervalle de variance publié, pour que l&apos;utilisateur sache si un taux de mention
           de 22 % est &quot;solide à ±3pts&quot; ou &quot;bruité à ±18pts&quot;.
         </p>
         <p class="text-charcoal-light leading-relaxed mt-3">
@@ -173,7 +173,7 @@ const lastUpdated = "2026-05-29";
         <p class="text-charcoal-light leading-relaxed">
           Les métriques en single-run sont signalées comme &quot;confiance faible&quot; dans l&apos;UI.
           Les métriques multi-runs apparaissent avec leur intervalle de variance visible (en production :
-          l&apos;intervalle de confiance est affiché en plus-ou-moins points sur le taux de citation, avec
+          l&apos;intervalle de confiance est affiché en plus-ou-moins points sur le taux de mention, avec
           la taille d&apos;échantillon par métrique).
         </p>
         <p class="text-charcoal-light leading-relaxed mt-3">

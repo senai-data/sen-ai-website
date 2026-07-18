@@ -97,6 +97,17 @@ _CONTENT_TYPE_BY_ACTION = {
     "netlinking": "netlinking_article",
 }
 
+# Top-N cap (2026-07-18, decided with user) : generate_opportunities emits
+# ~190 eligible suggestions per scan and the score saturates at 100, so
+# materializing them ALL buried the kanban (1149 to_create cards observed).
+# Only the strongest N become cards, ranked (priority, score), with a
+# per-topic quota so one hot topic can't monopolize the batch. The rest
+# REMAIN visible as opportunities on the Actions tab - nothing is lost.
+# Rescoring the saturation itself is the Judge+Entities plan's job.
+_MATERIALIZE_CAP_PER_SCAN = 30
+_MATERIALIZE_CAP_PER_TOPIC = 8
+_PRIORITY_ORDER = {"critique": 0, "haute": 1, "moyenne": 2}
+
 # Workflow progression used by the client-scoped dedup : on duplicate keys
 # the most advanced card is the canonical one. 'identified' (lowest) is the
 # only status the handler may re-point / the dedupe script may delete.
@@ -705,6 +716,12 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
     new_items: list = []
     skipped = 0
     repointed = 0
+    capped = 0
+    topic_counts: dict[str, int] = {}
+
+    # Strongest first so the cap keeps the right ones : priority rank then
+    # score desc. Stable sort preserves generation order within ties.
+    opps.sort(key=lambda o: (_PRIORITY_ORDER.get(o.priority, 9), -(o.opportunity_score or 0)))
 
     for opp in opps:
         question = questions_by_id.get(opp.question_id)
@@ -743,6 +760,16 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
             skipped += 1
             continue
 
+        # Top-N cap - checked AFTER the dedup/re-point path on purpose :
+        # capping must never prevent an existing card from re-pointing.
+        if len(new_items) >= _MATERIALIZE_CAP_PER_SCAN:
+            capped += 1
+            continue
+        _tkey = (opp.topic_name or "").strip().lower()
+        if topic_counts.get(_tkey, 0) >= _MATERIALIZE_CAP_PER_TOPIC:
+            capped += 1
+            continue
+
         # Phase B Tier A — carry the intent_category through to the
         # content item so the UI can render the chip (and the validation
         # page can replace its Tier B regex heuristic with the actual
@@ -771,17 +798,19 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
         db.add(item)
         new_items.append((item, q_text, opp.topic_name, str(opp.question_id)))
         existing_by_key[(ct, q_key)] = item
+        topic_counts[_tkey] = topic_counts.get(_tkey, 0) + 1
 
     if not new_items:
         db.commit()
         logger.info(
             f"materialize_content_items done: scan={scan_id}, "
-            f"materialized=0, skipped_existing={skipped}, "
+            f"materialized=0, capped={capped}, skipped_existing={skipped}, "
             f"repointed={repointed}, auto_matched=0"
         )
         return {
             "materialized": 0,
             "materialized_by_type": {},
+            "capped": capped,
             "skipped_existing": skipped,
             "repointed": repointed,
             "auto_matched": 0,
@@ -889,6 +918,7 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
     logger.info(
         f"materialize_content_items done: scan={scan_id}, "
         f"materialized={len(new_items)} {by_type}, "
+        f"capped={capped} (cap={_MATERIALIZE_CAP_PER_SCAN}/scan, {_MATERIALIZE_CAP_PER_TOPIC}/topic), "
         f"skipped_existing={skipped}, repointed={repointed}, "
         f"FAQ auto_matched={auto_matched}/{len(faq_items)} "
         f"(sitemap_index={sitemap_matched}, "
@@ -903,6 +933,7 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
     return {
         "materialized": len(new_items),
         "materialized_by_type": by_type,
+        "capped": capped,
         "skipped_existing": skipped,
         "repointed": repointed,
         "auto_matched": auto_matched,

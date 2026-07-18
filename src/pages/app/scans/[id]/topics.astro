@@ -28,6 +28,11 @@ if (useAggregated) {
   const p = new URLSearchParams();
   if (fromParam) p.set('from_date', fromParam);
   if (toParam) p.set('to_date', toParam);
+  // Perf 2026-07-18 : the per-question drill-downs only render the LATEST
+  // run (response + citations + mentions) - older runs' arrays are the
+  // payload's bulk. Responses stay on (unlike the results tab) : the
+  // drill-down highlights them.
+  p.set('details_scope', 'latest');
   resultsUrl = `http://api:8000/api/scans/${effectiveScanId}/results/aggregated${p.toString() ? '?' + p : ''}`;
 }
 

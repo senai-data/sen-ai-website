@@ -351,6 +351,12 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
 
         time.sleep(PER_CALL_DELAY_SECONDS)
 
+    # P5c cache invalidation (2026-07-18) : the judge overlay changes the
+    # sentiment stats rendered by /results/aggregated - bump the scan's
+    # version so the api-side response cache rolls its keys.
+    if judged and scan:
+        scan.updated_at = datetime.utcnow()
+
     db.commit()
 
     logger.info(

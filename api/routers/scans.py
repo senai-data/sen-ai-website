@@ -1,4 +1,5 @@
 import logging
+import re
 from datetime import datetime, timedelta
 from uuid import UUID
 
@@ -3352,6 +3353,24 @@ def get_results_aggregated(
         include_responses = False
     scan = _check_scan_access(scan_id, user, db)
 
+    # P5c response cache - SUMMARY responses only (~19 KB for ~2.7s of
+    # compute ; the multi-MB full payloads are deliberately never cached).
+    # Version = max(updated_at) across the lineage : any mutation that
+    # changes rendered results must touch its scan's updated_at
+    # (generate_opportunities + judge_sentiment do) ; a missed touch is
+    # bounded by the TTL.
+    from services import response_cache
+    cache_key = None
+    if summary:
+        _root = scan.parent_scan_id or scan.id
+        _version = db.query(func.max(Scan.updated_at)).filter(
+            (Scan.id == _root) | (Scan.parent_scan_id == _root)
+        ).scalar()
+        cache_key = ("agg_summary", str(_root), str(_version), from_date, to_date, provider)
+        cached = response_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
     # 1. Resolve lineage (root + all children)
     root_id = scan.parent_scan_id or scan.id
     lineage = db.query(Scan).filter(
@@ -3755,7 +3774,7 @@ def get_results_aggregated(
             "total_runs": total_runs_count,
         })
 
-    return {
+    payload = {
         "mode": "aggregated",
         "included_runs": included_runs,
         "overview": {
@@ -3788,6 +3807,9 @@ def get_results_aggregated(
             "citation_domains": len(summary_citation_domains),
         } if summary else None,
     }
+    if cache_key is not None:
+        response_cache.put(cache_key, payload, ttl_seconds=120)
+    return payload
 
 
 @router.get("/{scan_id}/persona-insights")
@@ -4015,18 +4037,43 @@ async def get_persona_insights(scan_id: str, provider: str | None = Query(None),
     return insights
 
 
+def _normalize_qtext(text: str | None) -> str:
+    """Cross-scan question key : lower / trim / collapse whitespace.
+
+    Mirror of the worker handlers' _normalize_question. NEVER join cross-scan
+    by question_id - rescans copy questions under new ids and imported
+    lineages point results at the root's questions.
+    """
+    return re.sub(r"\s+", " ", (text or "").strip().lower())
+
+
 @router.get("/{scan_id}/opportunities")
 def get_opportunities(scan_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
     """All scored opportunities for a scan, grouped by priority.
 
     Each opportunity = 1 question where the brand is weak + recommended action.
 
+    P4 streak (migration 061) : items carry provider/status/streak, and the
+    response carries resolved[] = keys of the PREVIOUS completed scan of the
+    lineage absent from the current one (gaps closed since last scan, cap 20).
+
     Perf 2026-07-17 : plain `def` on purpose (same fix as workspaces_overview).
     ~570ms of synchronous SQLAlchemy in an `async def` blocked the event loop
     and serialized every concurrent request on the worker ; as `def` FastAPI
     runs it in the threadpool and the loop stays free.
+
+    P5c cache (2026-07-18) : keyed on scan.updated_at - generate_opportunities
+    touches it when it rewrites the rows, so a rescan invalidates naturally.
+    resolved[] also reads the PREVIOUS scan's rows ; a rebuild on the previous
+    scan alone would not bump our key, staleness is bounded by the TTL.
     """
     scan = _check_scan_access(scan_id, user, db)
+
+    from services import response_cache
+    _ck = ("opportunities", str(scan_id), str(scan.updated_at))
+    _cached = response_cache.get(_ck)
+    if _cached is not None:
+        return _cached
 
     opportunities = db.query(ScanOpportunity).filter(
         ScanOpportunity.scan_id == scan_id,
@@ -4063,9 +4110,86 @@ def get_opportunities(scan_id: str, user=Depends(get_current_user), db: Session 
             "recommended_action": o.recommended_action,
             "target_url": o.target_url,
             "media_domain": o.media_domain,
+            # P4 : provider NULL = legacy pre-P4 row -> status/streak unknown,
+            # serialized null so the UI hides chips instead of lying 'New'.
+            "provider": o.provider,
+            "status": o.status if o.provider else None,
+            "streak": o.streak if o.provider else None,
         })
 
-    return {"summary": summary, "opportunities": items}
+    # P4 resolved[] : previous completed scan of the lineage (highest
+    # run_index below ours - imported lineages carry the LAST run_index on
+    # the root, so run_index ordering is chronological there too), diffed by
+    # (normalized question text, provider). Legacy pre-P4 prev rows (provider
+    # NULL) degrade to text-only absence. Defensive try/except : a streak
+    # diff failure must not take the opportunities payload down.
+    previous_scan_id = None
+    resolved: list[dict] = []
+    resolved_total = 0
+    try:
+        root_id = scan.parent_scan_id or scan.id
+        cur_idx = scan.run_index or 0
+        siblings = db.query(Scan).filter(
+            (Scan.id == root_id) | (Scan.parent_scan_id == root_id),
+            Scan.status == "completed",
+            Scan.id != scan.id,
+        ).all()
+        prev_scan = max(
+            (s for s in siblings if (s.run_index or 0) < cur_idx),
+            key=lambda s: ((s.run_index or 0), s.created_at or datetime.min),
+            default=None,
+        )
+        if prev_scan is not None:
+            previous_scan_id = str(prev_scan.id)
+            current_keys = set()
+            current_texts = set()
+            for o in opportunities:
+                q = questions.get(str(o.question_id))
+                qn = _normalize_qtext(q.question if q else None)
+                if not qn:
+                    continue
+                current_texts.add(qn)
+                if o.provider:
+                    current_keys.add((qn, o.provider))
+            prev_opps = db.query(ScanOpportunity).filter(
+                ScanOpportunity.scan_id == prev_scan.id,
+            ).order_by(ScanOpportunity.opportunity_score.desc()).all()
+            pq_ids = [o.question_id for o in prev_opps if o.question_id]
+            prev_questions = {
+                str(q.id): q for q in db.query(ScanQuestion).filter(ScanQuestion.id.in_(pq_ids)).all()
+            } if pq_ids else {}
+            seen_keys = set()
+            for o in prev_opps:
+                pq = prev_questions.get(str(o.question_id))
+                qn = _normalize_qtext(pq.question if pq else None)
+                if not qn:
+                    continue
+                key = (qn, o.provider)
+                gone = (key not in current_keys) if o.provider else (qn not in current_texts)
+                if not gone or key in seen_keys:
+                    continue
+                seen_keys.add(key)
+                resolved_total += 1
+                if len(resolved) < 20:
+                    resolved.append({
+                        "question": pq.question if pq else None,
+                        "provider": o.provider,
+                        "priority": o.priority,
+                        "streak": o.streak if o.provider else None,
+                        "recommended_action": o.recommended_action,
+                    })
+    except Exception:
+        logger.exception("P4 resolved[]: failed to diff against previous scan")
+
+    _payload = {
+        "summary": summary,
+        "opportunities": items,
+        "resolved": resolved,
+        "resolved_total": resolved_total,
+        "previous_scan_id": previous_scan_id,
+    }
+    response_cache.put(_ck, _payload, ttl_seconds=120)
+    return _payload
 
 
 # --- Sprint 4 : Wikipedia Entity Action -------------------------------------

@@ -946,6 +946,22 @@ def workspaces_overview(
     if not membership:
         raise HTTPException(403, "You are not a member of this organization")
 
+    # P5c response cache (TTL 60s) - version = max(updated_at) across the
+    # org's scans, so any completed rescan / sentiment judge / opportunity
+    # rewrite rolls the key. user.id in the key out of caution (response is
+    # org-shaped today, but membership-dependent rendering may come).
+    from services import response_cache
+    _version = (
+        db.query(func.max(Scan.updated_at))
+        .join(Client, Client.id == Scan.client_id)
+        .filter(Client.organization_id == org.id)
+        .scalar()
+    )
+    _ck = ("ws_overview", str(org.id), str(_version), str(user.id))
+    _cached = response_cache.get(_ck)
+    if _cached is not None:
+        return _cached
+
     clients = (
         db.query(Client)
         .filter(Client.organization_id == org.id)
@@ -1173,7 +1189,7 @@ def workspaces_overview(
             }
         workspaces.append(ws)
 
-    return {
+    _payload = {
         "organization": {"id": str(org.id), "name": org.name, "is_personal": org.is_personal},
         "workspaces": workspaces,
         "summary": {
@@ -1182,6 +1198,8 @@ def workspaces_overview(
             "with_crisis": with_crisis,
         },
     }
+    response_cache.put(_ck, _payload, ttl_seconds=60)
+    return _payload
 
 
 class BrandingUpdateRequest(BaseModel):

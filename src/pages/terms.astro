@@ -6,197 +6,217 @@ import Footer from '../components/Footer.astro';
 const lastUpdated = "2026-04-10";
 ---
 
-<BaseLayout lang="en" title="Terms of Service | sen-ai.fr" description="Terms governing your use of sen-ai.fr - accounts, credits, acceptable use, AI output disclaimer, liability.">
+<BaseLayout lang="fr" title="Conditions générales d'utilisation | sen-ai.fr" description="Conditions régissant votre utilisation de sen-ai.fr - comptes, crédits, usage autorisé, avertissement sur les contenus générés par IA, responsabilité." alternates={{ fr: '/terms', en: '/en/terms' }}>
   <Nav />
   <main class="pt-24 pb-20 px-4">
     <div class="max-w-3xl mx-auto prose prose-charcoal">
-      <h1 class="text-3xl sm:text-4xl font-bold text-charcoal-dark mb-2">Terms of Service</h1>
-      <p class="text-sm text-charcoal-light mb-12">Last updated: {lastUpdated}</p>
+      <div class="not-prose mb-4 text-xs">
+        <a href="/en/terms" class="text-charcoal-light hover:text-coral underline">English &rarr;</a>
+      </div>
+      <h1 class="text-3xl sm:text-4xl font-bold text-charcoal-dark mb-2">Conditions générales d'utilisation</h1>
+      <p class="text-sm text-charcoal-light mb-12">Dernière mise à jour : {lastUpdated}</p>
 
       <section class="mb-10">
-        <h2 class="text-xl font-bold text-charcoal-dark mb-4">1. Acceptance</h2>
+        <h2 class="text-xl font-bold text-charcoal-dark mb-4">1. Acceptation</h2>
         <p class="text-charcoal-light leading-relaxed">
-          By creating an account on sen-ai.fr ("the Service"), you agree to these Terms
-          of Service and to our
-          <a href="/privacy" class="text-coral hover:text-coral-dark">Privacy Policy</a>.
-          If you do not agree, do not use the Service. The Service is operated by the
-          entity listed on our
-          <a href="/mentions-legales" class="text-coral hover:text-coral-dark">Legal Notice</a> page.
+          En créant un compte sur sen-ai.fr (« le Service »), vous acceptez les présentes
+          conditions générales d'utilisation ainsi que notre
+          <a href="/privacy" class="text-coral hover:text-coral-dark">Politique de confidentialité</a>.
+          Si vous ne les acceptez pas, n'utilisez pas le Service. Le Service est exploité par
+          l'Éditeur identifié sur notre page
+          <a href="/mentions-legales" class="text-coral hover:text-coral-dark">Mentions légales</a>.
         </p>
       </section>
 
       <section class="mb-10">
-        <h2 class="text-xl font-bold text-charcoal-dark mb-4">2. The Service</h2>
+        <h2 class="text-xl font-bold text-charcoal-dark mb-4">2. Le Service</h2>
         <p class="text-charcoal-light leading-relaxed">
-          sen-ai.fr is a SaaS platform that helps you understand how generative AI models
-          (such as ChatGPT and Gemini) reference your brand or domain. You enter a target
-          domain, the platform pulls SEO data, generates personas and questions, queries
-          one or more LLM providers on your behalf, and presents the results in
-          dashboards and reports.
+          sen-ai.fr est une plateforme SaaS qui vous aide à comprendre comment les modèles
+          d'IA générative (tels que ChatGPT et Gemini) font référence à votre marque ou à
+          votre domaine. Vous saisissez un domaine cible, la plateforme récupère des données
+          SEO, génère des personas et des questions, interroge un ou plusieurs fournisseurs
+          de LLM pour votre compte, puis présente les résultats sous forme de tableaux de
+          bord et de rapports.
         </p>
       </section>
 
       <section class="mb-10">
-        <h2 class="text-xl font-bold text-charcoal-dark mb-4">3. Account registration</h2>
+        <h2 class="text-xl font-bold text-charcoal-dark mb-4">3. Création de compte</h2>
         <ul class="text-charcoal-light leading-relaxed list-disc pl-6">
-          <li>You must be at least 16 years old.</li>
-          <li>You must provide accurate and current information.</li>
-          <li>You are responsible for keeping your password confidential and for all
-              activity that occurs under your account.</li>
-          <li>One natural person should not maintain multiple accounts to circumvent
-              credit limits or rate-limiting.</li>
+          <li>Vous devez être âgé d'au moins 16 ans.</li>
+          <li>Vous devez fournir des informations exactes et à jour.</li>
+          <li>Vous êtes responsable de la confidentialité de votre mot de passe et de
+              toute activité effectuée depuis votre compte.</li>
+          <li>Une même personne physique ne doit pas détenir plusieurs comptes pour
+              contourner les limites de crédits ou les limitations de débit.</li>
         </ul>
       </section>
 
       <section class="mb-10">
-        <h2 class="text-xl font-bold text-charcoal-dark mb-4">4. Credits and billing</h2>
+        <h2 class="text-xl font-bold text-charcoal-dark mb-4">4. Crédits et facturation</h2>
         <p class="text-charcoal-light leading-relaxed">
-          The Service operates on a one-time credit pack model. There is no
-          subscription, no auto-renewal. Credits are purchased in packs via Stripe.
+          Le Service fonctionne sur un modèle de packs de crédits achetés à l'unité. Il n'y a
+          ni abonnement, ni reconduction automatique. Les crédits sont achetés par packs
+          via Stripe.
         </p>
         <ul class="text-charcoal-light leading-relaxed list-disc pl-6 mt-3">
           <li>
-            <strong>Scan credits</strong> are consumed when you launch an AI scan
-            (1 credit per question). Credits are debited at launch.
+            Les <strong>crédits de scan</strong> sont consommés lorsque vous lancez un scan IA
+            (1 crédit par question). Les crédits sont débités au lancement.
           </li>
           <li>
-            <strong>Content credits</strong> are consumed when you generate content
-            artifacts (FAQ snippets, articles).
+            Les <strong>crédits de contenu</strong> sont consommés lorsque vous générez des
+            contenus (extraits FAQ, articles).
           </li>
           <li>
-            New accounts receive a one-time bonus of 50 free scan credits to try the
-            Service.
+            Les nouveaux comptes reçoivent un bonus unique de 50 crédits de scan gratuits
+            pour essayer le Service.
           </li>
           <li>
-            <strong>Refunds:</strong> if a scan fails (e.g. our worker crashes mid-execution),
-            the credits debited are automatically refunded. Credits are not refundable
-            once the scan has successfully completed and delivered results.
+            <strong>Remboursements :</strong> si un scan échoue (par exemple si notre worker
+            s'interrompt en cours d'exécution), les crédits débités sont automatiquement
+            remboursés. Les crédits ne sont pas remboursables une fois que le scan s'est
+            terminé avec succès et a livré ses résultats.
           </li>
           <li>
-            <strong>Expiration:</strong> credits do not expire as long as your account
-            remains active.
+            <strong>Expiration :</strong> les crédits n'expirent pas tant que votre compte
+            reste actif.
           </li>
           <li>
-            <strong>Pricing:</strong> the credit pack catalog and prices are listed on the
-            <a href="/pricing" class="text-coral hover:text-coral-dark">Pricing page</a>.
-            We may change prices for future purchases; previously-purchased credits
-            retain their value.
+            <strong>Tarifs :</strong> le catalogue des packs de crédits et leurs prix sont
+            indiqués sur la
+            <a href="/pricing" class="text-coral hover:text-coral-dark">page Tarifs</a>.
+            Nous pouvons modifier les prix pour les achats à venir ; les crédits déjà
+            achetés conservent leur valeur.
           </li>
         </ul>
       </section>
 
       <section class="mb-10">
-        <h2 class="text-xl font-bold text-charcoal-dark mb-4">5. Acceptable use</h2>
+        <h2 class="text-xl font-bold text-charcoal-dark mb-4">5. Usage autorisé</h2>
         <p class="text-charcoal-light leading-relaxed">
-          You agree NOT to:
+          Vous vous engagez à NE PAS :
         </p>
         <ul class="text-charcoal-light leading-relaxed list-disc pl-6 mt-3">
-          <li>Use the Service to violate any law, regulation, or third-party right.</li>
-          <li>Submit content designed to extract personal data, harass, or defame.</li>
-          <li>Reverse engineer, scrape, or attempt to bypass rate limits or credit gates.</li>
-          <li>Resell or sublicense the Service to third parties without our written consent.</li>
-          <li>Submit prompts intended to produce illegal, hateful, or sexually explicit
-              content from the LLM providers we relay to.</li>
-          <li>Use the Service in a way that disrupts or degrades it for other users.</li>
+          <li>Utiliser le Service en violation d'une loi, d'un règlement ou du droit d'un tiers.</li>
+          <li>Soumettre des contenus destinés à extraire des données personnelles, à harceler ou à diffamer.</li>
+          <li>Procéder à de l'ingénierie inverse, extraire automatiquement des données (scraping)
+              ou tenter de contourner les limitations de débit ou les contrôles de crédits.</li>
+          <li>Revendre ou sous-licencier le Service à des tiers sans notre accord écrit.</li>
+          <li>Soumettre des requêtes visant à produire des contenus illégaux, haineux ou
+              sexuellement explicites auprès des fournisseurs de LLM auxquels nous les relayons.</li>
+          <li>Utiliser le Service d'une manière qui le perturbe ou en dégrade le fonctionnement
+              pour les autres Utilisateurs.</li>
         </ul>
         <p class="text-charcoal-light leading-relaxed mt-3">
-          We may suspend or terminate accounts that violate these rules, with or without
-          notice depending on severity.
+          Nous pouvons suspendre ou résilier les comptes qui enfreignent ces règles, avec ou
+          sans préavis selon la gravité du manquement.
         </p>
       </section>
 
       <section class="mb-10">
-        <h2 class="text-xl font-bold text-charcoal-dark mb-4">6. AI-generated content disclaimer</h2>
+        <h2 class="text-xl font-bold text-charcoal-dark mb-4">6. Avertissement sur les contenus générés par IA</h2>
         <p class="text-charcoal-light leading-relaxed">
-          The Service relays your queries to third-party LLM providers and presents
-          their responses. These responses are statistical outputs from machine learning
-          models. They may be inaccurate, incomplete, biased, or hallucinated. They are
-          NOT legal, medical, financial, or professional advice. You are responsible
-          for verifying any information before acting on it. We make no warranty as to
-          the accuracy, completeness, or suitability of any AI-generated content.
+          Le Service relaie vos requêtes à des fournisseurs de LLM tiers et en restitue les
+          réponses. Ces réponses sont des productions statistiques issues de modèles
+          d'apprentissage automatique. Elles peuvent être inexactes, incomplètes, biaisées ou
+          hallucinées. Elles ne sont EN AUCUN CAS un conseil juridique, médical, financier ou
+          professionnel. Il vous appartient de vérifier toute information avant d'agir sur
+          cette base. Nous n'apportons aucune garantie quant à l'exactitude, l'exhaustivité ou
+          l'adéquation des contenus générés par IA.
         </p>
       </section>
 
       <section class="mb-10">
-        <h2 class="text-xl font-bold text-charcoal-dark mb-4">7. Intellectual property</h2>
+        <h2 class="text-xl font-bold text-charcoal-dark mb-4">7. Propriété intellectuelle</h2>
         <p class="text-charcoal-light leading-relaxed">
-          The Service software, design, and brand identity are owned by us. You retain
-          ownership of the data you submit (target domains, brand information, custom
-          personas) and of any content artifacts generated for your account. By using
-          the Service, you grant us a limited license to process this data solely for
-          the purpose of providing the Service to you.
+          Le logiciel, le design et l'identité de marque du Service nous appartiennent. Vous
+          conservez la propriété des données que vous soumettez (domaines cibles, informations
+          de marque, personas personnalisés) ainsi que des contenus générés pour votre compte.
+          En utilisant le Service, vous nous concédez une licence limitée pour traiter ces
+          données aux seules fins de vous fournir le Service.
         </p>
       </section>
 
       <section class="mb-10">
-        <h2 class="text-xl font-bold text-charcoal-dark mb-4">8. Termination</h2>
+        <h2 class="text-xl font-bold text-charcoal-dark mb-4">8. Résiliation</h2>
         <p class="text-charcoal-light leading-relaxed">
-          You may terminate your account at any time from your settings or via
-          <code class="text-coral">DELETE /api/auth/me</code>. Termination wipes your
-          account, your solely-owned workspaces, and all the data they contain. Some
-          billing records are retained for legal compliance (see Privacy Policy §6).
+          Vous pouvez résilier votre compte à tout moment depuis vos paramètres ou via
+          <code class="text-coral">DELETE /api/auth/me</code>. La résiliation supprime votre
+          compte, les espaces de travail dont vous êtes l'unique propriétaire et l'ensemble
+          des données qu'ils contiennent. Certaines pièces de facturation sont conservées
+          pour des raisons de conformité légale (voir la Politique de confidentialité, §6).
         </p>
         <p class="text-charcoal-light leading-relaxed mt-3">
-          We may terminate or suspend your account for violation of these Terms or for
-          extended inactivity. Where reasonably possible we will notify you in advance.
+          Nous pouvons résilier ou suspendre votre compte en cas de manquement aux présentes
+          conditions ou d'inactivité prolongée. Dans la mesure du possible, nous vous en
+          informerons au préalable.
         </p>
       </section>
 
       <section class="mb-10">
-        <h2 class="text-xl font-bold text-charcoal-dark mb-4">9. Service availability</h2>
+        <h2 class="text-xl font-bold text-charcoal-dark mb-4">9. Disponibilité du Service</h2>
         <p class="text-charcoal-light leading-relaxed">
-          We aim for high availability but do not guarantee uninterrupted service.
-          Maintenance, third-party outages (LLM providers, Stripe, HaloScan), and
-          unforeseen incidents can cause downtime. There is no SLA on the free or
-          pay-as-you-go tiers.
+          Nous visons une haute disponibilité mais ne garantissons pas un service
+          ininterrompu. Les opérations de maintenance, les pannes de services tiers
+          (fournisseurs de LLM, Stripe, HaloScan) et les incidents imprévus peuvent entraîner
+          des interruptions. Aucun SLA n'est associé aux formules gratuite et à l'usage.
         </p>
       </section>
 
       <section class="mb-10">
-        <h2 class="text-xl font-bold text-charcoal-dark mb-4">10. Disclaimer of warranties</h2>
+        <h2 class="text-xl font-bold text-charcoal-dark mb-4">10. Exclusion de garanties</h2>
         <p class="text-charcoal-light leading-relaxed">
-          The Service is provided "as is" and "as available", without warranties of any
-          kind, express or implied, including merchantability, fitness for a particular
-          purpose, and non-infringement. We do not warrant that the Service will be
-          error-free or that defects will be corrected.
+          Le Service est fourni « en l'état » et « selon disponibilité », sans garantie
+          d'aucune sorte, expresse ou implicite, y compris de qualité marchande, d'adéquation
+          à un usage particulier et d'absence de contrefaçon. Nous ne garantissons pas que le
+          Service sera exempt d'erreurs ni que les défauts seront corrigés.
         </p>
       </section>
 
       <section class="mb-10">
-        <h2 class="text-xl font-bold text-charcoal-dark mb-4">11. Limitation of liability</h2>
+        <h2 class="text-xl font-bold text-charcoal-dark mb-4">11. Limitation de responsabilité</h2>
         <p class="text-charcoal-light leading-relaxed">
-          To the maximum extent permitted by law, our total liability arising out of or
-          relating to the Service is limited to the amount you have paid to us in the
-          twelve months preceding the event giving rise to the claim. We are not liable
-          for indirect, incidental, special, consequential, or punitive damages, or for
-          loss of profits, revenue, data, or business opportunities.
+          Dans la limite maximale permise par la loi, notre responsabilité totale découlant du
+          Service ou s'y rapportant est limitée au montant que vous nous avez versé au cours
+          des douze mois précédant le fait générateur de la réclamation. Nous ne sommes pas
+          responsables des dommages indirects, accessoires, spéciaux, consécutifs ou punitifs,
+          ni des pertes de profits, de chiffre d'affaires, de données ou d'opportunités
+          commerciales.
         </p>
       </section>
 
       <section class="mb-10">
-        <h2 class="text-xl font-bold text-charcoal-dark mb-4">12. Governing law</h2>
+        <h2 class="text-xl font-bold text-charcoal-dark mb-4">12. Droit applicable</h2>
         <p class="text-charcoal-light leading-relaxed">
-          These Terms are governed by French law. Any dispute that cannot be resolved
-          amicably will be submitted to the competent courts of France. If you are a
-          consumer, mandatory consumer protection rules of your country of residence
-          continue to apply.
+          Les présentes conditions sont régies par le droit français. Tout litige qui ne
+          pourrait être résolu à l'amiable sera soumis aux tribunaux français compétents. Si
+          vous êtes un consommateur, les règles impératives de protection des consommateurs de
+          votre pays de résidence continuent de s'appliquer.
         </p>
       </section>
 
       <section class="mb-10">
-        <h2 class="text-xl font-bold text-charcoal-dark mb-4">13. Changes to these Terms</h2>
+        <h2 class="text-xl font-bold text-charcoal-dark mb-4">13. Modification des présentes conditions</h2>
         <p class="text-charcoal-light leading-relaxed">
-          We may update these Terms over time. Material changes will be announced in-app
-          and the "last updated" date will be revised. Continued use of the Service after
-          a change constitutes acceptance.
+          Nous pouvons faire évoluer les présentes conditions. Les modifications
+          substantielles seront annoncées dans l'application et la date de dernière mise à
+          jour sera actualisée. Poursuivre l'utilisation du Service après une modification
+          vaut acceptation de celle-ci.
         </p>
       </section>
 
       <section class="mb-10">
         <h2 class="text-xl font-bold text-charcoal-dark mb-4">14. Contact</h2>
         <p class="text-charcoal-light leading-relaxed">
-          For any question about these Terms:
+          Pour toute question relative aux présentes conditions :
           <a href="mailto:contact@sen-ai.fr" class="text-coral hover:text-coral-dark">contact@sen-ai.fr</a>
+        </p>
+        <p class="text-charcoal-light leading-relaxed mt-3">
+          La présente version française, publiée à sen-ai.fr/terms, est la version
+          contractuelle de référence. En cas de divergence avec la
+          <a href="/en/terms" class="text-coral hover:text-coral-dark">traduction anglaise</a>,
+          la version française prévaut.
         </p>
       </section>
 
@@ -205,7 +225,7 @@ const lastUpdated = "2026-04-10";
           <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
             <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7" />
           </svg>
-          Back to home
+          Retour à l'accueil
         </a>
       </div>
     </div>

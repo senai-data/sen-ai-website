@@ -1,11 +1,12 @@
-# DRAFT - HN launch post : "We watched AI crawlers read our site for 30 days"
+# HN launch post : "We watched AI crawlers read our site for 30 days"
 
-> Statut : draft 2026-07-18, à relire par David avant publication.
-> Destination : page /ressources ou /guides (EN) servant de cible au lien HN,
-> puis soumission HN. Les chiffres viennent de l'analyse des logs nginx du
-> 2026-07-17 (30 jours, origine derrière Cloudflare, cache 0,17% donc ~99,8%
-> du trafic visible à l'origine) croisée avec le RUM Cloudflare.
-> Titres suggérés en bas.
+> Statut : **PAGE LIVE 2026-07-18** - https://sen-ai.fr/ressources/ai-crawlers-30-days/
+> Titre retenu (décision déléguée) : "ChatGPT visited our site 117 times last
+> month. It sent us zero clicks". La soumission HN elle-même reste l'action de
+> David (son compte, sa présence dans les commentaires).
+> Les chiffres viennent de l'analyse des logs nginx du 2026-07-17 (30 jours,
+> origine derrière Cloudflare, cache 0,17% donc ~99,8% du trafic visible à
+> l'origine) croisée avec le RUM Cloudflare.
 
 ---
 

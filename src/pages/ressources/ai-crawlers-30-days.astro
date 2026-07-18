@@ -1,0 +1,159 @@
+---
+/**
+ * EN article for the HN launch (2026-07-18) - real numbers from our own
+ * 30-day origin-log analysis. Standalone /ressources page (the /guides
+ * cocon is French ; this one targets an English audience).
+ * Draft + publication checklist : docs/launch_hn_ai_crawlers_draft.md.
+ */
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import Nav from '../../components/Nav.astro';
+import Footer from '../../components/Footer.astro';
+
+const title = 'ChatGPT visited our site 117 times last month. It sent us zero clicks | sen-ai.fr';
+const description = 'We classified 30 days of origin logs behind Cloudflare : 158,000 requests, 4,734 unique IPs, about 20 human visits. Who the AI crawlers are, what they read, and what we changed.';
+
+const articleLd = {
+  '@context': 'https://schema.org',
+  '@type': 'Article',
+  headline: 'ChatGPT visited our site 117 times last month. It sent us zero clicks',
+  description,
+  inLanguage: 'en',
+  datePublished: '2026-07-18',
+  author: { '@type': 'Organization', name: 'sen-ai.fr', url: 'https://sen-ai.fr' },
+  publisher: { '@type': 'Organization', name: 'sen-ai.fr', url: 'https://sen-ai.fr' },
+  mainEntityOfPage: 'https://sen-ai.fr/ressources/ai-crawlers-30-days/',
+};
+
+const zoo = [
+  ['Generic crawlers and bots', '61,264', '368'],
+  ['Scripts and scanners (python, curl, zgrab...)', '41,267', '718'],
+  ['Empty user agent', '15,207', '1,049'],
+  ['Googlebot', '8,306', '50'],
+  ['ClaudeBot (Anthropic)', '669', '48'],
+  ['OAI-SearchBot (ChatGPT Search index)', '236', '33'],
+  ['GPTBot (OpenAI training)', '213', '26'],
+  ['Bytespider (TikTok)', '188', '86'],
+  ['CCBot (Common Crawl)', '125', '13'],
+  ['PerplexityBot', '118', '12'],
+  ['ChatGPT-User (live visits during chats)', '117', '13'],
+  ['Applebot / Amazonbot / Meta / Google-Extended', '187', '46'],
+];
+---
+
+<BaseLayout title={title} description={description} lang="en">
+  <script type="application/ld+json" set:html={JSON.stringify(articleLd)} />
+  <Nav />
+  <main class="pt-24 pb-16 px-4">
+    <article class="max-w-2xl mx-auto">
+      <p class="text-[11px] uppercase tracking-wider text-charcoal-light mb-3">Field notes · July 2026</p>
+      <h1 class="text-3xl sm:text-4xl font-bold text-charcoal-dark leading-tight mb-6">
+        ChatGPT visited our site 117 times last month. It sent us zero clicks.
+      </h1>
+
+      <p class="text-charcoal-dark leading-relaxed mb-4">
+        We build a small SaaS that measures how often AI assistants mention a brand.
+        At some point the obvious question hit us : what does <em>our</em> traffic
+        look like ? So we pulled 30 days of origin nginx logs (we sit behind
+        Cloudflare with a near-zero cache ratio, so the origin sees almost
+        everything), classified every user agent, and cross-checked against
+        real-user monitoring.
+      </p>
+      <p class="text-lg font-semibold text-charcoal-dark mb-8">
+        158,000 requests. 4,734 unique IPs. About 20 human visits.
+      </p>
+
+      <h2 class="text-xl font-bold text-charcoal-dark mb-4">The zoo, by the numbers</h2>
+      <div class="overflow-x-auto mb-8">
+        <table class="w-full text-sm border border-gray-200 rounded-lg">
+          <thead class="bg-gray-50 text-left text-[11px] uppercase tracking-wider text-charcoal-light">
+            <tr>
+              <th class="px-3 py-2 font-medium">Who</th>
+              <th class="px-3 py-2 font-medium text-right">Requests</th>
+              <th class="px-3 py-2 font-medium text-right">Unique IPs</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-100">
+            {zoo.map(([who, req, ips]) => (
+              <tr class={who.startsWith('ChatGPT-User') ? 'bg-coral/5 font-medium' : ''}>
+                <td class="px-3 py-2 text-charcoal-dark">{who}</td>
+                <td class="px-3 py-2 text-right tabular-nums">{req}</td>
+                <td class="px-3 py-2 text-right tabular-nums">{ips}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <p class="text-charcoal-dark leading-relaxed mb-8">
+        The "human-looking" browsers ? 29,000 requests from 2,824 IPs. Our RUM
+        beacon, which only fires in real browsers, counted about 20 visits over
+        the same period. Almost every Mozilla/5.0 in our logs is a bot wearing
+        a mask.
+      </p>
+
+      <h2 class="text-xl font-bold text-charcoal-dark mb-4">Five things that surprised us</h2>
+
+      <h3 class="text-base font-semibold text-charcoal-dark mb-2">1. ChatGPT visits your site live, in the middle of conversations.</h3>
+      <p class="text-charcoal-dark leading-relaxed mb-5">
+        ChatGPT-User is not a crawler filling an index. It fires when someone
+        asks ChatGPT a question and the model decides to fetch a page to answer.
+        We got 117 of those. Our site was consulted inside conversations we will
+        never see.
+      </p>
+
+      <h3 class="text-base font-semibold text-charcoal-dark mb-2">2. Nobody clicks through - yet.</h3>
+      <p class="text-charcoal-dark leading-relaxed mb-5">
+        Referrer analysis over 30 days : Google sent ~70 clicks, Twitter ~80,
+        Hacker News 30, Bing 40, Reddit 30. chatgpt.com sent exactly zero. AI
+        assistants read us hundreds of times and sent us nobody. The asymmetry
+        is the whole story of AI-era publishing : you feed the answer machine,
+        the answer machine keeps the user.
+      </p>
+
+      <h3 class="text-base font-semibold text-charcoal-dark mb-2">3. Your "unique visitors" metric is a bot census.</h3>
+      <p class="text-charcoal-dark leading-relaxed mb-5">
+        Our proxy dashboard proudly showed 2,030 unique visitors. Real humans
+        measured by RUM : ~20 visits. If you make decisions on proxy-level
+        uniques, you are optimizing for scrapers.
+      </p>
+
+      <h3 class="text-base font-semibold text-charcoal-dark mb-2">4. Vulnerability scanners now impersonate AI crawlers.</h3>
+      <p class="text-charcoal-dark leading-relaxed mb-5">
+        A chunk of the requests wearing GPTBot and ClaudeBot user agents were
+        hunting /.env, /.git/HEAD, secrets.json and firebase-adminsdk.json. The
+        theory writes itself : sites are starting to allowlist AI bots in their
+        WAF rules, so scanners dress up as them. Verify AI crawlers by their
+        published IP ranges, never by user agent alone.
+      </p>
+
+      <h3 class="text-base font-semibold text-charcoal-dark mb-2">5. What AI crawlers actually read is boring and instructive.</h3>
+      <p class="text-charcoal-dark leading-relaxed mb-8">
+        robots.txt (512 hits), the sitemap (310), the homepage, our pricing page,
+        and our methodology page. They walk the front door. If your robots.txt,
+        sitemap and core pages are a mess, that mess <em>is</em> your AI presence.
+      </p>
+
+      <h2 class="text-xl font-bold text-charcoal-dark mb-4">What we changed after reading our own logs</h2>
+      <ul class="list-disc pl-5 space-y-2 text-charcoal-dark leading-relaxed mb-8">
+        <li>We keep AI training bots <strong>allowed</strong>. For a small B2B product,
+          being in the training data and the answer indexes is distribution, not
+          theft. Your call may differ ; make it consciously instead of by default.</li>
+        <li>We stopped looking at proxy-level "unique visitors" entirely. RUM or nothing.</li>
+        <li>We treat spoofed AI user agents as scanner traffic in our own analytics.</li>
+        <li>Hashed static assets now ship immutable cache headers, because 99.8%
+          of requests were reaching the origin for no reason.</li>
+      </ul>
+
+      <div class="border-t border-gray-200 pt-6 text-charcoal-light text-sm leading-relaxed">
+        <p>
+          We build <a href="/" class="text-coral hover:underline">sen-ai.fr</a>, which does
+          this kind of measurement from the other side : asking the assistants
+          themselves how often they mention a brand, question by question. The
+          logs above are the inbound half of the same picture. Happy to answer
+          anything about the methodology.
+        </p>
+      </div>
+    </article>
+  </main>
+  <Footer />
+</BaseLayout>

@@ -1,0 +1,11 @@
+---
+/**
+ * 301 for a dead URL that still receives ~30 visits/month (old backlink
+ * from the seopowerbi.fr era - observed in RUM 2026-07-18 as pageviews on
+ * our 404, which was silently eating that traffic). The original article
+ * was Google Business Profile content, now out of scope - /guides/ is the
+ * closest living destination.
+ */
+export const prerender = false;
+return Astro.redirect('/guides/', 301);
+---

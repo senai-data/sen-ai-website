@@ -7,12 +7,16 @@ interface Props {
   description?: string;
   /** Page language - "fr" (default, marketing) or "en" (methodology, legal, agency). */
   lang?: 'fr' | 'en';
+  /** True on pages search engines must not index (404, error states).
+   *  2026-07-18 : the 404 page shipped with index,follow for months. */
+  noindex?: boolean;
 }
 
 const {
   title = site.meta.title,
   description = site.meta.description,
   lang = 'fr',
+  noindex = false,
 } = Astro.props;
 
 const ogLocale = lang === 'en' ? 'en_GB' : 'fr_FR';
@@ -59,7 +63,7 @@ const softwareSchema = {
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content={description} />
-    <meta name="robots" content="index, follow" />
+    <meta name="robots" content={noindex ? 'noindex, nofollow' : 'index, follow'} />
     <link rel="canonical" href={canonicalURL.href} />
 
     <!-- Open Graph -->

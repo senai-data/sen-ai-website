@@ -5,16 +5,19 @@ parent: "off-site-et-achat-media"
 branch: "Reddit, YouTube & UGC"
 priority: ext1
 order: 3
-updated: "2026-06-28"
+updated: "2026-07-17"
 related:
   - concurrents-cites-par-ia
   - medias-cites-par-ia-relations-presse
   - media-cite-trop-cher-alternative
+  - radar-de-crise
 lexical:
   - UGC
   - Reddit
   - YouTube
   - sentiment communautaire
+  - astroturfing
+  - contenu communautaire
 sources:
   - label: "Profound, AI platform citation patterns (680 millions de citations, août 2024 - juin 2025)"
     url: "https://www.tryprofound.com/blog/ai-platform-citation-patterns"
@@ -32,22 +35,32 @@ cta:
   href: "/register"
 ---
 
-Quand une IA recommande un produit, elle s'appuie souvent sur ce que les gens en disent, pas seulement sur ce que les marques en disent. **Forums et vidéos pèsent lourd dans les citations IA, au point que Reddit est la première source de certains moteurs.**
+Pour recommander un produit, une IA puise souvent dans ce que les gens en disent, pas seulement dans ce que les marques en disent. **Cette conversation vit [hors de votre site](/guides/off-site-et-achat-media/) : vous ne pouvez pas l'écrire, mais vous pouvez la mériter, puis la surveiller.**
 
-## Le poids du contenu communautaire
+## Que trouvent les IA sur Reddit et YouTube ?
 
-**Selon l'analyse de Profound, Reddit est la première source citée par Perplexity et par les AI Overviews de Google.** Les moteurs y trouvent ce qui leur manque ailleurs : des avis réels, des retours d'expérience, des comparaisons concrètes entre produits, écrits par des utilisateurs.
+**Des retours d'usage réels : selon [l'analyse de Profound](https://www.tryprofound.com/blog/ai-platform-citation-patterns), Reddit est la première source citée par Perplexity et par les AI Overviews de Google.** Les moteurs y trouvent ce qui leur manque ailleurs : avis sincères, comparaisons concrètes, vécu plutôt qu'argumentaire commercial. C'est l'UGC, le contenu généré par les utilisateurs. YouTube joue un rôle voisin dès que la démonstration compte : tutoriels, tests, déballages.
 
-YouTube joue un rôle voisin pour les sujets où la démonstration compte : tutoriels, tests, déballages. Pour une IA qui cherche à étayer une recommandation, une vidéo de référence ou un fil de discussion nourri valent un signal fort, parce qu'ils reflètent un usage vécu plutôt qu'un argumentaire commercial.
+Imaginons Dormea, marque fictive de matelas. À « quel matelas pour un couple dont l'un bouge la nuit ? », l'IA ne cite pas sa page produit : elle reprend un fil Reddit où des dormeurs comparent leurs matelas, et une vidéo qui teste l'indépendance de couchage. Absente de ces conversations, Dormea est absente de la réponse - ce qui explique souvent [qu'un concurrent soit cité à votre place](/guides/concurrents-cites-par-ia/).
 
 ## Présence authentique, pas fabrication
 
-**Le bon réflexe n'est pas de fabriquer des avis, mais de mériter qu'on parle de vous, puis de surveiller ce qui se dit.** Poster sur Reddit en se faisant passer pour un utilisateur neutre est un astroturfing qui se repère et se retourne contre la marque, sur une plateforme particulièrement sensible à cela.
+**Le bon réflexe n'est pas de fabriquer des avis, mais de mériter qu'on parle de vous.** Poster en vous faisant passer pour un utilisateur neutre est de l'astroturfing : cela se repère et se retourne contre la marque, sur une plateforme très sensible à la manipulation.
 
-La vraie valeur vient d'un produit dont les gens parlent spontanément, d'une présence transparente quand vous intervenez, et d'un suivi attentif du sentiment. Une communauté qui vous porte est un actif de visibilité IA ; une communauté qui vous critique est un signal à traiter avant qu'il ne pèse sur vos recommandations.
+| À faire | À éviter |
+|---|---|
+| Intervenir sous votre nom de marque, en transparence | Poster des avis en vous faisant passer pour un client |
+| Répondre là où vous apportez un fait utile | Glisser un lien promotionnel dans chaque message |
+| Laisser vivre les critiques et y répondre calmement | Faire supprimer ou noyer un fil négatif |
+
+Si vous intervenez dans un fil qui parle de vous, une seule posture tient :
+
+> Bonjour, je travaille chez [marque], prenez mon message pour ce qu'il est. Sur le point soulevé : [réponse factuelle, sans superlatif]. Le détail est documenté ici : [lien].
+
+Ce contenu communautaire ne s'achète pas, contrairement à un emplacement média : vous pouvez viser [les médias qui citent votre secteur](/guides/medias-cites-par-ia-relations-presse/), ou chercher [une alternative quand un média cité dépasse votre budget](/guides/media-cite-trop-cher-alternative/). Un fil Reddit sincère se gagne avec un produit dont les gens parlent d'eux-mêmes.
 
 ## Ce que sen-ai surveille
 
-**Les écrans Reddit et YouTube repèrent les discussions et vidéos que les IA citent dans votre secteur, et le sentiment qui s'en dégage.** Vous voyez où la conversation communautaire vous avantage et où elle vous dessert, sans avoir à éplucher les plateformes à la main.
+**Les écrans Reddit et YouTube repèrent les discussions et vidéos que les IA citent dans votre secteur, et où cette conversation communautaire vous avantage ou vous dessert**, sans que vous ayez à éplucher les plateformes à la main.
 
-Le sentiment est lu finement, parce qu'une mention négative mal interprétée induit en erreur. C'est la même rigueur que celle appliquée à la surveillance de réputation : distinguer un vrai signal négatif d'une tournure ambiguë, pour ne pas réagir au bruit.
+Le sentiment communautaire y est lu avec la même rigueur que le [radar de crise](/guides/radar-de-crise/) : distinguer un vrai signal négatif d'une tournure ambiguë, pour ne pas réagir au bruit.

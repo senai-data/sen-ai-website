@@ -5,11 +5,12 @@ parent: "agir-et-mesurer"
 branch: "Un contenu qui sonne juste"
 priority: ext1
 order: 4
-updated: "2026-06-28"
+updated: "2026-07-17"
 related:
   - actions-priorisees
   - contenu-extractible-stats-citations-quotes
   - eeat-explique
+  - boucle-t14-mesurer-le-lift
 lexical:
   - tells IA
   - écriture naturelle
@@ -36,18 +37,30 @@ L'ironie d'un outil de visibilité IA qui générerait du contenu, c'est qu'un m
 
 ## La qualité prime sur l'origine
 
-**Ce qui décrédibilise un contenu, ce n'est pas d'avoir été assisté par une IA, c'est d'être creux, générique et impersonnel.** Un texte utile, exact, nourri d'exemples concrets a sa place, quelle que soit la façon dont il a été écrit. Un texte vide reste vide, qu'un humain ou une machine l'ait produit.
+**Ce qui décrédibilise un contenu, ce n'est pas d'avoir été assisté par une IA, c'est d'être creux, générique et impersonnel.** Un texte utile, exact et concret a sa place, qu'il soit écrit avec ou sans machine.
 
-C'est la même logique que l'E-E-A-T : ce qui compte est la confiance qu'inspire le contenu. Un lecteur, comme un évaluateur de qualité, sent vite la différence entre une page qui sait de quoi elle parle et une page qui remplit du vide avec de belles tournures.
+C'est la même logique que [l'E-E-A-T](/guides/eeat-explique/) : ce qui compte est la confiance qu'inspire le contenu, et un lecteur, comme un [évaluateur de qualité](https://guidelines.raterhub.com/searchqualityevaluatorguidelines.pdf), fait la différence entre une page qui sait de quoi elle parle et une page qui enrobe du vide.
 
 ## Reconnaître les tells d'une machine
 
-**Un contenu sonne artificiel quand il accumule certains signes : formules creuses répétées, transitions toutes faites, structure trop régulière, généralités sans exemple.** Ces tics ne trompent personne longtemps, et surtout ils minent la confiance, bien avant qu'un quelconque détecteur n'entre en jeu.
+**Un contenu sonne artificiel quand il accumule certains signes : formules creuses, transitions toutes faites, structure trop régulière, généralités sans exemple.** Ces tells IA minent la crédibilité bien avant qu'un détecteur n'entre en jeu.
 
-À l'inverse, ce qui fait humain est précis : un chiffre avec sa source, un exemple vécu, une opinion assumée, une phrase qui ne pourrait pas s'appliquer à n'importe quel sujet. Ce sont aussi, et ce n'est pas un hasard, les ingrédients d'un [contenu extractible](/guides/contenu-extractible-stats-citations-quotes/) que les IA citent volontiers. Bien écrire pour l'humain et bien écrire pour l'IA convergent.
+| Le tell qui trahit | Ce qui sonne juste |
+|---|---|
+| « Dans un monde où... », « Il est important de noter » | Entrer dans le sujet dès la première phrase |
+| « Une solution optimale pour tous » | Un critère qui tranche : pour qui, pour qui pas |
+| Des généralités valables dans tout secteur | Un détail que vous seul pouviez écrire |
+
+Placez une marque de literie face à la question « quel matelas pour un dormeur latéral ». La version machine aligne des généralités sur le sommeil. La version crédible raconte ce que ses vendeurs entendent en boutique et assume que son modèle ferme ne convient pas à ce profil. C'est elle qu'un lecteur croit, et qu'une IA reprend.
+
+Ce concret est aussi ce qui rend un [contenu extractible](/guides/contenu-extractible-stats-citations-quotes/) pour les IA : écrire pour l'humain et pour la machine convergent.
+
+**Le test de relecture :**
+
+> Cette phrase irait-elle chez un concurrent ? Chaque chiffre a-t-il sa source ? Un détail que seul votre métier pouvait produire ? La réponse arrive-t-elle dès la première phrase ?
 
 ## Comment sen-ai s'y prend
 
-**Les brouillons produits par sen-ai passent par une étape d'écriture naturelle qui chasse les tics les plus courants et impose du concret : sources, spécificité, ton.** L'objectif n'est pas de maquiller un texte pour passer un test, mais de relever son niveau de fond et de forme.
+**Les brouillons produits par sen-ai passent par une étape d'écriture naturelle qui chasse les tics les plus courants et impose du concret : sources, spécificité, ton.** Quand une [action de contenu priorisée](/guides/actions-priorisees/) recommande une page sur une question où vous êtes absent, le brouillon arrive sourcé et structuré.
 
-Le détail de ce qu'on bannit et de ce qu'on impose relève de notre méthode interne, pas d'une liste publique. Et surtout, le résultat reste un brouillon. Il est fait pour être relu, corrigé et enrichi par une personne qui connaît le sujet, ses captures, ses sources. Cette page, comme tout ce cocon, suit cette règle : produite avec méthode, finie à la main.
+Le détail de ce qu'on bannit relève de notre méthode interne, pas d'une liste publique. Et le résultat reste un brouillon, à relire et enrichir par une personne qui connaît le sujet. Une fois publié, la [boucle T+14](/guides/boucle-t14-mesurer-le-lift/) vérifie qu'il change votre taux de citation : écrire juste, publier, remesurer, c'est la logique d'[agir et mesurer](/guides/agir-et-mesurer/). Cette page suit la même règle : produite avec méthode, finie à la main.

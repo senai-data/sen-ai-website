@@ -55,6 +55,65 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
     if not results:
         return {"opportunities": 0}
 
+    # P4 streak (migration 061) : load the opportunities of the PREVIOUS
+    # completed scan of the lineage, keyed by (normalized question text,
+    # provider) - NEVER question_id (rescans copy questions under new ids ;
+    # imported lineages point at the root's questions). "Previous" = highest
+    # run_index below ours among completed lineage scans (imported lineages :
+    # the root carries the LAST run_index, so run_index ordering is the
+    # chronological one there too).
+    # Legacy pre-P4 rows carry provider NULL -> text-only fallback for the one
+    # transition rescan (approximate across providers, but better than a wall
+    # of false 'New' chips on gaps that in fact persist).
+    # Cross model-era matching is a FEATURE : a gap present before AND after a
+    # model change is structural - the streak does not reset at P3 boundaries.
+    # Defensive try/except : generate_opportunities is in the main post-scan
+    # chain (not POST_SCAN_AUDIT_JOB_TYPES), a raise here would cascade to
+    # scan.status='failed' - streaks degrade to 'new' instead.
+    from handlers.materialize_content_items import _normalize_question
+
+    prev_exact: dict = {}   # (qtext_norm, provider) -> best prev streak
+    prev_legacy: dict = {}  # qtext_norm -> best prev streak (pre-P4 rows)
+    try:
+        root_id = scan.parent_scan_id or scan.id
+        cur_idx = scan.run_index or 0
+        siblings = db.query(Scan).filter(
+            (Scan.id == root_id) | (Scan.parent_scan_id == root_id),
+            Scan.status == "completed",
+            Scan.id != scan.id,
+        ).all()
+        prev_scan = max(
+            (s for s in siblings if (s.run_index or 0) < cur_idx),
+            key=lambda s: ((s.run_index or 0), s.created_at or datetime.min),
+            default=None,
+        )
+        if prev_scan is not None:
+            prev_opps = db.query(ScanOpportunity).filter(
+                ScanOpportunity.scan_id == prev_scan.id,
+            ).all()
+            pq_ids = [o.question_id for o in prev_opps if o.question_id]
+            prev_qtext = {
+                str(row.id): row.question
+                for row in db.query(ScanQuestion).filter(ScanQuestion.id.in_(pq_ids)).all()
+            } if pq_ids else {}
+            for o in prev_opps:
+                qtext = _normalize_question(prev_qtext.get(str(o.question_id)))
+                if not qtext:
+                    continue
+                prev_streak = o.streak or 1
+                if o.provider:
+                    k = (qtext, o.provider)
+                    prev_exact[k] = max(prev_exact.get(k, 0), prev_streak)
+                else:
+                    prev_legacy[qtext] = max(prev_legacy.get(qtext, 0), prev_streak)
+            logger.info(
+                f"P4 streak: prev scan {prev_scan.id} (run {prev_scan.run_index}) - "
+                f"{len(prev_exact)} provider keys + {len(prev_legacy)} legacy keys"
+            )
+    except Exception:
+        logger.exception("P4 streak: failed to index previous scan - all rows will be 'new'")
+        prev_exact, prev_legacy = {}, {}
+
     # Clear previous opportunities
     db.query(ScanOpportunity).filter(ScanOpportunity.scan_id == scan_id).delete()
 
@@ -163,11 +222,19 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
             else:
                 action = None
 
+            # P4 streak : exact (text, provider) key first, then the legacy
+            # text-only fallback (prev rows without provider).
+            qtext_norm = _normalize_question(q.question)
+            prev_streak = prev_exact.get((qtext_norm, provider)) or prev_legacy.get(qtext_norm)
+
             db.add(ScanOpportunity(
                 scan_id=scan_id,
                 question_id=q.id,
                 topic_name=topic.name if topic else None,
                 persona_name=persona.name if persona else None,
+                provider=provider,
+                status="persisting" if prev_streak else "new",
+                streak=(prev_streak + 1) if prev_streak else 1,
                 brand_cited=brand_cited,
                 brand_position=brand_position,
                 brand_sentiment=brand_sentiment,

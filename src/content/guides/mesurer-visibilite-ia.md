@@ -5,7 +5,14 @@ parent: "methodologie-visibilite-ia"
 branch: "Mesurer"
 priority: coeur
 order: 1
-updated: "2026-06-28"
+updated: "2026-07-17"
+related:
+  - agir-et-mesurer
+lexical:
+  - échantillonnage
+  - taux de citation
+  - marge d'erreur
+  - questions neutres
 sources:
   - label: "SparkToro, AIs are highly inconsistent when recommending brands (Fishkin et O'Donnell, 27 janvier 2026)"
     url: "https://sparktoro.com/blog/new-research-ais-are-highly-inconsistent-when-recommending-brands-or-products-marketers-should-take-care-when-tracking-ai-visibility/"
@@ -21,15 +28,32 @@ cta:
   href: "/register"
 ---
 
-Avant de chercher à être plus cité par les IA, il faut savoir où vous en êtes. **Mesurer une visibilité IA n'est pas un coup de sonde, c'est un échantillonnage : on interroge plusieurs modèles, plusieurs fois, avec des questions neutres, puis on agrège.** C'est la seule façon de séparer un vrai taux de citation du bruit.
+Avant d'optimiser quoi que ce soit, il vous faut un point de départ chiffré. **Mesurer sa présence dans les IA, c'est faire de l'échantillonnage : on répète des questions neutres sur plusieurs modèles, puis on agrège les réponses en un taux de citation assorti de sa marge d'erreur.** Tout le reste, capture d'écran comprise, relève de l'anecdote.
 
-## Quatre décisions qui font une mesure honnête
+## La même question, deux réponses différentes
 
-**Une mesure fiable repose sur quatre choix, et chacun a sa page dans cette rubrique.** Les voici, dans l'ordre où ils comptent.
+Prenez une mutuelle qui veut savoir si ChatGPT la recommande. Lundi, quelqu'un tape « quelle mutuelle pour un travailleur indépendant ? » : la marque sort, capture d'écran, message enthousiaste dans le Slack de l'équipe. Jeudi, même question, elle a disparu derrière deux concurrents. Rien n'a bougé entre-temps, ni sur le site, ni chez les concurrents.
 
-- **Combien de fois interroger.** Une seule réponse est du bruit. Il faut répéter chaque question pour lire une distribution plutôt qu'un tirage isolé.
-- **Comment agréger.** Répéter ne suffit pas : encore faut-il transformer ces réponses en un taux assorti d'une marge d'erreur, pour savoir si un mouvement est réel.
-- **Quelles IA suivre.** ChatGPT, Gemini, Claude et Mistral pour le marché français, parce que ce sont elles que vos clients consultent.
-- **Comment formuler les questions.** En décrivant une situation d'achat, jamais en nommant votre marque, pour ne pas souffler la réponse à l'IA.
+Ce comportement est normal, et il est documenté : [une étude SparkToro de janvier 2026](https://sparktoro.com/blog/new-research-ais-are-highly-inconsistent-when-recommending-brands-or-products-marketers-should-take-care-when-tracking-ai-visibility/) montre à quel point les IA manquent de constance quand elles recommandent des marques ou des produits. **Un chiffre obtenu en posant une question une seule fois n'est donc pas une mesure, c'est un tirage.** Pour en faire une mesure, il faut une méthode.
 
-Chacun de ces choix est détaillé ci-dessous. Pris ensemble, ils font la différence entre un chiffre rassurant et une mesure sur laquelle vous pouvez décider.
+## Les quatre décisions qui font une mesure honnête
+
+**Une mesure fiable repose sur quatre choix de méthode, et chacun a sa page dans cette rubrique.** Les voici, dans l'ordre où ils comptent.
+
+**Répéter chaque question.** La photo d'un seul appel ne représente pas votre visibilité réelle, seulement l'un des nombreux tirages possibles. Vous verrez pourquoi [un seul test sur ChatGPT ne suffit pas](/guides/un-seul-test-chatgpt-ne-suffit-pas/), preuves à l'appui, et ce que cela implique pour tout suivi fondé sur un scan unique.
+
+**Agréger en un taux, pas en une liste.** Répéter ne sert à rien si l'on ne transforme pas ces réponses en un chiffre sur lequel décider. C'est le rôle du [paradigme N-runs, qui convertit des réponses variables en taux de citation fiable](/guides/paradigme-n-runs/), avec la marge d'erreur qui vous dit si ce taux est solide ou bruité.
+
+**Choisir les IA que vos clients utilisent vraiment.** On ne mesure pas « l'IA » en général, on mesure des modèles précis. Pour la France, cela revient à décider [quelles IA suivre entre ChatGPT, Gemini, Claude et Mistral](/guides/quelles-ia-suivre-marche-francais/) ; sen-ai ajuste ce mix quand l'adoption d'un acteur dépasse un seuil, et le publie sur chaque rapport.
+
+**Formuler des questions qui ne guident pas l'IA.** Demander à une IA ce qu'elle pense de votre marque, c'est lui souffler la réponse. Une mesure honnête part de [questions neutres qui décrivent une situation d'achat sans citer votre marque](/guides/questions-sans-marque-eviter-biais/), comme le ferait un client qui ne vous connaît pas encore.
+
+Pris ensemble, ces quatre choix font la différence entre un tableau de bord sur lequel on peut décider et un chiffre rassurant qu'on encadre au mur.
+
+## Par où commencer
+
+**Faites d'abord l'expérience vous-même : posez la même question à ChatGPT deux jours de suite, sans citer votre marque, et comparez les listes.** Il y a de bonnes chances qu'elles ne se ressemblent pas, et c'est l'argument le plus parlant pour abandonner le test unique.
+
+Ensuite, industrialisez. Un scan sen-ai applique ces quatre décisions d'un coup, sur les quatre modèles. Elles ne sont d'ailleurs qu'une partie de [la méthodologie complète de mesure de sen-ai](/guides/methodologie-visibilite-ia/), qui couvre aussi la façon dont les questions sont générées et dont les réponses sont analysées, citations et concurrents compris.
+
+Gardez enfin la suite en tête : un diagnostic n'a de valeur que s'il débouche sur des actions, puis sur une remesure de leur effet. C'est tout l'objet de la démarche [agir et mesurer, qui transforme un diagnostic en visibilité gagnée](/guides/agir-et-mesurer/).

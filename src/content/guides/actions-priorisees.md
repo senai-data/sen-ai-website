@@ -5,17 +5,19 @@ parent: "agir-et-mesurer"
 branch: "Les actions priorisées"
 priority: coeur
 order: 1
-updated: "2026-06-28"
+updated: "2026-07-17"
 related:
   - boucle-t14-mesurer-le-lift
   - radar-de-crise
   - contenu-qui-ne-sent-pas-lia
+  - concurrents-cites-par-ia
 lexical:
   - actions
   - priorisation
   - FAQ
   - netlinking
   - mise à jour
+  - autorité
 sources:
   - label: "Aggarwal et al., GEO: Generative Engine Optimization, KDD 2024 (arXiv:2311.09735)"
     url: "https://arxiv.org/abs/2311.09735"
@@ -33,26 +35,30 @@ cta:
   href: "/register"
 ---
 
-Face à un diagnostic de visibilité IA, la tentation est de vouloir tout corriger d'un coup. C'est le meilleur moyen de se disperser. **Améliorer sa visibilité IA, c'est agir sur les bons leviers d'abord, là où l'écart est le plus rattrapable.**
+Devant un diagnostic de visibilité IA, on voudrait tout corriger d'un coup ; on finit surtout par se disperser. **Améliorer sa visibilité IA, c'est agir sur les bons leviers d'abord, là où l'écart est le plus rattrapable.** C'est le volet « agir » de la démarche [agir puis mesurer](/guides/agir-et-mesurer/).
 
 ## Toutes les actions ne se valent pas
 
-**Le levier efficace dépend de la cause de l'écart, et cette cause change d'une question à l'autre.** Sur une question où vous êtes simplement absent, créer le bon contenu suffit parfois. Sur une autre, le problème est une autorité insuffisante face à des concurrents installés, et c'est un travail de présence média ou de liens.
+**Le levier efficace dépend de la cause de l'écart, et cette cause change d'une question à l'autre.** Prenez Dormalis, marque fictive de literie. Sur « quel matelas pour le mal de dos ? », elle n'apparaît jamais : aucune page ne traite le sujet. Sur « quelle marque de matelas est fiable ? », deux concurrents trustent les réponses : l'autorité manque. Deux questions, deux causes, deux actions.
 
-C'est cohérent avec ce que montre la recherche sur le GEO : il n'y a pas de recette unique, l'optimisation dépend du domaine. Prioriser, c'est précisément refuser la checklist générique pour traiter chaque écart par sa vraie cause.
+C'est cohérent avec ce que montre [la recherche sur le GEO](https://arxiv.org/abs/2311.09735) : il n'y a pas de recette unique, l'efficacité d'une optimisation dépend du domaine. Prioriser, c'est refuser la checklist générique pour traiter chaque écart par sa vraie cause.
 
 ## Trois familles d'actions
 
-**sen-ai ramène la diversité des situations à trois familles d'actions, selon ce qui manque.** Chacune répond à une cause différente.
+**sen-ai ramène ces situations à trois familles d'actions, selon ce qui manque.**
 
-- **Créer un contenu.** Quand vous êtes absent d'une question, une page dédiée qui y répond, en contenu [extractible](/guides/contenu-extractible-stats-citations-quotes/), comble le vide.
-- **Gagner en autorité.** Quand des [concurrents dominent](/guides/concurrents-cites-par-ia/), une présence média ou un lien bien choisi renforce votre poids externe.
-- **Mettre à jour.** Quand une page existe mais est en retard, l'actualiser et l'enrichir la remet dans la course.
+- **Créer un contenu.** Quand vous êtes absent d'une question, une page dédiée en contenu [extractible](/guides/contenu-extractible-stats-citations-quotes/) comble le vide : un guide d'achat, une FAQ construite sur les questions réelles des acheteurs. À condition d'écrire [un texte qui ne sent pas l'IA](/guides/contenu-qui-ne-sent-pas-lia/).
+- **Gagner en autorité.** Quand des [concurrents dominent](/guides/concurrents-cites-par-ia/), le poids externe fait la différence : relations presse, netlinking ciblé vers les sources que les IA reprennent déjà.
+- **Mettre à jour.** Quand une page existe mais est en retard, une mise à jour qui l'actualise et l'enrichit la remet dans la course.
 
-L'outil choisit la famille adaptée à chaque écart, plutôt que d'appliquer le même remède partout.
+| Le constat | Le bon levier |
+|---|---|
+| Votre marque n'apparaît jamais | Créer un contenu |
+| Des concurrents sortent à chaque réponse | Gagner en autorité |
+| Votre page existe mais n'est pas reprise | Mettre à jour |
 
 ## Une priorisation, pas une formule publique
 
 **sen-ai ordonne les actions par impact plausible, en croisant plusieurs critères : l'ampleur de l'écart, l'autorité en jeu, la difficulté de l'action.** La façon dont ces critères sont pondérés relève de notre méthode, pas d'une recette publiée.
 
-Ce qui compte pour vous est le résultat : une liste d'actions classée, du plus rentable au plus marginal, sur l'écran Actions. Vous savez par quoi commencer, et surtout pourquoi. Et comme aucune priorisation n'est parfaite, chaque action se juge ensuite à son effet réel, [mesuré après publication](/guides/boucle-t14-mesurer-le-lift/).
+Ce qui compte pour vous est le résultat : une liste d'actions classée, du plus rentable au plus marginal, sur l'écran Actions. Vous savez par quoi commencer, et surtout pourquoi. Comme aucune priorisation n'est parfaite, chaque action se juge ensuite à son effet réel, [mesuré après publication](/guides/boucle-t14-mesurer-le-lift/). Pendant ce temps, le [radar de crise](/guides/radar-de-crise/) surveille les signaux négatifs que les IA pourraient relayer sur votre marque.

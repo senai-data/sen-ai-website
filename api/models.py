@@ -983,6 +983,13 @@ class ScanOpportunity(Base):
     target_url = Column(Text)
     media_domain = Column(String(255))
 
+    # P4 streak (migration 061). Cross-scan key = (normalized question text,
+    # provider) - NEVER question_id (rescans copy questions under new ids).
+    # provider NULL = legacy pre-P4 row (unknown status, UI hides chips).
+    status = Column(Text, default="new")  # new, persisting
+    streak = Column(Integer, default=1)
+    provider = Column(Text)
+
     created_at = Column(DateTime, default=datetime.utcnow)
 
 

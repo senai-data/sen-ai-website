@@ -4,7 +4,18 @@ description: "ChatGPT, Gemini, Claude et Mistral citent certaines marques et pas
 branch: "Méthodologie"
 priority: coeur
 order: 1
-updated: "2026-06-28"
+updated: "2026-07-17"
+related:
+  - paradigme-n-runs
+  - query-fan-out
+  - questions-sans-marque-eviter-biais
+lexical:
+  - visibilité IA
+  - taux de citation
+  - marge d'erreur
+  - moteur génératif
+  - query fan-out
+  - part de voix
 cta:
   titre: "Voyez ce que les IA disent de votre marque"
   texte: "Votre premier scan est gratuit, sans carte bancaire. Vous voyez quand votre marque est citée, quand elle ne l'est pas, et qui est recommandé à votre place."
@@ -26,36 +37,54 @@ faq:
     a: "ChatGPT (OpenAI), Gemini (Google), Claude (Anthropic) et Mistral. Le mix évolue quand un acteur dépasse un seuil d'adoption, et il est publié sur chaque rapport pour que les comparaisons restent reproductibles."
 ---
 
-Quand un client demande à ChatGPT « quelle crème pour peau sensible ? », la réponse cite certaines marques et en ignore d'autres. **Ce classement est le nouveau référencement.** sen-ai le mesure, de façon reproductible et sourcée. Voici la méthode.
+Quand un client demande à ChatGPT « quelle crème pour peau sensible ? », la réponse cite certaines marques et en ignore d'autres. **Ce classement est le nouveau référencement.** Voici comment sen-ai le mesure, étape par étape.
 
 ## Un seul test ne veut rien dire
 
-**Interroger une IA une seule fois sur votre marque, c'est lire du bruit.** Les réponses des moteurs génératifs ne sont pas déterministes : la même question, posée deux fois, peut produire deux listes de marques différentes.
+**Interroger une IA une seule fois sur votre marque, c'est lire du bruit.** Les réponses des moteurs génératifs ne sont pas déterministes : la même question, posée deux fois, peut produire deux listes de marques différentes. La marque de crème citée un lundi peut avoir disparu le jeudi, sans que rien ait changé ni sur son site ni chez ses concurrents.
 
-Ce n'est pas une impression. Une étude SparkToro de 2026 (Fishkin et O'Donnell, 2 961 runs) a mesuré qu'il y a moins d'une chance sur cent que deux réponses à la même question donnent la même liste de marques, et environ une sur mille pour le même ordre. Tout outil qui juge votre visibilité IA sur un seul scan se trompe.
+Ce n'est pas une impression. [Une étude SparkToro de 2026](https://sparktoro.com/blog/new-research-ais-are-highly-inconsistent-when-recommending-brands-or-products-marketers-should-take-care-when-tracking-ai-visibility/) (Fishkin et O'Donnell, 2 961 runs) a mesuré qu'il y a moins d'une chance sur cent que deux réponses à la même question donnent la même liste de marques, et environ une sur mille pour le même ordre. Tout outil qui juge votre visibilité IA sur un seul scan se trompe.
 
 ## Mesurer une distribution, pas un score
 
 **sen-ai répète chaque question plusieurs fois, par modèle, puis agrège.** Par défaut, dix fois par IA sur les offres payantes. Le résultat n'est pas un chiffre unique mais une distribution, publiée avec sa marge d'erreur.
 
-Concrètement, un taux de citation de 22 % est affiché « solide à plus ou moins 3 points » ou « bruité à plus ou moins 18 points ». Vous savez si une variation est un vrai mouvement ou du hasard. C'est la condition pour suivre une tendance dans le temps sans se raconter d'histoires.
+| Test unique | Mesure sen-ai |
+|---|---|
+| Une réponse, un jour donné | Chaque question répétée N fois, sur chaque modèle |
+| Un chiffre brut, sans contexte | Un taux de citation avec sa marge d'erreur |
+| Invérifiable le mois suivant | Reproductible d'un scan à l'autre |
+
+Concrètement, un taux de citation de 22 % est affiché « solide à plus ou moins 3 points » ou « bruité à plus ou moins 18 points » : vous savez si une variation est un vrai mouvement ou du hasard. Le protocole complet est détaillé dans la rubrique consacrée à [la mesure de votre présence dans les quatre IA](/guides/mesurer-visibilite-ia/).
 
 ## L'IA ne lit pas une page, elle décompose votre question
 
-**Pour répondre, un moteur génératif éclate votre question en plusieurs sous-questions et lance de nombreuses recherches en parallèle.** Google appelle cette technique le « query fan-out » et la décrit dans sa documentation produit comme dans un brevet déposé.
+**Pour répondre, un moteur génératif éclate votre question en plusieurs sous-questions et lance de nombreuses recherches en parallèle.** Google appelle cette technique le « query fan-out » et la décrit [dans sa documentation produit](https://blog.google/products-and-platforms/products/search/google-search-ai-mode-update/) comme dans un brevet déposé.
 
-Cela change la façon de penser le contenu. Être cité ne dépend pas d'une page magique, mais de couvrir l'ensemble des sous-intentions d'un sujet, avec des passages clairs et autonomes que l'IA peut extraire. C'est exactement la logique d'un cocon sémantique.
+Cela change la façon de penser le contenu. Être cité ne dépend pas d'une page magique, mais de couvrir l'ensemble des sous-intentions d'un sujet, avec des passages clairs et autonomes que l'IA peut extraire. C'est exactement la logique d'un [cocon sémantique](/guides/cocon-semantique-et-maillage/) : une page par intention, reliées par un maillage interne pensé.
+
+## Ce qui fait qu'une IA cite une marque
+
+**Trois familles de signaux reviennent, et chacune a sa branche dans ce guide.**
+
+- **Le contenu.** Écrire des passages que l'IA peut reprendre tels quels : c'est tout l'objet du levier [être cité par les IA](/guides/etre-cite-par-les-ia/).
+- **L'autorité.** Au-delà de la page elle-même, les IA s'appuient sur des [signaux d'autorité et de confiance, l'E-E-A-T](/guides/autorite-eeat-ia/).
+- **Hors de votre site.** Une partie des citations pointe vers des pages qui ne vous appartiennent pas, concurrents, médias, forums, vidéos : cette [visibilité off-site](/guides/off-site-et-achat-media/) se lit, et se travaille.
 
 ## Comment sen-ai collecte, traite et analyse
 
-La mesure suit trois étapes, sans intervention manuelle.
+**La mesure suit trois étapes, sans intervention manuelle.**
 
-- **Collecte.** À partir des mots-clés sur lesquels votre site se positionne, sen-ai génère des personas puis des questions formulées comme un vrai acheteur, sans citer votre marque, pour ne pas biaiser l'IA. Chaque question est posée aux quatre modèles, N fois.
+- **Collecte.** À partir des mots-clés sur lesquels votre site se positionne, fournis par [des outils que les pros du SEO utilisent déjà](/guides/outils-seo-sur-lesquels-on-sappuie/), sen-ai génère des personas puis des questions formulées comme un vrai acheteur, sans citer votre marque, pour ne pas biaiser l'IA. Chaque question est posée aux quatre modèles, N fois.
 - **Traitement.** Chaque réponse est analysée pour en extraire les citations (les URL réellement citées par l'IA) et les entités (marques, produits, gammes, sources), avec leur sentiment et leur position.
 - **Analyse.** sen-ai en tire vos indicateurs : taux de citation de la marque, position moyenne, part de voix face aux concurrents, et la marge d'erreur associée.
 
-Sur ces fondations, le produit propose des actions priorisées (contenu, autorité, présence média) et mesure leur effet après publication.
+Sur ces fondations, le produit propose des [actions priorisées, puis mesure leur effet après publication](/guides/agir-et-mesurer/) : contenu, autorité ou présence média, selon ce qui manque vraiment sur chaque question.
 
 ## Une optimisation qui dépend du sujet
 
-**Il n'existe pas de recette universelle.** Le travail académique de référence sur le sujet (Aggarwal et al., GEO, KDD 2024) montre que l'efficacité des optimisations de contenu varie selon le domaine. Statistiques, citations de sources, citations d'experts aident dans bien des cas, mais le bon levier dépend de votre secteur et de la question posée. sen-ai mesure, vous n'optimisez pas à l'aveugle.
+**Il n'existe pas de recette universelle.** Le [travail académique de référence sur le sujet](https://arxiv.org/abs/2311.09735) (Aggarwal et al., GEO, KDD 2024) montre que l'efficacité des optimisations de contenu varie selon le domaine. Statistiques, citations de sources, citations d'experts aident dans bien des cas, mais le bon levier dépend de votre secteur et de la question posée. sen-ai mesure, vous n'optimisez pas à l'aveugle.
+
+## Une mesure en lecture seule
+
+**sen-ai observe les IA, il ne les influence pas.** Les API sont interrogées en lecture seule : aucun entraînement, aucune réinjection, une application à risque limité au sens de l'AI Act européen. Le cadre légal et [l'endroit où vivent vos données](/guides/confiance/) sont documentés, page par page.

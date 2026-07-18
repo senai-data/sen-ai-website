@@ -36,6 +36,11 @@ try {
 
 const oppsSummary = opportunitiesData?.summary || {};
 const oppsItems = opportunitiesData?.opportunities || [];
+// P4 streak : per-item status ('new' | 'persisting' | null on legacy rows,
+// chips hidden) + resolved[] = previous-scan gaps closed in this scan.
+const resolvedGaps = opportunitiesData?.resolved || [];
+const resolvedTotal = opportunitiesData?.resolved_total || resolvedGaps.length;
+const previousScanId = opportunitiesData?.previous_scan_id || null;
 const details = resultsData?.details || [];
 const domain = resultsData?.overview?.domain || '';
 
@@ -182,6 +187,12 @@ const oppTopicMoyenne = topicOppEntries.map(e => e[1].moyenne);
                       opp.question_type === 'comparative' ? 'bg-amber-50 text-amber-600' :
                       'bg-emerald-50 text-emerald-600'
                     }`}>{opp.question_type}</span>}
+                    {previousScanId && opp.status === 'new' && (
+                      <span class="text-[10px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-600 font-medium" title="First seen in this scan">New</span>
+                    )}
+                    {opp.status === 'persisting' && (opp.streak || 0) >= 2 && (
+                      <span class="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-600" title={`Present in ${opp.streak} consecutive scans`}>Since {opp.streak} scans</span>
+                    )}
                   </div>
                   <div class="flex items-center gap-4 mt-2">
                     {!opp.brand_cited && <span class="text-[10px] text-red-600 font-medium">Brand absent</span>}
@@ -288,6 +299,39 @@ const oppTopicMoyenne = topicOppEntries.map(e => e[1].moyenne);
     {oppsItems.length === 0 && (
       <div class="bg-white rounded-xl shadow-sm p-12 text-center text-charcoal-light">
         No opportunities found. Your brand is well positioned!
+      </div>
+    )}
+
+    {/* P4 : gaps from the previous scan that closed in this one (Peak-End) */}
+    {resolvedGaps.length > 0 && (
+      <div class="mt-8 bg-emerald-50/60 border border-emerald-100 rounded-xl p-6 shadow-sm">
+        <div class="flex items-center gap-2 mb-1">
+          <svg class="w-4 h-4 text-emerald-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+          </svg>
+          <h3 class="text-sm font-semibold text-emerald-800">Resolved since last scan</h3>
+          <span class="text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 font-bold">{resolvedTotal}</span>
+        </div>
+        <p class="text-[11px] text-emerald-700/80 mb-3">Gaps from the previous scan that no longer appear in this one.</p>
+        <div class="space-y-1.5">
+          {resolvedGaps.map((r: any) => (
+            <div class="flex items-center gap-2 text-xs text-charcoal-dark">
+              <span class="text-emerald-500 shrink-0">&#10003;</span>
+              <span class="flex-1 min-w-0 truncate">{r.question || 'Question not available'}</span>
+              {r.provider && <span class="text-[9px] px-1.5 py-0.5 rounded bg-white text-charcoal-light uppercase shrink-0">{r.provider}</span>}
+              {r.priority && (
+                <span class={`text-[9px] px-1.5 py-0.5 rounded shrink-0 ${
+                  r.priority === 'critique' ? 'bg-red-50 text-red-500' :
+                  r.priority === 'haute' ? 'bg-orange-50 text-orange-500' :
+                  'bg-yellow-50 text-yellow-600'
+                }`}>was {r.priority}</span>
+              )}
+            </div>
+          ))}
+        </div>
+        {resolvedTotal > resolvedGaps.length && (
+          <p class="text-[10px] text-emerald-700/70 mt-2">Showing {resolvedGaps.length} of {resolvedTotal} resolved gaps.</p>
+        )}
       </div>
     )}
 

@@ -5,7 +5,16 @@ parent: "methodologie-visibilite-ia"
 branch: "Agir & mesurer"
 priority: coeur
 order: 5
-updated: "2026-06-28"
+related:
+  - mesurer-visibilite-ia
+  - etre-cite-par-les-ia
+lexical:
+  - actions priorisées
+  - boucle T+14
+  - lift
+  - radar de crise
+  - taux de citation
+updated: "2026-07-17"
 faq:
   - q: "Comment passer de la mesure à l'action ?"
     a: "En priorisant : toutes les actions ne se valent pas. sen-ai propose les leviers les plus rattrapables d'abord, qu'il s'agisse d'ajouter un contenu, de viser un média ou de mettre une page à jour, puis mesure leur effet réel après publication."
@@ -18,15 +27,28 @@ cta:
   href: "/register"
 ---
 
-Un diagnostic qui ne débouche sur rien n'a aucune valeur, et une action dont on ne mesure pas l'effet n'est qu'un pari. **La méthode sen-ai ferme la boucle : prioriser les actions, mesurer leur effet, surveiller les signaux négatifs, et produire du contenu qui sonne juste.**
+Le scan est terminé, le rapport est là : sur une question d'achat qui compte pour vous, ChatGPT recommande trois concurrents et ne vous mentionne pas. **Que faire de ce constat ? Le fermer dans une boucle : choisir l'action la plus rentable, publier, remesurer quatorze jours plus tard, et garder un œil sur les signaux négatifs pendant ce temps.** Cette page présente les quatre temps de ce cycle, chacun détaillé dans son propre guide.
 
-## Quatre temps pour agir utilement
+## Pourquoi un diagnostic seul ne change rien
 
-**Agir sur sa visibilité IA suit quatre temps, et chacun a sa page.** Voici comment ils s'enchaînent.
+**Un rapport de visibilité IA ne vaut que par ce qu'on en fait, et deux réflexes courants le gâchent.** Le premier : tout attaquer de front - réécrire dix pages, viser cinq médias, publier trois articles. L'effort se dilue, et quand la visibilité bouge enfin, impossible de dire ce qui a marché. Le second : publier un contenu, considérer le dossier clos, et ne jamais vérifier. Or les réponses des IA varient d'un jour à l'autre ; sans remesure, une impression de progrès peut n'être que du bruit.
 
-- **Prioriser les actions.** Concentrer l'effort sur les leviers les plus rattrapables plutôt que de tout faire à la fois.
-- **Mesurer le lift à T+14.** Remesurer après publication pour distinguer un vrai gain d'une variation de hasard.
-- **Surveiller les crises.** Repérer les signaux négatifs dans les réponses IA, sans réagir au bruit.
-- **Écrire sans tells d'IA.** Produire un contenu qui se lit comme humain et sert la confiance, pas comme un texte de machine.
+Entre les deux, il y a une méthode : agir sur un point précis, identifié par [la mesure initiale de votre visibilité](/guides/methodologie-visibilite-ia/), puis vérifier l'effet dans les mêmes conditions. C'est moins spectaculaire qu'un grand plan d'attaque. C'est aussi la seule façon de savoir ce qui fonctionne pour votre marque, sur votre marché.
 
-Ces quatre temps forment un cycle, pas une liste à cocher une fois. On agit, on mesure, on ajuste, et on recommence. C'est cette répétition qui transforme une visibilité subie en visibilité pilotée.
+## Les quatre temps du cycle
+
+**Chaque temps répond à une question simple : quoi faire, est-ce que ça a marché, rien de grave ne couve, et le contenu tient-il la route ?**
+
+**1. Prioriser.** Sur une question, il manque un contenu ; sur une autre, c'est l'autorité qui fait défaut ; sur une troisième, une page existe mais elle est datée. Le guide des [actions priorisées pour améliorer votre visibilité IA](/guides/actions-priorisees/) explique comment sen-ai trie ces leviers, et pourquoi commencer par le plus rattrapable. Et quand c'est un concurrent qui occupe la place, [analyser les pages que l'IA cite chez lui](/guides/concurrents-cites-par-ia/) montre précisément ce qui vous manque.
+
+**2. Remesurer à T+14.** Quatorze jours après publication, on repose les mêmes questions aux mêmes IA et on compare le taux de citation avant et après. C'est [la boucle T+14](/guides/boucle-t14-mesurer-le-lift/), qui distingue un vrai lift d'une variation de hasard. Cette comparaison n'a de sens que parce que chaque mesure agrège [plusieurs runs avec leur marge d'erreur](/guides/paradigme-n-runs/) : comparer deux tests isolés reviendrait à comparer deux coups de dés.
+
+**3. Surveiller.** Pendant que vous travaillez vos points faibles, les IA peuvent relayer un signal négatif sur votre marque : un avis, une polémique, une vieille affaire qui remonte. [Le radar de crise](/guides/radar-de-crise/) repère ces signaux, en jauge la gravité et écarte les faux positifs, pour que vous réagissiez au vrai problème plutôt qu'au bruit.
+
+**4. Écrire juste.** La plupart des actions passent par du contenu, et un texte qui sent la machine dessert précisément la crédibilité qu'il était censé construire. D'où un guide dédié à [écrire un contenu qui ne sent pas l'IA](/guides/contenu-qui-ne-sent-pas-lia/) : sourcé, spécifique, débarrassé des tics qui trahissent une génération automatique.
+
+## Par où commencer
+
+**Une action, une date, une remesure.** Prenez votre dernier rapport, choisissez la question où l'écart avec vos concurrents paraît le plus rattrapable, et faites une seule chose : publier le contenu manquant, mettre à jour la page datée, ou viser le média qui cite déjà votre secteur. Notez la date, laissez la boucle T+14 remesurer, puis lisez le résultat : si le taux de citation monte au-delà de la marge d'erreur, répétez la recette sur la question suivante ; sinon, changez de levier sur la même question.
+
+Ces quatre temps forment un cycle, pas une liste à cocher une fois. On agit, on mesure, on ajuste, et on recommence. C'est cette répétition, action par action, preuve par preuve, qui transforme une visibilité subie en visibilité pilotée.

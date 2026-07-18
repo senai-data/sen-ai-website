@@ -1,4 +1,12 @@
 ---
+/**
+ * Politique de confidentialité (FR) - version de référence.
+ *
+ * La modale d'audit du site public recueille le consentement en français :
+ * le document engageant doit donc être lisible par la personne qui consent.
+ * La traduction anglaise vit à /en/privacy et maintient une parité 1:1 ;
+ * toute modification de fond doit être appliquée des deux côtés.
+ */
 import BaseLayout from '../layouts/BaseLayout.astro';
 import Nav from '../components/Nav.astro';
 import Footer from '../components/Footer.astro';
@@ -6,248 +14,267 @@ import Footer from '../components/Footer.astro';
 const lastUpdated = "2026-04-10";
 ---
 
-<BaseLayout lang="en" title="Privacy Policy | sen-ai.fr" description="How sen-ai.fr collects, uses, and protects your personal data - GDPR compliance, sub-processors list, and how to exercise your rights.">
+<BaseLayout lang="fr" title="Politique de confidentialité | sen-ai.fr" description="Comment sen-ai.fr collecte, utilise et protège vos données à caractère personnel - conformité RGPD, liste des sous-traitants et modalités d'exercice de vos droits." alternates={{ fr: '/privacy', en: '/en/privacy' }}>
   <Nav />
   <main class="pt-24 pb-20 px-4">
     <div class="max-w-3xl mx-auto prose prose-charcoal">
-      <h1 class="text-3xl sm:text-4xl font-bold text-charcoal-dark mb-2">Privacy Policy</h1>
-      <p class="text-sm text-charcoal-light mb-12">Last updated: {lastUpdated}</p>
+      <div class="flex items-center justify-between mb-2 not-prose flex-wrap gap-2">
+        <h1 class="text-3xl sm:text-4xl font-bold text-charcoal-dark">Politique de confidentialité</h1>
+        <a href="/en/privacy" class="text-xs text-charcoal-light hover:text-coral underline">English &rarr;</a>
+      </div>
+      <p class="text-sm text-charcoal-light mb-12">Dernière mise à jour : {lastUpdated}</p>
 
       <section class="mb-10">
-        <h2 class="text-xl font-bold text-charcoal-dark mb-4">1. Who we are</h2>
+        <h2 class="text-xl font-bold text-charcoal-dark mb-4">1. Qui sommes-nous</h2>
         <p class="text-charcoal-light leading-relaxed">
-          sen-ai.fr ("we", "us", "the Service") is operated by the entity listed on our
-          <a href="/mentions-legales" class="text-coral hover:text-coral-dark">Legal Notice</a> page.
-          We are the data controller for the personal data described below. The Service
-          is a SaaS platform that measures and reports on how generative AI models
-          (ChatGPT, Gemini, etc.) reference brands across a chosen domain.
+          sen-ai.fr (« nous », « le Service ») est exploité par l'entité identifiée sur notre page
+          <a href="/mentions-legales" class="text-coral hover:text-coral-dark">Mentions légales</a>.
+          Nous sommes responsable de traitement des données à caractère personnel décrites
+          ci-dessous. Le Service est une plateforme SaaS qui mesure et restitue la manière dont
+          les modèles d'IA générative (ChatGPT, Gemini, etc.) citent les marques sur un domaine
+          donné.
         </p>
         <p class="text-charcoal-light leading-relaxed mt-3">
-          For any privacy-related question, contact:
+          Pour toute question relative à la protection des données, contactez :
           <a href="mailto:contact@sen-ai.fr" class="text-coral hover:text-coral-dark">contact@sen-ai.fr</a>.
         </p>
       </section>
 
       <section class="mb-10">
-        <h2 class="text-xl font-bold text-charcoal-dark mb-4">2. What data we collect</h2>
+        <h2 class="text-xl font-bold text-charcoal-dark mb-4">2. Les données que nous collectons</h2>
 
-        <h3 class="text-base font-semibold text-charcoal-dark mt-6 mb-2">Account data</h3>
+        <h3 class="text-base font-semibold text-charcoal-dark mt-6 mb-2">Données de compte</h3>
         <ul class="text-charcoal-light leading-relaxed list-disc pl-6">
-          <li>Email address, name (provided at registration or via Google sign-in)</li>
-          <li>Hashed password (bcrypt) when registering with email/password</li>
-          <li>Google account identifier when signing in via Google OAuth</li>
-          <li>Account creation timestamp</li>
+          <li>Adresse email, nom (fournis à l'inscription ou via la connexion Google)</li>
+          <li>Mot de passe haché (bcrypt) en cas d'inscription par email / mot de passe</li>
+          <li>Identifiant de compte Google en cas de connexion via Google OAuth</li>
+          <li>Date et heure de création du compte</li>
         </ul>
 
-        <h3 class="text-base font-semibold text-charcoal-dark mt-6 mb-2">Workspace data ("clients")</h3>
+        <h3 class="text-base font-semibold text-charcoal-dark mt-6 mb-2">Données d'espace de travail (« clients »)</h3>
         <p class="text-charcoal-light leading-relaxed">
-          You can create one or more workspaces ("clients") to organize your scans.
-          For each workspace we store: workspace name, brand identifier, your role
-          (owner / editor / viewer), and links to other users you've invited.
+          Vous pouvez créer un ou plusieurs espaces de travail (« clients ») pour organiser vos
+          scans. Pour chaque espace de travail, nous conservons : le nom de l'espace de travail,
+          l'identifiant de marque, votre rôle (propriétaire / éditeur / lecteur) et les liens vers
+          les autres utilisateurs que vous avez invités.
         </p>
 
-        <h3 class="text-base font-semibold text-charcoal-dark mt-6 mb-2">Scan data</h3>
+        <h3 class="text-base font-semibold text-charcoal-dark mt-6 mb-2">Données de scan</h3>
         <p class="text-charcoal-light leading-relaxed">
-          When you create a scan, we store the target domain, the SEO keywords pulled
-          from HaloScan for that domain, the topics and personas generated by Claude,
-          the questions sent to LLM providers, the raw responses returned by those
-          providers, the citations and brand mentions extracted, and any opportunities
-          or content suggestions derived from the analysis.
+          Lorsque vous créez un scan, nous conservons le domaine cible, les mots-clés SEO extraits
+          de HaloScan pour ce domaine, les thématiques et personas générés par Claude, les
+          questions envoyées aux fournisseurs de LLM, les réponses brutes renvoyées par ces
+          fournisseurs, les citations et mentions de marque extraites, ainsi que les opportunités
+          ou suggestions de contenu issues de l'analyse.
         </p>
 
-        <h3 class="text-base font-semibold text-charcoal-dark mt-6 mb-2">Billing data</h3>
+        <h3 class="text-base font-semibold text-charcoal-dark mt-6 mb-2">Données de facturation</h3>
         <p class="text-charcoal-light leading-relaxed">
-          Payments are processed by Stripe. We never see or store your card details.
-          We store: a Stripe customer identifier, a transaction history (credit ledger:
-          which packs you bought, when, for how much), and a Stripe Checkout Session
-          identifier per purchase (used for idempotency).
+          Les paiements sont traités par Stripe. Nous ne voyons ni ne conservons jamais vos données
+          de carte bancaire. Nous conservons : un identifiant client Stripe, un historique des
+          transactions (registre de crédits : quels packs vous avez achetés, quand, pour quel
+          montant) et un identifiant de session Stripe Checkout par achat (utilisé à des fins
+          d'idempotence).
         </p>
 
-        <h3 class="text-base font-semibold text-charcoal-dark mt-6 mb-2">Technical data</h3>
+        <h3 class="text-base font-semibold text-charcoal-dark mt-6 mb-2">Données techniques</h3>
         <p class="text-charcoal-light leading-relaxed">
-          Server logs include the IP address of your requests, the endpoint hit, the
-          HTTP status, and a timestamp. These logs are kept for up to 30 days for
-          debugging and security investigations, then rotated.
+          Les journaux serveur contiennent l'adresse IP de vos requêtes, le point d'entrée appelé,
+          le statut HTTP et un horodatage. Ces journaux sont conservés au maximum 30 jours à des
+          fins de débogage et d'investigation de sécurité, puis font l'objet d'une rotation.
         </p>
       </section>
 
       <section class="mb-10">
-        <h2 class="text-xl font-bold text-charcoal-dark mb-4">3. How we use your data</h2>
+        <h2 class="text-xl font-bold text-charcoal-dark mb-4">3. Finalités du traitement</h2>
         <ul class="text-charcoal-light leading-relaxed list-disc pl-6">
-          <li><strong>Provide the Service:</strong> run scans on your behalf, store results, render dashboards.</li>
-          <li><strong>Authenticate you:</strong> verify your password or Google identity, issue session tokens.</li>
-          <li><strong>Bill you:</strong> process credit pack purchases via Stripe, maintain your credit ledger.</li>
-          <li><strong>Operate the platform:</strong> debugging, security monitoring, abuse prevention.</li>
-          <li><strong>Comply with legal obligations:</strong> tax, accounting, lawful requests from authorities.</li>
+          <li><strong>Fournir le Service :</strong> exécuter les scans pour votre compte, stocker les résultats, afficher les tableaux de bord.</li>
+          <li><strong>Vous authentifier :</strong> vérifier votre mot de passe ou votre identité Google, émettre les jetons de session.</li>
+          <li><strong>Vous facturer :</strong> traiter les achats de packs de crédits via Stripe, tenir votre registre de crédits.</li>
+          <li><strong>Exploiter la plateforme :</strong> débogage, supervision de sécurité, prévention des abus.</li>
+          <li><strong>Respecter nos obligations légales :</strong> fiscalité, comptabilité, réquisitions légales des autorités.</li>
         </ul>
         <p class="text-charcoal-light leading-relaxed mt-3">
-          We do not sell your data. We do not share it with advertisers. We do not use
-          it to train AI models.
+          Nous ne vendons pas vos données. Nous ne les partageons pas avec des annonceurs. Nous ne
+          les utilisons pas pour entraîner des modèles d'IA.
         </p>
       </section>
 
       <section class="mb-10">
-        <h2 class="text-xl font-bold text-charcoal-dark mb-4">4. Legal basis (GDPR Art. 6)</h2>
+        <h2 class="text-xl font-bold text-charcoal-dark mb-4">4. Base légale (RGPD art. 6)</h2>
         <ul class="text-charcoal-light leading-relaxed list-disc pl-6">
-          <li><strong>Performance of a contract</strong> (Art. 6(1)(b)) - when you sign up and use the Service.</li>
-          <li><strong>Legitimate interest</strong> (Art. 6(1)(f)) - server logs for security and debugging.</li>
-          <li><strong>Legal obligation</strong> (Art. 6(1)(c)) - billing records for tax compliance.</li>
+          <li><strong>Exécution d'un contrat</strong> (art. 6.1.b) - lorsque vous vous inscrivez et utilisez le Service.</li>
+          <li><strong>Intérêt légitime</strong> (art. 6.1.f) - journaux serveur à des fins de sécurité et de débogage.</li>
+          <li><strong>Obligation légale</strong> (art. 6.1.c) - pièces de facturation à des fins de conformité fiscale.</li>
         </ul>
       </section>
 
       <section class="mb-10">
-        <h2 class="text-xl font-bold text-charcoal-dark mb-4">5. Sub-processors</h2>
+        <h2 class="text-xl font-bold text-charcoal-dark mb-4">5. Sous-traitants</h2>
         <p class="text-charcoal-light leading-relaxed mb-4">
-          To deliver the Service we route data to the following providers. Each one is
-          bound by a Data Processing Agreement and processes data only on our instructions.
+          Pour fournir le Service, nous transmettons des données aux prestataires suivants. Chacun
+          est lié par un accord de traitement des données (DPA) et ne traite les données que sur
+          nos instructions.
         </p>
         <div class="overflow-x-auto">
           <table class="min-w-full text-sm border border-gray-200">
             <thead class="bg-gray-50">
               <tr>
-                <th class="text-left px-3 py-2 font-semibold text-charcoal-dark">Provider</th>
-                <th class="text-left px-3 py-2 font-semibold text-charcoal-dark">Purpose</th>
-                <th class="text-left px-3 py-2 font-semibold text-charcoal-dark">Data shared</th>
-                <th class="text-left px-3 py-2 font-semibold text-charcoal-dark">Location</th>
+                <th class="text-left px-3 py-2 font-semibold text-charcoal-dark">Sous-traitant</th>
+                <th class="text-left px-3 py-2 font-semibold text-charcoal-dark">Finalité</th>
+                <th class="text-left px-3 py-2 font-semibold text-charcoal-dark">Données transmises</th>
+                <th class="text-left px-3 py-2 font-semibold text-charcoal-dark">Localisation</th>
               </tr>
             </thead>
             <tbody class="text-charcoal-light">
               <tr class="border-t border-gray-200">
                 <td class="px-3 py-2">Hetzner Online GmbH</td>
-                <td class="px-3 py-2">Hosting (database, application servers)</td>
-                <td class="px-3 py-2">All data at rest</td>
-                <td class="px-3 py-2">Helsinki, Finland (EU)</td>
+                <td class="px-3 py-2">Hébergement (base de données, serveurs applicatifs)</td>
+                <td class="px-3 py-2">Toutes les données au repos</td>
+                <td class="px-3 py-2">Helsinki, Finlande (UE)</td>
               </tr>
               <tr class="border-t border-gray-200">
                 <td class="px-3 py-2">Stripe Payments Europe</td>
-                <td class="px-3 py-2">Payment processing</td>
-                <td class="px-3 py-2">Email, name, payment details</td>
-                <td class="px-3 py-2">Ireland (EU)</td>
+                <td class="px-3 py-2">Traitement des paiements</td>
+                <td class="px-3 py-2">Email, nom, données de paiement</td>
+                <td class="px-3 py-2">Irlande (UE)</td>
               </tr>
               <tr class="border-t border-gray-200">
                 <td class="px-3 py-2">OpenAI, L.L.C.</td>
-                <td class="px-3 py-2">LLM scan execution (GPT models)</td>
-                <td class="px-3 py-2">Scan questions only - no account data</td>
-                <td class="px-3 py-2">United States (DPA + SCCs)</td>
+                <td class="px-3 py-2">Exécution des scans LLM (modèles GPT)</td>
+                <td class="px-3 py-2">Questions de scan uniquement - aucune donnée de compte</td>
+                <td class="px-3 py-2">États-Unis (DPA + CCT)</td>
               </tr>
               <tr class="border-t border-gray-200">
                 <td class="px-3 py-2">Anthropic, PBC</td>
-                <td class="px-3 py-2">Topic / persona / brand classification (Claude)</td>
-                <td class="px-3 py-2">Scan content only - no account data</td>
-                <td class="px-3 py-2">United States (DPA + SCCs)</td>
+                <td class="px-3 py-2">Classification thématiques / personas / marques (Claude)</td>
+                <td class="px-3 py-2">Contenu de scan uniquement - aucune donnée de compte</td>
+                <td class="px-3 py-2">États-Unis (DPA + CCT)</td>
               </tr>
               <tr class="border-t border-gray-200">
                 <td class="px-3 py-2">Google LLC</td>
-                <td class="px-3 py-2">Gemini LLM scans + Google sign-in</td>
-                <td class="px-3 py-2">Scan questions / OAuth identity</td>
-                <td class="px-3 py-2">United States (DPA + SCCs)</td>
+                <td class="px-3 py-2">Scans LLM Gemini + connexion Google</td>
+                <td class="px-3 py-2">Questions de scan / identité OAuth</td>
+                <td class="px-3 py-2">États-Unis (DPA + CCT)</td>
               </tr>
               <tr class="border-t border-gray-200">
                 <td class="px-3 py-2">HaloScan SAS</td>
-                <td class="px-3 py-2">SEO keyword data for the scanned domain</td>
-                <td class="px-3 py-2">Domain name only</td>
-                <td class="px-3 py-2">France (EU)</td>
+                <td class="px-3 py-2">Données de mots-clés SEO pour le domaine scanné</td>
+                <td class="px-3 py-2">Nom de domaine uniquement</td>
+                <td class="px-3 py-2">France (UE)</td>
               </tr>
             </tbody>
           </table>
         </div>
         <p class="text-xs text-charcoal-light mt-3">
-          We will notify you in advance if we add new sub-processors that materially
-          affect your data.
+          Nous vous informerons à l'avance si nous ajoutons de nouveaux sous-traitants ayant une
+          incidence significative sur vos données.
         </p>
       </section>
 
       <section class="mb-10">
-        <h2 class="text-xl font-bold text-charcoal-dark mb-4">6. Data retention</h2>
+        <h2 class="text-xl font-bold text-charcoal-dark mb-4">6. Durées de conservation</h2>
         <ul class="text-charcoal-light leading-relaxed list-disc pl-6">
-          <li><strong>Account data:</strong> retained until you delete your account.</li>
-          <li><strong>Scan data:</strong> retained until you delete the scan or your account.</li>
-          <li><strong>Billing records:</strong> retained 10 years (French tax law).</li>
-          <li><strong>Server logs:</strong> rotated every 30 days.</li>
+          <li><strong>Données de compte :</strong> conservées jusqu'à la suppression de votre compte.</li>
+          <li><strong>Données de scan :</strong> conservées jusqu'à la suppression du scan ou de votre compte.</li>
+          <li><strong>Pièces de facturation :</strong> conservées 10 ans (droit fiscal français).</li>
+          <li><strong>Journaux serveur :</strong> rotation tous les 30 jours.</li>
         </ul>
       </section>
 
       <section class="mb-10">
-        <h2 class="text-xl font-bold text-charcoal-dark mb-4">7. Your rights (GDPR Art. 15–22)</h2>
+        <h2 class="text-xl font-bold text-charcoal-dark mb-4">7. Vos droits (RGPD art. 15 à 22)</h2>
         <p class="text-charcoal-light leading-relaxed">
-          You can exercise the following rights at any time:
+          Vous pouvez exercer à tout moment les droits suivants :
         </p>
         <ul class="text-charcoal-light leading-relaxed list-disc pl-6 mt-3">
           <li>
-            <strong>Right of access (Art. 15) and right to portability (Art. 20):</strong>
-            download a complete JSON export of all your data via the
-            <code class="text-coral">GET /api/auth/me/export</code> endpoint, or from your
-            account settings.
+            <strong>Droit d'accès (art. 15) et droit à la portabilité (art. 20) :</strong>
+            téléchargez un export JSON complet de toutes vos données via le point d'entrée
+            <code class="text-coral">GET /api/auth/me/export</code>, ou depuis les paramètres de
+            votre compte.
           </li>
           <li>
-            <strong>Right to erasure (Art. 17):</strong> delete your account and all
-            associated data via <code class="text-coral">DELETE /api/auth/me</code>, or from
-            your account settings. Workspaces you solely own are wiped together with all
-            their scans, brands, and credit history.
+            <strong>Droit à l'effacement (art. 17) :</strong> supprimez votre compte et toutes les
+            données associées via <code class="text-coral">DELETE /api/auth/me</code>, ou depuis
+            les paramètres de votre compte. Les espaces de travail dont vous êtes l'unique
+            propriétaire sont effacés avec l'ensemble de leurs scans, marques et historique de
+            crédits.
           </li>
           <li>
-            <strong>Right to rectification (Art. 16):</strong> edit your name, email, and
-            other profile fields from your settings.
+            <strong>Droit de rectification (art. 16) :</strong> modifiez votre nom, votre email et
+            les autres champs de votre profil depuis vos paramètres.
           </li>
           <li>
-            <strong>Right to object / restrict processing (Art. 18, 21):</strong> contact us.
+            <strong>Droit d'opposition / de limitation du traitement (art. 18 et 21) :</strong> contactez-nous.
           </li>
           <li>
-            <strong>Right to lodge a complaint:</strong> with the French data protection
-            authority, the <a href="https://www.cnil.fr" target="_blank" rel="noopener" class="text-coral hover:text-coral-dark">CNIL</a>.
+            <strong>Droit d'introduire une réclamation :</strong> auprès de l'autorité française de
+            protection des données, la <a href="https://www.cnil.fr" target="_blank" rel="noopener" class="text-coral hover:text-coral-dark">CNIL</a>.
           </li>
         </ul>
       </section>
 
       <section class="mb-10">
-        <h2 class="text-xl font-bold text-charcoal-dark mb-4">8. Security</h2>
+        <h2 class="text-xl font-bold text-charcoal-dark mb-4">8. Sécurité</h2>
         <ul class="text-charcoal-light leading-relaxed list-disc pl-6">
-          <li>HTTPS / TLS for all traffic (Let's Encrypt certificates).</li>
-          <li>Passwords hashed with bcrypt (never stored in clear).</li>
-          <li>Authentication via HttpOnly + Secure cookies (not accessible to JavaScript).</li>
-          <li>Database-level uniqueness constraints to prevent double-billing on payment retries.</li>
-          <li>Application-level rate limiting to mitigate brute-force and resource-exhaustion attacks.</li>
-          <li>Per-row locking on credit operations to prevent race conditions.</li>
-          <li>Automated refunds when a scan job fails so users are never charged for undelivered work.</li>
+          <li>HTTPS / TLS sur l'ensemble du trafic (certificats Let's Encrypt).</li>
+          <li>Mots de passe hachés avec bcrypt (jamais stockés en clair).</li>
+          <li>Authentification par cookies HttpOnly + Secure (inaccessibles au JavaScript).</li>
+          <li>Contraintes d'unicité au niveau de la base de données pour empêcher une double facturation en cas de nouvelle tentative de paiement.</li>
+          <li>Limitation de débit applicative pour atténuer les attaques par force brute et par épuisement de ressources.</li>
+          <li>Verrouillage ligne par ligne sur les opérations de crédits pour éviter les accès concurrents.</li>
+          <li>Remboursements automatiques en cas d'échec d'un scan, afin que les utilisateurs ne soient jamais facturés pour un travail non délivré.</li>
         </ul>
       </section>
 
       <section class="mb-10">
         <h2 class="text-xl font-bold text-charcoal-dark mb-4">9. Cookies</h2>
         <p class="text-charcoal-light leading-relaxed">
-          We use exactly one cookie: a session token (<code class="text-coral">token</code>),
-          set HttpOnly + Secure + SameSite=Lax, valid for 24 hours. This is strictly
-          necessary to keep you logged in. We do not use any tracking, advertising, or
-          analytics cookies.
+          Nous utilisons un seul et unique cookie : un jeton de session
+          (<code class="text-coral">token</code>), déposé en HttpOnly + Secure + SameSite=Lax,
+          valable 24 heures. Il est strictement nécessaire au maintien de votre connexion. Nous
+          n'utilisons aucun cookie de tracking, de publicité ou de mesure d'audience.
         </p>
       </section>
 
       <section class="mb-10">
-        <h2 class="text-xl font-bold text-charcoal-dark mb-4">10. International transfers</h2>
+        <h2 class="text-xl font-bold text-charcoal-dark mb-4">10. Transferts internationaux</h2>
         <p class="text-charcoal-light leading-relaxed">
-          Our infrastructure (Hetzner, Stripe, HaloScan) is hosted within the European
-          Union. Some sub-processors providing AI capabilities (OpenAI, Anthropic, Google)
-          process data in the United States. These transfers are covered by Standard
-          Contractual Clauses (SCCs) approved by the European Commission and by each
-          provider's Data Processing Agreement.
+          Notre infrastructure (Hetzner, Stripe, HaloScan) est hébergée au sein de l'Union
+          européenne. Certains sous-traitants fournissant des capacités d'IA (OpenAI, Anthropic,
+          Google) traitent les données aux États-Unis. Ces transferts sont encadrés par les clauses
+          contractuelles types (Standard Contractual Clauses, CCT) approuvées par la Commission
+          européenne et par l'accord de traitement des données (DPA) de chaque prestataire.
         </p>
       </section>
 
       <section class="mb-10">
-        <h2 class="text-xl font-bold text-charcoal-dark mb-4">11. Children</h2>
+        <h2 class="text-xl font-bold text-charcoal-dark mb-4">11. Mineurs</h2>
         <p class="text-charcoal-light leading-relaxed">
-          The Service is not intended for users under 16. We do not knowingly collect
-          data from children. If you believe a child has registered, contact us and we
-          will remove the account.
+          Le Service n'est pas destiné aux utilisateurs de moins de 16 ans. Nous ne collectons pas
+          sciemment de données concernant des mineurs. Si vous pensez qu'un mineur s'est inscrit,
+          contactez-nous et nous supprimerons le compte.
         </p>
       </section>
 
       <section class="mb-10">
-        <h2 class="text-xl font-bold text-charcoal-dark mb-4">12. Changes to this policy</h2>
+        <h2 class="text-xl font-bold text-charcoal-dark mb-4">12. Modifications de la présente politique</h2>
         <p class="text-charcoal-light leading-relaxed">
-          We may update this policy from time to time. Material changes will be
-          announced in-app and the "last updated" date at the top of this page will be
-          revised. Continued use of the Service after a change constitutes acceptance.
+          Nous sommes susceptibles de mettre à jour cette politique de temps à autre. Les
+          modifications substantielles seront annoncées dans l'application et la date de
+          « dernière mise à jour » en haut de cette page sera actualisée. La poursuite de
+          l'utilisation du Service après une modification vaut acceptation.
+        </p>
+      </section>
+
+      <section class="mb-10">
+        <h2 class="text-xl font-bold text-charcoal-dark mb-4">13. Langue</h2>
+        <p class="text-charcoal-light leading-relaxed">
+          La version française de la présente politique, publiée à l'adresse
+          <a href="/privacy" class="text-coral hover:text-coral-dark">sen-ai.fr/privacy</a>, est la
+          version de référence. Elle prévaut en cas de divergence avec la
+          <a href="/en/privacy" class="text-coral hover:text-coral-dark">traduction anglaise</a>.
         </p>
       </section>
 
@@ -256,7 +283,7 @@ const lastUpdated = "2026-04-10";
           <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
             <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7" />
           </svg>
-          Back to home
+          Retour à l'accueil
         </a>
       </div>
     </div>

@@ -1,0 +1,92 @@
+---
+/**
+ * /ressources/ - English-language field notes.
+ *
+ * Why this section exists next to /guides/ : the cocoon is French by design
+ * (GuideLayout hardcodes lang=fr and the tree is FR-slugged). Data pieces
+ * aimed at an international tech audience live here instead, and each one
+ * declares an hreflang pair with its French counterpart in the cocoon.
+ *
+ * 2026-07-18 : created after shipping the first article as an orphan - the
+ * section index 404'd and nothing linked in.
+ */
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import Nav from '../../components/Nav.astro';
+import Footer from '../../components/Footer.astro';
+
+const SITE = 'https://sen-ai.fr';
+const title = 'Resources : field notes on AI visibility | sen-ai.fr';
+const description = 'English field notes from the team building sen-ai : real data on AI crawlers, citations and generative-search visibility. French guides live in /guides.';
+
+const articles = [
+  {
+    href: '/ressources/ai-crawlers-30-days/',
+    date: 'July 2026',
+    title: 'ChatGPT visited our site 117 times last month. It sent us zero clicks',
+    teaser: '30 days of origin logs classified user agent by user agent : 158,000 requests, 4,734 unique IPs, about 20 human visits. Who the AI crawlers are, what they read, and what we changed.',
+    fr: '/guides/crawlers-ia-qui-lit-votre-site/',
+  },
+];
+
+const ld = {
+  '@context': 'https://schema.org',
+  '@graph': [
+    {
+      '@type': 'CollectionPage',
+      name: 'Resources',
+      description,
+      inLanguage: 'en',
+      url: `${SITE}/ressources/`,
+      hasPart: articles.map((a) => ({ '@type': 'Article', headline: a.title, url: `${SITE}${a.href}` })),
+    },
+    {
+      '@type': 'BreadcrumbList',
+      itemListElement: [
+        { '@type': 'ListItem', position: 1, name: 'Resources', item: `${SITE}/ressources/` },
+      ],
+    },
+  ],
+};
+---
+
+<BaseLayout title={title} description={description} lang="en">
+  <Nav />
+  <main class="pt-24 pb-16 px-4">
+    <div class="max-w-2xl mx-auto">
+      <h1 class="text-3xl sm:text-4xl font-bold text-charcoal-dark leading-tight mb-3">Resources</h1>
+      <p class="text-charcoal-light leading-relaxed mb-10">
+        Field notes in English : real numbers from building and running sen-ai.
+        Our French guides on AI visibility live in
+        <a href="/guides/" class="text-coral hover:underline">the guides section</a>.
+      </p>
+
+      <ul class="space-y-6">
+        {articles.map((a) => (
+          <li class="border-t border-gray-200 pt-6">
+            <p class="text-[11px] uppercase tracking-wider text-charcoal-light mb-2">{a.date}</p>
+            <h2 class="text-xl font-bold text-charcoal-dark leading-snug mb-2">
+              <a href={a.href} class="hover:text-coral transition-colors">{a.title}</a>
+            </h2>
+            <p class="text-sm text-charcoal-light leading-relaxed">{a.teaser}</p>
+            {a.fr && (
+              <p class="mt-2 text-sm">
+                <a href={a.fr} class="text-coral hover:underline">Version française</a>
+              </p>
+            )}
+          </li>
+        ))}
+      </ul>
+
+      <div class="mt-12 rounded-xl border border-coral/30 bg-coral/5 p-5">
+        <p class="text-[15px] font-bold text-charcoal-dark">Are the AI assistants mentioning your brand ?</p>
+        <p class="mt-1 text-sm text-charcoal-light mb-3">
+          sen-ai asks ChatGPT, Gemini and Claude the questions your market asks, and measures who gets cited.
+        </p>
+        <a href="/register" class="inline-flex items-center justify-center rounded-lg bg-coral px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-coral-dark">Run a free scan</a>
+      </div>
+    </div>
+  </main>
+  <Footer />
+
+  <script type="application/ld+json" set:html={JSON.stringify(ld)} />
+</BaseLayout>

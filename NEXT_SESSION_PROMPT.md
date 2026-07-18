@@ -10,32 +10,31 @@
   "New"/"Since N scans" + panel "Resolved since last scan". Validé sur A-Derma
   run 6 (prev = root importé run_index 5) : 364 persisting / 33 new, synthétiques
   exact-key + isolation provider + mismatch→resolved, cleanup vérifié.
-- Session parallèle le même matin : **P5c cache LRU** (api/services/response_cache.py,
-  scans.py) + perf. Mon commit embarque leur scans.py + response_cache.py
-  (import requis). Leurs autres fichiers (judge_sentiment, organizations,
-  results.astro, guides *.md) laissés à leur commit.
+- Session parallèle TRÈS active le même matin (commits ac8711e P5c cache,
+  2a3d3d2 questions 42MB→865KB, 20b345c top-30 materialization cap, 6886557
+  guides). Arbre partagé : le code P4 de scans.py est parti dans LEUR ac8711e,
+  et mes fichiers stagés (migration 061, models ×2, handler, actions.astro,
+  ce fichier) ont été balayés dans leur 6886557 - le détail P4 est dans le
+  tracker, pas dans un commit dédié.
 - v2 différée : bump de priorité si streak>=3. Suivi : get_opportunities pourrait
   honorer `?provider=` (le front l'envoie déjà, trivial avec la colonne).
 
 ## Prompt à coller pour la prochaine session
 
 ```
-Reprise sen-ai.fr. Lis project_todo_tracker.md (section 2026-07-18 P4) d'abord.
+Reprise sen-ai.fr. Lis project_todo_tracker.md (sections 2026-07-18) d'abord.
 
 Candidats de session (par priorité) :
 1. Réécriture SQL de /results/aggregated (~4s de boucles Python par lignée à
    froid, le cache P5c ne couvre que les hits chauds) - lire la section perf
    du tracker 2026-07-18 avant.
-2. questions.astro : 42 MB de JSON embarqués dans le HTML (TTFB réglé par le
-   streaming, le body reste) - paginer/filtrer côté serveur.
-3. Top-N scoring des suggestions par scan (constat produit : ~190 suggestions
-   par lignée = volume generate_opportunities, pas l'historique) - specer
-   produit d'abord.
-4. Module Placements (suivi articles publiés) - diagnostic fait, cf
+2. Module Placements (suivi articles publiés) - diagnostic fait, cf
    project_placements_module_diagnostic : watchlist URLs + matcher zéro-LLM.
-5. Redesign results/overview - cf project_postscan_reporting_audit (12 gaps
+3. Redesign results/overview - cf project_postscan_reporting_audit (12 gaps
    data + bug Top competitor=ameli.fr). Lire l'audit AVANT.
-6. Backlog BYOK : e2e contenu réel, runtime Mistral, agent.py chatbot.
+4. Backlog BYOK : e2e contenu réel, runtime Mistral, agent.py chatbot.
+(questions 42MB et top-N suggestions : soldés le 18/07 par la session
+parallèle, commits 2a3d3d2 + 20b345c.)
 
 Foot-guns : deploy = scp + rebuild + up -d + restart nginx + smoke synchrone ;
 diff .env vs .env.save avant deploy ; update tracker après chaque tranche.

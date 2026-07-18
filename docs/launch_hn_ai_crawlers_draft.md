@@ -99,6 +99,30 @@ Le titre 2 est le plus fort (asymétrie lisible en une ligne, chiffres réels).
 Le titre 3 est un angle sécurité qui peut sur-performer mais recentre la
 discussion loin du produit.
 
+## 🔴 À FAIRE AVANT DE SOUMETTRE : activer le cache HTML Cloudflare
+
+L'origine envoie désormais les bons en-têtes (`s-maxage=600, stale-while-revalidate=86400`
+sur les pages marketing uniquement ; `private, no-store` sur l'app et les
+pages d'authentification - vérifié en prod le 2026-07-18). **Mais Cloudflare
+ne cache PAS le HTML par défaut**, même avec ces en-têtes : il faut une Cache
+Rule. Sans elle, chaque visiteur HN tape le VPS 2 cœurs qui fait aussi
+tourner l'API et les workers.
+
+Dans le dashboard Cloudflare → zone sen-ai.fr → **Caching → Cache Rules →
+Create rule** :
+- Nom : `HTML marketing cacheable`
+- Expression : `(starts_with(http.request.uri.path, "/guides") or
+  starts_with(http.request.uri.path, "/ressources") or
+  http.request.uri.path in {"/" "/pricing" "/agency" "/methodology"
+  "/fr/methodology" "/privacy" "/terms" "/mentions-legales"})`
+- Cache eligibility : **Eligible for cache**
+- Edge TTL : **Use cache-control header if present** (l'origine pilote)
+- Browser TTL : Respect origin
+
+Vérification après activation : `curl -sI https://sen-ai.fr/ressources/ai-crawlers-30-days/ | grep -i cf-cache-status`
+doit passer de `DYNAMIC` à `MISS` puis `HIT` au second appel. Et vérifier que
+`/app/dashboard` reste `DYNAMIC` (jamais caché).
+
 ## Checklist avant publication
 
 - [ ] Relecture David + choix du titre

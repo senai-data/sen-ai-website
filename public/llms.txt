@@ -1,13 +1,48 @@
 # sen-ai.fr
-> sen-ai.fr est une plateforme SaaS française d'analyse de visibilité SEO et GEO.
 
-## Fonctionnalités
-- LLM Citation Analysis
-- GEO Content Generation
-- Netlinking Intelligence
-- FAQ Schema.org Generation
-- Web Monitor (RAPP Framework)
+> sen-ai.fr mesure si les IA génératives (ChatGPT, Gemini, Claude, Mistral) citent votre marque quand on les interroge sur votre marché, puis transforme ce diagnostic en actions priorisées. Plateforme française, données hébergées en Europe.
+
+La mesure repose sur des questions dérivées de vos personas et segments, posées plusieurs fois à plusieurs modèles (les réponses génératives varient d'un appel à l'autre), puis analysées : marque citée ou non, position dans la réponse, sentiment, sources reprises, concurrents mentionnés à votre place.
+
+Le contenu ci-dessous est en français, sauf mention contraire.
+
+## Méthodologie et produit
+
+- [Méthodologie de mesure](https://sen-ai.fr/fr/methodology) : protocole complet, modèles interrogés, ères de modèles, limites assumées
+- [Methodology (EN)](https://sen-ai.fr/methodology) : same document, English version
+- [Tarifs](https://sen-ai.fr/pricing) : crédits de scan et de contenu, facturation à l'usage
+- [Offre agences](https://sen-ai.fr/agency) : multi-clients, marque blanche, vue transverse
+
+## Comprendre la visibilité dans les IA (cocon de guides)
+
+- [Comment sen-ai mesure votre visibilité dans les IA génératives](https://sen-ai.fr/guides/methodologie-visibilite-ia/) : page pilier, point d'entrée du cocon
+- [Mesurer sa présence dans ChatGPT, Gemini, Claude et Mistral](https://sen-ai.fr/guides/mesurer-visibilite-ia/) : échantillonnage, variabilité, protocole
+- [Le paradigme N-runs](https://sen-ai.fr/guides/paradigme-n-runs/) : pourquoi une mesure fiable exige plusieurs répétitions
+- [Tester sa marque une seule fois sur ChatGPT ne suffit pas](https://sen-ai.fr/guides/un-seul-test-chatgpt-ne-suffit-pas/) : la variance des réponses génératives
+- [Être cité par les IA](https://sen-ai.fr/guides/etre-cite-par-les-ia/) : les leviers de contenu qui font reprendre une source
+- [Le query fan-out](https://sen-ai.fr/guides/query-fan-out/) : comment une IA éclate une question en sous-requêtes
+- [Quels robots d'IA lisent vraiment votre site](https://sen-ai.fr/guides/crawlers-ia-qui-lit-votre-site/) : GPTBot, ClaudeBot, ChatGPT-User, analyse de 30 jours de logs serveur
+- [Autorité et E-E-A-T](https://sen-ai.fr/guides/autorite-eeat-ia/) : les signaux de confiance repris par les modèles
+- [Pourquoi Wikipedia est la source la plus citée par ChatGPT](https://sen-ai.fr/guides/wikipedia-source-plus-citee-chatgpt/)
+- [Les citations qui viennent d'ailleurs que de votre site](https://sen-ai.fr/guides/off-site-et-achat-media/) : médias, concurrents, Reddit, YouTube
+- [Agir et mesurer](https://sen-ai.fr/guides/agir-et-mesurer/) : priorisation des actions et boucle de remesure
+- [Tous les guides](https://sen-ai.fr/guides/)
+
+## Ressources en anglais
+
+- [ChatGPT visited our site 117 times last month. It sent us zero clicks](https://sen-ai.fr/ressources/ai-crawlers-30-days/) : 30 days of server logs classified user agent by user agent
+- [All English resources](https://sen-ai.fr/ressources/)
+
+## Confiance, conformité, données
+
+- [Confiance et transparence](https://sen-ai.fr/guides/confiance/) : ce que fait l'outil, ce qu'il ne fait pas
+- [sen-ai et l'AI Act](https://sen-ai.fr/guides/conformite-ai-act-limited-risk/) : application à risque limité, obligations de transparence
+- [Vos données restent-elles en Europe ?](https://sen-ai.fr/guides/donnees-en-europe/) : hébergement et sous-traitants
+- [Politique de confidentialité](https://sen-ai.fr/privacy)
+- [Conditions d'utilisation](https://sen-ai.fr/terms)
+- [Mentions légales](https://sen-ai.fr/mentions-legales)
 
 ## Contact
-- Site: https://sen-ai.fr
-- Email: contact@sen-ai.fr
+
+- Email : contact@sen-ai.fr
+- Site : https://sen-ai.fr

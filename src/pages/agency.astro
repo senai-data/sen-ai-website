@@ -1,102 +1,113 @@
 ---
 /**
- * Sprint 15 - Public agency landing page.
+ * Sprint 15 - Landing publique agences.
  *
- * Sales-side pitch for marketing agencies who want to resell AI visibility
- * tracking to their own clients. Multi-tenant plumbing already exists
- * (Phase E.C.1/2 organizations + per-workspace roles). This page surfaces
- * the proposition publicly + the volume-pricing CTA.
+ * Argumentaire commercial pour les agences marketing qui veulent revendre le
+ * suivi de visibilite IA a leurs propres clients. La plomberie multi-tenant
+ * existe deja (Phase E.C.1/2 organizations + roles par workspace).
  *
- * No auth required.
+ * Langue 2026-07-18 : cette page est FRANCAISE parce qu'elle est dans le
+ * tunnel francais - la nav dit "Agences" et /pricing dit "Voir l'offre
+ * agences". Le jumeau anglais vit a /en/agency, vers lequel pointent les
+ * surfaces anglaises de l'app (welcome, agency overview, bulk). Paire
+ * declaree en hreflang.
+ *
+ * Pas d'authentification requise.
  */
 import BaseLayout from '../layouts/BaseLayout.astro';
 import Nav from '../components/Nav.astro';
 import Footer from '../components/Footer.astro';
 ---
 
-<BaseLayout lang="en" title="For agencies | sen-ai.fr" description="Track AI visibility across 10-100 client brands from one workspace. Multi-tenant by design, volume pricing, white-label discussions.">
+<BaseLayout lang="fr" title="Pour les agences | sen-ai.fr" description="Suivez la visibilité IA de 10 à 100 marques clientes depuis un seul espace. Multi-tenant par conception, tarifs dégressifs, marque blanche sur demande." alternates={{ fr: '/agency', en: '/en/agency' }}>
   <Nav />
   <main class="pt-24 pb-20 px-4">
     <div class="max-w-5xl mx-auto">
 
       <!-- Hero -->
       <section class="text-center mb-16">
-        <p class="text-coral uppercase tracking-[0.25em] text-sm font-medium mb-4">For agencies</p>
+        <div class="flex justify-center mb-4">
+          <a href="/en/agency" class="text-sm text-charcoal-light hover:text-coral underline">English &rarr;</a>
+        </div>
+        <p class="text-coral uppercase tracking-[0.25em] text-sm font-medium mb-4">Pour les agences</p>
         <h1 class="text-4xl sm:text-5xl font-bold text-charcoal-dark mb-4 leading-tight">
-          Resell AI visibility tracking<br/>under your own roof.
+          Revendez le suivi de visibilité IA<br/>sous votre propre marque.
         </h1>
         <p class="text-lg text-charcoal-light max-w-2xl mx-auto leading-relaxed">
-          Track how ChatGPT, Gemini, Claude, and Mistral reference 10 to 100 client brands from one
-          centralised workspace. Multi-tenant by design. Volume pricing. White-label discussions.
+          Suivez comment ChatGPT, Gemini, Claude et Mistral citent 10 à 100 marques clientes depuis
+          un espace centralisé. Multi-tenant par conception. Tarifs dégressifs. Marque blanche sur demande.
         </p>
         <div class="flex items-center justify-center gap-3 mt-8 flex-wrap">
           <a href="/register?intent=agency" class="inline-flex items-center gap-2 px-8 py-4 bg-coral text-white font-medium rounded-xl text-base hover:bg-coral-dark hover:shadow-lg transition-all">
-            Start free
+            Commencer gratuitement
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
           </a>
-          <a href="mailto:contact@sen-ai.fr?subject=Agency%20pricing%20-%20volume%20quote" class="inline-flex items-center gap-2 px-8 py-4 border-2 border-charcoal-dark text-charcoal-dark font-medium rounded-xl text-base hover:bg-charcoal-dark hover:text-white transition-all">
-            Get a volume quote
+          <a href="mailto:contact@sen-ai.fr?subject=Tarifs%20agence%20-%20devis%20volume" class="inline-flex items-center gap-2 px-8 py-4 border-2 border-charcoal-dark text-charcoal-dark font-medium rounded-xl text-base hover:bg-charcoal-dark hover:text-white transition-all">
+            Demander un devis volume
           </a>
         </div>
       </section>
 
-      <!-- Why sen-ai for agencies -->
+      <!-- Pourquoi sen-ai pour les agences -->
       <section class="mb-16">
-        <h2 class="text-2xl font-bold text-charcoal-dark text-center mb-8">Why agencies pick sen-ai</h2>
+        <h2 class="text-2xl font-bold text-charcoal-dark text-center mb-8">Pourquoi les agences choisissent sen-ai</h2>
         <div class="grid md:grid-cols-3 gap-6">
           <div class="bg-white rounded-2xl border border-gray-200 p-6">
             <div class="w-10 h-10 bg-coral/10 rounded-xl flex items-center justify-center mb-4">
               <svg class="w-5 h-5 text-coral" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 6l3 1m0 0l-3 9a5.002 5.002 0 006.001 0M6 7l3 9M6 7l6-2m6 2l3-1m-3 1l-3 9a5.002 5.002 0 006.001 0M18 7l3 9m-3-9l-6-2m0-2v2m0 16V5m0 16H9m3 0h3"/></svg>
             </div>
-            <h3 class="font-bold text-charcoal-dark mb-2">One login, N workspaces</h3>
+            <h3 class="font-bold text-charcoal-dark mb-2">Un seul compte, N espaces</h3>
             <p class="text-sm text-charcoal-light leading-relaxed">
-              Create a workspace per client. Each workspace tracks its own brand, competitors, scans,
-              and content credits. Switch between them in the header dropdown. No re-authentication.
+              Créez un espace de travail par client. Chaque espace suit sa propre marque, ses
+              concurrents, ses scans et ses crédits contenu. On passe de l'un à l'autre depuis le
+              menu de l'en-tête, sans se reconnecter.
             </p>
           </div>
           <div class="bg-white rounded-2xl border border-gray-200 p-6">
             <div class="w-10 h-10 bg-coral/10 rounded-xl flex items-center justify-center mb-4">
               <svg class="w-5 h-5 text-coral" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
             </div>
-            <h3 class="font-bold text-charcoal-dark mb-2">Granular team roles</h3>
+            <h3 class="font-bold text-charcoal-dark mb-2">Des rôles d'équipe précis</h3>
             <p class="text-sm text-charcoal-light leading-relaxed">
-              Per-org owner / admin / member roles × per-workspace manager / editor / viewer.
-              Junior analysts read-only on enterprise clients. Account leads launch scans.
-              You decide who sees what billing.
+              Rôles propriétaire / admin / membre au niveau de l'organisation, croisés avec des rôles
+              gestionnaire / éditeur / lecteur par espace. Les analystes juniors restent en lecture
+              seule sur les gros comptes. Les responsables de compte lancent les scans. Vous décidez
+              qui voit la facturation.
             </p>
           </div>
           <div class="bg-white rounded-2xl border border-gray-200 p-6">
             <div class="w-10 h-10 bg-coral/10 rounded-xl flex items-center justify-center mb-4">
               <svg class="w-5 h-5 text-coral" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
             </div>
-            <h3 class="font-bold text-charcoal-dark mb-2">Procurement-ready compliance</h3>
+            <h3 class="font-bold text-charcoal-dark mb-2">Conformité prête pour les achats</h3>
             <p class="text-sm text-charcoal-light leading-relaxed">
-              Per-scan transparency reports + org-level DPIA template + public methodology page.
-              Designed for EU AI Act (applicable Aug 2026) procurement reviews. Your clients tick the box.
+              Rapport de transparence par scan, modèle d'AIPD au niveau de l'organisation et page
+              méthodologie publique. Pensé pour les revues achats liées au règlement européen sur
+              l'IA (applicable en août 2026). Vos clients cochent la case.
             </p>
           </div>
         </div>
       </section>
 
-      <!-- What you get -->
+      <!-- Ce que contient chaque espace -->
       <section class="mb-16 bg-gradient-to-br from-coral/5 to-white rounded-3xl p-10 border border-coral/20">
-        <h2 class="text-2xl font-bold text-charcoal-dark text-center mb-8">Every workspace ships with</h2>
+        <h2 class="text-2xl font-bold text-charcoal-dark text-center mb-8">Chaque espace de travail inclut</h2>
         <div class="grid md:grid-cols-2 gap-x-10 gap-y-3 max-w-3xl mx-auto">
           {[
-            ['Overview', 'Citation rate, brand mention rate, sentiment chips, sparkline'],
-            ['Topics & Personas', 'Auto-generated buyer-side personas anchored on the client domain'],
-            ['Questions', '5 question types per persona, brand-agnostic phrasing'],
-            ['Citations', 'Every URL the LLMs cited, drill-down by question + provider'],
-            ['Wikipedia', 'Detect missing / weak Wikipedia presence on focus + competitors'],
-            ['Page Audit', 'Princeton GEO 7-pattern audit on the client\'s cited pages'],
-            ['Schema', 'JSON-LD audit + generator per page type'],
-            ['Competitors', 'Reverse-engineer the top 5 rivals - pages, schemas, backlinks'],
-            ['Reddit', 'Threads LLMs cite for the brand or competitors + sentiment'],
-            ['PR / Media', 'Press domains that cite competitors but not the client'],
-            ['Internal links', 'Orphan / dead-end / hub topology + anchor quality'],
-            ['YouTube', 'Creator channels LLMs cite for the brand and rivals'],
-            ['Crisis radar', 'Negative-sentiment snapshot + matching playbook templates'],
-            ['Compliance', 'Per-scan transparency report + org-level audit log + DPIA template'],
+            ['Vue d\'ensemble', 'Taux de citation, taux de mention de la marque, sentiment, courbe de tendance'],
+            ['Sujets et personas', 'Personas côté acheteur générés automatiquement à partir du domaine client'],
+            ['Questions', '5 types de questions par persona, formulées sans nommer la marque'],
+            ['Citations', 'Chaque URL citée par les IA, avec le détail par question et par modèle'],
+            ['Wikipédia', 'Détection d\'une présence Wikipédia absente ou faible, marque et concurrents'],
+            ['Audit de pages', 'Audit GEO 7 motifs (étude Princeton) sur les pages citées du client'],
+            ['Schema', 'Audit JSON-LD et générateur par type de page'],
+            ['Concurrents', 'Rétro-ingénierie des 5 principaux rivaux - pages, schemas, backlinks'],
+            ['Reddit', 'Fils que les IA citent pour la marque ou ses concurrents, et leur sentiment'],
+            ['RP et médias', 'Domaines de presse qui citent les concurrents mais pas le client'],
+            ['Maillage interne', 'Topologie des pages orphelines, culs-de-sac et hubs, qualité des ancres'],
+            ['YouTube', 'Chaînes de créateurs que les IA citent pour la marque et ses rivaux'],
+            ['Radar de crise', 'Instantané des sentiments négatifs et modèles de réponse associés'],
+            ['Conformité', 'Rapport de transparence par scan, journal d\'audit et modèle d\'AIPD'],
           ].map(([k, v]) => (
             <div class="flex items-baseline gap-2">
               <span class="text-coral mt-0.5">✓</span>
@@ -106,75 +117,76 @@ import Footer from '../components/Footer.astro';
         </div>
       </section>
 
-      <!-- Pricing posture -->
+      <!-- Tarifs -->
       <section class="mb-16">
-        <h2 class="text-2xl font-bold text-charcoal-dark text-center mb-3">Volume pricing</h2>
+        <h2 class="text-2xl font-bold text-charcoal-dark text-center mb-3">Tarifs dégressifs</h2>
         <p class="text-charcoal-light text-center max-w-2xl mx-auto mb-10">
-          Buy scan and content credits in agency-sized packs. Credits never expire. Workspaces share
-          the pool, so a slow month for client A frees up scans for client B.
+          Achetez vos crédits scan et contenu par packs taillés pour une agence. Les crédits n'expirent
+          jamais. Les espaces puisent dans une réserve commune : un mois calme chez le client A libère
+          des scans pour le client B.
         </p>
         <div class="grid md:grid-cols-3 gap-6 max-w-4xl mx-auto">
           <div class="bg-white rounded-2xl border border-gray-200 p-6">
-            <p class="text-[10px] text-charcoal-light uppercase tracking-wide font-semibold mb-2">For small studios</p>
-            <h3 class="text-lg font-bold text-charcoal-dark mb-1">Agency pack</h3>
-            <p class="text-xs text-charcoal-light mb-4">Up to 10 client workspaces, shared credit pool</p>
+            <p class="text-[10px] text-charcoal-light uppercase tracking-wide font-semibold mb-2">Pour les petits studios</p>
+            <h3 class="text-lg font-bold text-charcoal-dark mb-1">Pack Agence</h3>
+            <p class="text-xs text-charcoal-light mb-4">Jusqu'à 10 espaces clients, réserve de crédits commune</p>
             <div class="mb-3">
-              <span class="text-3xl font-bold text-charcoal-dark">€300</span>
-              <span class="text-sm text-charcoal-light ml-1">/ 5 000 scan credits</span>
+              <span class="text-3xl font-bold text-charcoal-dark">300 €</span>
+              <span class="text-sm text-charcoal-light ml-1">/ 5 000 crédits scan</span>
             </div>
-            <p class="text-[10px] text-emerald-600 font-medium mb-5">€0.06 per scan credit · 25% off the per-credit retail</p>
+            <p class="text-[10px] text-emerald-600 font-medium mb-5">0,06 € le crédit scan · 25 % de remise sur le tarif à l'unité</p>
             <a href="/register?intent=agency" class="block w-full py-2.5 border-2 border-coral text-coral font-medium rounded-lg hover:bg-coral hover:text-white transition-all text-center text-sm">
-              Start free trial
+              Commencer gratuitement
             </a>
           </div>
 
           <div class="bg-white rounded-2xl border-2 border-coral shadow-lg shadow-coral/10 p-6 relative">
             <div class="absolute -top-3 left-6 bg-coral text-white text-[10px] font-bold px-3 py-1 rounded-full uppercase tracking-wide">
-              Recommended
+              Recommandé
             </div>
-            <p class="text-[10px] text-charcoal-light uppercase tracking-wide font-semibold mb-2">For mid-size agencies</p>
-            <h3 class="text-lg font-bold text-charcoal-dark mb-1">Enterprise pack</h3>
-            <p class="text-xs text-charcoal-light mb-4">Up to 50 workspaces, priority queue, slack support</p>
+            <p class="text-[10px] text-charcoal-light uppercase tracking-wide font-semibold mb-2">Pour les agences de taille moyenne</p>
+            <h3 class="text-lg font-bold text-charcoal-dark mb-1">Pack Enterprise</h3>
+            <p class="text-xs text-charcoal-light mb-4">Jusqu'à 50 espaces, file prioritaire, support Slack</p>
             <div class="mb-3">
-              <span class="text-3xl font-bold text-charcoal-dark">€1 000</span>
-              <span class="text-sm text-charcoal-light ml-1">/ 20 000 scan credits</span>
+              <span class="text-3xl font-bold text-charcoal-dark">1 000 €</span>
+              <span class="text-sm text-charcoal-light ml-1">/ 20 000 crédits scan</span>
             </div>
-            <p class="text-[10px] text-emerald-600 font-medium mb-5">€0.05 per scan credit · 38% off retail</p>
+            <p class="text-[10px] text-emerald-600 font-medium mb-5">0,05 € le crédit scan · 38 % de remise</p>
             <a href="/register?intent=agency" class="block w-full py-2.5 bg-coral text-white font-medium rounded-lg hover:bg-coral-dark hover:shadow-md transition-all text-center text-sm">
-              Start free trial
+              Commencer gratuitement
             </a>
           </div>
 
           <div class="bg-white rounded-2xl border border-gray-200 p-6">
-            <p class="text-[10px] text-charcoal-light uppercase tracking-wide font-semibold mb-2">For large networks</p>
-            <h3 class="text-lg font-bold text-charcoal-dark mb-1">Custom</h3>
-            <p class="text-xs text-charcoal-light mb-4">50+ workspaces, custom margin, white-label discussion</p>
+            <p class="text-[10px] text-charcoal-light uppercase tracking-wide font-semibold mb-2">Pour les grands réseaux</p>
+            <h3 class="text-lg font-bold text-charcoal-dark mb-1">Sur mesure</h3>
+            <p class="text-xs text-charcoal-light mb-4">Plus de 50 espaces, marge négociée, marque blanche</p>
             <div class="mb-3">
-              <span class="text-3xl font-bold text-charcoal-dark">Let&apos;s talk</span>
+              <span class="text-3xl font-bold text-charcoal-dark">Parlons-en</span>
             </div>
-            <p class="text-[10px] text-charcoal-light mb-5">Volume quote, dedicated onboarding, DPO call</p>
-            <a href="mailto:contact@sen-ai.fr?subject=Agency%20-%20custom%20quote" class="block w-full py-2.5 border-2 border-charcoal-dark text-charcoal-dark font-medium rounded-lg hover:bg-charcoal-dark hover:text-white transition-all text-center text-sm">
-              Contact us
+            <p class="text-[10px] text-charcoal-light mb-5">Devis volume, onboarding dédié, échange avec votre DPO</p>
+            <a href="mailto:contact@sen-ai.fr?subject=Agence%20-%20devis%20sur%20mesure" class="block w-full py-2.5 border-2 border-charcoal-dark text-charcoal-dark font-medium rounded-lg hover:bg-charcoal-dark hover:text-white transition-all text-center text-sm">
+              Nous contacter
             </a>
           </div>
         </div>
         <p class="text-center text-xs text-charcoal-light mt-6">
-          Both packs include 50 free scan credits for the first workspace. No subscription.
-          <a href="/pricing" class="text-coral hover:text-coral-dark font-medium">See per-credit retail pricing →</a>
+          Les deux packs incluent 50 crédits scan offerts sur le premier espace. Sans abonnement.
+          <a href="/pricing" class="text-coral hover:text-coral-dark font-medium">Voir les tarifs à l'unité →</a>
         </p>
       </section>
 
-      <!-- How it works for an agency -->
+      <!-- Mise en place -->
       <section class="mb-16">
-        <h2 class="text-2xl font-bold text-charcoal-dark text-center mb-8">How an agency sets up sen-ai</h2>
+        <h2 class="text-2xl font-bold text-charcoal-dark text-center mb-8">Comment une agence met sen-ai en place</h2>
         <div class="space-y-4 max-w-3xl mx-auto">
           {[
-            ['1', 'Sign up with your work email', 'Free, no credit card. You land on your first workspace.'],
-            ['2', 'Create one workspace per client', 'From the header dropdown. Each workspace tracks one brand domain + its competitors.'],
-            ['3', 'Invite your team with granular roles', 'Org-level (owner / admin / member) and per-workspace (manager / editor / viewer). Junior analysts get read-only ; account leads launch scans.'],
-            ['4', 'Buy a volume credit pack', 'Pool shared across workspaces. Workspaces draw from it as scans launch.'],
-            ['5', 'Run the first scan', 'Pick a client, choose topics, launch. 10-15 minutes end-to-end.'],
-            ['6', 'Share the per-scan transparency report', 'Each scan ships a PDF-ready compliance report. Forward to your client\'s procurement or DPO.'],
+            ['1', 'Créez votre compte avec votre email professionnel', 'Gratuit, sans carte bancaire. Vous arrivez directement sur votre premier espace.'],
+            ['2', 'Créez un espace par client', 'Depuis le menu de l\'en-tête. Chaque espace suit un domaine de marque et ses concurrents.'],
+            ['3', 'Invitez votre équipe avec des rôles précis', 'Au niveau organisation (propriétaire / admin / membre) et par espace (gestionnaire / éditeur / lecteur). Les juniors restent en lecture seule ; les responsables de compte lancent les scans.'],
+            ['4', 'Achetez un pack de crédits volume', 'La réserve est partagée entre les espaces, qui y puisent au fil des scans.'],
+            ['5', 'Lancez le premier scan', 'Choisissez un client, sélectionnez les sujets, lancez. 10 à 15 minutes de bout en bout.'],
+            ['6', 'Transmettez le rapport de transparence', 'Chaque scan produit un rapport de conformité prêt à imprimer. À transmettre au service achats ou au DPO de votre client.'],
           ].map(([step, title, desc]) => (
             <div class="flex gap-4 items-start bg-white rounded-xl border border-gray-200 p-5">
               <div class="w-9 h-9 bg-coral/10 rounded-lg flex items-center justify-center shrink-0">
@@ -191,79 +203,84 @@ import Footer from '../components/Footer.astro';
 
       <!-- FAQ -->
       <section class="mb-16 max-w-2xl mx-auto">
-        <h2 class="text-2xl font-bold text-charcoal-dark mb-6 text-center">Agency questions</h2>
+        <h2 class="text-2xl font-bold text-charcoal-dark mb-6 text-center">Questions des agences</h2>
         <div class="space-y-3">
           <details class="bg-white rounded-xl border border-gray-200 overflow-hidden group">
             <summary class="px-6 py-4 cursor-pointer text-sm font-medium text-charcoal-dark hover:bg-gray-50 list-none flex justify-between items-center">
-              Can I white-label the dashboard?
+              Puis-je mettre le dashboard en marque blanche ?
               <svg class="w-4 h-4 text-gray-400 group-open:rotate-180 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
             </summary>
             <div class="px-6 pb-4 text-sm text-charcoal-light leading-relaxed">
-              The standard product is sen-ai.fr branded. White-label and custom-domain options
-              are part of the Custom plan - get in touch with the kind of branding control you need.
+              Le produit standard est aux couleurs de sen-ai.fr. La marque blanche et le domaine
+              personnalisé font partie de l'offre sur mesure - dites-nous quel niveau de
+              personnalisation vous visez.
             </div>
           </details>
           <details class="bg-white rounded-xl border border-gray-200 overflow-hidden group">
             <summary class="px-6 py-4 cursor-pointer text-sm font-medium text-charcoal-dark hover:bg-gray-50 list-none flex justify-between items-center">
-              What about reseller margins?
+              Quelle marge pour un revendeur ?
               <svg class="w-4 h-4 text-gray-400 group-open:rotate-180 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
             </summary>
             <div class="px-6 pb-4 text-sm text-charcoal-light leading-relaxed">
-              Standard volume packs already give you 25-38% off the per-credit retail. You set
-              your own reseller price to your clients. Most agencies in our pipeline bundle the
-              tracking into a retainer rather than re-billing credits one by one.
+              Les packs volume vous donnent déjà 25 à 38 % de remise sur le tarif à l'unité. Vous
+              fixez librement votre prix de revente. La plupart des agences que nous accompagnons
+              intègrent le suivi dans un forfait mensuel plutôt que de refacturer les crédits un à un.
             </div>
           </details>
           <details class="bg-white rounded-xl border border-gray-200 overflow-hidden group">
             <summary class="px-6 py-4 cursor-pointer text-sm font-medium text-charcoal-dark hover:bg-gray-50 list-none flex justify-between items-center">
-              Can my client log in directly?
+              Mon client peut-il se connecter lui-même ?
               <svg class="w-4 h-4 text-gray-400 group-open:rotate-180 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
             </summary>
             <div class="px-6 pb-4 text-sm text-charcoal-light leading-relaxed">
-              Yes. Invite them as a viewer on their own workspace. They see only their data, never
-              other clients. You retain billing and admin control at the org level.
+              Oui. Invitez-le comme lecteur sur son propre espace. Il ne voit que ses données, jamais
+              celles des autres clients. Vous gardez la facturation et l'administration au niveau de
+              l'organisation.
             </div>
           </details>
           <details class="bg-white rounded-xl border border-gray-200 overflow-hidden group">
             <summary class="px-6 py-4 cursor-pointer text-sm font-medium text-charcoal-dark hover:bg-gray-50 list-none flex justify-between items-center">
-              How does the EU AI Act apply to my clients?
+              Comment le règlement européen sur l'IA s'applique-t-il à mes clients ?
               <svg class="w-4 h-4 text-gray-400 group-open:rotate-180 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
             </summary>
             <div class="px-6 pb-4 text-sm text-charcoal-light leading-relaxed">
-              We are a limited-risk AI deployer under Article 50 of the EU AI Act (applicable 2 Aug 2026).
-              Transparency obligations apply ; no conformity assessment. Each scan ships a PDF-ready
-              transparency report and the org dashboard includes a pre-filled DPIA template you can
-              adapt for your client. See <a href="/methodology" class="text-coral hover:text-coral-dark">/methodology</a>.
+              Nous sommes déployeur d'IA à risque limité au sens de l'article 50 du règlement européen
+              sur l'IA (applicable le 2 août 2026). Les obligations de transparence s'appliquent ;
+              aucune évaluation de conformité n'est requise. Chaque scan produit un rapport de
+              transparence prêt à imprimer, et le tableau de bord de l'organisation inclut un modèle
+              d'AIPD pré-rempli que vous adaptez pour votre client. Voir la
+              <a href="/fr/methodology" class="text-coral hover:text-coral-dark">page méthodologie</a>.
             </div>
           </details>
           <details class="bg-white rounded-xl border border-gray-200 overflow-hidden group">
             <summary class="px-6 py-4 cursor-pointer text-sm font-medium text-charcoal-dark hover:bg-gray-50 list-none flex justify-between items-center">
-              Where is data hosted?
+              Où sont hébergées les données ?
               <svg class="w-4 h-4 text-gray-400 group-open:rotate-180 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
             </summary>
             <div class="px-6 pb-4 text-sm text-charcoal-light leading-relaxed">
-              Hetzner, Helsinki, Finland (EU). AI providers (OpenAI, Anthropic) operate under
-              EU-US Data Privacy Framework + SCC ; Gemini is EU-hosted via Google Ireland. Full
-              sub-processor list on the <a href="/app/compliance" class="text-coral hover:text-coral-dark">in-app compliance hub</a>.
+              Chez Hetzner, à Helsinki en Finlande (UE). Les fournisseurs d'IA (OpenAI, Anthropic)
+              opèrent sous EU-US Data Privacy Framework et clauses contractuelles types ; Gemini est
+              hébergé dans l'UE via Google Ireland. La liste complète des sous-traitants est dans le
+              <a href="/app/compliance" class="text-coral hover:text-coral-dark">centre de conformité de l'application</a>.
             </div>
           </details>
         </div>
       </section>
 
-      <!-- Bottom CTA -->
+      <!-- CTA final -->
       <section class="text-center bg-charcoal-dark text-white rounded-3xl px-8 py-14">
-        <h2 class="text-2xl sm:text-3xl font-bold mb-3">Ready to scale across your client roster?</h2>
+        <h2 class="text-2xl sm:text-3xl font-bold mb-3">Prêt à passer à l'échelle sur tout votre portefeuille ?</h2>
         <p class="text-charcoal-light mb-8 max-w-xl mx-auto">
-          Start free, create as many workspaces as you have clients, and upgrade to a volume pack
-          when you need more credits.
+          Commencez gratuitement, créez autant d'espaces que vous avez de clients, et passez à un pack
+          volume quand vous avez besoin de plus de crédits.
         </p>
         <div class="flex items-center justify-center gap-3 flex-wrap">
           <a href="/register?intent=agency" class="inline-flex items-center gap-2 px-8 py-4 bg-coral text-white font-medium rounded-xl text-base hover:bg-coral-dark hover:shadow-lg transition-all">
-            Create my agency account
+            Créer mon compte agence
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
           </a>
-          <a href="mailto:contact@sen-ai.fr?subject=Agency%20pricing%20-%20volume%20quote" class="inline-flex items-center gap-2 px-8 py-4 border border-white/30 text-white font-medium rounded-xl text-base hover:bg-white/10 transition-all">
-            Email us first
+          <a href="mailto:contact@sen-ai.fr?subject=Tarifs%20agence%20-%20devis%20volume" class="inline-flex items-center gap-2 px-8 py-4 border border-white/30 text-white font-medium rounded-xl text-base hover:bg-white/10 transition-all">
+            Nous écrire d'abord
           </a>
         </div>
       </section>

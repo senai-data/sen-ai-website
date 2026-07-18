@@ -37,11 +37,11 @@ try {
 } catch {}
 
 const statusLabels: Record<string, { label: string; badge: string }> = {
-  pending:   { label: 'En attente',  badge: 'bg-amber-100 text-amber-800' },
-  confirmed: { label: 'Confirmée',   badge: 'bg-coral/10 text-coral' },
-  launched:  { label: 'Scan lancé',  badge: 'bg-blue-100 text-blue-800' },
-  completed: { label: 'Livrée',      badge: 'bg-emerald/10 text-emerald' },
-  rejected:  { label: 'Rejetée',     badge: 'bg-gray-100 text-gray-600' },
+  pending:   { label: 'Pending',      badge: 'bg-amber-100 text-amber-800' },
+  confirmed: { label: 'Confirmed',    badge: 'bg-coral/10 text-coral' },
+  launched:  { label: 'Scan running', badge: 'bg-blue-100 text-blue-800' },
+  completed: { label: 'Delivered',    badge: 'bg-emerald/10 text-emerald' },
+  rejected:  { label: 'Rejected',     badge: 'bg-gray-100 text-gray-600' },
 };
 
 function fmtDate(iso: string | null): string {
@@ -104,9 +104,9 @@ function fmtDate(iso: string | null): string {
                   </p>
                 )}
                 <div class="flex items-center gap-3 text-[11px] text-gray-400 mt-2 flex-wrap">
-                  <span>Créée: {fmtDate(it.created_at)}</span>
-                  {it.confirmed_at && <span>· Confirmée: {fmtDate(it.confirmed_at)}</span>}
-                  {it.processed_at && <span>· Traitée: {fmtDate(it.processed_at)}</span>}
+                  <span>Created: {fmtDate(it.created_at)}</span>
+                  {it.confirmed_at && <span>· Confirmed: {fmtDate(it.confirmed_at)}</span>}
+                  {it.processed_at && <span>· Processed: {fmtDate(it.processed_at)}</span>}
                   {it.source_ip && <span class="font-mono">· IP: {it.source_ip}</span>}
                   <span class="font-mono">· {it.id.slice(0, 8)}</span>
                 </div>
@@ -119,7 +119,7 @@ function fmtDate(iso: string | null): string {
                     class="action-btn px-3 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 transition-colors"
                     data-id={it.id}
                     data-action="launched"
-                  >Marquer "Scan lancé"</button>
+                  >Mark as "Scan running"</button>
                 )}
                 {(it.status === 'launched' || it.status === 'confirmed') && (
                   <button
@@ -127,7 +127,7 @@ function fmtDate(iso: string | null): string {
                     class="action-btn px-3 py-1.5 bg-emerald text-white text-xs font-medium rounded-lg hover:bg-emerald-dark transition-colors"
                     data-id={it.id}
                     data-action="completed"
-                  >Marquer "Livrée"</button>
+                  >Mark as "Delivered"</button>
                 )}
                 {it.status !== 'rejected' && it.status !== 'completed' && (
                   <button
@@ -135,7 +135,7 @@ function fmtDate(iso: string | null): string {
                     class="action-btn px-3 py-1.5 border border-gray-300 text-charcoal-light text-xs font-medium rounded-lg hover:bg-gray-50 transition-colors"
                     data-id={it.id}
                     data-action="rejected"
-                  >Rejeter</button>
+                  >Reject</button>
                 )}
               </div>
             </div>
@@ -151,7 +151,7 @@ function fmtDate(iso: string | null): string {
         const id = btn.dataset.id;
         const action = btn.dataset.action;
         if (!id || !action) return;
-        if (action === 'rejected' && !confirm('Rejeter cette demande ?')) return;
+        if (action === 'rejected' && !confirm('Reject this request?')) return;
         btn.disabled = true;
         btn.textContent = '...';
         try {

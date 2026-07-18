@@ -99,7 +99,24 @@ Le titre 2 est le plus fort (asymétrie lisible en une ligne, chiffres réels).
 Le titre 3 est un angle sécurité qui peut sur-performer mais recentre la
 discussion loin du produit.
 
-## 🔴 À FAIRE AVANT DE SOUMETTRE : activer le cache HTML Cloudflare
+## ✅ FAIT - cache HTML Cloudflare actif (vérifié 2026-07-18)
+
+Cache Rule déployée et validée en prod : les 7 pages marketing testées
+(/, /guides/, /guides/crawlers-ia-qui-lit-votre-site/, /ressources/,
+/pricing, /methodology, /agency) répondent `cf-cache-status: HIT` avec un
+`Age` qui monte ; /login, /register, /forgot-password, /welcome et
+/app/* restent `DYNAMIC` + `private, no-store`. Le VPS ne verra donc
+qu'une requête par page toutes les 10 minutes pendant un pic.
+
+Commande de re-vérification à tout moment (le premier appel après un
+déploiement sera `MISS`, le second doit être `HIT`) :
+`curl -sI https://sen-ai.fr/ressources/ai-crawlers-30-days/ | grep -i cf-cache-status`
+
+⚠️ Purge du cache après modification d'une page marketing : un changement
+n'apparaîtra qu'après expiration (10 min) ou purge manuelle dans
+Cloudflare → Caching → Configuration → Purge Everything.
+
+### Configuration d'origine (pour mémoire)
 
 L'origine envoie désormais les bons en-têtes (`s-maxage=600, stale-while-revalidate=86400`
 sur les pages marketing uniquement ; `private, no-store` sur l'app et les

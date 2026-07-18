@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from sqlalchemy import func
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import defer, joinedload
 from models import (
     Scan, ScanKeyword, ScanTopic, ScanPersona, ScanQuestion, ScanLLMResult,
     ScanQuestionJudgment,
@@ -2899,7 +2899,7 @@ def _enrich_citations_with_site_type(citations, lookup):
     return out
 
 
-def _split_runs_for_view(results):
+def _split_runs_for_view(results, include_responses: bool = True):
     """N-runs (T2) - split raw scan_llm_results rows into :
 
       run_rows  : the actual samples (run_index >= 1) - rate KPIs aggregate
@@ -2964,7 +2964,10 @@ def _split_runs_for_view(results):
             question_id=base.question_id,
             provider=base.provider,
             model=base.model,
-            response_text=base.response_text,
+            # Guarded : callers that deferred the response_text column pass
+            # include_responses=False - touching the attribute would lazy-load
+            # it row by row (N+1).
+            response_text=(base.response_text if include_responses else None),
             duration_ms=base.duration_ms,
             citations=merged_citations,
             total_citations=len(merged_citations),
@@ -2978,13 +2981,26 @@ def _split_runs_for_view(results):
 
 
 @router.get("/{scan_id}/results")
-async def get_results(scan_id: str, provider: str | None = Query(None), user=Depends(get_current_user), db: Session = Depends(get_db)):
-    """Get scan results: overview, per-persona, competitors. Optional provider filter."""
+def get_results(
+    scan_id: str,
+    provider: str | None = Query(None),
+    include_responses: bool = Query(True, description="False = blank response_text (citations tab never renders it)"),
+    user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get scan results: overview, per-persona, competitors. Optional provider filter.
+
+    Perf 2026-07-18 : plain `def` (sync SQLAlchemy in async def blocked the
+    event loop) + `include_responses=false` skips loading the response-text
+    column entirely - same levers as /results/aggregated.
+    """
     scan = _check_scan_access(scan_id, user, db)
 
     q = db.query(ScanLLMResult).filter(ScanLLMResult.scan_id == scan_id)
     if provider and provider != 'all':
         q = q.filter(ScanLLMResult.provider == provider)
+    if not include_responses:
+        q = q.options(defer(ScanLLMResult.response_text))
     results = q.all()
     if not results:
         return {"overview": None, "by_persona": [], "competitors": [], "details": []}
@@ -2993,7 +3009,7 @@ async def get_results(scan_id: str, provider: str | None = Query(None), user=Dep
     # are ONE synthetic row per (question, provider) for display : run-1
     # response text, citations merged across runs, analysis from the
     # consensus row. At N=1 both sets mirror the raw rows exactly.
-    run_rows, view_rows = _split_runs_for_view(results)
+    run_rows, view_rows = _split_runs_for_view(results, include_responses=include_responses)
     if not run_rows:
         return {"overview": None, "by_persona": [], "competitors": [], "details": []}
 
@@ -3240,7 +3256,9 @@ async def get_results(scan_id: str, provider: str | None = Query(None), user=Dep
                 for bm in overlaid_mentions
             ],
             "brand_analysis": overlaid_brand_analysis,
-            "response_text": r.response_text or "",
+            # Guarded : with include_responses=false the column is deferred -
+            # touching it would lazy-load per row (N+1).
+            "response_text": (r.response_text or "") if include_responses else "",
             "duration_ms": r.duration_ms,
             # N-runs (T2) - per-pair sampling stats for the variance UI (T3) :
             # runs_total=1 / mention_rate 0|1 on legacy single-run scans.
@@ -3302,11 +3320,14 @@ async def get_results(scan_id: str, provider: str | None = Query(None), user=Dep
 
 
 @router.get("/{scan_id}/results/aggregated")
-async def get_results_aggregated(
+def get_results_aggregated(
     scan_id: str,
     from_date: str | None = Query(None),
     to_date: str | None = Query(None),
     provider: str | None = Query(None),
+    summary: bool = Query(False, description="Header mode : aggregates + tab counts only, no details array"),
+    include_responses: bool = Query(True, description="False = blank response_text (results/citations tabs never render it)"),
+    details_scope: str | None = Query(None, description="'latest' = details[].runs limited to the latest scan's rows (results tab reads only those ; the per-run citation/mention arrays across a whole lineage are the payload's real bulk)"),
     user=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -3315,7 +3336,20 @@ async def get_results_aggregated(
     Merges ScanLLMResult data from all completed runs, matched by (question_text, persona_name).
     Returns trend data per metric, per-question evolution, and merged competitors/citations.
     Default: all completed runs. Filter with from_date/to_date (ISO format).
+
+    Perf 2026-07-18 (RUM : 12-15s TTFB on scan tabs) : the full response was
+    30 MB / ~5s on a 5-run lineage AND every tab paid it TWICE (page fetch +
+    layout header fetch). Three levers, same endpoint :
+      - `summary=true` (the header's mode) : overview / by_persona / by_topic /
+        competitors + `header_counts`, NO details array, response_text column
+        never even loaded from postgres.
+      - `include_responses=false` (results + citations tabs) : full details but
+        blank response_text - only the Questions tab renders responses.
+      - plain `def` : ~5s of sync SQLAlchemy in an `async def` was blocking
+        the event loop (cf. workspaces_overview, same fix).
     """
+    if summary:
+        include_responses = False
     scan = _check_scan_access(scan_id, user, db)
 
     # 1. Resolve lineage (root + all children)
@@ -3356,11 +3390,18 @@ async def get_results_aggregated(
     q_results = db.query(ScanLLMResult).filter(ScanLLMResult.scan_id.in_(scan_ids))
     if provider and provider != 'all':
         q_results = q_results.filter(ScanLLMResult.provider == provider)
+    if not include_responses:
+        # The response texts are the bulk of the 30 MB - don't even pull the
+        # column off postgres when the caller won't render them. NOTHING in
+        # the not-include_responses paths below may touch r.response_text
+        # (deferred access would lazy-load per row = N+1).
+        q_results = q_results.options(defer(ScanLLMResult.response_text))
     all_results = q_results.all()
 
     # Canonical site_type for every citation domain (cf. /results docstring
     # on _build_site_type_lookup). One batch query across the whole lineage.
-    site_type_lookup = _build_site_type_lookup(all_results, db)
+    # Summary mode skips it : the lookup only enriches details[].citations.
+    site_type_lookup = {} if summary else _build_site_type_lookup(all_results, db)
 
     # Sentiment Judge overlay across the whole lineage (migration 057).
     sentiment_overlay = _build_sentiment_overlay(db, [str(sid) for sid in scan_ids])
@@ -3405,6 +3446,7 @@ async def get_results_aggregated(
 
     # 5. Group results by (question_text, persona_name) across runs
     question_groups = {}  # key: (question_text, persona_name) → { runs: [...] }
+    summary_citation_domains: set = set()  # header tab count (summary mode)
     # Per-run aggregates. citations / sentiment / competitor mention counts
     # feed the per-KPI sparklines on the Overview tab (one point per run).
     per_run_stats = {s.id: {
@@ -3425,7 +3467,7 @@ async def get_results_aggregated(
         results_by_scan.setdefault(r.scan_id, []).append(r)
     view_by_scan: dict = {}
     for sid, rows in results_by_scan.items():
-        scan_run_rows, scan_view_rows = _split_runs_for_view(rows)
+        scan_run_rows, scan_view_rows = _split_runs_for_view(rows, include_responses=include_responses)
         view_by_scan[sid] = scan_view_rows
         if sid in per_run_stats:
             st = per_run_stats[sid]
@@ -3462,24 +3504,40 @@ async def get_results_aggregated(
         run_idx = scan_run_map.get(r.scan_id, 0)
         run_date = scan_date_map.get(r.scan_id)
         overlaid_mentions = _apply_sentiment_overlay(r.brand_mentions or [], str(r.id), sentiment_overlay)
-        question_groups[key]["runs"].append({
-            "run_index": run_idx,
-            "scan_id": str(r.scan_id),
-            "completed_at": run_date.isoformat() if run_date else None,
-            "brand_mentioned": bm_mentioned,
-            "target_cited": r.target_cited,
-            "target_position": r.target_position,
-            "provider": r.provider,
-            "model": r.model,
-            "brand_mentions": overlaid_mentions,
-            "brand_analysis": _maybe_judge_response_sentiment(r.brand_analysis or {}, overlaid_mentions),
-            "citations": _enrich_citations_with_site_type(r.citations, site_type_lookup),
-            "response_text": r.response_text or "",
-            "duration_ms": r.duration_ms,
-            # N-runs (T2) - intra-scan sampling stats for this lineage point.
-            "runs_total": r._n_runs,
-            "mention_rate": round(r._mention_rate, 3),
-        })
+        if summary:
+            # Header mode : the persona/topic aggregators below only read
+            # run_index / brand_mentioned / mention_rate. Collect citation
+            # domains here so the header's tab count survives without the
+            # details array.
+            question_groups[key]["runs"].append({
+                "run_index": run_idx,
+                "brand_mentioned": bm_mentioned,
+                "runs_total": r._n_runs,
+                "mention_rate": round(r._mention_rate, 3),
+            })
+            for c in (r.citations or []):
+                dom = (c.get("domaine") or c.get("domain") or "").lower()
+                if dom:
+                    summary_citation_domains.add(dom)
+        else:
+            question_groups[key]["runs"].append({
+                "run_index": run_idx,
+                "scan_id": str(r.scan_id),
+                "completed_at": run_date.isoformat() if run_date else None,
+                "brand_mentioned": bm_mentioned,
+                "target_cited": r.target_cited,
+                "target_position": r.target_position,
+                "provider": r.provider,
+                "model": r.model,
+                "brand_mentions": overlaid_mentions,
+                "brand_analysis": _maybe_judge_response_sentiment(r.brand_analysis or {}, overlaid_mentions),
+                "citations": _enrich_citations_with_site_type(r.citations, site_type_lookup),
+                "response_text": (r.response_text or "") if include_responses else "",
+                "duration_ms": r.duration_ms,
+                # N-runs (T2) - intra-scan sampling stats for this lineage point.
+                "runs_total": r._n_runs,
+                "mention_rate": round(r._mention_rate, 3),
+            })
 
         # Per-run stats (mention/citation-based parts - view rows)
         if r.scan_id in per_run_stats:
@@ -3653,20 +3711,30 @@ async def get_results_aggregated(
         for name, c in sorted(discovered_brands.items(), key=lambda x: -x[1])[:10]
     ]
 
-    # 10. Details (grouped by question, with per-run data)
+    # 10. Details (grouped by question, with per-run data). Skipped entirely
+    # in summary mode - the header consumes counts, not the payload.
     details = []
-    for key, group in question_groups.items():
+    for key, group in ({} if summary else question_groups).items():
         runs_sorted = sorted(group["runs"], key=lambda r: r["run_index"])
         latest_run = runs_sorted[-1] if runs_sorted else None
+        # Cross-run scalars computed BEFORE any scope slimming - their
+        # semantics ('ever across the lineage') must not depend on it.
         ever_mentioned = any(r["brand_mentioned"] for r in runs_sorted)
         mention_count = sum(1 for r in runs_sorted if r["brand_mentioned"])
+        total_runs_count = len(runs_sorted)
+
+        if details_scope == "latest":
+            runs_sorted = [r for r in runs_sorted if r.get("scan_id") == str(latest_scan.id)]
 
         # Only include response_text for latest run (performance)
         for r in runs_sorted[:-1]:
             r["response_text"] = ""
 
-        # Enrich brand_mentions with classification
-        for r in runs_sorted:
+        # Enrich brand_mentions with classification. `latest` can sit outside
+        # the slimmed runs list (question dropped from the newest scan) - it
+        # still needs the enrichment.
+        to_enrich = runs_sorted if (latest_run is None or latest_run in runs_sorted) else runs_sorted + [latest_run]
+        for r in to_enrich:
             r["brand_mentions"] = [
                 {**bm, "classification": _classify_brand_mention(
                     bm.get("brand_name_groupby") or bm.get("brand_name", ""),
@@ -3684,7 +3752,7 @@ async def get_results_aggregated(
             "runs": runs_sorted,
             "ever_mentioned": ever_mentioned,
             "mention_count": mention_count,
-            "total_runs": len(runs_sorted),
+            "total_runs": total_runs_count,
         })
 
     return {
@@ -3714,6 +3782,11 @@ async def get_results_aggregated(
         "competitors": competitors,
         "discovered_brands": discovered,
         "details": details,
+        # Summary mode : precomputed tab counts (details is empty there).
+        "header_counts": {
+            "questions": len(question_groups),
+            "citation_domains": len(summary_citation_domains),
+        } if summary else None,
     }
 
 

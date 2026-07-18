@@ -31,9 +31,15 @@ interface Props {
    *  (results.astro) opts in : it's the scan-complete email's deep-link
    *  target. Dense leaves keep the <1024px gate. */
   mobileReady?: boolean;
+  /** Perf 2026-07-18 : a page can start fetchScanHeader in ITS frontmatter
+   *  (which runs before the layout renders) and pass the promise here, so
+   *  the header fetch overlaps the page's own data fetches instead of
+   *  running after them. Must be built with the same params the layout
+   *  would use. Omitted = layout fetches for itself (all other tabs). */
+  headerPromise?: ReturnType<typeof fetchScanHeader>;
 }
 
-const { scanId, activeTab, mobileReady = false } = Astro.props;
+const { scanId, activeTab, mobileReady = false, headerPromise } = Astro.props;
 
 // Auth guard
 const token = Astro.cookies.get('token')?.value;
@@ -49,8 +55,10 @@ const providerParam = Astro.url.searchParams.get('provider') || 'all';
 // If a specific run is selected, use it directly
 const effectiveScanId = (rangeParam === 'latest' && runParam) ? runParam : scanId;
 
-// Fetch shared header data (with range + provider for aggregation)
-const headerData = await fetchScanHeader(effectiveScanId, token, rangeParam, fromParam, toParam, providerParam);
+// Fetch shared header data (with range + provider for aggregation).
+// A page-provided promise (already in flight since the page frontmatter)
+// wins over fetching here - see Props.headerPromise.
+const headerData = await (headerPromise ?? fetchScanHeader(effectiveScanId, token, rangeParam, fromParam, toParam, providerParam));
 
 // Guards
 if (headerData.scan.status === 'not_found') return Astro.redirect('/app/scans');

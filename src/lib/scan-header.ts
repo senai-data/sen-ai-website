@@ -91,6 +91,11 @@ export async function fetchScanHeader(
   if (useAggregated) {
     if (fromDate) resultParams.set('from_date', fromDate);
     if (toDate) resultParams.set('to_date', toDate);
+    // Perf 2026-07-18 : the header only needs aggregates + tab counts. The
+    // full aggregated payload was 30 MB / ~5s and every tab page ALSO
+    // fetches it for its own content - summary mode keeps the header call
+    // at a few hundred KB.
+    resultParams.set('summary', 'true');
   }
   if (provider && provider !== 'all') resultParams.set('provider', provider);
   const aggParams = resultParams.toString() ? `?${resultParams.toString()}` : '';
@@ -163,7 +168,10 @@ export async function fetchScanHeader(
     const eraNote = crossesEra ? modelChangeNote(prevModels, lastModels) : null;
     const delta = prevRate !== null && !crossesEra ? currentRate - prevRate : null;
 
-    // Tab counts
+    // Tab counts. Aggregated summary mode precomputes them server-side
+    // (details is empty there) ; the legacy details walk stays as the
+    // fallback for the non-aggregated /results path.
+    const headerCounts = resultsData?.header_counts || null;
     const uniqueTopics = new Set(byPersona.map((p: any) => p.topic).filter(Boolean));
     const allCitationDomains = new Set<string>();
     details.forEach((d: any) => {
@@ -175,8 +183,8 @@ export async function fetchScanHeader(
     const tabCounts = {
       topics: uniqueTopics.size,
       personas: byPersona.length,
-      questions: details.length,
-      citations: allCitationDomains.size,
+      questions: headerCounts ? headerCounts.questions : details.length,
+      citations: headerCounts ? headerCounts.citation_domains : allCitationDomains.size,
       actions: (oppsSummary.critique || 0) + (oppsSummary.haute || 0) + (oppsSummary.moyenne || 0),
     };
 

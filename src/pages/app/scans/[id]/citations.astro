@@ -40,7 +40,9 @@ const providerParam = Astro.url.searchParams.get('provider') || 'all';
 const headers = { Cookie: `token=${token}` };
 let data: any = null;
 try {
-  const res = await fetch(`http://api:8000/api/scans/${effectiveScanId}/results${providerParam !== 'all' ? '?provider=' + providerParam : ''}`, { headers });
+  // include_responses=false : this tab analyzes citations, never renders
+  // the LLM response texts - skips the multi-MB column server-side.
+  const res = await fetch(`http://api:8000/api/scans/${effectiveScanId}/results?include_responses=false${providerParam !== 'all' ? '&provider=' + providerParam : ''}`, { headers });
   if (res.ok) data = await res.json();
 } catch (_) {}
 

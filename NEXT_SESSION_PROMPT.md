@@ -1,4 +1,62 @@
-# Reprise session sen-ai-website - post 2026-07-17 (invitations + workspace management)
+# Reprise session sen-ai-website - post 2026-07-18 (perf sweep) - PROCHAINE SESSION : P4
+
+## Prompt à coller pour la session P4 (streak opportunities, ~2j)
+
+```
+Reprise sen-ai.fr - objectif de session : P4 streak opportunities.
+
+Lis d'abord project_act_scope_plan.md (section P4 + foot-guns) puis
+project_todo_tracker.md (sections 2026-07-17/18 : perf + accès implicite).
+
+Spec P4 (déjà actée avec moi le 2026-06-12) :
+1. Migration SQL : scan_opportunities + status TEXT DEFAULT 'new' + streak INT
+   DEFAULT 1 (+ ORM models.py). ⚠️ Le plan dit "migration 059" mais il date
+   d'avant BYOK - 057/058/060 sont prises, vérifier le prochain numéro libre
+   dans api/migrations/ et l'appliquer sur le VPS (psql in-container).
+2. worker/handlers/generate_opportunities.py : charger les opportunities du
+   scan complété PRÉCÉDENT du lineage, indexées par (texte question normalisé
+   lower/trim/collapse-ws, provider). Match → status='persisting',
+   streak=prev+1 ; sinon 'new'.
+3. GET /scans/{id}/opportunities : ajouter resolved[] = clés du précédent
+   absentes du courant (cap 20).
+4. actions.astro : chips "New" / "Since N scans" + panel "Resolved since last
+   scan" (Peak-End). v1 = affichage pur, PAS de bump de priorité (v2 différée).
+
+Foot-guns critiques :
+- Jointure cross-scan par TEXTE normalisé, JAMAIS question_id (le rescan copie
+  les questions avec de nouveaux ids ; l'import historique pointe vers le root).
+- La clé de streak inclut provider (un trou gemini ≠ un trou openai).
+- Cross-ère de modèles = FEATURE : une opportunity absente avant ET après un
+  changement de modèle = trou structurel - ne PAS suspendre le streak à la
+  frontière P3.
+- get_opportunities est un `def` synchrone depuis le 18/07 (perf event-loop) -
+  le garder def.
+- actions.astro utilise effectiveScanId (résolution act-scan P1 déjà en place).
+- generate_opportunities crée du netlinking sans filtre intent (gap Phase B
+  connu, diagnostiqué, NE PAS traiter dans cette session).
+- POST_SCAN_AUDIT_JOB_TYPES : ne pas casser la chaîne post-scan (cf Sprint 7).
+
+Validation : lignée réelle 2+ runs (Voltaic demo, ou lignées PF - attention
+imports antedatés : le ROOT porte run_index 5, children 1-4). Rescan de test
+ou rows SQL synthétiques pour vérifier persisting/new/resolved, cleanup après.
+Smoke prod par tranche (deploy = scp + docker compose build/up -d + restart
+nginx). Update project_todo_tracker après chaque tranche, commit/push à la fin.
+No em-dash, UI en anglais.
+```
+
+## Bilan sessions 2026-07-17/18 (détail complet dans project_todo_tracker)
+
+- Invitations : bandeau reçues + auto-grant admin + accès implicite owner/admin.
+- Workspace management : delete self-service + rename accessibles en multi-org/
+  multi-client + org PF convertie standard.
+- Perf sweep (RUM Cloudflare branché, token local) : dashboard 1,5s→0,8s,
+  content 1,95s→1,2s + payload kanban 1,8MB→82KB, results 12,7s→5,7s,
+  citations 8s→2,4s, questions TTFB 14,7s→0,09s (streaming), assets edge-cached.
+  Racine systémique : endpoints async def + SQLAlchemy sync bloquaient l'event
+  loop - 4 convertis def. Backlog : SQL rewrite aggregated, questions 42MB,
+  top-N suggestions, distribution (~20 visites humaines/17j).
+
+# Archive - post 2026-07-17 (invitations + workspace management)
 
 ## Bilan session 2026-07-17 - tranche 2 (workspace management, commit 5d45f28)
 

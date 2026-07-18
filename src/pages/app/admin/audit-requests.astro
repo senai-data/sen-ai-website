@@ -78,7 +78,7 @@ function fmtDate(iso: string | null): string {
 
     {items.length === 0 ? (
       <div class="bg-white rounded-xl border border-gray-200 p-12 text-center">
-        <p class="text-sm text-charcoal-light">Aucune demande pour ce filtre.</p>
+        <p class="text-sm text-charcoal-light">No requests match this filter.</p>
       </div>
     ) : (
       <div class="space-y-3" x-data="auditRequests()">
@@ -163,12 +163,12 @@ function fmtDate(iso: string | null): string {
           if (res.ok) {
             window.location.reload();
           } else {
-            alert('Erreur lors de la mise à jour.');
+            alert('Update failed.');
             btn.disabled = false;
             btn.textContent = action;
           }
         } catch (e) {
-          alert('Erreur réseau.');
+          alert('Network error.');
           btn.disabled = false;
         }
       });

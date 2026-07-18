@@ -1,9 +1,19 @@
 ---
 // Navigation sticky avec menu mobile CSS-only
+//
+// Langue 2026-07-18 : labels en FRANCAIS, y compris sur les pages dont le
+// corps est anglais (/agency, /methodology, /terms, /privacy, /ressources).
+// Raison : 4 des 7 destinations sont des pages francaises (home, guides,
+// tarifs, ancre histoire) - un label anglais y menerait le visiteur en
+// francais sans prevenir. Le jour ou un vrai arbre /en/ existe avec ses
+// propres home/guides/tarifs, ce composant pourra devenir bilingue via une
+// prop `lang`. Pas avant : sans destinations anglaises, une nav anglaise ment.
+// Le lang="fr" ci-dessous marque l'ilot linguistique pour les lecteurs
+// d'ecran sur les pages <html lang="en">.
 ---
 
 <header>
-<nav class="fixed top-0 left-0 right-0 z-50 bg-white/95 backdrop-blur-sm border-b border-gray-100 transition-shadow duration-300" id="nav" aria-label="Navigation principale">
+<nav lang="fr" class="fixed top-0 left-0 right-0 z-50 bg-white/95 backdrop-blur-sm border-b border-gray-100 transition-shadow duration-300" id="nav" aria-label="Navigation principale">
   <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
     <!-- Checkbox pour le menu mobile (CSS-only) -->
     <input type="checkbox" id="mobile-menu-toggle" class="sr-only" aria-label="Menu mobile" />
@@ -18,14 +28,14 @@
       <!-- Desktop navigation -->
       <div class="hidden md:flex items-center gap-6 lg:gap-8">
         <a href="/#ai-scan" class="text-charcoal hover:text-coral transition-colors text-sm font-medium">AI Scan</a>
-        <a href="/agency" class="text-charcoal hover:text-coral transition-colors text-sm font-medium">For agencies</a>
+        <a href="/agency" class="text-charcoal hover:text-coral transition-colors text-sm font-medium">Agences</a>
         <a href="/guides/" class="text-charcoal hover:text-coral transition-colors text-sm font-medium">Guides</a>
-        <a href="/pricing" class="text-charcoal hover:text-coral transition-colors text-sm font-medium">Pricing</a>
+        <a href="/pricing" class="text-charcoal hover:text-coral transition-colors text-sm font-medium">Tarifs</a>
         <a href="/#histoire" class="text-charcoal hover:text-coral transition-colors text-sm font-medium">Notre histoire</a>
         <span class="w-px h-5 bg-gray-200" aria-hidden="true"></span>
-        <a href="/login" class="text-charcoal-light hover:text-charcoal-dark transition-colors text-sm font-medium">Log in</a>
+        <a href="/login" class="text-charcoal-light hover:text-charcoal-dark transition-colors text-sm font-medium">Connexion</a>
         <a href="/register" class="inline-flex items-center px-4 py-2 bg-coral text-white text-sm font-medium rounded-lg hover:bg-coral-dark transition-colors">
-          Start free
+          Scan gratuit
         </a>
       </div>
 
@@ -41,14 +51,14 @@
     <div class="mobile-panel md:hidden overflow-hidden transition-all duration-300" id="mobile-menu">
       <div class="pb-4 flex flex-col gap-3">
         <a href="/#ai-scan" class="text-charcoal hover:text-coral transition-colors py-2 text-sm font-medium">AI Scan</a>
-        <a href="/agency" class="text-charcoal hover:text-coral transition-colors py-2 text-sm font-medium">For agencies</a>
+        <a href="/agency" class="text-charcoal hover:text-coral transition-colors py-2 text-sm font-medium">Agences</a>
         <a href="/guides/" class="text-charcoal hover:text-coral transition-colors py-2 text-sm font-medium">Guides</a>
-        <a href="/pricing" class="text-charcoal hover:text-coral transition-colors py-2 text-sm font-medium">Pricing</a>
+        <a href="/pricing" class="text-charcoal hover:text-coral transition-colors py-2 text-sm font-medium">Tarifs</a>
         <a href="/#histoire" class="text-charcoal hover:text-coral transition-colors py-2 text-sm font-medium">Notre histoire</a>
         <div class="h-px bg-gray-200 my-1" aria-hidden="true"></div>
-        <a href="/login" class="text-charcoal-light hover:text-charcoal-dark transition-colors py-2 text-sm font-medium">Log in</a>
+        <a href="/login" class="text-charcoal-light hover:text-charcoal-dark transition-colors py-2 text-sm font-medium">Connexion</a>
         <a href="/register" class="inline-flex items-center justify-center px-4 py-2 bg-coral text-white text-sm font-medium rounded-lg hover:bg-coral-dark transition-colors">
-          Start free
+          Scan gratuit
         </a>
       </div>
     </div>

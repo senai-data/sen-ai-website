@@ -3,7 +3,9 @@ import site from '../content/site.json';
 const { footer } = site;
 ---
 
-<footer class="bg-charcoal-dark text-white py-12 px-4">
+<!-- Langue : labels FR partout, meme sur les pages au corps anglais.
+     Meme raison que Nav.astro - les destinations sont francaises. -->
+<footer lang="fr" class="bg-charcoal-dark text-white py-12 px-4">
   <div class="max-w-5xl mx-auto">
     <div class="flex flex-col md:flex-row items-center justify-between gap-8">
       <!-- Brand lockup (docs/DESIGN_TOKENS.md) : lotus glyph + wordmark -->
@@ -24,9 +26,12 @@ const { footer } = site;
         </a>
         <div class="flex flex-wrap items-center justify-center md:justify-end gap-x-4 gap-y-1 text-gray-400">
           <a href="/guides/" class="hover:text-gray-200 transition-colors">Guides</a>
-          <a href="/methodology" class="hover:text-gray-200 transition-colors">Methodology</a>
-          <a href="/privacy" class="hover:text-gray-200 transition-colors">Privacy</a>
-          <a href="/terms" class="hover:text-gray-200 transition-colors">Terms</a>
+          <a href="/ressources/" class="hover:text-gray-200 transition-colors">Ressources</a>
+          {/* /fr/methodology existait deja mais n'etait linke nulle part -
+              le footer pointait vers la version anglaise. */}
+          <a href="/fr/methodology" class="hover:text-gray-200 transition-colors">Méthodologie</a>
+          <a href="/privacy" class="hover:text-gray-200 transition-colors">Confidentialité</a>
+          <a href="/terms" class="hover:text-gray-200 transition-colors">CGU</a>
           <a href="/mentions-legales" class="hover:text-gray-200 transition-colors">Mentions légales</a>
         </div>
       </div>

@@ -1857,10 +1857,10 @@ const isReviewing = effectiveView !== null && (
                                       </span>
                                     </span>
                                   </template>
-                                  <!-- Intentions de recherche -->
+                                  <!-- Search intents (data key stays intentions_recherche) -->
                                   <template x-if="persona.data?.intentions_recherche?.length">
                                     <span style="display:block;margin-bottom:10px;">
-                                      <span style="display:block;font-size:10px;text-transform:uppercase;letter-spacing:0.05em;color:#94a3b8;margin-bottom:2px;">Intentions de recherche</span>
+                                      <span style="display:block;font-size:10px;text-transform:uppercase;letter-spacing:0.05em;color:#94a3b8;margin-bottom:2px;">Search intents</span>
                                       <template x-for="intent in persona.data.intentions_recherche" :key="intent">
                                         <span style="display:block;font-size:11px;line-height:1.45;padding-left:8px;text-indent:-8px;" x-text="'· ' + intent"></span>
                                       </template>
@@ -2381,9 +2381,9 @@ const isReviewing = effectiveView !== null && (
                     </div>
                   </div>
 
-                  {/* Intentions de recherche */}
+                  {/* Search intents */}
                   <div>
-                    <label class="text-[10px] uppercase tracking-wide text-charcoal-light font-semibold">Intentions de recherche</label>
+                    <label class="text-[10px] uppercase tracking-wide text-charcoal-light font-semibold">Search intents</label>
                     <textarea x-model="addPersonaModal.intentions" rows="2"
                               placeholder="One per line — e.g.&#10;Trouver une crème adaptée&#10;Comprendre les actifs hydratants"
                               class="w-full text-xs border border-gray-200 rounded-md px-2 py-1.5 mt-1 outline-none focus:border-coral resize-y font-mono"></textarea>

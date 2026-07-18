@@ -10,6 +10,10 @@ interface Props {
   /** True on pages search engines must not index (404, error states).
    *  2026-07-18 : the 404 page shipped with index,follow for months. */
   noindex?: boolean;
+  /** hreflang alternates, e.g. { fr: '/guides/x/', en: '/ressources/y/' }.
+   *  Must live in <head> to count - hence a prop rather than a slot.
+   *  x-default falls back to the fr entry (our primary market). */
+  alternates?: Record<string, string>;
 }
 
 const {
@@ -17,11 +21,34 @@ const {
   description = site.meta.description,
   lang = 'fr',
   noindex = false,
+  alternates,
 } = Astro.props;
 
 const ogLocale = lang === 'en' ? 'en_GB' : 'fr_FR';
 
 const canonicalURL = new URL(Astro.url.pathname, site.meta.url);
+
+// Langue des donnees structurees 2026-07-18 : ces deux blocs decrivent LA
+// PAGE, ils suivent donc son `lang` - contrairement au chrome nav/footer qui
+// decrit des destinations francaises. Avant ce fix ils servaient une
+// description et une featureList francaises en dur dans le <head> des pages
+// <html lang="en"> (/agency, /methodology, /terms, /privacy, /ressources).
+// `description` est deja la description propre a la page, donc bilingue.
+const featureList = lang === 'en'
+  ? [
+      "Multi-model LLM visibility tracking",
+      "GEO-optimised content generation",
+      "Automated netlinking intelligence",
+      "Schema.org FAQ generation",
+      "Brand reputation monitoring"
+    ]
+  : [
+      "Analyse de visibilité LLM multi-modèles",
+      "Génération de contenu GEO optimisé",
+      "Intelligence netlinking automatisée",
+      "Génération FAQ Schema.org",
+      "Veille réputation RAPP"
+    ];
 
 const organizationSchema = {
   "@context": "https://schema.org",
@@ -29,7 +56,7 @@ const organizationSchema = {
   "name": "sen-ai.fr",
   "url": "https://sen-ai.fr",
   "logo": "https://sen-ai.fr/logo-sen-ai-fr.png",
-  "description": site.meta.description,
+  "description": description,
   "slogan": "from data to bloom",
   "contactPoint": {
     "@type": "ContactPoint",
@@ -44,16 +71,11 @@ const softwareSchema = {
   "@type": "SoftwareApplication",
   "name": "sen-ai.fr",
   "applicationCategory": "BusinessApplication",
-  "description": site.meta.description,
+  "description": description,
+  "inLanguage": lang === 'en' ? 'en' : 'fr-FR',
   "operatingSystem": "Web",
   "url": "https://sen-ai.fr",
-  "featureList": [
-    "Analyse de visibilité LLM multi-modèles",
-    "Génération de contenu GEO optimisé",
-    "Intelligence netlinking automatisée",
-    "Génération FAQ Schema.org",
-    "Veille réputation RAPP"
-  ]
+  "featureList": featureList
 };
 ---
 
@@ -65,6 +87,12 @@ const softwareSchema = {
     <meta name="description" content={description} />
     <meta name="robots" content={noindex ? 'noindex, nofollow' : 'index, follow'} />
     <link rel="canonical" href={canonicalURL.href} />
+    {alternates && Object.entries(alternates).map(([code, href]) => (
+      <link rel="alternate" hreflang={code} href={new URL(href, site.meta.url).href} />
+    ))}
+    {alternates && alternates.fr && (
+      <link rel="alternate" hreflang="x-default" href={new URL(alternates.fr, site.meta.url).href} />
+    )}
 
     <!-- Open Graph -->
     <meta property="og:type" content="website" />
@@ -100,8 +128,10 @@ const softwareSchema = {
     <script is:inline defer src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='{"token": "2884f25c202e4c5f945e03519b468596"}'></script>
   </head>
   <body class="bg-white text-charcoal font-sans antialiased">
+    {/* Suit le `lang` de la page : c'est le premier element focusable, il
+        etait en francais en dur sur les pages anglaises. */}
     <a href="#main-content" class="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[100] focus:px-4 focus:py-2 focus:bg-coral focus:text-white focus:rounded-lg focus:text-sm focus:font-medium">
-      Aller au contenu principal
+      {lang === 'en' ? 'Skip to main content' : 'Aller au contenu principal'}
     </a>
     <slot />
   </body>

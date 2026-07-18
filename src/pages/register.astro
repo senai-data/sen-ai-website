@@ -81,11 +81,11 @@ const safeNext = (rawNext.startsWith('/') && !rawNext.startsWith('//')) ? rawNex
       )}
 
       <div id="closed-banner" class="hidden auth__notice auth__notice--closed">
-        <p style="font-weight:650;margin-bottom:3px">Inscriptions temporairement fermées</p>
+        <p style="font-weight:650;margin-bottom:3px">Sign-ups temporarily closed</p>
         <p style="font-size:12px;color:var(--color-text-secondary);margin-bottom:8px">
-          La création de compte est en pause. Vous pouvez tout de même demander un audit IA gratuit pendant ce temps.
+          Account creation is paused. You can still request a free AI audit in the meantime.
         </p>
-        <a href="/#engagement">Demander un audit gratuit &rarr;</a>
+        <a href="/#engagement">Request a free audit &rarr;</a>
       </div>
 
       <div class="auth__card">
@@ -182,7 +182,7 @@ const safeNext = (rawNext.startsWith('/') && !rawNext.startsWith('//')) ? rawNex
           form.style.opacity = '.5';
           form.style.pointerEvents = 'none';
           submitBtn.disabled = true;
-          submitBtn.textContent = 'Inscriptions fermées';
+          submitBtn.textContent = 'Sign-ups closed';
           return;
         }
 

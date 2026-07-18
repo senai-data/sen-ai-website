@@ -59,6 +59,24 @@ def get_user_client_role(client_id: str, user, db: Session) -> str | None:
         return None
 
     if client.organization_id:
+        # Implicit floor (2026-07-18) : org owners/admins hold the members-
+        # grid endpoints and can grant themselves any per-client role at any
+        # time, so withholding workspace access from them was friction, not
+        # security. Bitten twice live : an invited admin landing at
+        # 'No access', and admins blind to workspaces created after they
+        # joined (create-client only grants the creator). Members keep the
+        # explicit-row model - THEY cannot self-grant.
+        org_membership = (
+            db.query(OrganizationUser)
+            .filter(
+                OrganizationUser.organization_id == client.organization_id,
+                OrganizationUser.user_id == user.id,
+            )
+            .first()
+        )
+        if org_membership and org_membership.role in ("owner", "admin"):
+            return "manager"
+
         ouc = (
             db.query(OrgUserClient)
             .filter(
@@ -232,6 +250,25 @@ def list_user_clients(
     if organization_id:
         org_clients = org_clients.filter(OrgUserClient.organization_id == organization_id)
     rows = list(org_clients.all())
+
+    # Implicit owner/admin access (2026-07-18) : every client of the orgs
+    # they manage, explicit OrgUserClient row or not - mirrors the implicit
+    # floor in get_user_client_role so the workspace list and the access
+    # check can never disagree.
+    admin_orgs_q = db.query(OrganizationUser.organization_id).filter(
+        OrganizationUser.user_id == user.id,
+        OrganizationUser.role.in_(["owner", "admin"]),
+    )
+    if organization_id:
+        admin_orgs_q = admin_orgs_q.filter(OrganizationUser.organization_id == organization_id)
+    admin_org_ids = [r.organization_id for r in admin_orgs_q.all()]
+    if admin_org_ids:
+        implicit = db.query(Client).filter(Client.organization_id.in_(admin_org_ids)).all()
+        already = {c.id for c in rows}
+        for c in implicit:
+            if c.id not in already:
+                rows.append(c)
+                already.add(c.id)
 
     if not organization_id:
         legacy = (

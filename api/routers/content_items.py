@@ -329,6 +329,7 @@ def list_content_items(
     content_type: str | None = Query(None, description="'faq' or 'netlinking_article'"),
     scan_id: str | None = Query(None, description="Filter by scan id"),
     include_rejected: bool = Query(False, description="Include rejected items"),
+    history: bool = Query(False, description="Include to_create suggestions from superseded runs"),
     user=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -339,6 +340,14 @@ def list_content_items(
     Response = by_column/counts/total ONLY : the old shape ALSO shipped every
     item a second time in a flat `items` list nobody consumed - at 1000+
     items that duplication alone was ~1.9 MB.
+
+    Default scope (2026-07-18) : every rescan regenerates its suggestions, so
+    the untouched `to_create` backlog of superseded runs is stale noise that
+    grew unbounded (1180 items on a 26-scan workspace). Unless `history=true`
+    or an explicit `scan_id` is given, `to_create` items are kept only for
+    the LATEST scan of each lineage (parent_scan_id root). Anything the user
+    ever acted on (in_review / approved / published / rejected) is NEVER
+    trimmed - work in progress survives rescans.
     """
     _check_client_access(client_id, user, db)
 
@@ -358,6 +367,31 @@ def list_content_items(
         q = q.filter((ScanContentItem.status != "rejected") | (ScanContentItem.status.is_(None)))
 
     items = q.all()
+
+    if not history and not scan_id:
+        # Latest scan per lineage : the scans table is small per client, so
+        # resolving the current run of each root in Python is cheap.
+        scan_rows = (
+            db.query(Scan.id, Scan.parent_scan_id, Scan.created_at)
+            .filter(Scan.client_id == client_id)
+            .all()
+        )
+        latest_per_root: dict[str, tuple] = {}
+        for s in scan_rows:
+            root = str(s.parent_scan_id or s.id)
+            key = (s.created_at,)
+            if root not in latest_per_root or key > latest_per_root[root][0:1]:
+                latest_per_root[root] = (s.created_at, str(s.id))
+        current_scan_ids = {v[1] for v in latest_per_root.values()}
+        # 'Untouched backlog' = anything living in the to_create COLUMN
+        # (statuses identified / draft / NULL - 'to_create' is the column
+        # name, not a status value). Acted-on items map to other columns
+        # and are never trimmed.
+        items = [
+            it for it in items
+            if COLUMN_BY_STATUS.get(it.status, "to_create") != "to_create"
+            or str(it.scan_id) in current_scan_ids
+        ]
 
     # Sort: priority rank asc (critique=0 first), then identified_at desc
     items.sort(key=lambda i: (

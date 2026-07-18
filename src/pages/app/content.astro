@@ -46,6 +46,11 @@ const scanParam = Astro.url.searchParams.get('scan_id') || '';
 // the column on demand because Reject is reversible (Regenerate from validation
 // page), and otherwise the only way to find a rejected item is the direct URL.
 const showRejected = Astro.url.searchParams.get('show_rejected') === '1';
+// 2026-07-18 : each rescan regenerates its suggestions, so the untouched
+// to_create backlog of superseded runs is stale noise (1180 items observed).
+// Default = current run of each lineage only ; "history=1" shows everything.
+// Items the user acted on (in review / approved / published) always show.
+const showHistory = Astro.url.searchParams.get('history') === '1';
 // Per-column SSR cap. A 1100+ card To-create column means multi-MB HTML
 // plus one Alpine component per card - slice server-side, "Show more"
 // reloads with a bigger ?limit. limit=all disables the cap.
@@ -83,6 +88,7 @@ try {
     if (ctParam !== 'all') params.set('content_type', ctParam);
     if (scanParam) params.set('scan_id', scanParam);
     if (showRejected) params.set('include_rejected', 'true');
+    if (showHistory) params.set('history', 'true');
     const qs = params.toString();
     const url = `http://api:8000/api/clients/${clientId}/content-items${qs ? '?' + qs : ''}`;
 
@@ -270,6 +276,7 @@ function ageLabel(iso: string | null): string {
           <form method="GET" class="flex items-center gap-2">
             {ctParam !== 'all' && <input type="hidden" name="content_type" value={ctParam} />}
             {showRejected && <input type="hidden" name="show_rejected" value="1" />}
+            {showHistory && <input type="hidden" name="history" value="1" />}
             <select name="scan_id" onchange="this.form.submit()" class="select">
               <option value="">All scans</option>
               {(() => {
@@ -315,6 +322,21 @@ function ageLabel(iso: string | null): string {
          title={showRejected ? 'Hide rejected items' : 'Show rejected items (regenerable from their detail page)'}
          class={`fchip ${showRejected ? 'on' : ''}`}>
         {showRejected ? '✓ Showing rejected' : 'Show rejected'}
+      </a>
+
+      {/* History toggle - by default the to_create backlog only shows the
+           current run of each brand lineage (rescans regenerate their
+           suggestions ; superseded ones are stale noise). Work in progress
+           (in review / approved / published) always shows regardless. */}
+      <a href={(() => {
+            const u = new URL(Astro.url);
+            if (showHistory) u.searchParams.delete('history');
+            else u.searchParams.set('history', '1');
+            return u.pathname + (u.searchParams.toString() ? '?' + u.searchParams.toString() : '');
+          })()}
+         title={showHistory ? 'Back to current runs only' : 'Also show untouched suggestions from earlier runs of each brand'}
+         class={`fchip ${showHistory ? 'on' : ''}`}>
+        {showHistory ? '✓ Showing history' : 'Show history'}
       </a>
 
       <span class="tools__note"><strong style="color:var(--color-text-primary)">{totalAcrossAll}</strong> total</span>

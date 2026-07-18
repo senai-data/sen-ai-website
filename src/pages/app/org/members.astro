@@ -324,24 +324,34 @@ function grantedCount(m: Member): number {
                         </span>
                       </td>
                       <td class="px-3 py-3">
-                        <button
-                          type="button"
-                          class="group inline-flex items-center gap-1.5 text-left"
-                          @click={`open = open === '${m.user_id}' ? null : '${m.user_id}'`}
-                        >
-                          {grantedCount(m) === 0 ? (
-                            <span data-ws-count-for={m.user_id} class="text-xs font-medium text-amber-600">No workspace access</span>
-                          ) : (
-                            <span data-ws-count-for={m.user_id} class="text-xs text-charcoal-dark">{grantedCount(m)} of {m.client_access.length} workspaces</span>
-                          )}
-                          <svg
-                            class="w-3.5 h-3.5 text-gray-400 group-hover:text-coral transition-transform"
-                            :class={`open === '${m.user_id}' && 'rotate-180'`}
-                            fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                        {/* Implicit access (2026-07-18) : owners/admins have
+                            manager rights on every workspace, current and
+                            future, via services/access.py - per-workspace
+                            selects would show a 'No access' that lies. */}
+                        {(m.org_role === 'owner' || m.org_role === 'admin') ? (
+                          <span class="text-xs text-charcoal-dark" title="Organization owners and admins have manager access to every workspace, including ones created later.">
+                            All workspaces <span class="text-charcoal-light">· via org role</span>
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            class="group inline-flex items-center gap-1.5 text-left"
+                            @click={`open = open === '${m.user_id}' ? null : '${m.user_id}'`}
                           >
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
-                          </svg>
-                        </button>
+                            {grantedCount(m) === 0 ? (
+                              <span data-ws-count-for={m.user_id} class="text-xs font-medium text-amber-600">No workspace access</span>
+                            ) : (
+                              <span data-ws-count-for={m.user_id} class="text-xs text-charcoal-dark">{grantedCount(m)} of {m.client_access.length} workspaces</span>
+                            )}
+                            <svg
+                              class="w-3.5 h-3.5 text-gray-400 group-hover:text-coral transition-transform"
+                              :class={`open === '${m.user_id}' && 'rotate-180'`}
+                              fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                            >
+                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                            </svg>
+                          </button>
+                        )}
                       </td>
                       <td class="px-3 py-3 text-right">
                         {!m.is_self && (orgDetail.your_role === 'owner' || m.org_role !== 'owner') && (
@@ -358,6 +368,7 @@ function grantedCount(m: Member): number {
                         )}
                       </td>
                     </tr>
+                    {(m.org_role !== 'owner' && m.org_role !== 'admin') && (
                     <tr
                       data-search={`${m.name || ''} ${m.email}`.toLowerCase()}
                       x-show={`open === '${m.user_id}' && (!q.trim() || $el.dataset.search.includes(q.toLowerCase().trim()))`}
@@ -393,6 +404,7 @@ function grantedCount(m: Member): number {
                         </div>
                       </td>
                     </tr>
+                    )}
                   </>
                 ))}
               </tbody>

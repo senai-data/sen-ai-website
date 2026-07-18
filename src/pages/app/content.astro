@@ -89,6 +89,10 @@ try {
     if (scanParam) params.set('scan_id', scanParam);
     if (showRejected) params.set('include_rejected', 'true');
     if (showHistory) params.set('history', 'true');
+    // Server-side column cap aligned on the render cap : no point shipping
+    // 1100 cards when 50 render. counts stay full ; 'Show more' reloads
+    // with a bigger ?limit which raises this too. limit=all -> no cap.
+    if (Number.isFinite(colLimit)) params.set('col_limit', String(colLimit));
     const qs = params.toString();
     const url = `http://api:8000/api/clients/${clientId}/content-items${qs ? '?' + qs : ''}`;
 
@@ -355,7 +359,10 @@ function ageLabel(iso: string | null): string {
       <div class={`board ${showRejected ? 'board--5' : ''}`}>
         {columns.map(col => {
           const allItems = (kanban.by_column?.[col.key] || []) as any[];
-          const count = allItems.length;
+          // counts[] carries the FULL total : since col_limit (2026-07-18)
+          // the API caps by_column rows server-side, so allItems.length is
+          // the cap, not the truth. Fallback covers older responses.
+          const count = (kanban.counts?.[col.key] ?? allItems.length) as number;
           const items = Number.isFinite(colLimit) ? allItems.slice(0, colLimit) : allItems;
           const hidden = count - items.length;
           return (

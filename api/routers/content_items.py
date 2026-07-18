@@ -330,6 +330,7 @@ def list_content_items(
     scan_id: str | None = Query(None, description="Filter by scan id"),
     include_rejected: bool = Query(False, description="Include rejected items"),
     history: bool = Query(False, description="Include to_create suggestions from superseded runs"),
+    col_limit: int | None = Query(None, ge=1, description="Cap rows per kanban column (counts stay full) - aligned on the page's render cap"),
     user=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -441,9 +442,15 @@ def list_content_items(
         if col in by_column:
             by_column[col].append(d)
 
+    # Full counts BEFORE the per-column cap - the UI's column headers and
+    # 'Show more' links read counts, the capped arrays only feed the cards.
+    counts = {col: len(rows) for col, rows in by_column.items()}
+    if col_limit:
+        by_column = {col: rows[:col_limit] for col, rows in by_column.items()}
+
     return {
         "by_column": by_column,
-        "counts": {col: len(rows) for col, rows in by_column.items()},
+        "counts": counts,
         "total": len(serialized),
     }
 

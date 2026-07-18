@@ -749,6 +749,13 @@ async def create_client_in_org(
     org, _caller = _require_org_manager(org_id, user, db)
 
     raw_name = (req.name or "").strip()
+    # Users paste URLs into the sidebar input ('https://acme.com/') - strip
+    # the scheme and trailing slash but keep their text otherwise (a bare
+    # domain IS a fine workspace name ; deriving prettier labels is the
+    # bulk endpoint's job). Observed live 2026-07-17 : workspace named
+    # 'revest-groupe.com/'.
+    if raw_name.lower().startswith(("http://", "https://")) or raw_name.endswith("/"):
+        raw_name = _normalize_domain(raw_name)
     if not raw_name:
         raise HTTPException(400, "Client name is required")
 

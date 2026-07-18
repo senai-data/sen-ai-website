@@ -2986,6 +2986,8 @@ def get_results(
     scan_id: str,
     provider: str | None = Query(None),
     include_responses: bool = Query(True, description="False = blank response_text (citations tab never renders it)"),
+    question: str | None = Query(None, description="Filter to ONE question (normalized text match) - the Questions tab's lazy drill-down"),
+    persona: str | None = Query(None, description="With `question` : disambiguate by persona name"),
     user=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -2994,6 +2996,11 @@ def get_results(
     Perf 2026-07-18 : plain `def` (sync SQLAlchemy in async def blocked the
     event loop) + `include_responses=false` skips loading the response-text
     column entirely - same levers as /results/aggregated.
+
+    `question` (+ optional `persona` / `provider`) narrows to a single
+    question's rows : full detail (response, mentions, citations, judgment,
+    scores) at ~100ms, powering on-expand loading instead of a 42 MB page.
+    Text-normalized match on purpose - rescans copy questions under new ids.
     """
     scan = _check_scan_access(scan_id, user, db)
 
@@ -3002,6 +3009,21 @@ def get_results(
         q = q.filter(ScanLLMResult.provider == provider)
     if not include_responses:
         q = q.options(defer(ScanLLMResult.response_text))
+    if question:
+        _norm = " ".join(question.strip().lower().split())
+        _sqs = db.query(ScanQuestion).filter(ScanQuestion.scan_id == scan_id).all()
+        _pnames: dict = {}
+        if persona:
+            for _sp in db.query(ScanPersona).filter(ScanPersona.scan_id == scan_id).all():
+                _pnames[str(_sp.id)] = _sp.name
+        _match_ids = [
+            sq.id for sq in _sqs
+            if " ".join((sq.question or "").strip().lower().split()) == _norm
+            and (not persona or _pnames.get(str(sq.persona_id)) == persona)
+        ]
+        if not _match_ids:
+            return {"overview": None, "by_persona": [], "competitors": [], "details": []}
+        q = q.filter(ScanLLMResult.question_id.in_(_match_ids))
     results = q.all()
     if not results:
         return {"overview": None, "by_persona": [], "competitors": [], "details": []}
@@ -3329,6 +3351,7 @@ def get_results_aggregated(
     summary: bool = Query(False, description="Header mode : aggregates + tab counts only, no details array"),
     include_responses: bool = Query(True, description="False = blank response_text (results/citations tabs never render it)"),
     details_scope: str | None = Query(None, description="'latest' = details[].runs limited to the latest scan's rows (results tab reads only those ; the per-run citation/mention arrays across a whole lineage are the payload's real bulk)"),
+    details_arrays: bool = Query(True, description="False = empty citations/brand_mentions arrays in details[].runs (Questions tab list mode : the drill-down lazy-loads them per question)"),
     user=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -3419,8 +3442,9 @@ def get_results_aggregated(
 
     # Canonical site_type for every citation domain (cf. /results docstring
     # on _build_site_type_lookup). One batch query across the whole lineage.
-    # Summary mode skips it : the lookup only enriches details[].citations.
-    site_type_lookup = {} if summary else _build_site_type_lookup(all_results, db)
+    # Skipped when the caller won't receive citations at all (summary mode,
+    # or details_arrays=false list mode).
+    site_type_lookup = {} if (summary or not details_arrays) else _build_site_type_lookup(all_results, db)
 
     # Sentiment Judge overlay across the whole lineage (migration 057).
     sentiment_overlay = _build_sentiment_overlay(db, [str(sid) for sid in scan_ids])
@@ -3548,9 +3572,12 @@ def get_results_aggregated(
                 "target_position": r.target_position,
                 "provider": r.provider,
                 "model": r.model,
-                "brand_mentions": overlaid_mentions,
+                # details_arrays=false (Questions list mode) : the arrays are
+                # the payload's bulk and the drill-down lazy-loads them -
+                # brand_analysis stays (small dict, feeds the row chips).
+                "brand_mentions": overlaid_mentions if details_arrays else [],
                 "brand_analysis": _maybe_judge_response_sentiment(r.brand_analysis or {}, overlaid_mentions),
-                "citations": _enrich_citations_with_site_type(r.citations, site_type_lookup),
+                "citations": _enrich_citations_with_site_type(r.citations, site_type_lookup) if details_arrays else [],
                 "response_text": (r.response_text or "") if include_responses else "",
                 "duration_ms": r.duration_ms,
                 # N-runs (T2) - intra-scan sampling stats for this lineage point.

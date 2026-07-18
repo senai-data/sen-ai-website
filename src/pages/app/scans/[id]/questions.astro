@@ -26,12 +26,17 @@ const providerParam = Astro.url.searchParams.get('provider') || 'all';
 const initialQuery = Astro.url.searchParams.get('q') || '';
 
 const useAggregated = rangeParam !== 'latest';
-let resultsUrl = `http://api:8000/api/scans/${effectiveScanId}/results`;
+// Perf 2026-07-18 : LIST mode - no response texts, no citation/mention
+// arrays. The drill-down lazy-loads full detail per question on expand
+// (GET /results?question=...). This page used to embed 42 MB of JSON.
+let resultsUrl = `http://api:8000/api/scans/${effectiveScanId}/results?include_responses=false`;
 if (useAggregated) {
   const p = new URLSearchParams();
   if (fromParam) p.set('from_date', fromParam);
   if (toParam) p.set('to_date', toParam);
-  resultsUrl = `http://api:8000/api/scans/${effectiveScanId}/results/aggregated${p.toString() ? '?' + p : ''}`;
+  p.set('include_responses', 'false');
+  p.set('details_arrays', 'false');
+  resultsUrl = `http://api:8000/api/scans/${effectiveScanId}/results/aggregated?${p}`;
 }
 
 // Append provider filter to all API URLs
@@ -66,15 +71,31 @@ details.forEach((d: any) => {
   if (d.provider) providerSet.add(d.provider);
 });
 
-// Enrich details with topic_name if missing, normalize aggregated data
+// Enrich details with topic_name if missing, normalize aggregated data.
+// LIGHT embed (2026-07-18) : strip the heavy per-question fields - the
+// collapsed row only reads scalars + brand_analysis (small dict) + the
+// runs' brand_mentioned flags for the evolution arrow. response_text /
+// brand_mentions / citations are lazy-loaded on expand.
 const enriched = details.map((d: any) => {
   const src = isAggregated ? { ...d.latest, question: d.question, persona: d.persona, topic_name: d.topic_name, type: d.type } : d;
+  const { response_text, brand_mentions, citations, ...light } = src;
   return {
-    ...src,
-    topic_name: src.topic_name || byPersona.find((p: any) => p.persona === src.persona)?.topic || 'Other',
-    ...(isAggregated ? { ever_mentioned: d.ever_mentioned, mention_count: d.mention_count, total_runs: d.total_runs, runs: d.runs } : {}),
+    ...light,
+    _loaded: false,
+    _loading: false,
+    topic_name: light.topic_name || byPersona.find((p: any) => p.persona === light.persona)?.topic || 'Other',
+    ...(isAggregated ? {
+      ever_mentioned: d.ever_mentioned, mention_count: d.mention_count, total_runs: d.total_runs,
+      runs: (d.runs || []).map((r: any) => ({ brand_mentioned: r.brand_mentioned })),
+    } : {}),
   };
 });
+
+// The drill-down always shows the LATEST run's answer - in aggregated mode
+// that's the last run of the lineage, whose scan id the lazy fetch targets.
+const detailScanId = isAggregated
+  ? ((data?.included_runs || []).slice(-1)[0]?.id || effectiveScanId)
+  : effectiveScanId;
 
 // Chart data: question type breakdown + mention rate by type
 const typeColors: Record<string, string> = {
@@ -115,11 +136,38 @@ const typeRateColors = typeRates.map(r => r >= 30 ? '#10b981' : r > 0 ? '#f59e0b
         (this.filterProvider === 'all' || d.provider === this.filterProvider)
       );
     },
+    detailScanId: ${JSON.stringify(detailScanId)},
+    async loadDetail(q) {
+      // Lazy drill-down (2026-07-18) : the embed carries no response /
+      // mentions / citations - fetch them once per question on expand.
+      if (q._loaded || q._loading) return;
+      q._loading = true;
+      try {
+        const p = new URLSearchParams({ question: q.question });
+        if (q.persona && q.persona !== '?') p.set('persona', q.persona);
+        if (q.provider) p.set('provider', q.provider);
+        const r = await fetch('/api/scans/' + this.detailScanId + '/results?' + p.toString());
+        if (r.ok) {
+          const dd = await r.json();
+          const row = (dd.details || [])[0];
+          if (row) {
+            q.response_text = row.response_text || '';
+            q.brand_mentions = row.brand_mentions || [];
+            q.citations = row.citations || [];
+            if (row.judgment) q.judgment = row.judgment;
+            if (row.scores) q.scores = row.scores;
+            if (row.intention_cachee) q.intention_cachee = row.intention_cachee;
+          }
+        }
+      } catch (e) {}
+      q._loading = false;
+      q._loaded = true;
+    },
     init() {
       // Auto-expand the first filtered row when arriving from a Citations
       // deep-link. The x-for uses index as key, so set to 0.
       if (this.filterText && this.filtered.length) {
-        this.$nextTick(() => { this.expandedQ = 0; });
+        this.$nextTick(() => { this.expandedQ = 0; const f = this.filtered[0]; if (f) this.loadDetail(f); });
       }
     }
   }`}>
@@ -179,7 +227,7 @@ const typeRateColors = typeRates.map(r => r >= 30 ? '#10b981' : r > 0 ? '#f59e0b
           <div>
             {/* Question row */}
             <div class="px-5 py-3 flex items-center gap-3 cursor-pointer hover:bg-gray-50 transition-colors"
-                 @click="expandedQ = expandedQ === qi ? null : qi">
+                 @click="expandedQ = expandedQ === qi ? null : qi; if (expandedQ === qi) loadDetail(q)">
               <span :class="q.brand_mentioned ? 'text-emerald-500' : 'text-red-400'" class="shrink-0"
                     x-text="q.brand_mentioned ? '\u2713' : '\u2717'"></span>
               <template x-if="q.total_runs > 1">
@@ -361,7 +409,7 @@ const typeRateColors = typeRates.map(r => r >= 30 ? '#10b981' : r > 0 ? '#f59e0b
                   </template>
                 </div>
                 <div class="text-xs text-charcoal-dark leading-relaxed max-h-60 overflow-y-auto whitespace-pre-line bg-white rounded-lg border border-gray-200 p-3"
-                     x-html="window.highlightResponse(q.response_text, q.brand_mentions)"></div>
+                     x-html="q.response_text ? window.highlightResponse(q.response_text, q.brand_mentions) : (q._loading || !q._loaded ? '<em>Loading response...</em>' : '<em>Response unavailable for this question.</em>')"></div>
               </div>
 
               {/* Citations */}

@@ -53,6 +53,9 @@ Imaginez Dermalys, marque fictive de cosmétique. Nommez-la et l'IA en parlera p
 
 Cette neutralité rend la mesure comparable d'une marque à l'autre et d'un scan à l'autre : toutes les marques d'un même marché sont jugées sur les mêmes questions ouvertes.
 
+![Liste de questions testées dans sen-ai : aucune ne nomme la marque suivie, chacune décrit un besoin d'acheteur, avec le persona, le sentiment et la position obtenue](/captures/questions-sans-marque.png)
+*Les questions posées aux IA sur un espace de démonstration : aucune ne nomme la marque suivie. La coche indique les réponses où elle est citée, la croix celles où elle est absente.*
+
 Pour tester vous-même, parlez comme un client qui ne vous connaît pas :
 
 > Je cherche [produit ou service] pour [situation : besoin, budget, contrainte]. Quelles marques me conseilles-tu, et pourquoi ?

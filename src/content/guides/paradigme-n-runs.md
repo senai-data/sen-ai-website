@@ -52,6 +52,9 @@ Reprenons Dormalis, la marque fictive de matelas. « Quel matelas pour un mal de
 
 Un taux stable sur dix tirages est un signal solide. Un taux qui saute de 10 % à 50 % selon le tirage est un signal fragile, et il faut le savoir avant d'en tirer des conclusions.
 
+![Entonnoir de recommandation dans sen-ai : part des réponses où la marque est citée, recommandée, puis donnée en premier choix, calculée sur les réponses du dernier run](/captures/recommendation-funnel.png)
+*Le comptage agrégé sur l'ensemble des réponses d'un run, et non sur une réponse isolée.*
+
 ## La marge d'erreur, pour distinguer le réel du bruit
 
 **Chaque taux est publié avec un [intervalle de confiance](https://fr.wikipedia.org/wiki/Intervalle_de_confiance) à 95 %, la mesure statistique standard de l'incertitude d'une proportion estimée sur un échantillon.** Plus le nombre de répétitions est grand, plus cet intervalle se resserre : la précision progresse à mesure qu'on accumule les réponses, d'abord vite, puis de plus en plus lentement.

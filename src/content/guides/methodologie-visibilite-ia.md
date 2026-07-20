@@ -57,6 +57,9 @@ Ce n'est pas une impression. [Une étude SparkToro de 2026](https://sparktoro.co
 
 Concrètement, un taux de citation de 22 % est affiché « solide à plus ou moins 3 points » ou « bruité à plus ou moins 18 points » : vous savez si une variation est un vrai mouvement ou du hasard. Le protocole complet est détaillé dans la rubrique consacrée à [la mesure de votre présence dans les quatre IA](/guides/mesurer-visibilite-ia/).
 
+![Écran de synthèse d'un scan sen-ai : note globale, filtre par IA, taux de citation, entonnoir de recommandation, sentiment moyen et part de voix](/captures/scan-overview-kpis.png)
+*La synthèse d'un scan sur un espace de démonstration : le taux de citation et son évolution, l'entonnoir citée / recommandée / premier choix, et le filtre qui isole chaque IA.*
+
 ## L'IA ne lit pas une page, elle décompose votre question
 
 **Pour répondre, un moteur génératif éclate votre question en plusieurs sous-questions et lance de nombreuses recherches en parallèle.** Google appelle cette technique le « query fan-out » et la décrit [dans sa documentation produit](https://blog.google/products-and-platforms/products/search/google-search-ai-mode-update/) comme dans un brevet déposé.

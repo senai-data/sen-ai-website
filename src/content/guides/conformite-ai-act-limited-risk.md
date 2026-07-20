@@ -55,4 +55,7 @@ Cette nature le place dans la catégorie à risque limité, dont l'obligation pr
 
 Pour sen-ai, la réponse aux trois premières est non, et la catégorie, le risque limité, sans audits lourds à prévoir.
 
-Cette transparence se vérifie : chaque rapport de scan porte le détail de la conformité, et la liste des modèles et sous-traitants est publiée et datée. Le volet réglementaire n'est qu'une moitié du [cadre de confiance de sen-ai](/guides/confiance/) ; l'autre, la localisation et le traitement de vos données, fait l'objet de la page sur les [données en Europe](/guides/donnees-en-europe/).
+Cette transparence se vérifie : chaque rapport de scan porte le détail de la conformité, et la liste des modèles et sous-traitants est publiée et datée.
+
+![Extrait du rapport de conformité AI Act d'un scan : tableau des modèles interrogés, avec sous-traitant, version du modèle, région d'hébergement et nombre d'appels](/captures/ai-act-providers.png)
+*Extrait du rapport de conformité joint à chaque scan : quels modèles ont été interrogés, sous quelle version, depuis quelle région, et combien de fois.* Le volet réglementaire n'est qu'une moitié du [cadre de confiance de sen-ai](/guides/confiance/) ; l'autre, la localisation et le traitement de vos données, fait l'objet de la page sur les [données en Europe](/guides/donnees-en-europe/).

@@ -26,7 +26,7 @@ import { fetchScanHeader } from '../lib/scan-header';
 
 interface Props {
   scanId: string;
-  activeTab: 'overview' | 'topics' | 'personas' | 'questions' | 'citations' | 'wikipedia' | 'audit' | 'schema' | 'competitors' | 'reddit' | 'pr-outreach' | 'internal-linking' | 'youtube' | 'crisis' | 'compliance' | 'actions';
+  activeTab: 'overview' | 'topics' | 'personas' | 'questions' | 'citations' | 'wikipedia' | 'audit' | 'schema' | 'competitors' | 'reddit' | 'pr-outreach' | 'internal-linking' | 'youtube' | 'crisis' | 'compliance' | 'actions' | 'placements';
   /** Mobile P3 - forwarded to DashboardLayout. Only the Overview leaf
    *  (results.astro) opts in : it's the scan-complete email's deep-link
    *  target. Dense leaves keep the <1024px gate. */
@@ -60,11 +60,21 @@ const effectiveScanId = (rangeParam === 'latest' && runParam) ? runParam : scanI
 // wins over fetching here - see Props.headerPromise.
 const headerData = await (headerPromise ?? fetchScanHeader(effectiveScanId, token, rangeParam, fromParam, toParam, providerParam));
 
-// Guards
-if (headerData.scan.status === 'not_found') return Astro.redirect('/app/scans');
-if (headerData.scan.status !== 'completed' && headerData.scan.status !== 'error') {
-  return Astro.redirect(`/app/scans/${scanId}`);
-}
+// Guards. Redirecting from here is unreliable : the page component may
+// already be streaming when this layout frontmatter runs, and a mid-stream
+// Astro.redirect dies with ResponseSentError → the user gets a BLANK 200
+// (seen on the failed Avène rescan, 2026-07-18). Render an inline state
+// screen instead ('error' keeps passing through, legacy behaviour).
+const scanState = headerData.scan.status;
+const scanBlocked = scanState !== 'completed' && scanState !== 'error';
+// Rescue link for blocked lineages : runs[] only holds COMPLETED lineage
+// members, so the newest one is always safe to open.
+const lastCompletedRun: any = headerData.runs.length > 0 ? headerData.runs[headerData.runs.length - 1] : null;
+const blockedCopy = scanState === 'not_found'
+  ? { title: 'Scan not found', body: 'This scan does not exist or you do not have access to it.' }
+  : scanState === 'failed'
+    ? { title: 'This scan failed', body: 'The last run of this scan did not complete. Its results are unavailable, but the rest of the lineage is untouched.' }
+    : { title: 'This scan is not finished yet', body: 'Results appear once the scan completes. You can resume the setup or watch its progress from the scan page.' };
 
 const { scan, grade, currentRate, delta, eraNote, sparkSvg, runs, tabCounts, overview, activeRun } = headerData;
 
@@ -85,6 +95,7 @@ const tabLabels: Record<string, string> = {
   wikipedia: 'Wikipedia', reddit: 'Reddit', 'pr-outreach': 'PR / Media', youtube: 'YouTube',
   audit: 'Page Audit', schema: 'Schema', 'internal-linking': 'Internal links',
   crisis: 'Crisis', actions: 'Actions', compliance: 'Compliance',
+  placements: 'Placements',
 };
 
 // Derive current tab path for date picker links
@@ -340,24 +351,52 @@ const rangeContext = rangeParam === 'all' && runs.length > 1 ? ` (${runs.length}
     </div>
   </div>
 
-  {/* Horizontal Tabs (Hick's: 5 tabs, Serial Position: Overview first, Actions last) */}
-  <ScanTabs
-    scanId={scanId}
-    activeTab={activeTab}
-    counts={tabCounts}
-    criticalCount={criticalCount}
-    queryString={currentQuery}
-  />
-
-  {/* Page content */}
-  <div class="px-4 lg:px-8 max-w-5xl pb-8 pt-6">
-    {headerData.error && (
-      <div class="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 text-sm mb-6">
-        {headerData.error}
+  {scanBlocked ? (
+    <div class="px-4 lg:px-8 max-w-5xl pb-8 pt-6">
+      {/* State screen for non-completed scans (failed / in-progress / not
+          found). Replaces the old mid-render redirect that blanked the page. */}
+      <div class="bg-white border border-gray-200 rounded-xl shadow-sm px-8 py-12 text-center">
+        <p class={`text-base font-bold ${scanState === 'failed' ? 'text-red-600' : 'text-charcoal-dark'}`}>{blockedCopy.title}</p>
+        <p class="text-sm text-charcoal-light mt-2 max-w-md mx-auto">{blockedCopy.body}</p>
+        <div class="flex items-center justify-center gap-3 mt-6 flex-wrap">
+          {scanState !== 'not_found' && (
+            <a href={`/app/scans/${scanId}`} class="px-4 py-2 rounded-lg bg-coral text-white text-sm font-semibold hover:bg-coral-dark transition-colors">
+              {scanState === 'failed' ? 'Open scan setup' : 'Resume setup'}
+            </a>
+          )}
+          {lastCompletedRun && (
+            <a href={`/app/scans/${lastCompletedRun.id}/results`} class="px-4 py-2 rounded-lg border border-gray-200 text-sm font-semibold text-charcoal-dark hover:border-coral transition-colors">
+              View the last completed run
+            </a>
+          )}
+          <a href="/app/scans" class="px-4 py-2 rounded-lg border border-gray-200 text-sm font-semibold text-charcoal-dark hover:border-coral transition-colors">
+            Back to My Scans
+          </a>
+        </div>
       </div>
-    )}
-    <slot />
-  </div>
+    </div>
+  ) : (
+    <>
+      {/* Horizontal Tabs (Hick's: 5 tabs, Serial Position: Overview first, Actions last) */}
+      <ScanTabs
+        scanId={scanId}
+        activeTab={activeTab}
+        counts={tabCounts}
+        criticalCount={criticalCount}
+        queryString={currentQuery}
+      />
+
+      {/* Page content */}
+      <div class="px-4 lg:px-8 max-w-5xl pb-8 pt-6">
+        {headerData.error && (
+          <div class="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 text-sm mb-6">
+            {headerData.error}
+          </div>
+        )}
+        <slot />
+      </div>
+    </>
+  )}
 
   {/* Chart.js CDN - loaded only on scan result pages */}
   <script is:inline src="https://cdn.jsdelivr.net/npm/chart.js@4.4.9/dist/chart.umd.min.js"></script>

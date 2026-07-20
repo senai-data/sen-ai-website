@@ -1,0 +1,383 @@
+---
+/**
+ * Placements - published articles tracked as cited sources.
+ *
+ * The user publishes articles on third-party media (press, guest posts).
+ * This tab answers one question : do the AIs cite them back ? URLs are
+ * matched against every citation the scans captured, across the whole
+ * lineage, so the timeline shows up immediately on paste.
+ *
+ * Data   : GET    /api/scans/{id}/placements
+ * Add    : POST   /api/scans/{id}/placements     {items:[{url,...}]}
+ * Remove : DELETE /api/scans/{id}/placements/{placement_id}
+ * Rerun  : POST   /api/scans/{id}/placements/refresh
+ *
+ * Laws of UX :
+ *  - Peak-End  : the hero answers "how many of my articles are cited" first.
+ *  - Hick      : one primary action (paste URLs). Everything else is a row action.
+ *  - Jakob     : same table + expand pattern as PR / Media and Reddit.
+ *  - Von Restorff : colour only on the cited badges and the add button.
+ */
+export const prerender = false;
+import ScanResultsLayout from '../../../../layouts/ScanResultsLayout.astro';
+import Tip from '../../../../components/Tip.astro';
+import ActScanNotice from '../../../../components/ActScanNotice.astro';
+import { resolveActScan } from '../../../../lib/act-scan';
+
+const token = Astro.cookies.get('token')?.value;
+if (!token) return Astro.redirect('/login');
+const urlScanId = Astro.params.id as string;
+const act = await resolveActScan(urlScanId, token, Astro.url.searchParams);
+const scanId = act.scanId;
+
+const headers = { Cookie: `token=${token}` };
+let data: any = null;
+try {
+  const res = await fetch(`http://api:8000/api/scans/${scanId}/placements`, { headers });
+  if (res.ok) data = await res.json();
+} catch (_) {}
+
+const placements: any[] = data?.placements || [];
+const citedCount = placements.filter((p) => p.ever_cited).length;
+const providersSeen: string[] = Array.from(
+  new Set(
+    placements.flatMap((p: any) =>
+      (p.timeline || []).flatMap((t: any) => Object.keys(t.providers || {})),
+    ),
+  ),
+).filter((p) => p !== 'consensus').sort();
+
+const PROVIDER_LABEL: Record<string, string> = {
+  openai: 'ChatGPT',
+  gemini: 'Gemini',
+  anthropic: 'Claude',
+  mistral: 'Le Chat',
+};
+const providerLabel = (p: string) => PROVIDER_LABEL[p] || p;
+
+function shortUrl(u: string): string {
+  try {
+    const parsed = new URL(u);
+    const path = parsed.pathname.replace(/\/$/, '');
+    if (path.length <= 46) return path || '/';
+    return path.slice(0, 26) + '...' + path.slice(-16);
+  } catch (_) {
+    return u.slice(0, 46);
+  }
+}
+
+function dayLabel(iso?: string | null): string {
+  if (!iso) return '-';
+  return String(iso).slice(0, 10);
+}
+
+// Latest-scan snapshot per provider : {runs_with_hit, runs_total} or null
+// when that provider did not run on the latest matched scan.
+function latestFor(p: any, provider: string) {
+  const latest = p.latest;
+  if (!latest) return null;
+  return latest.providers?.[provider] || null;
+}
+
+// Citations of the media itself (not this article) on the most recent scan
+// where there were any. A media that used to be cited and no longer is
+// says as much as one that never was, so we don't hide it behind "latest".
+function domainOnlySignal(p: any): { count: number; day: string; stale: boolean } | null {
+  const timeline = p.timeline || [];
+  for (let i = timeline.length - 1; i >= 0; i--) {
+    const total = Object.values(timeline[i].providers || {}).reduce(
+      (acc: number, v: any) => acc + (v.domain_citation_count || 0),
+      0,
+    );
+    if (total > 0) {
+      return {
+        count: total,
+        day: String(timeline[i].scan_created_at).slice(0, 10),
+        stale: i !== timeline.length - 1,
+      };
+    }
+  }
+  return null;
+}
+---
+
+<ScanResultsLayout scanId={urlScanId} activeTab="placements">
+  <ActScanNotice resolved={act.resolved} completedAt={act.completedAt} />
+
+  <div x-data={`{
+    adding: false,
+    saving: false,
+    refreshing: false,
+    expanded: null,
+    urls: '',
+    mediaName: '',
+    publishedAt: '',
+    error: '',
+    async save() {
+      if (this.saving) return;
+      const lines = this.urls.split('\\n').map(s => s.trim()).filter(Boolean);
+      if (!lines.length) { this.error = 'Paste at least one URL.'; return; }
+      this.saving = true; this.error = '';
+      try {
+        const res = await fetch('/api/scans/${scanId}/placements', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ items: lines.map(u => ({
+            url: u,
+            media_name: this.mediaName || null,
+            published_at: this.publishedAt || null,
+          })) }),
+        });
+        const body = await res.json();
+        if (!res.ok) { this.error = body.detail || 'Could not save.'; this.saving = false; return; }
+        setTimeout(() => location.reload(), 2500);
+      } catch (e) { this.error = 'Network error.'; this.saving = false; }
+    },
+    async remove(id) {
+      if (!confirm('Stop tracking this article?')) return;
+      await fetch('/api/scans/${scanId}/placements/' + id, { method: 'DELETE' });
+      location.reload();
+    },
+    async refresh() {
+      if (this.refreshing) return;
+      this.refreshing = true;
+      const res = await fetch('/api/scans/${scanId}/placements/refresh', { method: 'POST' });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        this.error = body.detail || 'Refresh unavailable right now.';
+        this.refreshing = false;
+        return;
+      }
+      setTimeout(() => location.reload(), 5000);
+    },
+  }`}>
+
+    <p class="text-sm text-charcoal-light mb-6">
+      Articles you published on other websites, checked against every source the
+      AIs cited in this tracker's scans. Paste the URLs once - each new scan
+      re-checks them automatically, so you can watch a placement go from
+      invisible to cited over time.
+    </p>
+
+    {/* Hero + primary action */}
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
+      <div class="bg-white rounded-xl shadow-sm p-6 lg:col-span-2">
+        <p class="text-[11px] text-charcoal-light uppercase tracking-wide mb-2">
+          Articles cited by AI
+        </p>
+        <div class="flex items-baseline gap-3">
+          <span class={citedCount > 0 ? 'text-3xl font-bold text-emerald-600' : 'text-3xl font-bold text-charcoal-dark'}>
+            {citedCount}
+          </span>
+          <span class="text-base text-charcoal-light">/ {placements.length} tracked</span>
+        </div>
+        <p class="text-[10px] text-charcoal-light mt-2 leading-snug">
+          {placements.length === 0
+            ? 'Nothing tracked yet.'
+            : citedCount === 0
+              ? 'None of them show up as a source yet. Newly published pages usually take a few weeks.'
+              : 'Counted across all scans of this tracker, on any AI.'}
+        </p>
+      </div>
+
+      <div class="bg-white rounded-xl shadow-sm p-6 flex flex-col justify-between">
+        <div>
+          <p class="text-[11px] text-charcoal-light uppercase tracking-wide mb-2">Track a new article</p>
+          <p class="text-[10px] text-charcoal-light leading-snug">
+            We handle www, http/https, trailing slashes and tracking parameters
+            for you - paste the link as you have it.
+          </p>
+        </div>
+        <div class="flex gap-2 mt-3">
+          <button
+            @click="adding = !adding"
+            class="flex-1 px-3 py-1.5 text-xs font-medium rounded-lg bg-coral text-white hover:bg-coral-dark transition-colors"
+            type="button"
+          >Add URLs</button>
+          {placements.length > 0 && (
+            <button
+              @click="refresh()"
+              :disabled="refreshing"
+              class="px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-200 text-charcoal-dark hover:border-coral disabled:opacity-50 transition-colors"
+              type="button"
+              title="Re-check every tracked article against all scans"
+            >
+              <span x-show="!refreshing">Re-check</span>
+              <span x-show="refreshing" x-cloak>Checking...</span>
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+
+    {/* Inline add panel - inline beats a modal when you're scanning a list */}
+    <div x-show="adding" x-cloak class="bg-white rounded-xl shadow-sm p-6 mb-6 border border-coral-200">
+      <label class="block text-xs font-semibold text-charcoal-dark mb-2">
+        Published article URLs - one per line
+      </label>
+      <textarea
+        x-model="urls"
+        rows="5"
+        placeholder="https://www.example-media.com/article-one&#10;https://www.example-media.com/article-two"
+        class="w-full text-xs font-mono border border-gray-200 rounded-lg p-3 focus:border-coral focus:ring-1 focus:ring-coral outline-none"
+      ></textarea>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
+        <div>
+          <label class="block text-[11px] text-charcoal-light mb-1">Media name (optional)</label>
+          <input x-model="mediaName" type="text" placeholder="Top Sante"
+            class="w-full text-xs border border-gray-200 rounded-lg px-3 py-2 focus:border-coral outline-none" />
+        </div>
+        <div>
+          <label class="block text-[11px] text-charcoal-light mb-1">Published on (optional)</label>
+          <input x-model="publishedAt" type="date"
+            class="w-full text-xs border border-gray-200 rounded-lg px-3 py-2 focus:border-coral outline-none" />
+        </div>
+      </div>
+      <p x-show="error" x-cloak class="text-xs text-red-600 mt-3" x-text="error"></p>
+      <div class="flex gap-2 mt-4">
+        <button @click="save()" :disabled="saving"
+          class="px-4 py-2 text-xs font-medium rounded-lg bg-coral text-white hover:bg-coral-dark disabled:bg-gray-300 transition-colors"
+          type="button">
+          <span x-show="!saving">Track these articles</span>
+          <span x-show="saving" x-cloak>Saving and checking...</span>
+        </button>
+        <button @click="adding = false" class="px-4 py-2 text-xs text-charcoal-light hover:text-charcoal-dark" type="button">Cancel</button>
+      </div>
+    </div>
+
+    {placements.length === 0 ? (
+      <div class="bg-white rounded-xl shadow-sm p-10 text-center">
+        <p class="text-sm font-semibold text-charcoal-dark mb-2">No articles tracked yet</p>
+        <p class="text-xs text-charcoal-light max-w-lg mx-auto leading-relaxed">
+          When you publish an article on a media site to gain AI visibility, paste
+          its URL here. We check it against every source the AIs cited in this
+          tracker - past scans included - and show you when it starts being cited.
+        </p>
+        <button @click="adding = true"
+          class="mt-5 px-4 py-2 text-xs font-medium rounded-lg bg-coral text-white hover:bg-coral-dark transition-colors"
+          type="button">Paste your published article URLs</button>
+      </div>
+    ) : (
+      <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+        <div class="overflow-x-auto">
+          <table class="w-full text-xs">
+            <thead class="bg-gray-50 border-b border-gray-100">
+              <tr class="text-left text-[11px] uppercase tracking-wide text-charcoal-light">
+                <th class="px-4 py-3 font-medium">Article</th>
+                <th class="px-4 py-3 font-medium">Media</th>
+                {providersSeen.map((prov) => (
+                  <th class="px-4 py-3 font-medium whitespace-nowrap">
+                    <Tip id="plc_runs">{providerLabel(prov)}</Tip>
+                  </th>
+                ))}
+                <th class="px-4 py-3 font-medium whitespace-nowrap">
+                  <Tip id="plc_first_cited">First cited</Tip>
+                </th>
+                <th class="px-4 py-3 font-medium"></th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-50">
+              {placements.map((p: any) => (
+                <>
+                  <tr class="hover:bg-gray-50/60 cursor-pointer" @click={`expanded = (expanded === '${p.id}') ? null : '${p.id}'`}>
+                    <td class="px-4 py-3 max-w-[380px]">
+                      <div class="font-medium text-charcoal-dark truncate">{p.title || shortUrl(p.url)}</div>
+                      <div class="text-[10px] text-charcoal-light truncate">{p.domain}{p.source === 'content_item' && <span class="ml-1 text-coral-dark">· from your content pipeline</span>}</div>
+                    </td>
+                    <td class="px-4 py-3 text-charcoal-light whitespace-nowrap">{p.media_name || p.domain}</td>
+                    {providersSeen.map((prov) => {
+                      const s = latestFor(p, prov);
+                      if (!s) return <td class="px-4 py-3 text-charcoal-light">-</td>;
+                      const cited = (s.runs_with_hit || 0) > 0;
+                      return (
+                        <td class="px-4 py-3 whitespace-nowrap">
+                          <span class={cited
+                            ? 'px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 font-semibold tabular-nums'
+                            : 'px-2 py-0.5 rounded bg-gray-100 text-charcoal-light tabular-nums'}>
+                            {s.runs_with_hit || 0}/{s.runs_total || 0} runs
+                          </span>
+                        </td>
+                      );
+                    })}
+                    <td class="px-4 py-3 text-charcoal-light whitespace-nowrap">{dayLabel(p.first_cited_at)}</td>
+                    <td class="px-4 py-3 text-right">
+                      <button @click.stop={`remove('${p.id}')`} class="text-[10px] text-charcoal-light hover:text-red-600" type="button" title="Stop tracking">Remove</button>
+                    </td>
+                  </tr>
+                  <tr x-show={`expanded === '${p.id}'`} x-cloak>
+                    <td colspan={providersSeen.length + 4} class="px-4 py-4 bg-gray-50/60">
+                      <div class="mb-3">
+                        <a href={p.url} target="_blank" rel="noopener" class="text-[11px] text-coral-dark hover:underline break-all">{p.url}</a>
+                        {p.published_at && <span class="text-[10px] text-charcoal-light ml-2">published {p.published_at}</span>}
+                      </div>
+
+                      {(() => {
+                        const sig = domainOnlySignal(p);
+                        if (!sig) return null;
+                        return (
+                          <p class="text-[11px] text-charcoal-light mb-3">
+                            <Tip id="plc_domain_signal">
+                              <span class="font-semibold text-charcoal-dark">{sig.count}</span> citations of {p.domain} {sig.stale ? `back on ${sig.day}, none since` : 'in the latest scan'}, but not this article.
+                            </Tip>
+                          </p>
+                        );
+                      })()}
+
+                      <p class="text-[11px] font-semibold text-charcoal-dark mb-2">Checked in every scan of this tracker</p>
+                      <div class="space-y-1.5">
+                        {(p.timeline || []).slice().reverse().map((t: any) => (
+                          <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]">
+                            <span class="text-charcoal-light tabular-nums w-[80px]">{dayLabel(t.scan_created_at)}</span>
+                            {Object.entries(t.providers || {}).filter(([prov]) => prov !== 'consensus').map(([prov, v]: any) => (
+                              <span class={(v.runs_with_hit || 0) > 0 ? 'text-emerald-700 font-medium' : 'text-charcoal-light'}>
+                                {providerLabel(prov)} {v.runs_with_hit || 0}/{v.runs_total || 0}
+                                {v.best_position && (v.runs_with_hit || 0) > 0 && <span class="text-charcoal-light font-normal"> · shown at position {v.best_position}</span>}
+                                {(v.domain_citation_count || 0) > 0 && (v.runs_with_hit || 0) === 0 && (
+                                  <span class="text-charcoal-light font-normal"> · site cited {v.domain_citation_count}x, not this page</span>
+                                )}
+                              </span>
+                            ))}
+                            {Object.values(t.providers || {}).some((v: any) => (v.unresolved_redirects || 0) > 0) && (
+                              <span class="text-[10px] text-amber-700">some AI links could not be resolved</span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+
+                      {(() => {
+                        const questions = Object.values(p.latest?.providers || {})
+                          .flatMap((v: any) => v.matched_questions || [])
+                          .filter((q: any) => q.question);
+                        if (!questions.length) return null;
+                        const seen = new Set();
+                        const unique = questions.filter((q: any) => {
+                          if (seen.has(q.question)) return false;
+                          seen.add(q.question);
+                          return true;
+                        });
+                        return (
+                          <div class="mt-4">
+                            <p class="text-[11px] font-semibold text-charcoal-dark mb-1">Cited when answering</p>
+                            <ul class="space-y-0.5">
+                              {unique.slice(0, 6).map((q: any) => (
+                                <li class="text-[11px] text-charcoal-light">
+                                  {q.question} <span class="tabular-nums">({q.runs}/{q.of} runs)</span>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        );
+                      })()}
+                    </td>
+                  </tr>
+                </>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    )}
+
+    <p x-show="error" x-cloak class="text-xs text-red-600 mt-4" x-text="error"></p>
+  </div>
+</ScanResultsLayout>

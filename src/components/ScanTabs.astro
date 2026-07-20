@@ -26,7 +26,7 @@
  */
 interface Props {
   scanId: string;
-  activeTab: 'overview' | 'topics' | 'personas' | 'questions' | 'citations' | 'wikipedia' | 'audit' | 'schema' | 'competitors' | 'reddit' | 'pr-outreach' | 'internal-linking' | 'youtube' | 'crisis' | 'compliance' | 'actions';
+  activeTab: 'overview' | 'topics' | 'personas' | 'questions' | 'citations' | 'wikipedia' | 'audit' | 'schema' | 'competitors' | 'reddit' | 'pr-outreach' | 'internal-linking' | 'youtube' | 'crisis' | 'compliance' | 'actions' | 'placements';
   counts?: {
     topics?: number;
     personas?: number;
@@ -42,6 +42,7 @@ interface Props {
     internalLinking?: number;
     youtube?: number;
     crisis?: number;
+    placements?: number;
   };
   criticalCount?: number;
   queryString?: string;
@@ -69,6 +70,7 @@ const leaves: Record<string, { label: string; href: string; badge: number | null
   'internal-linking':{ label: 'Internal links', href: 'internal-linking',  badge: n(counts.internalLinking) },
   crisis:            { label: 'Crisis',         href: 'crisis',            badge: n(counts.crisis), dotColor: 'var(--status-critical)' },
   actions:           { label: 'Actions',        href: 'actions',           badge: criticalCount > 0 ? criticalCount : n(counts.actions), critical: criticalCount > 0 },
+  placements:        { label: 'Placements',     href: 'placements',        badge: n(counts.placements) },
   compliance:        { label: 'Compliance',     href: 'compliance',        badge: null },
 };
 
@@ -76,7 +78,7 @@ const leaves: Record<string, { label: string; href: string; badge: number | null
 const macros: { id: 'visibility' | 'sources' | 'act'; label: string; leaves: string[] }[] = [
   { id: 'visibility', label: 'Visibility', leaves: ['overview','topics','personas','questions','citations','competitors'] },
   { id: 'sources',    label: 'Sources',    leaves: ['wikipedia','reddit','pr-outreach','youtube','audit','schema','internal-linking'] },
-  { id: 'act',        label: 'Act',        leaves: ['crisis','actions','compliance'] },
+  { id: 'act',        label: 'Act',        leaves: ['crisis','actions','placements','compliance'] },
 ];
 
 // Server-side : which macro contains the active leaf ?

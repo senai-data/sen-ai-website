@@ -134,7 +134,8 @@ def load_handlers():
                           audit_internal_links,
                           audit_youtube_creators,
                           build_crisis_radar,
-                          judge_sentiment)  # noqa: F401
+                          judge_sentiment,
+                          match_placements)  # noqa: F401
     HANDLERS["fetch_keywords"] = fetch_keywords.execute
     HANDLERS["classify_topics"] = classify_topics.execute
     HANDLERS["assign_keywords"] = assign_keywords.execute
@@ -173,6 +174,7 @@ def load_handlers():
     HANDLERS["audit_youtube_creators"] = audit_youtube_creators.execute
     HANDLERS["build_crisis_radar"] = build_crisis_radar.execute
     HANDLERS["judge_sentiment"] = judge_sentiment.execute
+    HANDLERS["match_placements"] = match_placements.execute
 
 
 # Job types that operate on a single content item (one FAQ / article / …)
@@ -200,6 +202,7 @@ POST_SCAN_AUDIT_JOB_TYPES = {
     "refresh_ai_snapshot",
     "measure_publish_outcome",
     "suggest_media",
+    "match_placements",         # Placements module (migration 062)
 }
 
 

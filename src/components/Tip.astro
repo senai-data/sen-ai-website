@@ -48,7 +48,7 @@ const TIPS: Record<string, string> = {
   domain_input: 'Your website domain. Include the path for country subfolders.<br/><em>Ex: eau-thermale-avene.fr · ducray.com/fr-fr · fr.svr.com</em>',
 
   // Score
-  score_grade: 'AI visibility grade based on citation rate.<br/><em>A ≥50% · B ≥30% · C ≥15% · D &lt;15%</em>',
+  score_grade: 'AI visibility grade based on the brand mention rate.<br/><em>A ≥50% · B ≥30% · C ≥15% · D &lt;15%</em>',
 
   // Data source
   data_source: 'All keyword, traffic and position data comes from Google France (google.fr) via HaloScan.<br/><em>If pages from other country folders (e.g. /ca-fr/) appear, it means Google France ranks them — a sign of hreflang or content cannibalization.</em>',
@@ -224,6 +224,19 @@ const TIPS: Record<string, string> = {
     + '<em>Higher = better target to pitch first.</em>',
   pr_in_catalog: 'This domain has a row in media_catalog so the authority + price + vertical signals come from a real Babbar / LinkFinder lookup.<br/>'
     + '<em>Unmarked domains were discovered through citations in this scan but aren\'t enriched yet.</em>',
+
+  // ── Placements — published articles tracked as cited sources ────────
+  plc_runs: 'How often the AI cited this exact article, out of the runs we sampled.<br/>'
+    + 'We ask each question several times because AI answers vary between runs, so one miss is not proof of absence.<br/>'
+    + '<em>3/5 means the article showed up as a source in 3 of the 5 runs for that AI.</em>',
+  plc_match: 'How we recognised your article in the AI\'s sources :<br/>'
+    + '• <strong>exact</strong> – same page, ignoring www, http/https, trailing slashes and tracking parameters<br/>'
+    + '• <strong>variant</strong> – mobile or AMP version of the same page<br/>'
+    + '• <strong>probable</strong> – the AI returned a shortened link that starts like yours',
+  plc_domain_signal: 'The AI cited this media, but not your article on it.<br/>'
+    + '<em>Good sign for the placement choice, and a hint that the article itself needs to rank better inside the site.</em>',
+  plc_first_cited: 'First time we saw this article appear as a source in any scan of this tracker.<br/>'
+    + '<em>Published articles usually need a few weeks before AI assistants pick them up.</em>',
 
   // ── Sprint 11 — Internal linking audit ──────────────────────────────
   link_score: 'Internal linking score (0-100).<br/>'

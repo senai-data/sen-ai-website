@@ -26,17 +26,31 @@ def audit_log(
     ip: Optional[str] = None,
     details: Optional[dict] = None,
 ):
-    """Write an audit log entry. Fire-and-forget — never raises."""
+    """Write an audit log entry. Fire-and-forget - never raises, and never
+    leaves the caller's session unusable.
+
+    The flush runs inside a SAVEPOINT on purpose. Catching the exception is
+    not enough : a failed flush puts the Session in "needs rollback" state,
+    so the CALLER then dies on its next query with PendingRollbackError,
+    far from the real cause. A nested transaction rolls back the audit row
+    alone and leaves the outer transaction intact.
+
+    Incident 2026-07-20 : the placements endpoints passed their arguments
+    positionally (shifted by one, a User object landed in `action`). The
+    row was already committed, then the 500 surfaced on the response
+    serialization - a failure that looked nothing like an audit bug.
+    """
     try:
-        entry = AuditLog(
-            user_id=user_id,
-            action=action,
-            target_type=target_type,
-            target_id=target_id,
-            ip_address=ip,
-            details=details or {},
-        )
-        db.add(entry)
-        db.flush()  # flush but don't commit — let the caller's transaction handle it
+        with db.begin_nested():  # SAVEPOINT - released on success, rolled back on error
+            entry = AuditLog(
+                user_id=user_id,
+                action=action,
+                target_type=target_type,
+                target_id=target_id,
+                ip_address=ip,
+                details=details or {},
+            )
+            db.add(entry)
+        # No commit here - the caller's transaction still owns the row.
     except Exception:
         logger.exception(f"Failed to write audit log: {action}")

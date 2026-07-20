@@ -19,6 +19,7 @@ Status workflow (mapped to Kanban columns):
     rejected                     → hidden by default (filter to show)
 """
 
+import logging
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -29,7 +30,7 @@ from sqlalchemy.orm.attributes import flag_modified
 
 from models import (
     ClientBrand, Job, MediaFeedback, Scan, ScanBrandClassification, ScanContentItem,
-    ScanLLMResult, ScanQuestion, UserClient, get_db,
+    ScanLLMResult, ScanPlacement, ScanQuestion, UserClient, get_db,
 )
 from sqlalchemy import text as sa_text
 from routers.scans import _check_scan_access
@@ -37,6 +38,52 @@ from services.audit import audit_log
 from services.auth_service import get_current_user
 
 router = APIRouter()
+
+logger = logging.getLogger(__name__)
+
+
+def _bridge_placement_from_item(db: Session, item, published_url: str) -> None:
+    """Mirror a published content item onto the lineage's placement
+    watchlist so its citations get tracked without a second manual entry.
+
+    Idempotent on (root scan, url_canonical). Caller wraps this in
+    try/except : the publish flow must never fail because of the bridge.
+    """
+    from services.url_matching import normalize_url
+
+    norm = normalize_url(published_url)
+    if norm["parse_error"] or not norm["host"]:
+        return
+
+    scan = db.query(Scan).filter(Scan.id == item.scan_id).first()
+    if not scan:
+        return
+    root_id = str(scan.parent_scan_id or scan.id)
+
+    exists = (
+        db.query(ScanPlacement.id)
+        .filter(
+            ScanPlacement.scan_id == root_id,
+            ScanPlacement.url_canonical == norm["canonical"],
+        )
+        .first()
+    )
+    if exists:
+        return
+
+    db.add(ScanPlacement(
+        scan_id=root_id,
+        url=published_url,
+        url_canonical=norm["canonical"],
+        url_path_key=norm["path_key"],
+        domain=norm["registrable_domain"],
+        title=item.title,
+        published_at=(item.published_at.date() if item.published_at else None),
+        content_item_id=item.id,
+        source="content_item",
+    ))
+    db.add(Job(scan_id=str(scan.id), job_type="match_placements",
+               payload={"full": True, "root_id": root_id}))
 
 
 # ── Handler dispatch by content_type ──────────────────────────────────
@@ -880,6 +927,16 @@ async def update_content_item(item_id: str, patch: ContentItemPatch,
             item.status = "published"
             if not item.published_at:
                 item.published_at = datetime.utcnow()
+        # Placements bridge : marking an item published also puts its URL on
+        # the lineage watchlist, so citation tracking needs no second entry.
+        # Best-effort by design - a failure here must never fail the publish.
+        if patch.published_url:
+            try:
+                _bridge_placement_from_item(db, item, patch.published_url)
+            except Exception:
+                logger.warning(
+                    "placement bridge skipped for content item %s", item.id, exc_info=True
+                )
 
     if patch.promoted_brand_ids is not None:
         # Validate : every ID must be in the client's primary_brand_ids set

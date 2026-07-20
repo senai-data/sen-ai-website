@@ -14,6 +14,7 @@ from models import (
     ScanQuestionJudgment,
     ScanBrandClassification, ScanBrandTopic, ScanOpportunity, ClientBrand,
     ScanPageAudit, ScanSchemaAudit, ScanCompetitorPage, ScanRedditThread, ScanPROutreach, ScanInternalLink, ScanYouTubeCreator, ScanCrisisSignal, ScanSentimentJudgement,
+    ScanPlacement, PlacementScanStat,
     Client,
     Job, UserClient, get_db,
 )
@@ -5981,3 +5982,364 @@ async def get_sentiment_judgements(scan_id: str, user=Depends(get_current_user),
             "total_cost_usd": round(total_cost, 6),
         },
     }
+
+
+# --- Placements : published articles tracked as cited sources -------------
+# The user publishes articles on third-party media (press, guest posts).
+# This module tracks whether those URLs come back as sources cited by the
+# LLMs, per rescan, per provider. Zero LLM, zero credit : pure URL matching
+# against scan_llm_results.citations[] (services/url_matching.py, 4 tiers).
+# Placements attach to the ROOT scan of a lineage so the watchlist survives
+# rescans. Cf. plan placements-module.md + worker/handlers/match_placements.py.
+
+MAX_PLACEMENTS_PER_LINEAGE = 200
+MAX_PLACEMENT_REFRESH_PER_DAY = 10
+
+
+class PlacementIn(BaseModel):
+    url: str
+    title: str | None = None
+    media_name: str | None = None
+    published_at: str | None = None   # ISO date
+    notes: str | None = None
+
+
+class PlacementsCreate(BaseModel):
+    items: list[PlacementIn]
+
+
+class PlacementPatch(BaseModel):
+    title: str | None = None
+    media_name: str | None = None
+    published_at: str | None = None
+    notes: str | None = None
+
+
+def _lineage_root_id(scan) -> str:
+    """Root of the scan lineage - placements live there. Mirror of the
+    idiom used by the rescan / lineage / trend endpoints."""
+    return str(scan.parent_scan_id or scan.id)
+
+
+def _parse_iso_date(raw):
+    if not raw:
+        return None
+    try:
+        return datetime.fromisoformat(str(raw)[:10]).date()
+    except (ValueError, TypeError):
+        return None
+
+
+@router.get("/{scan_id}/placements")
+async def get_placements(scan_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
+    """Placements of this scan's lineage with their per-rescan timeline.
+
+    Reporting contract : citation presence is reported as "cited in X of N
+    runs" per provider, NEVER as a boolean - N-runs sampling means a single
+    absence is not proof of absence.
+    """
+    scan = _check_scan_access(scan_id, user, db)
+    root_id = _lineage_root_id(scan)
+
+    placements = (
+        db.query(ScanPlacement)
+        .filter(ScanPlacement.scan_id == root_id)
+        .order_by(ScanPlacement.created_at.desc())
+        .all()
+    )
+    if not placements:
+        return {"scan_id": scan_id, "root_scan_id": root_id, "placements": [], "scans": []}
+
+    placement_ids = [p.id for p in placements]
+    stats = (
+        db.query(PlacementScanStat)
+        .filter(PlacementScanStat.placement_id.in_(placement_ids))
+        .order_by(PlacementScanStat.scan_created_at)
+        .all()
+    )
+
+    # Timeline axis : the rescans that have been matched at least once.
+    scan_axis = {}
+    for s in stats:
+        key = str(s.scan_id)
+        if key not in scan_axis:
+            scan_axis[key] = {"scan_id": key, "scan_created_at": s.scan_created_at.isoformat() + "Z"}
+    axis = sorted(scan_axis.values(), key=lambda item: item["scan_created_at"])
+
+    by_placement = {}
+    for s in stats:
+        by_placement.setdefault(str(s.placement_id), []).append(s)
+
+    items = []
+    for p in placements:
+        rows = by_placement.get(str(p.id), [])
+        timeline = {}
+        first_cited_at = None
+        last_cited_at = None
+        for s in rows:
+            entry = timeline.setdefault(str(s.scan_id), {
+                "scan_id": str(s.scan_id),
+                "scan_created_at": s.scan_created_at.isoformat() + "Z",
+                "providers": {},
+            })
+            entry["providers"][s.provider] = {
+                "runs_total": s.runs_total,
+                "runs_with_hit": s.runs_with_hit,
+                "domain_citation_count": s.domain_citation_count,
+                "unresolved_redirects": s.unresolved_redirects,
+                "best_position": s.best_position,
+                "matched_questions": s.matched_questions or [],
+            }
+            if s.runs_with_hit > 0:
+                stamp = s.scan_created_at.isoformat() + "Z"
+                if first_cited_at is None or stamp < first_cited_at:
+                    first_cited_at = stamp
+                if last_cited_at is None or stamp > last_cited_at:
+                    last_cited_at = stamp
+
+        ordered = sorted(timeline.values(), key=lambda item: item["scan_created_at"])
+        latest = ordered[-1] if ordered else None
+        items.append({
+            "id": str(p.id),
+            "url": p.url,
+            "url_canonical": p.url_canonical,
+            "domain": p.domain,
+            "title": p.title,
+            "media_name": p.media_name,
+            "published_at": p.published_at.isoformat() if p.published_at else None,
+            "source": p.source,
+            "notes": p.notes,
+            "content_item_id": str(p.content_item_id) if p.content_item_id else None,
+            "created_at": p.created_at.isoformat() + "Z" if p.created_at else None,
+            "timeline": ordered,
+            "latest": latest,
+            "first_cited_at": first_cited_at,
+            "last_cited_at": last_cited_at,
+            "ever_cited": first_cited_at is not None,
+        })
+
+    return {
+        "scan_id": scan_id,
+        "root_scan_id": root_id,
+        "placements": items,
+        "scans": axis,
+        "caps": {
+            "max_placements": MAX_PLACEMENTS_PER_LINEAGE,
+            "max_refresh_per_day": MAX_PLACEMENT_REFRESH_PER_DAY,
+        },
+    }
+
+
+@router.post("/{scan_id}/placements")
+async def create_placements(
+    scan_id: str,
+    payload: PlacementsCreate,
+    user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Add published article URLs to this lineage's watchlist.
+
+    Accepts a batch (the UI pastes one URL per line). URLs are normalized
+    before storage so www / trailing slash / tracking-param variants of the
+    same article collapse to one row (UNIQUE scan_id + url_canonical).
+    Enqueues a full backfill so the timeline appears immediately over the
+    whole scan history - no need to wait for the next rescan.
+    """
+    from services.url_matching import normalize_url
+
+    scan = _check_scan_access(scan_id, user, db)
+    root_id = _lineage_root_id(scan)
+
+    existing = db.query(ScanPlacement).filter(ScanPlacement.scan_id == root_id).count()
+    added, duplicates, invalid = [], [], []
+    seen_canonical = set()
+
+    for item in payload.items[: MAX_PLACEMENTS_PER_LINEAGE]:
+        raw = (item.url or "").strip()
+        if not raw:
+            continue
+        norm = normalize_url(raw)
+        if norm["parse_error"] or not norm["host"]:
+            invalid.append(raw)
+            continue
+        if norm["canonical"] in seen_canonical:
+            duplicates.append(raw)
+            continue
+        if existing + len(added) >= MAX_PLACEMENTS_PER_LINEAGE:
+            raise HTTPException(
+                400,
+                "This tracker already has the maximum number of placements. Remove some before adding more.",
+            )
+        already = (
+            db.query(ScanPlacement.id)
+            .filter(
+                ScanPlacement.scan_id == root_id,
+                ScanPlacement.url_canonical == norm["canonical"],
+            )
+            .first()
+        )
+        if already:
+            duplicates.append(raw)
+            continue
+
+        seen_canonical.add(norm["canonical"])
+        placement = ScanPlacement(
+            scan_id=root_id,
+            url=raw,
+            url_canonical=norm["canonical"],
+            url_path_key=norm["path_key"],
+            domain=norm["registrable_domain"],
+            title=(item.title or None),
+            media_name=(item.media_name or None),
+            published_at=_parse_iso_date(item.published_at),
+            notes=(item.notes or None),
+            source="manual",
+        )
+        db.add(placement)
+        added.append(placement)
+
+    if not added:
+        db.commit()
+        return {
+            "added": 0, "duplicates": len(duplicates), "invalid": invalid,
+            "root_scan_id": root_id,
+        }
+
+    db.commit()
+
+    # Backfill over the whole lineage so the user sees history immediately.
+    last_scan = (
+        db.query(Scan.id)
+        .filter((Scan.id == root_id) | (Scan.parent_scan_id == root_id))
+        .filter(Scan.status == "completed")
+        .order_by(Scan.created_at.desc())
+        .first()
+    )
+    if last_scan:
+        _create_job(db, str(last_scan[0]), "match_placements", {"full": True, "root_id": root_id})
+
+    audit_log(
+        db, action="placements.create", user_id=str(user.id),
+        target_type="scan", target_id=root_id,
+        details={"added": len(added), "duplicates": len(duplicates), "invalid": len(invalid)},
+    )
+    db.commit()  # audit_log only flushes - the row needs its own commit here
+                 # because the placements were already committed above.
+
+    return {
+        "added": len(added),
+        "duplicates": len(duplicates),
+        "invalid": invalid,
+        "root_scan_id": root_id,
+        "matching": "enqueued" if last_scan else "no_completed_scan",
+        "items": [{"id": str(p.id), "url": p.url, "domain": p.domain} for p in added],
+    }
+
+
+@router.post("/{scan_id}/placements/refresh")
+async def refresh_placements(
+    scan_id: str,
+    user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Re-run the matcher over the whole lineage. Free (no LLM), capped per
+    lineage per 24h. Rescans match placements automatically anyway."""
+    scan = _check_scan_access(scan_id, user, db)
+    root_id = _lineage_root_id(scan)
+
+    since = datetime.utcnow() - timedelta(days=1)
+    used = (
+        db.query(func.count(Job.id))
+        .filter(
+            Job.job_type == "match_placements",
+            Job.created_at >= since,
+            Job.payload["root_id"].astext == root_id,
+        )
+        .scalar()
+        or 0
+    )
+    if used >= MAX_PLACEMENT_REFRESH_PER_DAY:
+        raise HTTPException(
+            429,
+            "Refresh limit reached for today. New rescans match placements automatically.",
+        )
+
+    last_scan = (
+        db.query(Scan.id)
+        .filter((Scan.id == root_id) | (Scan.parent_scan_id == root_id))
+        .filter(Scan.status == "completed")
+        .order_by(Scan.created_at.desc())
+        .first()
+    )
+    if not last_scan:
+        raise HTTPException(400, "No completed scan in this lineage yet.")
+
+    _create_job(db, str(last_scan[0]), "match_placements", {"full": True, "root_id": root_id})
+    return {
+        "status": "enqueued",
+        "root_scan_id": root_id,
+        "attempts_used": used + 1,
+        "attempts_cap": MAX_PLACEMENT_REFRESH_PER_DAY,
+    }
+
+
+@router.patch("/{scan_id}/placements/{placement_id}")
+async def patch_placement(
+    scan_id: str,
+    placement_id: str,
+    payload: PlacementPatch,
+    user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Edit a placement's metadata. The URL itself is immutable - delete and
+    re-add instead, so hits stay consistent with the matched URL."""
+    scan = _check_scan_access(scan_id, user, db)
+    root_id = _lineage_root_id(scan)
+
+    placement = (
+        db.query(ScanPlacement)
+        .filter(ScanPlacement.id == placement_id, ScanPlacement.scan_id == root_id)
+        .first()
+    )
+    if not placement:
+        raise HTTPException(404, "Placement not found")
+
+    if payload.title is not None:
+        placement.title = payload.title or None
+    if payload.media_name is not None:
+        placement.media_name = payload.media_name or None
+    if payload.notes is not None:
+        placement.notes = payload.notes or None
+    if payload.published_at is not None:
+        placement.published_at = _parse_iso_date(payload.published_at)
+    db.commit()
+
+    return {"status": "updated", "id": str(placement.id)}
+
+
+@router.delete("/{scan_id}/placements/{placement_id}")
+async def delete_placement(
+    scan_id: str,
+    placement_id: str,
+    user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Remove a placement. Hits and stats cascade (FK ON DELETE CASCADE)."""
+    scan = _check_scan_access(scan_id, user, db)
+    root_id = _lineage_root_id(scan)
+
+    placement = (
+        db.query(ScanPlacement)
+        .filter(ScanPlacement.id == placement_id, ScanPlacement.scan_id == root_id)
+        .first()
+    )
+    if not placement:
+        raise HTTPException(404, "Placement not found")
+
+    db.delete(placement)
+    db.commit()
+    audit_log(db, action="placements.delete", user_id=str(user.id),
+              target_type="scan", target_id=root_id,
+              details={"placement_id": placement_id})
+    db.commit()  # see placements.create - audit_log flushes only
+    return {"status": "deleted", "id": placement_id}

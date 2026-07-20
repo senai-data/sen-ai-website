@@ -819,6 +819,18 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
     db.add(JobModel(scan_id=scan_id, job_type="audit_youtube_creators"))
     db.add(JobModel(scan_id=scan_id, job_type="build_crisis_radar"))
 
+    # Placements module (migration 062) : match published-article URLs against
+    # this rescan's citations. EXISTS-guarded so tenants without placements pay
+    # zero overhead, and try/except so the completion commit can never fail on
+    # it. Also in POST_SCAN_AUDIT_JOB_TYPES (failure never cascades).
+    try:
+        from models import ScanPlacement
+        _placements_root = scan.parent_scan_id or scan.id
+        if db.query(ScanPlacement.id).filter(ScanPlacement.scan_id == _placements_root).first():
+            db.add(JobModel(scan_id=scan_id, job_type="match_placements"))
+    except Exception:
+        logger.warning(f"match_placements enqueue skipped for scan {scan_id}", exc_info=True)
+
     db.commit()
 
     # Mobile P2 - scan-complete email to the scan owner, via the api (Resend

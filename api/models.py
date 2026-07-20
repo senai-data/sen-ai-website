@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import (
-    Column, String, Integer, BigInteger, Float, Numeric, Text, DateTime, ForeignKey, Enum, Boolean, UniqueConstraint, create_engine
+    Column, String, Integer, BigInteger, Float, Numeric, Text, Date, DateTime, ForeignKey, Enum, Boolean, UniqueConstraint, create_engine
 )
 from sqlalchemy.dialects.postgresql import JSONB, ARRAY
 from sqlalchemy.dialects.postgresql import UUID
@@ -1165,6 +1165,96 @@ class MediaPublishOutcome(Base):
     measured_at = Column(DateTime)
     citation_lift_t14_per_provider = Column(JSONB, nullable=False, default=dict)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class ScanPlacement(Base):
+    """Placements module (migration 062) - published third-party article URL
+    tracked per brand tracker. Attached to the ROOT scan of a lineage
+    (scan.parent_scan_id or scan.id). url_canonical/url_path_key precomputed
+    by services/url_matching.py. PARITÉ obligatoire api/models.py <-> worker/models.py.
+    """
+    __tablename__ = "scan_placements"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    scan_id = Column(UUID(as_uuid=True), ForeignKey("scans.id", ondelete="CASCADE"), nullable=False)
+    url = Column(Text, nullable=False)
+    url_canonical = Column(Text, nullable=False)
+    url_path_key = Column(Text, nullable=False)
+    domain = Column(Text, nullable=False)
+    title = Column(Text)
+    media_name = Column(Text)
+    published_at = Column(Date)
+    target_question_ids = Column(ARRAY(UUID(as_uuid=True)), nullable=False, default=list)
+    content_item_id = Column(UUID(as_uuid=True), ForeignKey("scan_content_items.id", ondelete="SET NULL"))
+    source = Column(Text, nullable=False, default="manual")  # manual | import | content_item
+    http_status = Column(Integer)
+    http_checked_at = Column(DateTime)
+    notes = Column(Text)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (UniqueConstraint("scan_id", "url_canonical", name="scan_placements_scan_id_url_canonical_key"),)
+
+
+class PlacementHit(Base):
+    """Placements module (migration 062) - one exact/variant/prefix citation
+    match. Domain-tier matches are aggregated in placement_scan_stats, never
+    stored here. PARITÉ obligatoire api/models.py <-> worker/models.py.
+    """
+    __tablename__ = "placement_hits"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    placement_id = Column(UUID(as_uuid=True), ForeignKey("scan_placements.id", ondelete="CASCADE"), nullable=False)
+    slr_id = Column(UUID(as_uuid=True), ForeignKey("scan_llm_results.id", ondelete="CASCADE"), nullable=False)
+    scan_id = Column(UUID(as_uuid=True), ForeignKey("scans.id", ondelete="CASCADE"), nullable=False)
+    question_id = Column(UUID(as_uuid=True))
+    provider = Column(String(30), nullable=False)
+    run_index = Column(Integer, nullable=False)
+    match_level = Column(Text, nullable=False)  # exact | variant | prefix
+    matched_url = Column(Text, nullable=False)
+    resolved_from_redirect = Column(Boolean, nullable=False, default=False)
+    citation_position = Column(Integer)
+    result_created_at = Column(DateTime, nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (UniqueConstraint("placement_id", "slr_id", name="placement_hits_placement_id_slr_id_key"),)
+
+
+class PlacementScanStat(Base):
+    """Placements module (migration 062) - per (placement, rescan, provider)
+    aggregate the timeline UI reads ("cited in X of N runs"). Rebuilt
+    idempotently per rescan. PARITÉ obligatoire api/models.py <-> worker/models.py.
+    """
+    __tablename__ = "placement_scan_stats"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    placement_id = Column(UUID(as_uuid=True), ForeignKey("scan_placements.id", ondelete="CASCADE"), nullable=False)
+    scan_id = Column(UUID(as_uuid=True), ForeignKey("scans.id", ondelete="CASCADE"), nullable=False)
+    provider = Column(String(30), nullable=False)
+    runs_total = Column(Integer, nullable=False, default=0)
+    runs_with_hit = Column(Integer, nullable=False, default=0)
+    domain_citation_count = Column(Integer, nullable=False, default=0)
+    unresolved_redirects = Column(Integer, nullable=False, default=0)
+    best_position = Column(Integer)
+    matched_questions = Column(JSONB, nullable=False, default=list)
+    scan_created_at = Column(DateTime, nullable=False)
+    computed_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (UniqueConstraint("placement_id", "scan_id", "provider", name="placement_scan_stats_placement_scan_provider_key"),)
+
+
+class UrlRedirectCache(Base):
+    """Placements module (migration 062) - cross-tenant cache of LLM grounding
+    redirect resolutions (Location header only, single hop, host allowlist).
+    PARITÉ obligatoire api/models.py <-> worker/models.py.
+    """
+    __tablename__ = "url_redirect_cache"
+
+    url_hash = Column(Text, primary_key=True)
+    source_url = Column(Text, nullable=False)
+    resolved_url = Column(Text)
+    status = Column(Text, nullable=False, default="failed")  # resolved | failed
+    attempts = Column(Integer, nullable=False, default=0)
+    last_attempt_at = Column(DateTime)
 
 
 engine = create_engine(settings.database_url)

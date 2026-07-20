@@ -2,7 +2,8 @@
 "GEO: Generative Engine Optimization" (KDD '24, https://arxiv.org/abs/2311.09735).
 
 The paper identifies seven content patterns that lift the chance of a page
-being cited by an LLM. Top three lifts (~30-40 %) :
+being cited by an LLM. The three that help most often (the paper is explicit
+that the size of the effect varies by domain, so no headline figure here) :
   - Cite Sources : authoritative external links inside the body.
   - Quotation Addition : direct expert / clinical quotes.
   - Statistics Addition : numerical claims (percentages, counts, ratios).
@@ -289,7 +290,8 @@ def _issues(signals: dict, scores: dict) -> list[dict]:
             "high" if scores["statistics_addition"] < 20 else "medium",
             f"Only {signals['statistics_count']} numerical claim(s) found. "
             "Add 3-5 statistics (percentages, patient counts, time-to-effect) - "
-            "the Princeton GEO paper shows this lifts LLM citation by 30-40 %.",
+            "one of the patterns the Princeton GEO paper finds most effective, "
+            "though the size of the effect varies by domain.",
         )
     if scores["cite_sources"] < 40:
         add(

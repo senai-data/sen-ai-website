@@ -153,7 +153,7 @@ const MAX_BATCH = 50;
                 <p class="text-[10px] uppercase tracking-wide text-charcoal-light font-semibold mb-2">Skipped (duplicates)</p>
                 <ul class="space-y-1">
                   <template x-for="(s, i) in result.skipped" :key="i">
-                    <li class="text-xs text-charcoal-light"><span class="font-medium" x-text="s.input"></span> &mdash; already in this org as <span x-text="s.name"></span></li>
+                    <li class="text-xs text-charcoal-light"><span class="font-medium" x-text="s.input"></span> - already in this org as <span x-text="s.name"></span></li>
                   </template>
                 </ul>
               </div>
@@ -164,7 +164,7 @@ const MAX_BATCH = 50;
                 <p class="text-[10px] uppercase tracking-wide text-charcoal-light font-semibold mb-2">Errors</p>
                 <ul class="space-y-1">
                   <template x-for="(e, i) in result.errors" :key="i">
-                    <li class="text-xs text-red-600"><span class="font-medium" x-text="e.input"></span> &mdash; <span x-text="e.message"></span></li>
+                    <li class="text-xs text-red-600"><span class="font-medium" x-text="e.input"></span> - <span x-text="e.message"></span></li>
                   </template>
                 </ul>
               </div>

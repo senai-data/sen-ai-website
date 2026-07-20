@@ -114,7 +114,7 @@ const runsDisplay = runsDepth.configured || runsDepth.observed_max || 1;
 
         {/* Document header */}
         <header class="border-b border-gray-200 pb-6 mb-8">
-          <p class="text-[10px] uppercase tracking-widest text-charcoal-light mb-1">EU AI Act &mdash; Transparency &amp; audit report</p>
+          <p class="text-[10px] uppercase tracking-widest text-charcoal-light mb-1">EU AI Act - Transparency &amp; audit report</p>
           <h1 class="text-2xl font-bold text-charcoal-dark mb-1">{scan.name || scan.domain || 'Scan compliance report'}</h1>
           <p class="text-[12px] text-charcoal-light">
             Workspace : <strong>{client.name || '-'}</strong> &middot;
@@ -158,7 +158,7 @@ const runsDisplay = runsDepth.configured || runsDepth.observed_max || 1;
           <h2 class="section-title">3. AI systems used (general-purpose AI providers)</h2>
           <p class="section-prose">
             The following third-party general-purpose AI models were queried during this scan.
-            sen-ai.fr does not train any of these models &mdash; we send prompts and receive responses,
+            sen-ai.fr does not train any of these models - we send prompts and receive responses,
             then process the responses to extract brand mentions and citation URLs.
           </p>
           <table class="data-table">
@@ -349,7 +349,7 @@ const runsDisplay = runsDepth.configured || runsDepth.observed_max || 1;
           </p>
           <ul class="bullets">
             <li>The only identified individual associated with the scan is the user who triggered it (see §2). Their identity is not transmitted to AI providers.</li>
-            <li>AI-provider prompts contain brand / domain / topic data only &mdash; no personal data of end users.</li>
+            <li>AI-provider prompts contain brand / domain / topic data only - no personal data of end users.</li>
             <li>Responses are stored at rest in sen-ai.fr&apos;s database (Hetzner cloud, Helsinki, Finland / EU) for the duration of the workspace subscription.</li>
             <li>Data subjects may exercise GDPR rights (access, rectification, erasure, portability) by emailing <a href="mailto:contact@sen-ai.fr">contact@sen-ai.fr</a>. See <a href="/en/privacy" target="_blank">Privacy Policy</a>.</li>
           </ul>
@@ -366,7 +366,7 @@ const runsDisplay = runsDepth.configured || runsDepth.observed_max || 1;
           </p>
           <ul class="bullets">
             <li>sen-ai.fr is not a <em>provider</em> of a general-purpose AI model. It is a downstream <em>deployer</em> of third-party AI systems for the purpose of brand visibility analytics.</li>
-            <li>The risk classification is <strong>limited risk</strong> (Title IV) &mdash; transparency obligations apply ; no conformity assessment or CE marking is required.</li>
+            <li>The risk classification is <strong>limited risk</strong> (Title IV) - transparency obligations apply ; no conformity assessment or CE marking is required.</li>
             <li>This report satisfies the transparency disclosure obligation by documenting the AI systems used, the data sources cited, and the methodology behind the metrics surfaced in the platform.</li>
             <li>sen-ai.fr does not engage in <em>prohibited practices</em> under Article 5 (social scoring, real-time biometric ID, exploitative manipulation, etc.).</li>
           </ul>

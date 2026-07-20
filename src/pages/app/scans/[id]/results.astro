@@ -86,7 +86,6 @@ try {
 const o = data?.overview;
 const competitors = data?.competitors || [];
 const details = data?.details || [];
-const oppsSummary = opportunitiesData?.summary || {};
 const oppsItems = opportunitiesData?.opportunities || [];
 const isAggregated = data?.mode === 'aggregated';
 
@@ -515,8 +514,21 @@ if (refundInfo) {
 }
 
 // ─── Secondary section : Top Opportunities (kept) ───
-const criticalCount = oppsSummary.critique || 0;
-const highCount = oppsSummary.haute || 0;
+// Opportunities are written one row per (question, provider) : count DISTINCT
+// questions so this page and the Actions tab use the same unit (you write the
+// FAQ once). Without this the Overview promised "406 opportunities" and Actions
+// showed 228 - same data, two counting methods.
+const oppQuestionKeys = new Set(
+  oppsItems.map((o: any) => (o.question || o.id || '').trim().toLowerCase()).filter(Boolean),
+);
+const oppQuestionCount = oppQuestionKeys.size || oppsItems.length;
+const actionableKeys = new Set(
+  oppsItems
+    .filter((o: any) => o.priority === 'critique' || o.priority === 'haute')
+    .map((o: any) => (o.question || o.id || '').trim().toLowerCase())
+    .filter(Boolean),
+);
+const actionableCount = actionableKeys.size;
 const topActions = oppsItems.slice(0, 3);
 
 // Sparkline rendering is shared with dashboard + agency overview
@@ -1050,7 +1062,7 @@ const mentionTone: 'up' | 'down' | 'flat' = delta == null ? 'flat' : delta > 0 ?
         <div style="margin-top:24px">
           <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:14px">
             <h2 style="font-size:16px;font-weight:680;letter-spacing:-.015em">Top opportunities</h2>
-            <a class="panel__act" href={`/app/scans/${scanId}/actions`}>View all {oppsItems.length} opportunit{oppsItems.length === 1 ? 'y' : 'ies'}</a>
+            <a class="panel__act" href={`/app/scans/${scanId}/actions`}>View all {oppQuestionCount} question{oppQuestionCount === 1 ? '' : 's'}</a>
           </div>
           <div style="display:flex;flex-direction:column;gap:10px">
             {topActions.map((opp: any) => {
@@ -1077,11 +1089,11 @@ const mentionTone: 'up' | 'down' | 'flat' = delta == null ? 'flat' : delta > 0 ?
               );
             })}
           </div>
-          {(criticalCount > 0 || highCount > 0) && (
+          {actionableCount > 0 && (
             <div style="background:var(--color-primary-subtle);border-radius:var(--radius-lg);padding:16px 20px;display:flex;align-items:center;justify-content:space-between;margin-top:14px">
               <div>
                 <p style="font-size:14px;font-weight:650;color:var(--color-text-primary)">
-                  {criticalCount + highCount} content gap{criticalCount + highCount === 1 ? '' : 's'} identified by this scan
+                  {actionableCount} content gap{actionableCount === 1 ? '' : 's'} identified by this scan
                 </p>
                 <p style="font-size:12.5px;color:var(--color-text-secondary);margin-top:2px">Generate FAQs and articles so the AIs cite your brand where competitors are cited today.</p>
               </div>

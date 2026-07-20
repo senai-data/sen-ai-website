@@ -14,7 +14,7 @@ import { resolveActScan } from '../../../../lib/act-scan';
 
 const token = Astro.cookies.get('token')?.value;
 if (!token) return Astro.redirect('/login');
-const { id: scanId } = Astro.params;
+const scanId = Astro.params.id as string;
 
 // Act-scope (P1) : this leaf documents the present - resolve the latest
 // completed scan of the lineage unless a specific ?run= was deep-linked.
@@ -34,7 +34,6 @@ try {
   if (resR.ok) resultsData = await resR.json();
 } catch (_) {}
 
-const oppsSummary = opportunitiesData?.summary || {};
 const oppsItems = opportunitiesData?.opportunities || [];
 // P4 streak : per-item status ('new' | 'persisting' | null on legacy rows,
 // chips hidden) + resolved[] = previous-scan gaps closed in this scan.
@@ -85,6 +84,9 @@ oppsItems.forEach((op: any) => {
   }
   const providers = prev.providers.slice();
   if (op.provider && !providers.includes(op.provider)) providers.push(op.provider);
+  // Stable label : without this the chip reads "OpenAI + Gemini" or
+  // "Gemini + OpenAI" depending on which row happened to come first.
+  providers.sort();
   // Strongest row wins as canonical ; the merged AI list always survives.
   const winner = (op.opportunity_score || 0) > (prev.opportunity_score || 0) ? op : prev;
   oppByQuestion.set(key, { ...winner, providers });
@@ -93,7 +95,7 @@ const dedupedOpps = [...oppByQuestion.values()];
 const mergedCount = rawOppCount - dedupedOpps.length;
 
 // Counts recomputed on the deduped list so the donut, the list and the
-// footer never disagree (oppsSummary counts raw rows).
+// footer never disagree (the API summary counts raw rows).
 const criticalCount = dedupedOpps.filter((o: any) => o.priority === 'critique').length;
 const highCount = dedupedOpps.filter((o: any) => o.priority === 'haute').length;
 const mediumCount = dedupedOpps.filter((o: any) => o.priority === 'moyenne').length;

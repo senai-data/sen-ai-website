@@ -118,9 +118,9 @@ const radarDataPerPersona = sorted.map((p: any) => {
                   <p class="text-[10px] text-charcoal-light">{vis?.cited || 0}/{vis?.total_questions || 0} mentioned</p>
                 </div>
                 {topComp && (
-                  <div class="shrink-0 text-right pl-3 border-l border-gray-100">
-                    <p class="text-[10px] text-charcoal-light uppercase">Top competitor</p>
-                    <p class="text-xs font-medium text-orange-600 truncate max-w-[120px]">{topComp.name}</p>
+                  <div class="shrink-0 text-right pl-3 border-l border-gray-100" title="The domain the AIs cite most often on this persona's questions. Sources are not competitor brands - health authorities and media appear here too.">
+                    <p class="text-[10px] text-charcoal-light uppercase">Top source cited</p>
+                    <p class="text-xs font-medium text-charcoal-dark truncate max-w-[120px]">{topComp.name.replace(/^www\./, '')}</p>
                   </div>
                 )}
                 <svg class="w-5 h-5 text-gray-400 shrink-0 transition-transform" :class={`expanded === ${pi} ? 'rotate-180' : ''`}
@@ -250,14 +250,16 @@ const radarDataPerPersona = sorted.map((p: any) => {
                 </div>
               )}
 
-              {/* Competitors */}
+              {/* Cited sources. p.competitors carries DOMAINS (every non-target
+                  domain the AIs cited - ameli.fr and pubmed land here), not
+                  classified competitor brands : label them as sources. */}
               {p.competitors?.length > 0 && (
                 <div class="px-6 py-4 border-t border-gray-100">
-                  <h4 class="text-[10px] uppercase tracking-wide text-charcoal-light font-semibold mb-2">Who Beats You</h4>
+                  <h4 class="text-[10px] uppercase tracking-wide text-charcoal-light font-semibold mb-2" title="The domains the AIs cite on this persona's questions. Outreach targets, not necessarily competitor brands.">Sources the AIs trust here</h4>
                   <div class="flex flex-wrap gap-2">
                     {p.competitors.map((c: any, ci: number) => (
-                      <span class={`text-xs px-2.5 py-1 rounded-full border ${ci === 0 ? 'bg-orange-50 border-orange-200 text-orange-700 font-medium' : 'bg-gray-50 border-gray-200 text-charcoal-dark'}`}>
-                        {c.name} ({c.mentions})
+                      <span class={`text-xs px-2.5 py-1 rounded-full border ${ci === 0 ? 'bg-gray-100 border-gray-300 text-charcoal-dark font-medium' : 'bg-gray-50 border-gray-200 text-charcoal-dark'}`}>
+                        {c.name.replace(/^www\./, '')} ({c.mentions})
                       </span>
                     ))}
                   </div>
@@ -279,7 +281,7 @@ const radarDataPerPersona = sorted.map((p: any) => {
                           <p class="text-xs text-charcoal-dark">{q.question}</p>
                           {q.intention_cachee && <p class="text-[10px] text-charcoal-light italic mt-0.5">Intent: {q.intention_cachee}</p>}
                           {!q.cited && q.competitors_cited?.length > 0 && (
-                            <p class="text-[10px] text-orange-600 mt-0.5">{q.competitors_cited.join(', ')} cited instead</p>
+                            <p class="text-[10px] text-charcoal-light mt-0.5">Sources cited instead: {q.competitors_cited.map((d: string) => d.replace(/^www\./, '')).join(', ')}</p>
                           )}
                         </div>
                         <span class={`text-[10px] shrink-0 mt-0.5 px-1.5 py-0.5 rounded ${

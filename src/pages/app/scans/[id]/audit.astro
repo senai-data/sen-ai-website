@@ -43,6 +43,20 @@ const pages: any[] = data?.pages || [];
 const summary = data?.summary || {};
 const lastFetched = data?.last_fetched;
 
+// "Show all" (docstring L15) was declared as an Alpine `viewAll` flag but
+// never wired to anything, while the list was hard-sliced to 30 - rows 31+
+// were unreachable despite the copy promising otherwise. Server-side param
+// instead of rendering everything up-front : these cards are heavy (per-page
+// issue lists) and every tab already pays for a big payload.
+const showAllPages = Astro.url.searchParams.get('all') === '1';
+const visiblePages = showAllPages ? pages : pages.slice(0, 30);
+const _moreParams = new URLSearchParams(Astro.url.searchParams);
+_moreParams.set('all', '1');
+const showAllHref = `?${_moreParams.toString()}`;
+const _lessParams = new URLSearchParams(Astro.url.searchParams);
+_lessParams.delete('all');
+const showLessHref = _lessParams.toString() ? `?${_lessParams.toString()}` : Astro.url.pathname;
+
 function timeAgo(iso?: string): string {
   if (!iso) return 'never';
   const t = new Date(iso).getTime();
@@ -95,7 +109,7 @@ const topIssues = Object.entries(summary.issues_by_pattern || {})
 
 <ScanResultsLayout scanId={urlScanId} activeTab="audit">
   <ActScanNotice resolved={act.resolved} completedAt={act.completedAt} />
-  <div x-data="{ expanded: null, refreshing: false, viewAll: false }">
+  <div x-data="{ expanded: null, refreshing: false }">
 
     <p class="text-sm text-charcoal-light mb-6">
       Page-by-page audit of the URLs the LLMs already cite for your site.
@@ -179,7 +193,7 @@ const topIssues = Object.entries(summary.issues_by_pattern || {})
           <span class="text-[11px] text-charcoal-light">{summary.audited} audited</span>
         </div>
 
-        {pages.slice(0, 30).map((p, pi) => {
+        {visiblePages.map((p, pi) => {
           const sc = scoreClasses(p.geo_score);
           const cardKey = `p${pi}`;
           let pathOnly = p.url;
@@ -298,9 +312,17 @@ const topIssues = Object.entries(summary.issues_by_pattern || {})
           );
         })}
         {pages.length > 30 && (
-          <p class="text-xs text-charcoal-light text-center py-3">
-            +{pages.length - 30} more pages audited. Worst scores shown first - keep clicking through if you want the rest.
-          </p>
+          <div class="text-center py-3">
+            {showAllPages ? (
+              <a href={showLessHref} class="inline-block text-xs font-semibold text-charcoal-light border border-gray-200 rounded-lg px-4 py-2 hover:border-coral transition-colors">
+                Showing all {pages.length} pages - show the 30 worst only
+              </a>
+            ) : (
+              <a href={showAllHref} class="inline-block text-xs font-semibold text-charcoal-dark border border-gray-200 rounded-lg px-4 py-2 hover:border-coral transition-colors">
+                Show all {pages.length} pages (+{pages.length - 30} more, worst scores first)
+              </a>
+            )}
+          </div>
         )}
       </div>
     )}

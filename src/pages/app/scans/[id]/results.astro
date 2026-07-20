@@ -183,9 +183,16 @@ const isTargetMention = (bm: any) => !!(bm?.est_marque_cible || bm?.is_target_br
 const answersTotal = currentRows.length;
 let funMentioned = 0, funRecommended = 0, funFirst = 0;
 currentRows.forEach(r => {
-  if (r.mentioned) funMentioned++;
-  if (r.analysis?.recommandation_marque_cible) funRecommended++;
-  if (r.mentions.some((bm: any) => isTargetMention(bm) && bm.type_recommandation === 'premiere_option')) funFirst++;
+  // Monotonic by construction (first ⊆ recommended ⊆ mentioned) : the raw
+  // brand_analysis.recommandation_marque_cible flag only reflects the FIRST
+  // target mention, which can undercount below the premiere_option total -
+  // derive all three stages from the same mentions[] source instead.
+  const targetBms = r.mentions.filter((bm: any) => isTargetMention(bm));
+  const first = targetBms.some((bm: any) => bm.type_recommandation === 'premiere_option');
+  const reco = first || targetBms.some((bm: any) => bm.est_recommandation || bm.type_recommandation === 'alternative') || !!r.analysis?.recommandation_marque_cible;
+  if (r.mentioned || targetBms.length > 0) funMentioned++;
+  if (reco) funRecommended++;
+  if (first) funFirst++;
 });
 const funnelRows = [
   { label: 'Mentioned', n: funMentioned, title: 'Answers naming your brand at all.' },
@@ -264,7 +271,9 @@ const competitorMentions = competitors.reduce((s: number, c: any) => s + (c.ment
 const totalVoice = myMentions + competitorMentions;
 const sovPct = totalVoice > 0 ? Math.round((myMentions / totalVoice) * 100) : 0;
 
-// ─── Panel A : Citation rate by AI (group by provider, mention rate) ───
+// ─── Panel A : Mention rate by AI (group by provider ; computed on
+// brand_mentioned - the old "Citation rate" title lied, citations are the
+// cited SOURCES counted on the Citations tab) ───
 const providerMap: Record<string, { cited: number; total: number }> = {};
 details.forEach((d: any) => {
   const prov = (isAggregated ? d.latest?.provider : d.provider) || d.provider;
@@ -339,13 +348,18 @@ currentRows.forEach(r => {
     g.comps.set(key, cur);
   });
 });
+// brand_name_groupby is lowercased upstream - restore display casing when
+// no properly-cased variant was seen ("la roche-posay" → "La Roche-Posay").
+const displayBrand = (name: string) => name === name.toLowerCase()
+  ? name.replace(/(^|[\s-])\p{L}/gu, (c: string) => c.toUpperCase())
+  : name;
 const gapRows: GapRow[] = [...gapAgg.values()]
   .filter((g: any) => !g.mentioned && g.comps.size > 0)
   .map((g: any) => {
     const sorted = [...g.comps.values()].sort((a: any, b: any) => b.n - a.n);
     return {
       question: g.question, persona: g.persona, topic: g.topic,
-      topComp: sorted[0].name, othersCount: sorted.length - 1,
+      topComp: displayBrand(sorted[0].name), othersCount: sorted.length - 1,
       compMentions: sorted.reduce((s: number, c: any) => s + c.n, 0),
     };
   })
@@ -724,10 +738,10 @@ const mentionTone: 'up' | 'down' | 'flat' = delta == null ? 'flat' : delta > 0 ?
       {/* ─── MAIN 5-PANEL GRID ─── */}
       <div class="grid-12">
 
-        {/* Panel A : Citation rate by AI */}
+        {/* Panel A : Mention rate by AI */}
         <div class="panel col-5">
           <div class="panel__head">
-            <div class="panel__title">Citation rate by AI</div>
+            <div class="panel__title" style="cursor:help" title="Share of each AI's answers that name your brand. Citations (the sources an AI links to) live on the Citations tab.">Mention rate by AI</div>
             <a class="panel__act" href={`/app/scans/${scanId}/questions`}>Details</a>
           </div>
           <div class="panel__body">

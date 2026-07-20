@@ -167,26 +167,37 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
         brand_sentiment = brand_analysis.get("sentiment_marque_cible")
         brand_recommended = brand_analysis.get("recommandation_marque_cible", False)
 
-        # Competitor analysis - union across runs (a competitor seen in any
-        # run is a competitor ; at N=1 this is the single row's dict).
+        # Source-domain pressure - union across runs. competitor_domains holds
+        # EVERY cited non-target domain (ameli.fr and pubmed land here), so it
+        # measures "sources answer this question", NOT competitor brands.
         competitor_domains: dict = {}
         for r in runs:
             for dom, cnt in (r.competitor_domains or {}).items():
                 competitor_domains[dom] = competitor_domains.get(dom, 0) + (cnt or 0)
-        nb_competitors = len(competitor_domains)
+        nb_source_domains = len(competitor_domains)
+
+        # Competitor BRAND pressure - distinct non-target brand mentions from
+        # the analysis row (consensus mentions at N>1, run-row at N=1). This
+        # is what "competitors cited" means to a marketer ; the legacy scorer
+        # counted the domains above and saturated every score at 100.
+        competitor_brand_names: set = set()
         best_competitor = None
         best_competitor_pos = None
         best_competitor_domain = None
-
-        # Find best competitor from the analysis row's brand_mentions
-        # (consensus mentions at N>1, run-row mentions at N=1).
         for mention in (analysis_row.brand_mentions or []):
-            if not mention.get("est_marque_cible") and mention.get("position_index"):
+            if mention.get("est_marque_cible") or mention.get("contexte_valide") is False:
+                continue
+            name = mention.get("brand_name_groupby") or mention.get("brand_name")
+            if not name:
+                continue
+            competitor_brand_names.add(name.strip().lower())
+            if mention.get("position_index"):
                 if best_competitor_pos is None or mention["position_index"] < best_competitor_pos:
-                    best_competitor = mention.get("brand_name_groupby") or mention.get("brand_name")
+                    best_competitor = name
                     best_competitor_pos = mention["position_index"]
+        nb_competitor_brands = len(competitor_brand_names)
 
-        # If no brand mentions, use competitor domains
+        # If no brand mentions, fall back to the top cited domain
         if not best_competitor and competitor_domains:
             top_domain = max(competitor_domains, key=competitor_domains.get)
             best_competitor = top_domain
@@ -196,27 +207,35 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
         priority, score = _compute_priority(
             brand_cited=brand_cited,
             brand_position=brand_position,
-            nb_competitors=nb_competitors,
+            nb_competitor_brands=nb_competitor_brands,
+            nb_source_domains=nb_source_domains,
             best_competitor_pos=best_competitor_pos,
+            mention_rate=mention_rate,
+            intent_category=q.intent_category,
         )
 
         if priority:
-            # Phase B Tier A — drop critique opportunities on safety /
+            # Phase B Tier A — drop absent-brand opportunities on safety /
             # side-effects / contre-indication / SAV intents. Brand
             # placement reads awkward there and the generator would
-            # LOW_QUALITY_SKIP downstream anyway. Other priorities
-            # (haute / moyenne) still flow through — they aren't
-            # netlinking-prone and the recommended_action is either
-            # content_update (existing brand page tweak) or None.
-            if priority == "critique" and is_safety_intent(q.intent_category):
+            # LOW_QUALITY_SKIP downstream anyway. Guard on brand_cited,
+            # not priority : the 2026-07-18 rescore moved domain-only gaps
+            # from critique to haute, and those must stay covered (they
+            # were dropped when they were critique). Cited-behind-
+            # competitor haute keeps flowing — content_update tweaks an
+            # existing brand page, no forced placement involved.
+            if not brand_cited and is_safety_intent(q.intent_category):
                 logger.info(
-                    f"Skipped critique opportunity for question {q.id} "
+                    f"Skipped {priority} opportunity for question {q.id} "
                     f"(intent={q.intent_category})"
                 )
                 continue
-            # Determine recommended action
-            if priority == "critique":
-                action = "faq" if not best_competitor_domain else "netlinking"
+            # Determine recommended action by case, not by priority label :
+            # absent rows keep the legacy faq/netlinking split (netlinking
+            # when a cited domain gives a placement target), cited-behind
+            # rows tweak the existing page.
+            if not brand_cited:
+                action = "netlinking" if best_competitor_domain else "faq"
             elif priority == "haute":
                 action = "content_update"
             else:
@@ -242,7 +261,9 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
                 best_competitor_name=best_competitor,
                 best_competitor_position=best_competitor_pos,
                 best_competitor_domain=best_competitor_domain,
-                nb_competitors_cited=nb_competitors,
+                # Competitor BRANDS, not cited domains - the UI renders this
+                # as "N competitors cited" and domains made that a lie.
+                nb_competitors_cited=nb_competitor_brands,
                 priority=priority,
                 opportunity_score=score,
                 recommended_action=action,
@@ -274,24 +295,58 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
     return {"total": total, **counts}
 
 
-def _compute_priority(brand_cited, brand_position, nb_competitors, best_competitor_pos):
+def _compute_priority(
+    brand_cited,
+    brand_position,
+    nb_competitor_brands,
+    nb_source_domains,
+    best_competitor_pos,
+    mention_rate,
+    intent_category,
+):
     """Score an opportunity based on brand vs competitor positioning.
 
-    Adapted from seo-llm/src/faq_opportunity.py _compute_faq_priority_and_score().
+    Recalibrated 2026-07-18. The legacy formula (80 + min(domains*5, 20))
+    saturated at critique/100 on nearly every absent question because every
+    cited SOURCE domain counted as a competitor - 382 identical rows ranked
+    nothing. Changes :
+      - critique = a NOMINAL steal only (absent + at least one competitor
+        BRAND named instead). Scored 45-100 on brand pressure, leader
+        strength, persistence across runs, and intent fit (C.3 downweight
+        for informational_neutral - brand fit unproven there).
+      - absent with only source domains answering = haute (a content gap
+        to fill, not a crisis) scored 40-55.
+      - cited-behind-competitor haute and the moyenne cases are unchanged
+        except the haute band (40-65) no longer overlaps critique.
     """
-    if not brand_cited and nb_competitors > 0:
-        # CRITIQUE: absent but competitors present
-        return "critique", 80 + min(nb_competitors * 5, 20)
+    if not brand_cited and nb_competitor_brands > 0:
+        score = 55
+        score += min(nb_competitor_brands * 4, 16)
+        if best_competitor_pos == 1:
+            score += 8
+        # mention_rate is this (question, provider)'s rate across the N runs :
+        # 0.0 = absent on every sample = the most persistent gap.
+        score += round((1 - (mention_rate or 0)) * 12)
+        if intent_category == "promotional_fit":
+            score += 9
+        elif intent_category == "informational_neutral":
+            score -= 10
+        return "critique", max(45, min(score, 100))
 
-    if not brand_cited and nb_competitors == 0:
-        # MOYENNE: nobody cited, opportunity to take the space
+    if not brand_cited and nb_source_domains > 0:
+        # HAUTE: nobody names a brand but sources answer the question -
+        # citable content wins this space.
+        return "haute", 40 + min(nb_source_domains * 2, 15)
+
+    if not brand_cited:
+        # MOYENNE: nobody cited at all, open space
         return "moyenne", 30
 
     if brand_cited and best_competitor_pos and brand_position:
         if best_competitor_pos < brand_position:
             # HAUTE: cited but behind competitor
             gap = brand_position - best_competitor_pos
-            return "haute", 50 + min(gap * 10, 30)
+            return "haute", 40 + min(gap * 8, 25)
 
     if brand_cited and brand_position and brand_position <= 2:
         # Well positioned, not an opportunity

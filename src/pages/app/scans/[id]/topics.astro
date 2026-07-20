@@ -82,6 +82,12 @@ function rc(rate: number) {
   return { text: 'text-red-500', badge: 'bg-red-50 text-red-600', label: 'Absent' };
 }
 
+// brand_name_groupby is lowercased upstream - restore display casing when no
+// properly-cased variant exists ("la roche-posay" → "La Roche-Posay").
+const displayBrand = (name: string) => name === name.toLowerCase()
+  ? name.replace(/(^|[\s-])\p{L}/gu, (c: string) => c.toUpperCase())
+  : name;
+
 // Group by topic with personas and questions
 const topicMap: Record<string, any> = {};
 details.forEach((d: any) => {
@@ -207,11 +213,18 @@ const topicNotMentioned = topics.map(t => t.total - t.cited);
                               <div class="flex-1 min-w-0">
                                 <p class="text-xs text-charcoal-dark">{q.question}</p>
                                 {q.intention_cachee && <p class="text-[10px] text-charcoal-light italic mt-0.5">{q.intention_cachee}</p>}
-                                {!qd.brand_mentioned && qd.brand_mentions?.filter((bm: any) => !bm.est_marque_cible).length > 0 && (
+                                {/* Sources ≠ competitors : orange only for CLASSIFIED competitor
+                                    brands ; other non-target mentions (media, institutions,
+                                    domain entities) stay neutral. */}
+                                {!qd.brand_mentioned && qd.brand_mentions?.some((bm: any) => bm.classification === 'competitor') ? (
                                   <p class="text-[10px] text-orange-600 mt-0.5">
-                                    {qd.brand_mentions.filter((bm: any) => !bm.est_marque_cible).map((bm: any) => bm.brand_name).slice(0, 3).join(', ')} cited instead
+                                    {qd.brand_mentions.filter((bm: any) => bm.classification === 'competitor').map((bm: any) => displayBrand(bm.brand_name_groupby || bm.brand_name)).slice(0, 3).join(', ')} cited instead
                                   </p>
-                                )}
+                                ) : !qd.brand_mentioned && qd.brand_mentions?.filter((bm: any) => !bm.est_marque_cible).length > 0 ? (
+                                  <p class="text-[10px] text-charcoal-light mt-0.5">
+                                    In the answer instead: {qd.brand_mentions.filter((bm: any) => !bm.est_marque_cible).map((bm: any) => displayBrand(bm.brand_name_groupby || bm.brand_name)).slice(0, 3).join(', ')}
+                                  </p>
+                                ) : null}
                               </div>
                               <span class="text-[10px] text-charcoal-light shrink-0 mt-0.5">{q.type}</span>
                             </div>

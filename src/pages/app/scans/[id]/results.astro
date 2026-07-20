@@ -366,6 +366,67 @@ const gapRows: GapRow[] = [...gapAgg.values()]
   .sort((a, b) => b.compMentions - a.compMentions)
   .slice(0, 5);
 
+// ─── Battlefield map : topics x brands. A global 5% share of voice hides
+// "22% on sun care, 0% on anti-ageing" - this grid says which territories you
+// hold and which a rival holds. Rows = topics (your presence first), columns =
+// you + the top competitor BRANDS of the scan (classified only, never cited
+// domains). Cell = share of that topic's brand mentions.
+interface HeatCell { pct: number; n: number; }
+const topicAgg = new Map<string, { total: number; byBrand: Map<string, number>; answers: number; mentioned: number }>();
+const brandTotals = new Map<string, { name: string; n: number }>();
+currentRows.forEach(r => {
+  const topic = r.topic || 'Other';
+  let t = topicAgg.get(topic);
+  if (!t) { t = { total: 0, byBrand: new Map(), answers: 0, mentioned: 0 }; topicAgg.set(topic, t); }
+  t.answers++;
+  if (r.mentioned) t.mentioned++;
+  r.mentions.forEach((bm: any) => {
+    if (bm?.contexte_valide === false) return;
+    const isYou = isTargetMention(bm);
+    // Only YOU and classified competitors enter the grid - "discovered"
+    // entities and cited domains would turn the map into noise.
+    if (!isYou && bm?.classification !== 'competitor') return;
+    const raw = (bm.brand_name_groupby || bm.brand_name || '').trim();
+    if (!raw && !isYou) return;
+    const key = isYou ? '__you__' : raw.toLowerCase();
+    const n = bm.nb_mentions || 1;
+    t.byBrand.set(key, (t.byBrand.get(key) || 0) + n);
+    t.total += n;
+    const bt = brandTotals.get(key) || { name: isYou ? (o?.focus_brand || 'You') : displayBrand(raw), n: 0 };
+    bt.n += n;
+    brandTotals.set(key, bt);
+  });
+});
+const heatCompetitors = [...brandTotals.entries()]
+  .filter(([k]) => k !== '__you__')
+  .sort((a, b) => b[1].n - a[1].n)
+  .slice(0, 5);
+const heatColumns: Array<{ key: string; label: string; you: boolean }> = [
+  { key: '__you__', label: brandTotals.get('__you__')?.name || o?.focus_brand || 'You', you: true },
+  ...heatCompetitors.map(([k, v]) => ({ key: k, label: v.name, you: false })),
+];
+const heatRows = [...topicAgg.entries()]
+  .filter(([, t]) => t.total > 0)
+  .map(([topic, t]) => ({
+    topic,
+    answers: t.answers,
+    cells: heatColumns.map(c => {
+      const n = t.byBrand.get(c.key) || 0;
+      return { pct: t.total > 0 ? Math.round((n / t.total) * 100) : 0, n } as HeatCell;
+    }),
+  }))
+  // Weakest territories first : where you own the least is what to read first.
+  .sort((a, b) => a.cells[0].pct - b.cells[0].pct);
+// Colour ramp : your column reads green when you own the topic, competitor
+// columns read orange when they do. Neutral below 10% so the grid stays calm.
+function heatStyle(pct: number, you: boolean): string {
+  if (pct <= 0) return 'background:var(--color-surface-muted);color:var(--color-text-muted)';
+  const a = Math.min(0.14 + (pct / 100) * 0.72, 0.9);
+  return you
+    ? `background:rgba(16,185,129,${a.toFixed(2)});color:${pct > 45 ? '#fff' : 'var(--color-text-primary)'}`
+    : `background:rgba(249,115,22,${(a * 0.82).toFixed(2)});color:${pct > 55 ? '#fff' : 'var(--color-text-primary)'}`;
+}
+
 // ─── Panel D fallback : Top buyer questions (dedup, sorted by ascending mention rate = weakest first) ───
 interface QRow { question: string; rate: number; mention_count: number; total_runs: number; unit: string; }
 const seenQ = new Set<string>();
@@ -584,6 +645,22 @@ const mentionTone: 'up' | 'down' | 'flat' = delta == null ? 'flat' : delta > 0 ?
     /* gap rows are links */
     a.qrow { text-decoration:none; color:inherit; }
     a.qrow:hover .qrow__q { color:var(--coral-700); }
+
+    /* battlefield heatmap : topics x brands */
+    .heat { width:100%; border-collapse:separate; border-spacing:3px; }
+    .heat th { font-size:11px; font-weight:650; color:var(--color-text-secondary); text-align:center; padding:0 4px 4px; }
+    .heat th.heat__you { color:var(--coral-700); }
+    .heat th.heat__topic { text-align:left; font-weight:600; }
+    .heat td.heat__topic { font-size:12.5px; font-weight:600; color:var(--color-text-primary); white-space:nowrap; max-width:190px; overflow:hidden; text-overflow:ellipsis; padding-right:6px; }
+    .heat td.heat__cell { text-align:center; font-size:12px; font-weight:700; border-radius:var(--radius-sm); padding:7px 4px; min-width:52px; }
+    .heat tr td.heat__topic a { color:inherit; text-decoration:none; }
+    .heat tr:hover td.heat__topic a { color:var(--coral-700); }
+    .heat__wrap { overflow-x:auto; }
+
+    /* fan-out query chips */
+    .fanout { display:flex; flex-wrap:wrap; gap:7px; }
+    .fanout__q { font-size:12px; padding:5px 10px; border-radius:var(--radius-full); border:1px solid var(--color-border); color:var(--color-text-secondary); background:var(--color-surface); }
+    .fanout__q b { color:var(--color-text-primary); font-weight:700; }
 
     /* verbatim quote cards */
     .quotes { display:grid; grid-template-columns:repeat(3,1fr); gap:14px; }
@@ -891,6 +968,48 @@ const mentionTone: 'up' | 'down' | 'flat' = delta == null ? 'flat' : delta > 0 ?
           </div>
         </div>
       </div>
+
+      {/* ─── BATTLEFIELD MAP : which territories you hold, which a rival holds.
+          The single view that a global share-of-voice number cannot give. */}
+      {heatRows.length > 0 && heatColumns.length > 1 && (
+        <div class="panel" style="margin-top:16px">
+          <div class="panel__head">
+            <div class="panel__title" style="cursor:help" title="Share of brand mentions per topic, on the latest run. Only your brand and classified competitors are counted - cited sources are excluded.">
+              Who owns each topic <span style="color:var(--color-text-muted);font-weight:500;font-size:12.5px"> - your weakest territories first</span>
+            </div>
+            <a class="panel__act" href={`/app/scans/${scanId}/topics`}>All topics</a>
+          </div>
+          <div class="panel__body">
+            <div class="heat__wrap">
+              <table class="heat">
+                <thead>
+                  <tr>
+                    <th class="heat__topic">Topic</th>
+                    {heatColumns.map(c => (
+                      <th class={c.you ? 'heat__you' : ''}>{c.label}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {heatRows.map(row => (
+                    <tr>
+                      <td class="heat__topic" title={`${row.topic} - ${row.answers} answer${row.answers > 1 ? 's' : ''} on the latest run`}>
+                        <a href={`/app/scans/${scanId}/topics`}>{row.topic}</a>
+                      </td>
+                      {row.cells.map((cell, ci) => (
+                        <td class="heat__cell" style={heatStyle(cell.pct, heatColumns[ci].you)}
+                            title={`${heatColumns[ci].label} on ${row.topic} : ${cell.pct}% of brand mentions (${cell.n})`}>
+                          {cell.pct > 0 ? `${cell.pct}%` : '-'}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ─── VERBATIMS : the AI's own words about the brand. The proof layer
           that makes the KPIs believable - previously buried 2-3 clicks deep

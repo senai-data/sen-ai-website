@@ -68,25 +68,51 @@ function highlightResponse(text: string, brandMentions: any[]): string {
   }
   return html;
 }
-const criticalCount = oppsSummary.critique || 0;
-const highCount = oppsSummary.haute || 0;
-const mediumCount = oppsSummary.moyenne || 0;
+// Dedup by question (2026-07-18). generate_opportunities writes one row per
+// (question, provider), so a gap present on both AIs rendered as two visually
+// identical cards - it read as a bug and inflated the list. Merge them into
+// one actionable row (you write the FAQ once) carrying the AIs it affects,
+// keeping the strongest row as canonical. rawOppCount stays available so the
+// page can state both numbers instead of contradicting the tab badge.
+const rawOppCount = oppsItems.length;
+const oppByQuestion = new Map<string, any>();
+oppsItems.forEach((op: any) => {
+  const key = (op.question || op.id || '').trim().toLowerCase();
+  const prev = oppByQuestion.get(key);
+  if (!prev) {
+    oppByQuestion.set(key, { ...op, providers: op.provider ? [op.provider] : [] });
+    return;
+  }
+  const providers = prev.providers.slice();
+  if (op.provider && !providers.includes(op.provider)) providers.push(op.provider);
+  // Strongest row wins as canonical ; the merged AI list always survives.
+  const winner = (op.opportunity_score || 0) > (prev.opportunity_score || 0) ? op : prev;
+  oppByQuestion.set(key, { ...winner, providers });
+});
+const dedupedOpps = [...oppByQuestion.values()];
+const mergedCount = rawOppCount - dedupedOpps.length;
+
+// Counts recomputed on the deduped list so the donut, the list and the
+// footer never disagree (oppsSummary counts raw rows).
+const criticalCount = dedupedOpps.filter((o: any) => o.priority === 'critique').length;
+const highCount = dedupedOpps.filter((o: any) => o.priority === 'haute').length;
+const mediumCount = dedupedOpps.filter((o: any) => o.priority === 'moyenne').length;
 
 // Extract unique values for filters
 const topicSet = new Set<string>();
 const actionSet = new Set<string>();
-oppsItems.forEach((op: any) => {
+dedupedOpps.forEach((op: any) => {
   if (op.topic_name) topicSet.add(op.topic_name);
   if (op.recommended_action) actionSet.add(op.recommended_action);
 });
 
 // Chart data: priority donut
 const priorityCounts = [criticalCount, highCount, mediumCount];
-const totalOpps = oppsItems.length;
+const totalOpps = dedupedOpps.length;
 
 // Chart data: opportunities by topic (stacked by priority)
 const topicOppMap: Record<string, { critique: number; haute: number; moyenne: number }> = {};
-oppsItems.forEach((op: any) => {
+dedupedOpps.forEach((op: any) => {
   const t = op.topic_name || 'Other';
   if (!topicOppMap[t]) topicOppMap[t] = { critique: 0, haute: 0, moyenne: 0 };
   if (op.priority === 'critique') topicOppMap[t].critique++;
@@ -160,7 +186,7 @@ const oppTopicMoyenne = topicOppEntries.map(e => e[1].moyenne);
 
     {/* Opportunities list — each expandable to show AI response (Progressive Disclosure) */}
     <div class="space-y-2">
-      {oppsItems.map((opp: any, oi: number) => {
+      {dedupedOpps.map((opp: any, oi: number) => {
         const isCrit = opp.priority === 'critique';
         const isHigh = opp.priority === 'haute';
         const borderClass = isCrit ? 'border-l-red-500' : isHigh ? 'border-l-orange-400' : 'border-l-yellow-400';
@@ -187,6 +213,13 @@ const oppTopicMoyenne = topicOppEntries.map(e => e[1].moyenne);
                       opp.question_type === 'comparative' ? 'bg-amber-50 text-amber-600' :
                       'bg-emerald-50 text-emerald-600'
                     }`}>{opp.question_type}</span>}
+                    {/* Which AIs show this gap. Two AIs = one row now, not
+                        two identical cards. */}
+                    {(opp.providers || []).length > 0 && (
+                      <span class="text-[10px] text-charcoal-light" title={`This gap was observed on ${(opp.providers || []).join(' and ')}`}>
+                        {(opp.providers || []).map((p: string) => p === 'openai' ? 'OpenAI' : p === 'gemini' ? 'Gemini' : p).join(' + ')}
+                      </span>
+                    )}
                     {previousScanId && opp.status === 'new' && (
                       <span class="text-[10px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-600 font-medium" title="First seen in this scan">New</span>
                     )}
@@ -296,7 +329,7 @@ const oppTopicMoyenne = topicOppEntries.map(e => e[1].moyenne);
       })}
     </div>
 
-    {oppsItems.length === 0 && (
+    {dedupedOpps.length === 0 && (
       <div class="bg-white rounded-xl shadow-sm p-12 text-center text-charcoal-light">
         No opportunities found. Your brand is well positioned!
       </div>
@@ -336,11 +369,14 @@ const oppTopicMoyenne = topicOppEntries.map(e => e[1].moyenne);
     )}
 
     {/* Master CTA (Fitts: large, prominent) */}
-    {oppsItems.length > 0 && (
+    {dedupedOpps.length > 0 && (
       <div class="mt-8 bg-coral/5 rounded-xl p-6 flex items-center justify-between shadow-sm">
         <div>
-          <p class="text-sm font-semibold text-charcoal-dark">{oppsItems.length} opportunities to improve your AI visibility</p>
-          <p class="text-xs text-charcoal-light">Generate FAQ and articles to make AIs recommend your brand</p>
+          <p class="text-sm font-semibold text-charcoal-dark">{dedupedOpps.length} question{dedupedOpps.length > 1 ? 's' : ''} to fix</p>
+          <p class="text-xs text-charcoal-light">
+            Generate FAQ and articles to make AIs recommend your brand
+            {mergedCount > 0 && <span> - {rawOppCount} gaps across the AIs surveyed, merged per question</span>}
+          </p>
         </div>
         <a href="/app/content" class="px-5 py-2.5 bg-coral text-white rounded-lg text-sm font-medium hover:bg-coral-dark hover:shadow-md hover:scale-[1.02] transition-all shrink-0">
           Generate content

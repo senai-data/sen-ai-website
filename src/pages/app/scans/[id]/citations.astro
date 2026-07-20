@@ -258,6 +258,34 @@ const mixPctPos = totalCit > 0 ? Math.round(posCount / totalCit * 100) : 0;
 const mixPctNeu = totalCit > 0 ? Math.round(neuCount / totalCit * 100) : 0;
 const mixPctNeg = totalCit > 0 ? Math.max(0, 100 - mixPctPos - mixPctNeu) : 0;
 
+// ─── Fan-out queries (2026-07-18). web_search_queries holds the searches the
+// model actually ran before answering - captured on every response since
+// migration 034 and surfaced nowhere until now. Aggregated by frequency and
+// split on whether the brand ended up mentioned in the answers that query
+// contributed to : "these searches happen without you" is the GEO term list.
+interface FanRow { query: string; n: number; withBrand: number }
+const fanAgg = new Map<string, FanRow>();
+details.forEach((d: any) => {
+  const queries: string[] = d.web_search_queries || [];
+  const mentioned = !!d.brand_mentioned;
+  queries.forEach((raw: string) => {
+    const q = (raw || '').trim();
+    if (!q) return;
+    const key = q.toLowerCase();
+    const row = fanAgg.get(key) || { query: q, n: 0, withBrand: 0 };
+    row.n++;
+    if (mentioned) row.withBrand++;
+    fanAgg.set(key, row);
+  });
+});
+const fanRows = [...fanAgg.values()].sort((a, b) => b.n - a.n || a.query.localeCompare(b.query));
+const fanTotal = fanRows.reduce((s, r) => s + r.n, 0);
+const fanTop = fanRows.slice(0, 24);
+// Searches that never once produced a brand mention - the sharpest content gap
+// signal in the payload (the AI looks these up and you are absent from what it
+// finds), only meaningful once the query recurs.
+const fanBlind = fanRows.filter(r => r.withBrand === 0 && r.n >= 2).slice(0, 12);
+
 // Dropdown options
 const sourceOptions = Array.from(new Set(rows.map(r => r.surface))).sort();
 const topicOptions = Array.from(new Set(rows.map(r => r.topic).filter(Boolean))).sort();
@@ -283,6 +311,11 @@ rows.forEach(r => { if (!surfaceSwatch[r.surface]) surfaceSwatch[r.surface] = r.
 
     .cit__summary { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:var(--space-5); }
     .cit__sumcard { background:var(--color-surface); border:1px solid var(--color-border); border-radius:var(--radius-lg); padding:16px 18px; box-shadow:var(--shadow-xs); }
+
+    /* fan-out query chips */
+    .fanout { display:flex; flex-wrap:wrap; gap:7px; }
+    .fanout__q { font-size:12px; padding:5px 10px; border-radius:var(--radius-full); border:1px solid var(--color-border); color:var(--color-text-secondary); background:var(--color-surface); }
+    .fanout__q b { color:var(--color-text-primary); font-weight:700; }
     .cit__sumlabel { font-size:11px; font-weight:600; letter-spacing:.05em; text-transform:uppercase; color:var(--color-text-muted); }
     .cit__sumvalue { font-size:27px; font-weight:720; letter-spacing:-.025em; margin-top:8px; line-height:1; display:flex; align-items:baseline; gap:8px; }
     .cit__sumvalue small { font-size:13px; font-weight:600; color:var(--color-text-muted); }
@@ -448,6 +481,52 @@ rows.forEach(r => { if (!surfaceSwatch[r.surface]) surfaceSwatch[r.surface] = r.
         <div class="cit__summeta">lower is better - first-listed sources get the most reader attention</div>
       </div>
     </div>
+
+    <!-- FAN-OUT : the searches the AIs actually ran before answering -->
+    {fanRows.length > 0 && (
+      <div class="card card--flat" style="margin-top:var(--space-6);padding:16px 18px">
+        <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap">
+          <div>
+            <p style="font-size:14px;font-weight:650" title="Extracted from the search calls each AI made while answering. These are the model's own queries, not your keywords.">
+              What the AIs searched before answering
+            </p>
+            <p style="font-size:12px;color:var(--color-text-muted);margin-top:2px">
+              {fanRows.length.toLocaleString('en-US')} distinct search{fanRows.length > 1 ? 'es' : ''} across {fanTotal.toLocaleString('en-US')} call{fanTotal > 1 ? 's' : ''} - the terms that trigger retrieval on your market
+            </p>
+          </div>
+        </div>
+
+        {fanBlind.length > 0 && (
+          <div style="margin-top:14px">
+            <p style="font-size:11px;font-weight:650;letter-spacing:.05em;text-transform:uppercase;color:var(--status-critical)">
+              Searched repeatedly, never returned your brand
+            </p>
+            <div class="fanout" style="margin-top:8px">
+              {fanBlind.map(f => (
+                <span class="fanout__q" style="border-color:var(--status-critical);color:var(--color-text-primary)" title={`Run ${f.n} times - your brand was mentioned in none of those answers`}>
+                  {f.query} <b style="color:var(--status-critical)">x{f.n}</b>
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div style="margin-top:14px">
+          <p style="font-size:11px;font-weight:650;letter-spacing:.05em;text-transform:uppercase;color:var(--color-text-muted)">Most frequent searches</p>
+          <div class="fanout" style="margin-top:8px">
+            {fanTop.map(f => {
+              const rate = f.n > 0 ? Math.round((f.withBrand / f.n) * 100) : 0;
+              return (
+                <span class="fanout__q" title={`Run ${f.n} time${f.n > 1 ? 's' : ''} - your brand appeared in ${f.withBrand} of those answers (${rate}%)`}>
+                  {f.query} <b>x{f.n}</b>
+                  <span style={`margin-left:6px;color:${rate > 0 ? 'var(--status-positive)' : 'var(--color-text-muted)'}`}>{rate}%</span>
+                </span>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    )}
 
     <!-- TOOLBAR -->
     <div class="cit__toolbar">

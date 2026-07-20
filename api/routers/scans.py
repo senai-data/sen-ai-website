@@ -2957,6 +2957,17 @@ def _split_runs_for_view(results, include_responses: bool = True):
         for rr in runs:
             for dom, cnt in (rr.competitor_domains or {}).items():
                 merged_competitors[dom] = merged_competitors.get(dom, 0) + (cnt or 0)
+
+        merged_fanout: list = []
+        seen_fanout: set = set()
+        for rr in runs:
+            for q in (getattr(rr, "web_search_queries", None) or []):
+                qs = (q or "").strip() if isinstance(q, str) else str(q)
+                kq = qs.lower()
+                if not qs or kq in seen_fanout:
+                    continue
+                seen_fanout.add(kq)
+                merged_fanout.append(qs)
         view_rows.append(SimpleNamespace(
             id=analysis.id,
             _run_ids=[rr.id for rr in runs],
@@ -2978,6 +2989,9 @@ def _split_runs_for_view(results, include_responses: bool = True):
             competitor_domains=merged_competitors,
             brand_analysis=analysis.brand_analysis,
             brand_mentions=analysis.brand_mentions,
+            # Fan-out : union across runs, deduped, order preserved. Taking
+            # run 1 only would under-report the retrieval surface at N>1.
+            web_search_queries=merged_fanout,
         ))
     return run_rows, view_rows
 
@@ -3284,6 +3298,11 @@ def get_results(
             # touching it would lazy-load per row (N+1).
             "response_text": (r.response_text or "") if include_responses else "",
             "duration_ms": r.duration_ms,
+            # Fan-out ground truth (2026-07-18) : the web searches the model
+            # actually ran before answering. Captured since migration 034 and
+            # exposed by no endpoint until now - it answers "which queries
+            # trigger the AI's retrieval, and am I cited on them".
+            "web_search_queries": getattr(r, "web_search_queries", None) or [],
             # N-runs (T2) - per-pair sampling stats for the variance UI (T3) :
             # runs_total=1 / mention_rate 0|1 on legacy single-run scans.
             "runs_total": r._n_runs,

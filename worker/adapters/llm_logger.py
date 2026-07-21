@@ -28,24 +28,42 @@ ANTHROPIC_PRICING = {
 # checked BEFORE the submodule so the daily/BYOK caps don't go blind on them
 # (unknown model = cost 0 there). Per 1M tokens.
 # Source : ai.google.dev/gemini-api/docs/pricing (July 2026).
+# `cached_input` (per 1M) = the price of a prompt-cache HIT. OpenAI bills
+# cached input at ~10% of the base input rate on the GPT-5 family (prompt
+# caching). Omit the key and cached tokens fall back to the full input rate
+# (= pre-2026-07-21 behaviour, safe overestimate). Verify against your OpenAI
+# billing dashboard and tune if a model's tier differs.
 SAAS_PRICING_OVERLAY = {
-    "gemini-3.5-flash": {"input": 1.50, "output": 9.00},
+    "gemini-3.5-flash": {"input": 1.50, "output": 9.00},  # Gemini: no cache tier here
     "gemini-3.1-flash-lite": {"input": 0.25, "output": 1.50},
     # Model-version selector allowlist (BYOK) - the org monthly cap must see
     # real costs when a customer selects these.
-    "gpt-5.5": {"input": 5.00, "output": 30.00},
-    "gpt-5.6-luna": {"input": 1.00, "output": 6.00},
+    "gpt-5.5": {"input": 5.00, "output": 30.00, "cached_input": 0.50},
+    "gpt-5.6-luna": {"input": 1.00, "output": 6.00, "cached_input": 0.10},
 }
 
 
-def estimate_cost(provider: str, model: str, input_tokens: int, output_tokens: int) -> float:
-    """Estimate USD cost from tokens. Returns 0 if model unknown."""
+def estimate_cost(
+    provider: str,
+    model: str,
+    input_tokens: int,
+    output_tokens: int,
+    cached_input_tokens: int = 0,
+) -> float:
+    """Estimate USD cost from tokens. Returns 0 if model unknown.
+
+    `cached_input_tokens` is the subset of `input_tokens` served from the
+    provider prompt cache. It is priced at `pricing['cached_input']` when the
+    model declares one, else at the full input rate (no discount) - so any
+    caller that does not pass it keeps its exact prior cost.
+    """
     if provider == "anthropic":
         pricing = ANTHROPIC_PRICING.get(model)
     elif model in SAAS_PRICING_OVERLAY:
         pricing = SAAS_PRICING_OVERLAY[model]
     else:
-        # Use seo_llm pricing for OpenAI/Gemini
+        # Use seo_llm pricing for OpenAI/Gemini. It is cache-unaware, so cached
+        # tokens bill at full rate there (small models / Gemini = negligible).
         try:
             from seo_llm.src.api_pricing import calculate_cost
             result = calculate_cost(model, input_tokens, output_tokens)
@@ -56,7 +74,10 @@ def estimate_cost(provider: str, model: str, input_tokens: int, output_tokens: i
     if not pricing:
         return 0.0
 
-    input_cost = (input_tokens / 1_000_000) * pricing["input"]
+    cached = max(0, min(cached_input_tokens or 0, input_tokens))
+    uncached = input_tokens - cached
+    cached_rate = pricing.get("cached_input", pricing["input"])
+    input_cost = (uncached / 1_000_000) * pricing["input"] + (cached / 1_000_000) * cached_rate
     output_cost = (output_tokens / 1_000_000) * pricing["output"]
     return round(input_cost + output_cost, 6)
 
@@ -69,6 +90,7 @@ def log_llm_usage(
     operation: str,
     input_tokens: int = 0,
     output_tokens: int = 0,
+    cached_input_tokens: int = 0,
     cost_usd: float | None = None,
     duration_ms: int | None = None,
     scan_id: str | None = None,
@@ -92,7 +114,9 @@ def log_llm_usage(
         from models import LlmUsageLog
 
         if cost_usd is None:
-            cost_usd = estimate_cost(provider, model, input_tokens, output_tokens)
+            cost_usd = estimate_cost(
+                provider, model, input_tokens, output_tokens, cached_input_tokens
+            )
 
         db.add(LlmUsageLog(
             provider=provider,
@@ -100,6 +124,7 @@ def log_llm_usage(
             operation=operation,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
+            cached_input_tokens=cached_input_tokens or 0,
             cost_usd=cost_usd,
             duration_ms=duration_ms,
             scan_id=scan_id,

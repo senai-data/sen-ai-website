@@ -563,6 +563,7 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
                     operation="scan_test",
                     input_tokens=result.get("input_tokens", 0),
                     output_tokens=result.get("output_tokens", 0),
+                    cached_input_tokens=result.get("cached_input_tokens", 0),
                     duration_ms=result.get("duration_ms"),
                     scan_id=scan_id, client_id=str(scan.client_id),
                     key_source=key_sources.get(provider, "platform"),

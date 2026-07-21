@@ -30,6 +30,22 @@ from seo_llm.src.api_pricing import calculate_cost
 logger = logging.getLogger(__name__)
 
 
+def _extract_cached_tokens(details) -> int:
+    """Cached prompt tokens from an OpenAI usage details container.
+
+    Chat Completions : usage.prompt_tokens_details.cached_tokens.
+    Responses API    : usage.input_tokens_details.cached_tokens.
+    Accepts a dict (seo_llm passthrough) or an SDK object, returns 0 when
+    absent (provider without caching / older SDK) so cost falls back to the
+    full input rate.
+    """
+    if details is None:
+        return 0
+    if isinstance(details, dict):
+        return int(details.get("cached_tokens") or 0)
+    return int(getattr(details, "cached_tokens", 0) or 0)
+
+
 def bare_host(domain: str) -> str:
     """Strip protocol, path and leading www from a domain for citation matching.
 
@@ -181,8 +197,15 @@ def test_question(question: str, persona: dict, llm_client: LLMClient,
         "brand_analyzer_usage": brand_analyzer_usage,
         "brand_analyzer_model": getattr(getattr(brand_analyzer, "llm", None), "model", None) if brand_analyzer else None,
         "duration_ms": duration_ms,
-        "input_tokens": response.get("usage", {}).get("prompt_tokens", 0),
-        "output_tokens": response.get("usage", {}).get("completion_tokens", 0),
+        "input_tokens": (response.get("usage", {}) or {}).get("prompt_tokens", 0),
+        "output_tokens": (response.get("usage", {}) or {}).get("completion_tokens", 0),
+        # Prompt-cache hits (billed at the cached rate). Chat Completions puts
+        # them under usage.prompt_tokens_details.cached_tokens ; seo_llm passes
+        # the usage dict through, so read it defensively (dict or object, 0 when
+        # absent = provider without caching).
+        "cached_input_tokens": _extract_cached_tokens(
+            (response.get("usage", {}) or {}).get("prompt_tokens_details")
+        ),
         # Phase C.1.5 — fan-out ground truth : pull the explicit search queries
         # the LLM actually issued during this response. seo_llm.LLMClient
         # already extracts them from grounding_metadata (Gemini) or
@@ -301,8 +324,12 @@ def test_question_openai_direct(question: str, persona: dict, target_domain: str
         except Exception as e:
             logger.warning(f"BrandAnalyzer failed: {e}")
 
-    input_tokens = getattr(getattr(response, "usage", None), "input_tokens", 0) or 0
-    output_tokens = getattr(getattr(response, "usage", None), "output_tokens", 0) or 0
+    _usage = getattr(response, "usage", None)
+    input_tokens = getattr(_usage, "input_tokens", 0) or 0
+    output_tokens = getattr(_usage, "output_tokens", 0) or 0
+    # OpenAI Responses API : cached prompt tokens live under
+    # usage.input_tokens_details.cached_tokens (billed at the cached rate).
+    cached_input_tokens = _extract_cached_tokens(getattr(_usage, "input_tokens_details", None))
 
     return {
         "provider": "openai",
@@ -320,6 +347,7 @@ def test_question_openai_direct(question: str, persona: dict, target_domain: str
         "duration_ms": duration_ms,
         "input_tokens": input_tokens,
         "output_tokens": output_tokens,
+        "cached_input_tokens": cached_input_tokens,
         # Phase C.1.5 — fan-out ground truth (see test_question() return for
         # docstring). Empty list = web_search tool didn't emit queries.
         "web_search_queries": web_search_queries,

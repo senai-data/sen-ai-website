@@ -1014,6 +1014,9 @@ class LlmUsageLog(Base):
     operation = Column(String(50), nullable=False)   # classify_topics, generate_personas, scan_test, etc.
     input_tokens = Column(Integer, nullable=False, default=0)
     output_tokens = Column(Integer, nullable=False, default=0)
+    # Migration 064 - subset of input_tokens served from the prompt cache,
+    # priced at the cached rate. PARITÉ avec worker/models.py.
+    cached_input_tokens = Column(Integer, nullable=False, default=0)
     cost_usd = Column(Float, nullable=False, default=0)
     duration_ms = Column(Integer)
     scan_id = Column(UUID(as_uuid=True), ForeignKey("scans.id", ondelete="SET NULL"))

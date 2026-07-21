@@ -109,6 +109,12 @@ const currentQuery = Astro.url.searchParams.toString();
 
 // Range label for breadcrumb context
 const rangeContext = rangeParam === 'all' && runs.length > 1 ? ` (${runs.length} scans)` : '';
+
+// Rescan button tooltip (idle state) : spell out what a rescan actually
+// reuses, so the user knows it is not a fresh setup and where to change what
+// the next run uses. Complements the "Saved - applies from the next rescan"
+// note inside the Rescan settings panel.
+const rescanIdleTip = 'Re-runs this tracker with its saved setup (topics, brands, personas, questions) plus the current Rescan settings (sampling, AIs, model versions). Fresh AI answers on the same series - open Rescan settings to change what the next run uses.';
 ---
 
 <DashboardLayout title={`${scan.focus_brand || scan.name || scan.domain} - ${tabLabels[activeTab]}`} activeSection="scans" mobileReady={mobileReady}>
@@ -342,7 +348,7 @@ const rangeContext = rangeParam === 'all' && runs.length > 1 ? ` (${runs.length}
         <button
           id="rescanBtn"
           disabled={!!activeRun}
-          title={activeRun ? 'A rescan is already running for this tracker' : undefined}
+          title={activeRun ? 'A rescan is already running for this tracker' : rescanIdleTip}
           class="px-4 py-2 bg-coral text-white rounded-lg text-sm font-medium hover:bg-coral-dark hover:shadow-md transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-coral disabled:hover:shadow-none"
         >
           Rescan

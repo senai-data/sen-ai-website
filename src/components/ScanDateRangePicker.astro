@@ -30,11 +30,11 @@ interface Props {
 const { runs, currentRange, fromDate, toDate, currentTab, rootScanId } = Astro.props;
 
 function fmtShort(iso: string | null): string {
-  if (!iso) return '—';
+  if (!iso) return '-';
   return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
 }
 function fmtFull(iso: string | null): string {
-  if (!iso) return '—';
+  if (!iso) return '-';
   return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
@@ -51,7 +51,7 @@ const selectedRun = selectedRunId ? runs.find(r => r.id === selectedRunId) : nul
 const rangeLabel = currentRange === 'all' ? 'All dates'
   : currentRange === 'latest' ? fmtFull((selectedRun || runs[runs.length - 1])?.completed_at)
   : currentRange === 'last2' ? 'Last 2 scans'
-  : currentRange === 'custom' ? `${fmtShort(fromDate)} — ${fmtShort(toDate)}`
+  : currentRange === 'custom' ? `${fmtShort(fromDate)} - ${fmtShort(toDate)}`
   : 'All dates';
 
 const firstDate = runs[0]?.completed_at;
@@ -115,7 +115,7 @@ const latestRunId = runs[runs.length - 1]?.id;
       {/* Presets */}
       <a href={rangeUrl('all')} class:list={['block px-4 py-2 text-xs transition-colors', currentRange === 'all' ? 'bg-coral/5 text-coral font-medium' : 'text-charcoal-dark hover:bg-gray-50']}>
         All dates
-        <span class="text-[10px] text-charcoal-light ml-1">{fmtShort(firstDate)} — {fmtShort(lastDate)}</span>
+        <span class="text-[10px] text-charcoal-light ml-1">{fmtShort(firstDate)} - {fmtShort(lastDate)}</span>
       </a>
       <a href={rangeUrl('latest') + `&run=${latestRunId}`} class:list={['block px-4 py-2 text-xs transition-colors', currentRange === 'latest' && (selectedRunId === latestRunId || !selectedRunId) ? 'bg-coral/5 text-coral font-medium' : 'text-charcoal-dark hover:bg-gray-50']}>
         Latest scan

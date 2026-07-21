@@ -239,6 +239,20 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
         editorial, EditorialSummary, "generate_editorial"
     ).model_dump()
 
+    # House style : no em/en dashes, always " - " (feedback_no_em_dash +
+    # docs/STYLE_GUIDE.md). Claude emits them despite the prompt, so strip
+    # on the way in - stored editorials stay clean without a render-time pass.
+    import re as _re
+
+    def _no_dash(v):
+        if isinstance(v, str):
+            return _re.sub(r"\s*[—–]\s*", " - ", v)
+        if isinstance(v, list):
+            return [_no_dash(x) for x in v]
+        return v
+
+    editorial = {k: _no_dash(v) for k, v in editorial.items()}
+
     # Store editorial + position distribution in scan summary
     # (must reassign for JSONB change detection)
     from sqlalchemy.orm.attributes import flag_modified

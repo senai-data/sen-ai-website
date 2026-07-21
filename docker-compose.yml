@@ -57,7 +57,12 @@ services:
     env_file: ./worker/.env
     environment:
       WORKER_ID: worker-scan
-      WORKER_JOB_TYPES_EXCLUDE: generate_article,generate_faq
+      # Tranche 2 (project_worker_queue_scaling): discover_media_catalog +
+      # measure_publish_outcome are background sweeps routed to senai-worker-maint
+      # so they can NEVER occupy the scan pipeline. Priority (migration 063)
+      # only reorders PENDING jobs - a sweep already 'running' would still hog
+      # this single-threaded worker, so we exclude them from its poll entirely.
+      WORKER_JOB_TYPES_EXCLUDE: generate_article,generate_faq,discover_media_catalog,measure_publish_outcome
     volumes:
       - ./shared:/app/shared:ro
       - nw_cache:/app/cache/natural_writing
@@ -85,6 +90,32 @@ services:
       # Placements : match_placements (~2s, user-facing after paste) same
       # reason - senai-worker also picks it up, both race safely.
       WORKER_JOB_TYPES_INCLUDE: generate_article,generate_faq,suggest_media,match_placements
+    volumes:
+      - ./shared:/app/shared:ro
+      - nw_cache:/app/cache/natural_writing
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Maintenance worker — background sweeps that must never occupy the scan
+  # pipeline (Tranche 2, project_worker_queue_scaling 2026-07-21).
+  # discover_media_catalog is Babbar-rate-limited (52s pauses) and was the
+  # head-of-line blocker on senai-worker ; measure_publish_outcome is a T+14
+  # background sweep with nobody waiting. NOT routed onto worker-content, whose
+  # suggest_media / match_placements are user-facing and would then block
+  # behind a Babbar sweep. Every worker's loop still ENQUEUES these sweeps
+  # (dedup is DB-based, so enqueuer != processor is safe) but only this
+  # container picks them up. Single-threaded, mostly idle (24h / 1h cadence).
+  worker-maint:
+    build:
+      context: ./worker
+      dockerfile: Dockerfile
+    container_name: senai-worker-maint
+    env_file: ./worker/.env
+    environment:
+      WORKER_ID: worker-maint
+      WORKER_JOB_TYPES_INCLUDE: discover_media_catalog,measure_publish_outcome
     volumes:
       - ./shared:/app/shared:ro
       - nw_cache:/app/cache/natural_writing

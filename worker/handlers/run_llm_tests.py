@@ -811,13 +811,18 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
     # before judge_sentiment finishes (FIFO ordering on identical
     # created_at is unspecified) it falls back to raw brand_mentions[]
     # .sentiment per migration 057 design - acceptable.
-    db.add(JobModel(scan_id=scan_id, job_type="check_brand_wikipedia"))
-    db.add(JobModel(scan_id=scan_id, job_type="audit_scan_pages"))
-    db.add(JobModel(scan_id=scan_id, job_type="audit_scan_schemas"))
-    db.add(JobModel(scan_id=scan_id, job_type="audit_internal_links"))
-    db.add(JobModel(scan_id=scan_id, job_type="build_pr_outreach"))
-    db.add(JobModel(scan_id=scan_id, job_type="audit_youtube_creators"))
-    db.add(JobModel(scan_id=scan_id, job_type="build_crisis_radar"))
+    # priority=50 (migration 063): these run AFTER the scan is already flipped
+    # 'completed' (line 753), so they never gate the visible result - drop them
+    # below user-waited scan work so a fresh rescan is never stuck behind
+    # another lineage's audit tail. The analytical chain above stays at the
+    # neutral 100 (it produces the results the user is watching for).
+    db.add(JobModel(scan_id=scan_id, job_type="check_brand_wikipedia", priority=50))
+    db.add(JobModel(scan_id=scan_id, job_type="audit_scan_pages", priority=50))
+    db.add(JobModel(scan_id=scan_id, job_type="audit_scan_schemas", priority=50))
+    db.add(JobModel(scan_id=scan_id, job_type="audit_internal_links", priority=50))
+    db.add(JobModel(scan_id=scan_id, job_type="build_pr_outreach", priority=50))
+    db.add(JobModel(scan_id=scan_id, job_type="audit_youtube_creators", priority=50))
+    db.add(JobModel(scan_id=scan_id, job_type="build_crisis_radar", priority=50))
 
     # Placements module (migration 062) : match published-article URLs against
     # this rescan's citations. EXISTS-guarded so tenants without placements pay
@@ -827,7 +832,7 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
         from models import ScanPlacement
         _placements_root = scan.parent_scan_id or scan.id
         if db.query(ScanPlacement.id).filter(ScanPlacement.scan_id == _placements_root).first():
-            db.add(JobModel(scan_id=scan_id, job_type="match_placements"))
+            db.add(JobModel(scan_id=scan_id, job_type="match_placements", priority=50))
     except Exception:
         logger.warning(f"match_placements enqueue skipped for scan {scan_id}", exc_info=True)
 

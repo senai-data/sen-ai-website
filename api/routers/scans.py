@@ -251,7 +251,12 @@ def _count_topic_urls(topic_id: str, db: Session) -> int:
 
 
 def _create_job(db: Session, scan_id: str, job_type: str, payload: dict = {}) -> Job:
-    job = Job(scan_id=scan_id, job_type=job_type, payload=payload)
+    # Queue priority (migration 063): run_llm_tests is the user-waited core of a
+    # scan/rescan - it must jump ahead of any background sweep sitting in the
+    # queue. Everything else routed through here (setup pipeline, post-scan
+    # analytical chain, manual audit /refresh) stays at the neutral default.
+    priority = 200 if job_type == "run_llm_tests" else 100
+    job = Job(scan_id=scan_id, job_type=job_type, payload=payload, priority=priority)
     db.add(job)
     db.commit()
     return job

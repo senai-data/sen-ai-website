@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import (
-    Column, String, Integer, BigInteger, Float, Numeric, Text, Date, DateTime, ForeignKey, Enum, Boolean, UniqueConstraint, create_engine
+    Column, String, Integer, SmallInteger, BigInteger, Float, Numeric, Text, Date, DateTime, ForeignKey, Enum, Boolean, UniqueConstraint, create_engine
 )
 from sqlalchemy.dialects.postgresql import JSONB, ARRAY
 from sqlalchemy.dialects.postgresql import UUID
@@ -663,6 +663,12 @@ class Job(Base):
     result = Column(JSONB)
     attempts = Column(Integer, default=0)
     max_attempts = Column(Integer, default=3)
+    # Poll ordering weight (migration 063): higher = picked first. 200 =
+    # user-waited scan work (run_llm_tests), 100 = neutral default, 50 =
+    # background sweeps / non-blocking post-scan audits. Set at the enqueue
+    # site by who is waiting, not globally by type (some job types are
+    # dual-purpose). See project_worker_queue_scaling.
+    priority = Column(SmallInteger, nullable=False, server_default="100", default=100)
     created_at = Column(DateTime, default=datetime.utcnow)
     started_at = Column(DateTime)
     completed_at = Column(DateTime)

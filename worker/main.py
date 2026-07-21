@@ -562,6 +562,7 @@ def enqueue_post_publish_measurements() -> None:
                 scan_id=item.scan_id,
                 job_type="refresh_ai_snapshot",
                 status="pending",
+                priority=50,  # background T+14 sweep - never ahead of a user scan
                 payload={
                     "item_id": str(item.id),
                     "trigger": "t14_post_publish",
@@ -654,6 +655,7 @@ def enqueue_media_publish_outcomes() -> None:
                 scan_id=r.scan_id,
                 job_type="measure_publish_outcome",
                 status="pending",
+                priority=50,  # background T+14 outcome sweep
                 payload={"item_id": r.item_id},
                 max_attempts=2,
             ))
@@ -721,6 +723,7 @@ def enqueue_media_catalog_discovery() -> None:
             scan_id=None,
             job_type="discover_media_catalog",
             status="pending",
+            priority=50,  # daily maintenance sweep - the 2026-07-21 blocker
             payload={},
             max_attempts=2,
         )
@@ -854,12 +857,16 @@ def poll_and_execute():
             params["excl"] = exclude
         type_sql = (" AND " + " AND ".join(type_clauses)) if type_clauses else ""
 
-        # FOR UPDATE SKIP LOCKED: safe concurrent polling
+        # FOR UPDATE SKIP LOCKED: safe concurrent polling.
+        # ORDER BY priority DESC first (migration 063): user-waited scan work
+        # (run_llm_tests=200) always outranks a background sweep (=50) sitting
+        # in the queue, then created_at keeps FIFO within a band. Backed by the
+        # partial index idx_jobs_poll.
         job = db.execute(
             text(f"""
                 SELECT id FROM jobs
                 WHERE status = 'pending'{type_sql}
-                ORDER BY created_at
+                ORDER BY priority DESC, created_at
                 LIMIT 1
                 FOR UPDATE SKIP LOCKED
             """),

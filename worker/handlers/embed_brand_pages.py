@@ -245,6 +245,7 @@ def execute(job_payload: dict, scan_id: str | None, db: Session) -> dict:
             client_id=client_id,
             job_type="purge_stale_pages",
             status="pending",
+            priority=50,  # background TTL finalize (no scan_id) - migration 063
             payload={"client_brand_id": str(client_brand_id)},
             max_attempts=2,
         )

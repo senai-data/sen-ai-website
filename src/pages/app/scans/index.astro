@@ -197,6 +197,13 @@ const allScanIds = scans.map(s => s.id);
               const _lineage = [root, ...(childrenByRoot[root.id] || [])];
               const rescanning = _lineage.find(s => isProcessing(s.status));
               const showRescanChip = rescanning && ls.status === 'completed';
+              // A FIRST scan (no completed run) shows its own 'scanning' status
+              // badge. It carried no % while the rescan chip did - inconsistent.
+              // When the displayed scan is the one running its AI tests, show
+              // "Scanning N%" and let it live-poll like the chip. scanningId is
+              // omitted (undefined) otherwise so no stray poll target.
+              const lsScanningPct = ls.status === 'scanning';
+              const scanningId = lsScanningPct ? ls.id : undefined;
               return (
                 <tbody class="divide-y divide-gray-100 border-t border-gray-100" x-data="{ expanded: false }">
                   {/* Root row */}
@@ -256,8 +263,11 @@ const allScanIds = scans.map(s => s.id);
                       )}
                     </td>
                     <td class="px-3 py-4 text-center">
-                      <span class={`text-xs px-2.5 py-1 rounded-full bg-${statusColor(ls.status)}-100 text-${statusColor(ls.status)}-700 font-medium`}>
-                        {statusLabel(ls.status)}
+                      <span class={`text-xs px-2.5 py-1 rounded-full bg-${statusColor(ls.status)}-100 text-${statusColor(ls.status)}-700 font-medium`}
+                            data-rescan-id={scanningId}>
+                        {lsScanningPct
+                          ? <>Scanning<span class="rescan-pct">{ls.progress_pct ? ` ${ls.progress_pct}%` : '...'}</span></>
+                          : statusLabel(ls.status)}
                       </span>
                       {showRescanChip ? (
                         <div class="mt-1" data-rescan-id={rescanning.id}>

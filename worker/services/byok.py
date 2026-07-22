@@ -187,6 +187,31 @@ def resolve_anthropic_key(db: Session, client_id) -> tuple[str, str]:
     return settings.anthropic_api_key, "platform"
 
 
+def resolve_ytg_key(db: Session, client_id) -> tuple[str | None, str]:
+    """(api_key, key_source) for YourTextGuru (SEO tool, content pipeline).
+
+    Platform fallback returns None: the seo_llm YTGClient reads
+    YOURTEXTGURU_API_KEY from env itself, so callers only patch the env when
+    key_source == 'byok'. Raises ByokKeyInvalid if the org key is marked
+    invalid (no silent platform fallback, same doctrine as the LLM keys). SEO
+    keys carry no monthly_cap_usd, so ByokCapExceeded never fires unless an org
+    sets a cap explicitly.
+    """
+    org_key = resolve_org_key(db, client_id, "yourtextguru")
+    if org_key is not None:
+        return org_key.api_key, "byok"
+    return None, "platform"
+
+
+def resolve_babbar_key(db: Session, client_id) -> tuple[str | None, str]:
+    """(api_key, key_source) for Babbar (SEO tool). Platform fallback = None
+    (BabbarClient reads BABBAR_API_KEY from env itself). See resolve_ytg_key."""
+    org_key = resolve_org_key(db, client_id, "babbar")
+    if org_key is not None:
+        return org_key.api_key, "byok"
+    return None, "platform"
+
+
 def make_gemini_client(db: Session, client_id, model: str | None = None):
     """(client, key_source). Duck-type-identical either way:
 
@@ -249,10 +274,13 @@ def mark_org_key_invalid(db: Session, org_id, provider: str, error_msg: str) -> 
 
 
 @contextmanager
-def patched_llm_env(openai_key: str | None = None, anthropic_key: str | None = None):
-    """Temporarily override OPENAI_API_KEY / ANTHROPIC_API_KEY in os.environ
-    for the seo_llm content path (the submodule reads keys via os.getenv at
-    generator-instantiation AND call time; we never edit the submodule).
+def patched_llm_env(openai_key: str | None = None, anthropic_key: str | None = None,
+                    ytg_key: str | None = None, babbar_key: str | None = None):
+    """Temporarily override OPENAI_API_KEY / ANTHROPIC_API_KEY (LLM) and
+    YOURTEXTGURU_API_KEY / BABBAR_API_KEY (SEO tools) in os.environ for the
+    seo_llm content path (the submodule's clients read keys via os.getenv at
+    generator-instantiation time; we never edit the submodule). The generator
+    is built INSIDE this window, so each client picks up the org key.
 
     GEMINI_API_KEYS is deliberately NOT patched - the submodule's gemini
     rotator (seo_llm/src/gemini_key_rotator.py) is a module-level singleton
@@ -270,6 +298,10 @@ def patched_llm_env(openai_key: str | None = None, anthropic_key: str | None = N
         patch["OPENAI_API_KEY"] = openai_key
     if anthropic_key:
         patch["ANTHROPIC_API_KEY"] = anthropic_key
+    if ytg_key:
+        patch["YOURTEXTGURU_API_KEY"] = ytg_key
+    if babbar_key:
+        patch["BABBAR_API_KEY"] = babbar_key
     saved = {k: os.environ.get(k) for k in patch}
     try:
         os.environ.update(patch)

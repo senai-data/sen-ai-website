@@ -1216,21 +1216,24 @@ def execute(job_payload: dict, scan_id: str | None, db: Session) -> dict:
         )
 
     # BYOK : the seo_llm generator reads OPENAI_API_KEY / ANTHROPIC_API_KEY
-    # via os.getenv at instantiation AND call time (never edit the submodule),
-    # so org keys are injected via a per-job env patch. Fresh instance per job
-    # (verified: generator built below, only the CLASS is cached) => the patch
-    # window covers every read. GEMINI stays platform (submodule rotator is a
-    # module-level singleton - see byok.patched_llm_env docstring). Cap/invalid
-    # raise here, before any spend, with the same status reset as
-    # BudgetExceeded.
+    # (LLM) and YOURTEXTGURU_API_KEY / BABBAR_API_KEY (SEO tools) via os.getenv
+    # at instantiation (never edit the submodule), so org keys are injected via
+    # a per-job env patch. Fresh instance per job (verified: generator built
+    # below, only the CLASS is cached) => the patch window covers every read.
+    # GEMINI stays platform (submodule rotator is a module-level singleton -
+    # see byok.patched_llm_env docstring). Cap/invalid raise here, before any
+    # spend, with the same status reset as BudgetExceeded.
     from services.byok import (
         ByokCapExceeded, ByokKeyInvalid, patched_llm_env,
-        resolve_anthropic_key, resolve_openai_key,
+        resolve_anthropic_key, resolve_babbar_key, resolve_openai_key,
+        resolve_ytg_key,
     )
     _byok_cid = item.scan.client_id if item.scan else None
     try:
         _openai_key, _openai_src = resolve_openai_key(db, _byok_cid)
         _anthropic_key, _anthropic_src = resolve_anthropic_key(db, _byok_cid)
+        _ytg_key, _ytg_src = resolve_ytg_key(db, _byok_cid)
+        _babbar_key, _babbar_src = resolve_babbar_key(db, _byok_cid)
     except (ByokCapExceeded, ByokKeyInvalid):
         item.status = "identified"
         _clear_progress(item)
@@ -1243,6 +1246,8 @@ def execute(job_payload: dict, scan_id: str | None, db: Session) -> dict:
         with patched_llm_env(
             openai_key=_openai_key if _openai_src == "byok" else None,
             anthropic_key=_anthropic_key if _anthropic_src == "byok" else None,
+            ytg_key=_ytg_key if _ytg_src == "byok" else None,
+            babbar_key=_babbar_key if _babbar_src == "byok" else None,
         ):
             generator = generator_cls(
                 workspace_brief_text=workspace_brief_text,

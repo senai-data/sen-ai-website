@@ -82,7 +82,8 @@ class OrganizationApiKey(Base):
     """BYOK - org-level LLM API key (migration 060).
 
     One row per (organization, provider), provider in openai/anthropic/gemini/
-    mistral. api_key_encrypted is Fernet ciphertext (OAUTH_FERNET_KEY, same
+    mistral (LLM) or yourtextguru/babbar/haloscan (SEO tools, migration 065).
+    api_key_encrypted is Fernet ciphertext (OAUTH_FERNET_KEY, same
     infra as oauth_connections). NEVER log or return the plaintext key -
     key_hint is the only display form. status 'invalid' is set when a
     validation ping or a runtime call gets an auth error; the key is then
@@ -93,7 +94,7 @@ class OrganizationApiKey(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     organization_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False)
-    provider = Column(Text, nullable=False)          # 'openai'|'anthropic'|'gemini'|'mistral'
+    provider = Column(Text, nullable=False)          # LLM: openai|anthropic|gemini|mistral ; SEO: yourtextguru|babbar|haloscan (migr.065)
     api_key_encrypted = Column(Text, nullable=False)
     key_hint = Column(Text, nullable=False, default="")
     status = Column(Text, nullable=False, default="active")  # 'active' | 'invalid'

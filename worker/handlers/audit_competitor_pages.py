@@ -364,7 +364,13 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
     babbar_client = None
     try:
         from seo_llm.src.babbar_client import BabbarClient
-        candidate = BabbarClient()
+        from services.byok import resolve_babbar_key
+        # Per-org Babbar key when configured (rate-limit isolation + BYOK cost
+        # shift). An invalid/capped org key raises here and is caught below ->
+        # we degrade to no live enrichment: we never fall back to the platform
+        # key against the org's intent, and we spend nothing.
+        _bk, _bk_src = resolve_babbar_key(db, scan.client_id)
+        candidate = BabbarClient(api_key=_bk) if _bk_src == "byok" else BabbarClient()
         if candidate.api_key:
             babbar_client = candidate
     except Exception:

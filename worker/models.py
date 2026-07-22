@@ -104,7 +104,8 @@ class ClientApiKey(Base):
 
 
 class OrganizationApiKey(Base):
-    """BYOK - org-level LLM API key (migration 060). PARITÉ obligatoire avec
+    """BYOK - org-level API key (migration 060; SEO-tool providers added
+    migration 065). PARITÉ obligatoire avec
     api/models.py. organization_id is a plain UUID (no ForeignKey: the worker
     metadata has no organizations table; the DB FK exists via migration 060).
     api_key_encrypted = Fernet ciphertext (OAUTH_FERNET_KEY) - decrypt via
@@ -115,7 +116,7 @@ class OrganizationApiKey(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     organization_id = Column(UUID(as_uuid=True), nullable=False)
-    provider = Column(Text, nullable=False)          # 'openai'|'anthropic'|'gemini'|'mistral'
+    provider = Column(Text, nullable=False)          # LLM: openai|anthropic|gemini|mistral ; SEO: yourtextguru|babbar|haloscan (migr.065)
     api_key_encrypted = Column(Text, nullable=False)
     key_hint = Column(Text, nullable=False, default="")
     status = Column(Text, nullable=False, default="active")  # 'active' | 'invalid'

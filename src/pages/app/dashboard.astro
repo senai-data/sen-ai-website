@@ -287,6 +287,18 @@ function _completedRuns(root: any): any[] {
     .filter((s) => s.status === 'completed' && rateOf(s) !== null)
     .sort((a, b) => new Date(b.completed_at || b.created_at).getTime() - new Date(a.completed_at || a.created_at).getTime());
 }
+// "First-choice when cited" : of the answers that DO cite the brand, how often
+// is it the #1 recommendation (top1). A second dimension to the mention rate -
+// breadth (are you cited) vs dominance (do you win when cited). Denominator is
+// the sum of the position buckets, so it is self-contained (no reliance on the
+// distribution's `total`/`not_cited` matching the mention-rate denominator).
+function firstChoiceShare(scan: any): number | null {
+  const p = scan?.summary?.position_distribution;
+  if (!p) return null;
+  const cited = (p.top1 || 0) + (p.top2_3 || 0) + (p.top4_5 || 0) + (p.top6plus || 0);
+  if (cited <= 0) return null;
+  return Math.round(((p.top1 || 0) / cited) * 100);
+}
 const brands = _roots.map((root) => {
   const done = _completedRuns(root);
   const latest = done[0] || null;
@@ -297,11 +309,24 @@ const brands = _roots.map((root) => {
   const eraChanged = !!(latest && prev && modelsDiffer(prev.summary?.models, latest.summary?.models));
   const delta = (rate != null && prevRate != null) ? Math.round((rate - prevRate) * 10) / 10 : null;
   const crit = (latest?.summary?.opportunities?.critique) || 0;
-  return { id: root.id, name: root.name || root.domain, domain: root.domain, latest, prev, running, rate, prevRate, delta, eraChanged, crit };
+  const high = (latest?.summary?.opportunities?.haute) || 0;
+  const grade = gradeFor(rate);
+  const fc = latest ? firstChoiceShare(latest) : null;
+  return { id: root.id, name: root.name || root.domain, domain: root.domain, latest, prev, running, rate, prevRate, delta, eraChanged, crit, high, grade, fc };
 });
 
 const numLineages = _roots.length;
 const isMultiBrand = numLineages > 1;
+
+// Positive anchor (Peak-End) + orientation : the strongest brand and the one
+// carrying the most work, so the synthesis is not only drops and gaps.
+const _rated = brands.filter((b) => b.rate != null);
+const pfLeader = _rated.length ? _rated.reduce((a, b) => ((b.rate as number) > (a.rate as number) ? b : a)) : null;
+const pfMostGaps = pfWorkloadTop();
+function pfWorkloadTop() {
+  const withCrit = brands.filter((b) => b.latest && b.crit > 0);
+  return withCrit.length ? withCrit.reduce((a, b) => (b.crit > a.crit ? b : a)) : null;
+}
 
 // Portfolio signals (all cheap, from the scans array).
 const pfScanning = brands.filter((b) => b.running);
@@ -532,6 +557,13 @@ const pfAttention = brands.filter((b) => {
       <div style="margin-bottom:16px">
         <h1 style="font-size:22px;font-weight:700;letter-spacing:-.02em;color:var(--color-text-primary)">{activeClient?.name || 'Your workspace'}</h1>
         <p style="font-size:13px;color:var(--color-text-muted);margin-top:3px">Tracking {numLineages} brands{pfScanning.length ? ` · ${pfScanning.length} scanning now` : ''}</p>
+        {(pfLeader || pfMostGaps) && (
+          <p style="font-size:12.5px;color:var(--color-text-muted);margin-top:5px">
+            {pfLeader && <>Strongest: <b style="color:var(--color-text-secondary);font-weight:600">{pfLeader.name.split(' (')[0]}</b> ({pfLeader.grade ? pfLeader.grade.toUpperCase() : '–'}, {Math.round(pfLeader.rate)}%)</>}
+            {pfLeader && pfMostGaps && '  ·  '}
+            {pfMostGaps && <>Most work: <b style="color:var(--color-text-secondary);font-weight:600">{pfMostGaps.name.split(' (')[0]}</b> ({pfMostGaps.crit.toLocaleString('en-US')} critical gaps)</>}
+          </p>
+        )}
       </div>
     )}
     {isMultiBrand && (
@@ -643,7 +675,7 @@ const pfAttention = brands.filter((b) => {
                   {pfDrops.slice(0, 6).map((b) => (
                     <a class="gap" href={`/app/scans/${b.latest.id}/results`}>
                       <span class="gap__sev" style="background:var(--sev-high)"></span>
-                      <span class="gap__q">{b.name}<span style="color:var(--color-text-muted);font-weight:400"> · {Math.round(b.prevRate)}% → {Math.round(b.rate)}%</span></span>
+                      <span class="gap__q">{b.name}<span style="color:var(--color-text-muted);font-weight:400"> · {Math.round(b.prevRate)}% → {Math.round(b.rate)}%{b.fc != null ? ` · #1 when cited ${b.fc}%` : ''}</span></span>
                       <span class="gap__rate" style="color:var(--status-critical)">▼ {Math.abs(b.delta)} pts{b.eraChanged ? ' ⟳' : ''}</span>
                     </a>
                   ))}
@@ -660,8 +692,8 @@ const pfAttention = brands.filter((b) => {
                   {pfWorkload.slice(0, 6).map((b) => (
                     <a class="gap" href={`/app/scans/${b.latest.id}/actions`}>
                       <span class="gap__sev" style="background:var(--sev-high)"></span>
-                      <span class="gap__q">{b.name}</span>
-                      <span class="gap__rate">{b.crit.toLocaleString('en-US')} critical</span>
+                      <span class="gap__q">{b.name}{b.fc != null ? <span style="color:var(--color-text-muted);font-weight:400"> · #1 when cited {b.fc}%</span> : ''}</span>
+                      <span class="gap__rate">{b.crit.toLocaleString('en-US')} critical{b.high ? ` · ${b.high} high` : ''}</span>
                     </a>
                   ))}
                 </div>

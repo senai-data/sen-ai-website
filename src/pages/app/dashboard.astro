@@ -299,6 +299,9 @@ function firstChoiceShare(scan: any): number | null {
   if (cited <= 0) return null;
   return Math.round(((p.top1 || 0) / cited) * 100);
 }
+// Display name without the repeated "(import seo-llm)" import suffix - noise
+// on every row of a portfolio that all came from the same import.
+const cleanName = (n: string) => (n || '').replace(/\s*\(import seo-llm\)\s*$/i, '');
 const brands = _roots.map((root) => {
   const done = _completedRuns(root);
   const latest = done[0] || null;
@@ -312,7 +315,7 @@ const brands = _roots.map((root) => {
   const high = (latest?.summary?.opportunities?.haute) || 0;
   const grade = gradeFor(rate);
   const fc = latest ? firstChoiceShare(latest) : null;
-  return { id: root.id, name: root.name || root.domain, domain: root.domain, latest, prev, running, rate, prevRate, delta, eraChanged, crit, high, grade, fc };
+  return { id: root.id, name: root.name || root.domain, display: cleanName(root.name || root.domain), domain: root.domain, latest, prev, running, rate, prevRate, delta, eraChanged, crit, high, grade, fc };
 });
 
 const numLineages = _roots.length;
@@ -337,7 +340,10 @@ const pfScheduled = scans.filter((s) => s.schedule && s.schedule !== 'manual' &&
 // user's content for a model shift.
 const pfDrops = brands.filter((b) => b.delta != null && b.delta < 0).sort((a, b) => (a.delta as number) - (b.delta as number));
 const _eraDrop = pfDrops.find((b) => b.eraChanged);
-const pfEraLabel = _eraDrop ? (modelChangeNote(_eraDrop.prev.summary?.models, _eraDrop.latest.summary?.models) || 'AI models updated') : '';
+// Human-facing era note : the current answer-generating models (openai +
+// gemini), NOT the full old→new dump with the internal analyzer model.
+const _em = _eraDrop?.latest?.summary?.models || {};
+const pfEraModels = [_em.openai, _em.gemini].filter(Boolean).join(' + ');
 const pfAllEra = pfDrops.length > 0 && pfDrops.every((b) => b.eraChanged);
 // Workload : brands ranked by the critical gaps waiting in their action plan.
 const pfWorkload = brands.filter((b) => b.latest && b.crit > 0).sort((a, b) => b.crit - a.crit);
@@ -559,9 +565,9 @@ const pfAttention = brands.filter((b) => {
         <p style="font-size:13px;color:var(--color-text-muted);margin-top:3px">Tracking {numLineages} brands{pfScanning.length ? ` · ${pfScanning.length} scanning now` : ''}</p>
         {(pfLeader || pfMostGaps) && (
           <p style="font-size:12.5px;color:var(--color-text-muted);margin-top:5px">
-            {pfLeader && <>Strongest: <b style="color:var(--color-text-secondary);font-weight:600">{pfLeader.name.split(' (')[0]}</b> ({pfLeader.grade ? pfLeader.grade.toUpperCase() : '–'}, {Math.round(pfLeader.rate)}%)</>}
+            {pfLeader && <>Strongest: <b style="color:var(--color-text-secondary);font-weight:600">{pfLeader.display}</b> ({pfLeader.grade ? pfLeader.grade.toUpperCase() : '–'}, {Math.round(pfLeader.rate)}%)</>}
             {pfLeader && pfMostGaps && '  ·  '}
-            {pfMostGaps && <>Most work: <b style="color:var(--color-text-secondary);font-weight:600">{pfMostGaps.name.split(' (')[0]}</b> ({pfMostGaps.crit.toLocaleString('en-US')} critical gaps)</>}
+            {pfMostGaps && <>Most work: <b style="color:var(--color-text-secondary);font-weight:600">{pfMostGaps.display}</b> ({pfMostGaps.crit.toLocaleString('en-US')} critical gaps)</>}
           </p>
         )}
       </div>
@@ -601,7 +607,7 @@ const pfAttention = brands.filter((b) => {
           {pfScanning.map((b) => (
             <a class="gap" href={`/app/scans/${b.running.id}`}>
               <span class="gap__sev" style="background:var(--sev-medium)"></span>
-              <span class="gap__q">{b.name}<span style="color:var(--color-text-muted);font-weight:400"> · {b.latest ? 'rescan' : 'first scan'}{b.running.progress_pct ? ` · ${b.running.progress_pct}%` : ''}</span></span>
+              <span class="gap__q">{b.display}<span style="color:var(--color-text-muted);font-weight:400"> · {b.latest ? 'rescan' : 'first scan'}{b.running.progress_pct ? ` · ${b.running.progress_pct}%` : ''}</span></span>
               <span class="gap__rate">{statusLabel(b.running.status)}</span>
             </a>
           ))}
@@ -666,16 +672,16 @@ const pfAttention = brands.filter((b) => {
                 <div class="panel__head">
                   <div class="panel__title">{pfAllEra ? 'Visibility dropped after the AI models changed' : 'Biggest visibility drops'}</div>
                 </div>
-                {pfEraLabel && (
+                {pfAllEra && (
                   <p style="font-size:12.5px;color:var(--color-text-secondary);padding:2px 2px 12px;line-height:1.5">
-                    Mention rate fell across your brands at the same time the AI models changed ({pfEraLabel}). That points to a model shift, not your content.
+                    Mention rate fell across your brands at the same time the AI models were upgraded{pfEraModels ? ` (now ${pfEraModels})` : ''}. That points to a model shift, not your content.
                   </p>
                 )}
                 <div class="gaps">
                   {pfDrops.slice(0, 6).map((b) => (
                     <a class="gap" href={`/app/scans/${b.latest.id}/results`}>
                       <span class="gap__sev" style="background:var(--sev-high)"></span>
-                      <span class="gap__q">{b.name}<span style="color:var(--color-text-muted);font-weight:400"> · {Math.round(b.prevRate)}% → {Math.round(b.rate)}%{b.fc != null ? ` · #1 when cited ${b.fc}%` : ''}</span></span>
+                      <span class="gap__q">{b.display}<span style="color:var(--color-text-muted);font-weight:400"> · {Math.round(b.prevRate)}% → {Math.round(b.rate)}%{b.fc != null ? ` · #1 when cited ${b.fc}%` : ''}</span></span>
                       <span class="gap__rate" style="color:var(--status-critical)">▼ {Math.abs(b.delta)} pts{b.eraChanged ? ' ⟳' : ''}</span>
                     </a>
                   ))}
@@ -692,7 +698,7 @@ const pfAttention = brands.filter((b) => {
                   {pfWorkload.slice(0, 6).map((b) => (
                     <a class="gap" href={`/app/scans/${b.latest.id}/actions`}>
                       <span class="gap__sev" style="background:var(--sev-high)"></span>
-                      <span class="gap__q">{b.name}{b.fc != null ? <span style="color:var(--color-text-muted);font-weight:400"> · #1 when cited {b.fc}%</span> : ''}</span>
+                      <span class="gap__q">{b.display}{b.fc != null ? <span style="color:var(--color-text-muted);font-weight:400"> · #1 when cited {b.fc}%</span> : ''}</span>
                       <span class="gap__rate">{b.crit.toLocaleString('en-US')} critical{b.high ? ` · ${b.high} high` : ''}</span>
                     </a>
                   ))}
@@ -706,7 +712,7 @@ const pfAttention = brands.filter((b) => {
                   {pfAttention.map((b) => (
                     <a class="gap" href={`/app/scans/${b.id}`}>
                       <span class="gap__sev" style="background:var(--sev-medium)"></span>
-                      <span class="gap__q">{b.name}<span style="color:var(--color-text-muted);font-weight:400"> · {b.latest ? `last scan ${timeAgo(b.latest.completed_at)}` : 'never scanned'}</span></span>
+                      <span class="gap__q">{b.display}<span style="color:var(--color-text-muted);font-weight:400"> · {b.latest ? `last scan ${timeAgo(b.latest.completed_at)}` : 'never scanned'}</span></span>
                       <span class="gap__rate">{b.latest ? 'Rescan' : 'Set up'}</span>
                     </a>
                   ))}

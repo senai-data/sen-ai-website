@@ -70,6 +70,37 @@ const PROVIDER_META = [
     id: 'mistral', name: 'Mistral', family: 'Mistral scanning has not shipped yet', placeholder: '',
     comingSoon: true,
   },
+  {
+    id: 'yourtextguru', name: 'YourText Guru', family: 'SEO content tool - article generation', placeholder: 'YTG API token', seoTool: true,
+    usedFor: 'The semantic SEO guides that shape every generated netlinking article. Bring your key to run article generation on your own YourText Guru account: your own rate limit and token quota instead of the shared pool.',
+    keyUrl: 'https://yourtext.guru/profile/api',
+    billingUrl: 'https://yourtext.guru/pricing',
+    fundingNote: 'YourText Guru is token-based: each article consumes guide tokens from your account.',
+  },
+  {
+    id: 'babbar', name: 'Babbar', family: 'SEO authority tool - domain metrics', placeholder: 'Babbar API token', seoTool: true,
+    usedFor: 'Domain-authority metrics used when scoring media and competitor pages during content work. Bring your key to run on your own Babbar account and avoid shared rate limits.',
+    keyUrl: 'https://www.babbar.tech/api',
+    billingUrl: 'https://www.babbar.tech/tarifs',
+    fundingNote: 'Babbar is quota-based per your plan.',
+  },
+];
+
+// Two collapsible groups (Miller chunking + progressive disclosure). LLM keys
+// power scans; SEO-tool keys power content generation. Rendered as native
+// <details> accordions; each summary keeps a live "N/M keys set" count so
+// collapsing never hides system state.
+const GROUPS = [
+  {
+    key: 'llm', title: 'LLM providers', open: true,
+    subtitle: 'Used by your scans. Bring your own key and every scan in this organization runs on your provider account (with an optional monthly USD cap).',
+    providers: PROVIDER_META.filter(p => !p.seoTool),
+  },
+  {
+    key: 'seo', title: 'SEO tools', open: true,
+    subtitle: 'Optional, for content generation. Your own YourText Guru / Babbar key runs article generation on your account (own rate limits and quota). Not LLMs - no USD cap.',
+    providers: PROVIDER_META.filter(p => p.seoTool),
+  },
 ];
 
 // Fail-open default: all providers unconfigured (page still renders if the
@@ -89,14 +120,23 @@ if (activeOrg) {
   } catch {}
 }
 
-const problems = keys.filter(k => k.configured && k.provider !== 'mistral' && (k.status === 'invalid' || k.cap_reached));
+const seoIds = new Set(PROVIDER_META.filter(p => p.seoTool).map(p => p.id));
+// SEO tools excluded from this banner : its wording is scan/cap-centric and
+// SEO tools have no USD cap; an invalid SEO key still shows on its own card.
+const problems = keys.filter(k => k.configured && k.provider !== 'mistral' && !seoIds.has(k.provider) && (k.status === 'invalid' || k.cap_reached));
+// SSR count of configured keys per group (hint on the accordion header so a
+// collapsed group still shows whether keys are set).
+const groupConfigured = (g: typeof GROUPS[number]) => g.providers.filter(p => {
+  const k = keys.find(x => x.provider === p.id);
+  return k && k.configured;
+}).length;
 ---
 
-<DashboardLayout title="LLM API keys" activeSection="settings">
+<DashboardLayout title="API keys" activeSection="settings">
   <div class="p-8 max-w-3xl">
     <a href="/app/settings" class="text-xs text-gray-400 hover:text-charcoal-dark">&larr; Settings</a>
     <div class="flex items-center gap-3 mt-2 mb-1">
-      <h1 class="text-2xl font-bold text-charcoal-dark">LLM API keys</h1>
+      <h1 class="text-2xl font-bold text-charcoal-dark">API keys</h1>
       <span class="chip chip--neutral">Beta</span>
     </div>
     <p class="text-sm text-charcoal-light mb-6">
@@ -144,13 +184,22 @@ const problems = keys.filter(k => k.configured && k.provider !== 'mistral' && (k
         <li><strong>Pricing:</strong> scans that run entirely on your own keys (OpenAI, Anthropic and Gemini all active) cost 50% fewer credits. Provider usage is billed by the provider to your account.</li>
         <li><strong>Beta bonus:</strong> the first time your organization has active keys for OpenAI, Anthropic and Gemini, you get 200 free scan credits (one time, credited to your active workspace).</li>
         <li><strong>Mistral:</strong> coming soon - Mistral scanning has not shipped yet, so key storage is disabled for now.</li>
+        <li><strong>SEO tools (YourText Guru, Babbar):</strong> optional keys for the content generator. With your own key, article generation runs on your account (your rate limits and quota) instead of the shared pool. These are not LLMs, so there is no USD cap here - your provider account is the limit.</li>
       </ul>
     </div>
 
     {activeOrg && (
       <div x-data={`apiKeysPanel('${activeOrg.id}', ${JSON.stringify(keys)}, ${isManager})`}>
-        {PROVIDER_META.map(p => (
-          <div class="bg-white rounded-xl border border-gray-200 p-6 mb-6">
+        {GROUPS.map(g => (
+          <details open={g.open} class="mb-6">
+            <summary class="acc-summary flex items-center cursor-pointer select-none bg-white rounded-xl border border-gray-200 p-4 hover:border-coral/40">
+              <svg class="acc-chevron w-4 h-4 text-gray-400 mr-2 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+              <span class="text-sm font-semibold text-charcoal-dark uppercase tracking-wide">{g.title}</span>
+              <span class="text-xs text-charcoal-light font-normal normal-case ml-2">{groupConfigured(g)}/{g.providers.filter(p => !p.comingSoon).length} keys set</span>
+            </summary>
+            <p class="text-xs text-charcoal-light mt-2 mb-3 px-1">{g.subtitle}</p>
+            {g.providers.map(p => (
+          <div class="bg-white rounded-xl border border-gray-200 p-6 mb-4">
             <div class="flex items-start justify-between mb-3">
               <div>
                 <h2 class="text-sm font-semibold text-charcoal-dark">{p.name}</h2>
@@ -172,7 +221,7 @@ const problems = keys.filter(k => k.configured && k.provider !== 'mistral' && (k
                 <ul class="list-disc pl-4 mt-2 space-y-1">
                   <li><a href={p.keyUrl} target="_blank" rel="noopener" class="text-coral hover:underline">Create an API key &#8599;</a></li>
                   <li><a href={p.billingUrl} target="_blank" rel="noopener" class="text-coral hover:underline">Billing / add funds &#8599;</a> - {p.fundingNote}</li>
-                  <li>Paste the key below and Save - we validate it with one small free test call. The monthly cap here is sen-ai's own estimate and blocks our jobs only ; a hard provider-side limit is set in the billing console above.</li>
+                  <li>Paste the key below and Save - we validate it with one small test call.{!p.seoTool && ' The monthly cap here is sen-ai\'s own estimate and blocks our jobs only ; a hard provider-side limit is set in the billing console above.'}</li>
                 </ul>
               </details>
             )}
@@ -207,7 +256,8 @@ const problems = keys.filter(k => k.configured && k.provider !== 'mistral' && (k
               </div>
             </template>
 
-            {/* Spend row (configured only) */}
+            {/* Spend row (configured only, LLM providers - SEO tools have no USD spend) */}
+            {!p.seoTool && (
             <template x-if={`st('${p.id}').configured`}>
               <div class="mb-4">
                 <Tip id="byok_spend">
@@ -223,6 +273,7 @@ const problems = keys.filter(k => k.configured && k.provider !== 'mistral' && (k
                 </div>
               </div>
             </template>
+            )}
 
             {isManager && !p.comingSoon && (
               <div>
@@ -233,6 +284,7 @@ const problems = keys.filter(k => k.configured && k.provider !== 'mistral' && (k
                          placeholder={p.placeholder}
                          x-model={`st('${p.id}').input`} @input={`dirty('${p.id}')`} />
                 </div>
+                {!p.seoTool && (
                 <div class="mb-3">
                   <label class="block text-xs font-semibold text-charcoal-dark mb-1">
                     <Tip id="byok_monthly_cap"><span>Monthly cap (USD, optional)</span></Tip>
@@ -241,6 +293,7 @@ const problems = keys.filter(k => k.configured && k.provider !== 'mistral' && (k
                          x-model={`st('${p.id}').capInput`} @input={`dirty('${p.id}')`} />
                   <p class="text-xs text-gray-400 mt-1">Leave empty for no cap. The cap blocks jobs; it does not buy anything.</p>
                 </div>
+                )}
                 <div class="flex items-center justify-between border-t border-gray-100 pt-3">
                   <span class="text-xs" :class={`st('${p.id}').err ? 'text-red-600' : (st('${p.id}').saved ? 'text-emerald-600' : 'text-gray-400')`}>
                     <span x-show={`st('${p.id}').err`} x-text={`st('${p.id}').err`}></span>
@@ -256,18 +309,28 @@ const problems = keys.filter(k => k.configured && k.provider !== 'mistral' && (k
               </div>
             )}
           </div>
+            ))}
+          </details>
         ))}
       </div>
     )}
   </div>
 </DashboardLayout>
 
+<style>
+  /* Accordion group headers (native <details>) - scoped to this page only. */
+  .acc-summary { list-style: none; }
+  .acc-summary::-webkit-details-marker { display: none; }
+  .acc-chevron { transition: transform .15s ease; }
+  details[open] > .acc-summary .acc-chevron { transform: rotate(90deg); }
+</style>
+
 <script is:inline>
   document.addEventListener('alpine:init', () => {
     Alpine.data('apiKeysPanel', (orgId, initial, isManager) => ({
       orgId, isManager,
       keys: {},
-      names: { openai: 'OpenAI', anthropic: 'Anthropic', gemini: 'Google Gemini', mistral: 'Mistral' },
+      names: { openai: 'OpenAI', anthropic: 'Anthropic', gemini: 'Google Gemini', mistral: 'Mistral', yourtextguru: 'YourText Guru', babbar: 'Babbar' },
       init() {
         for (const k of initial) {
           this.keys[k.provider] = Object.assign({}, k, {

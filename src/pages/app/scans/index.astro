@@ -260,11 +260,11 @@ const allScanIds = scans.map(s => s.id);
                         {statusLabel(ls.status)}
                       </span>
                       {showRescanChip ? (
-                        <div class="mt-1">
+                        <div class="mt-1" data-rescan-id={rescanning.id}>
                           <span class="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 font-medium"
                                 title="A rescan is currently running for this tracker. The metrics above are the last completed run until it finishes.">
                             <span class="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></span>
-                            Rescanning{rescanning.progress_pct ? ` ${rescanning.progress_pct}%` : '...'}
+                            Rescanning<span class="rescan-pct">{rescanning.progress_pct ? ` ${rescanning.progress_pct}%` : '...'}</span>
                           </span>
                         </div>
                       ) : null}
@@ -384,4 +384,36 @@ const allScanIds = scans.map(s => s.id);
       </div>
     )}
   </div>
+
+  {/* Live progress for in-flight rescans. The list is SSR (no Alpine store),
+      so poll each rescanning child's /api/scans/{id}, update its % in place,
+      and reload when it lands so the row's metrics/date refresh. Mirrors the
+      Overview header poll (ScanResultsLayout). No-op when nothing is running. */}
+  <script is:inline>
+    (function () {
+      var nodes = document.querySelectorAll('[data-rescan-id]');
+      if (!nodes.length) return;
+      var POLL_MS = 15000;
+      nodes.forEach(function (node) {
+        var id = node.getAttribute('data-rescan-id');
+        var pctEl = node.querySelector('.rescan-pct');
+        var timer = setInterval(function () {
+          fetch('/api/scans/' + id, { headers: { Accept: 'application/json' } })
+            .then(function (r) { return r.ok ? r.json() : null; })
+            .then(function (s) {
+              if (!s) return;
+              if (s.status === 'completed' || s.status === 'failed') {
+                clearInterval(timer);
+                location.reload();
+                return;
+              }
+              if (pctEl && typeof s.progress_pct === 'number') {
+                pctEl.textContent = ' ' + s.progress_pct + '%';
+              }
+            })
+            .catch(function () {});
+        }, POLL_MS);
+      });
+    })();
+  </script>
 </DashboardLayout>

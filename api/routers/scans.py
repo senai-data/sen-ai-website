@@ -364,6 +364,79 @@ async def list_scans(
     return [_serialize_scan(s) for s in scans]
 
 
+@router.get("/competitor-share")
+async def competitor_share(
+    client_id: str = Query(...),
+    user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Portfolio competitor share-of-voice for the multi-brand dashboard.
+
+    Across the latest COMPLETED run of each brand lineage in this workspace,
+    the competitor brands the AIs mention most - answering the agency question
+    "who is recommended instead of us". Signal is `entity_type='brand'` on
+    scan_llm_results.brand_mentions (cleanly separates real brands from
+    expert_sources / domains / products), excluding the target brand and the
+    client's own brands (classification='my_brand', plus the client's own name
+    tokens - the parent brand is often left unclassified but is not a rival).
+    One read-only aggregate over the latest runs. Route declared BEFORE
+    /{scan_id} so it is not swallowed by the scan-id matcher.
+    """
+    from services.access import check_client_access
+    from sqlalchemy import text as _text
+    check_client_access(client_id, user, db)
+
+    client = db.query(Client).filter(Client.id == client_id).first()
+    own_name = ""
+    if client and client.name:
+        own_name = re.sub(r"\s*(workspace|org|organization)s?\s*$", "", client.name.strip(), flags=re.I).strip().lower()
+
+    rows = db.execute(_text("""
+        WITH latest AS (
+            SELECT DISTINCT ON (COALESCE(s.parent_scan_id, s.id)) s.id
+              FROM scans s
+             WHERE s.client_id = :cid AND s.status = 'completed'
+             ORDER BY COALESCE(s.parent_scan_id, s.id), s.completed_at DESC
+        ),
+        own AS (
+            SELECT DISTINCT lower(trim(cb.name)) AS name
+              FROM scan_brand_classifications sbc
+              JOIN client_brands cb ON cb.id = sbc.brand_id
+              JOIN scans s ON s.id = sbc.scan_id
+             WHERE s.client_id = :cid AND sbc.classification = 'my_brand'
+        )
+        SELECT lower(trim(COALESCE(bm->>'brand_name_groupby', bm->>'brand_name'))) AS competitor,
+               COUNT(*) AS mentions,
+               COUNT(DISTINCT l.id) AS in_brands
+          FROM latest l
+          JOIN scan_llm_results r ON r.scan_id = l.id AND r.run_index >= 1
+          CROSS JOIN LATERAL jsonb_array_elements(
+                CASE WHEN jsonb_typeof(r.brand_mentions) = 'array'
+                     THEN r.brand_mentions ELSE '[]'::jsonb END) bm
+         WHERE bm->>'entity_type' = 'brand'
+           AND COALESCE((bm->>'est_marque_cible')::boolean, false) = false
+           AND COALESCE(trim(bm->>'brand_name'), '') <> ''
+           AND lower(trim(COALESCE(bm->>'brand_name_groupby', bm->>'brand_name'))) NOT IN (SELECT name FROM own)
+           AND (:own_name = '' OR lower(trim(COALESCE(bm->>'brand_name_groupby', bm->>'brand_name'))) <> :own_name)
+         GROUP BY 1
+         ORDER BY 2 DESC
+         LIMIT 8
+    """), {"cid": client_id, "own_name": own_name}).fetchall()
+
+    def _disp(n: str) -> str:
+        # Title-case, hyphen-aware : "la roche-posay" -> "La Roche-Posay".
+        return " ".join("-".join(p.capitalize() for p in w.split("-")) for w in n.split())
+
+    competitors = [
+        {"name": _disp(r.competitor), "mentions": int(r.mentions), "in_brands": int(r.in_brands)}
+        for r in rows
+    ]
+    return {
+        "competitors": competitors,
+        "total_mentions": sum(c["mentions"] for c in competitors),
+    }
+
+
 @router.get("/{scan_id}")
 async def get_scan(scan_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
     scan = _check_scan_access(scan_id, user, db)

@@ -78,7 +78,7 @@ const oppsP: Promise<any> = scansP.then((sj: any) => {
     ? jget(`http://api:8000/api/scans/${firstCompleted.id}/opportunities`, `token=${token}`, 5000)
     : null;
 });
-const [scansJ, oppJ, creditsJ, overviewJ, keysJ] = await Promise.all([
+const [scansJ, oppJ, creditsJ, overviewJ, keysJ, compJ] = await Promise.all([
   scansP,
   oppsP,
   activeClient ? jget(`http://api:8000/api/stripe/credits/${activeClient.id}`, `token=${token}`) : null,
@@ -90,6 +90,10 @@ const [scansJ, oppJ, creditsJ, overviewJ, keysJ] = await Promise.all([
   // BYOK - key issues (cap reached / invalid) for the warning banner.
   // Fail-open: no banner if the fetch hiccups. Mistral excluded (dormant).
   activeOrg ? jget(`http://api:8000/api/organizations/${activeOrg.id}/api-keys`, upstreamCookie) : null,
+  // Portfolio competitor share-of-voice (multi-brand panel). Cheap aggregate
+  // over the latest runs' brand_mentions ; fail-open, only rendered when the
+  // workspace holds >1 brand.
+  activeClient ? jget(`http://api:8000/api/scans/competitor-share?client_id=${activeClient.id}`, `token=${token}`, 6000) : null,
 ]);
 
 const scans: any[] = scansJ || [];
@@ -353,6 +357,8 @@ const pfAttention = brands.filter((b) => {
   if (!b.latest) return true;
   return (Date.now() - new Date(b.latest.completed_at || b.latest.created_at).getTime()) > 30 * 86400000;
 });
+// Competitor share-of-voice across the portfolio (from /competitor-share).
+const pfCompetitors = (compJ?.competitors || []).filter((c: any) => c && c.mentions > 0);
 ---
 
 <DashboardLayout title="Dashboard" activeSection="dashboard" mobileReady>
@@ -684,6 +690,25 @@ const pfAttention = brands.filter((b) => {
                       <span class="gap__q">{b.display}<span style="color:var(--color-text-muted);font-weight:400"> · {Math.round(b.prevRate)}% → {Math.round(b.rate)}%{b.fc != null ? ` · #1 when cited ${b.fc}%` : ''}</span></span>
                       <span class="gap__rate" style="color:var(--status-critical)">▼ {Math.abs(b.delta)} pts{b.eraChanged ? ' ⟳' : ''}</span>
                     </a>
+                  ))}
+                </div>
+              </div>
+            )}
+            {pfCompetitors.length > 0 && (
+              <div class="panel">
+                <div class="panel__head">
+                  <div class="panel__title">Recommended instead of you</div>
+                </div>
+                <p style="font-size:12.5px;color:var(--color-text-secondary);padding:2px 2px 12px;line-height:1.5">
+                  Across your brands, the rival brands the AIs name most in their answers (yours excluded).
+                </p>
+                <div class="gaps">
+                  {pfCompetitors.map((c: any) => (
+                    <div class="gap" style="cursor:default">
+                      <span class="gap__sev" style="background:var(--color-text-muted)"></span>
+                      <span class="gap__q">{c.name}{c.in_brands > 1 ? <span style="color:var(--color-text-muted);font-weight:400"> · across {c.in_brands} of your brands</span> : ''}</span>
+                      <span class="gap__rate">{c.mentions.toLocaleString('en-US')} mentions</span>
+                    </div>
                   ))}
                 </div>
               </div>

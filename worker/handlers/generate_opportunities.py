@@ -230,12 +230,29 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
                     f"(intent={q.intent_category})"
                 )
                 continue
-            # Determine recommended action by case, not by priority label :
-            # absent rows keep the legacy faq/netlinking split (netlinking
-            # when a cited domain gives a placement target), cited-behind
-            # rows tweak the existing page.
+            # Determine recommended action by case, not by priority label.
+            # Absent-brand gaps split by INTENT, not just "competitor present"
+            # (in a competitive vertical a competitor is cited in ~every gap, so
+            # that alone routes everything to netlinking - see the 2026-07 audit
+            # that flipped 1506/1506 gaps). The real discriminator :
+            #   - promotional_fit (commercial query) + a competitor present
+            #       -> netlinking : close it with a paid placement on a third
+            #         party media that recommends products. The PLACEMENT MEDIA
+            #         comes from the catalogue via materialize's media_picker
+            #         (LinkFinder price + Babbar authority + LLM citation), NOT
+            #         from the cited domain (the AI cites authorities / brand
+            #         sites like aad.org, ameli.fr, competitor .fr - never the
+            #         placeable media).
+            #   - informational_neutral / other -> faq : own-site how-to /
+            #         what-is content the AI can cite directly (free).
+            # Volume stays bounded by materialize's 30/scan + 8/topic caps
+            # (strongest first). Cited-behind rows tweak the existing page.
             if not brand_cited:
-                action = "netlinking" if best_competitor_domain else "faq"
+                competitor_present = nb_competitor_brands > 0 or bool(best_competitor_domain)
+                if q.intent_category == "promotional_fit" and competitor_present:
+                    action = "netlinking"
+                else:
+                    action = "faq"
             elif priority == "haute":
                 action = "content_update"
             else:

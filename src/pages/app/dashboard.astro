@@ -264,6 +264,64 @@ const priorityDot: Record<string, string> = {
   haute: 'var(--sev-medium)',
   moyenne: 'var(--sev-low)',
 };
+
+// ── Portfolio view (multi-brand workspace) ─────────────────────────────────
+// A workspace can hold several brand lineages (Pierre Fabre tracks Klorane,
+// Avène, ... as separate scans). The single-brand hero then picks one at
+// random (the latest completed) and its numbers masquerade as the workspace's.
+// When >1 lineage exists we switch to a SYNTHESIS view : what's live, what
+// moved, where the work is - never a re-listing of every brand (that is My
+// Scans). Reuses the My Scans lineage grouping. All per-brand data comes from
+// the scans array ; crisis/sentiment live in aux tables (not here) so per-brand
+// crisis is a follow-up.
+const _byId: Record<string, any> = {};
+for (const s of scans) _byId[s.id] = s;
+const _roots: any[] = [];
+const _kids: Record<string, any[]> = {};
+for (const s of scans) { const p = s.parent_scan_id; if (!p || !_byId[p]) { _roots.push(s); _kids[s.id] = []; } }
+for (const s of scans) { const p = s.parent_scan_id; if (p && _byId[p] && _kids[p]) _kids[p].push(s); }
+
+const _RUNNING = ['scanning', 'fetching_keywords', 'generating_personas', 'assigning_keywords', 'pending'];
+function _completedRuns(root: any): any[] {
+  return [root, ...(_kids[root.id] || [])]
+    .filter((s) => s.status === 'completed' && rateOf(s) !== null)
+    .sort((a, b) => new Date(b.completed_at || b.created_at).getTime() - new Date(a.completed_at || a.created_at).getTime());
+}
+const brands = _roots.map((root) => {
+  const done = _completedRuns(root);
+  const latest = done[0] || null;
+  const prev = done[1] || null;
+  const running = [root, ...(_kids[root.id] || [])].find((s) => _RUNNING.includes(s.status)) || null;
+  const rate = latest ? rateOf(latest) : null;
+  const prevRate = prev ? rateOf(prev) : null;
+  const eraChanged = !!(latest && prev && modelsDiffer(prev.summary?.models, latest.summary?.models));
+  const delta = (rate != null && prevRate != null) ? Math.round((rate - prevRate) * 10) / 10 : null;
+  const crit = (latest?.summary?.opportunities?.critique) || 0;
+  return { id: root.id, name: root.name || root.domain, domain: root.domain, latest, prev, running, rate, prevRate, delta, eraChanged, crit };
+});
+
+const numLineages = _roots.length;
+const isMultiBrand = numLineages > 1;
+
+// Portfolio signals (all cheap, from the scans array).
+const pfScanning = brands.filter((b) => b.running);
+const pfCritTotal = brands.reduce((n, b) => n + (b.crit || 0), 0);
+const pfScheduled = scans.filter((s) => s.schedule && s.schedule !== 'manual' && s.next_run_at).length;
+// What moved : biggest mention-rate drops. Right now every drop coincides with
+// the model-era change, so we tag those (⟳) and say so, to avoid blaming the
+// user's content for a model shift.
+const pfDrops = brands.filter((b) => b.delta != null && b.delta < 0).sort((a, b) => (a.delta as number) - (b.delta as number));
+const _eraDrop = pfDrops.find((b) => b.eraChanged);
+const pfEraLabel = _eraDrop ? (modelChangeNote(_eraDrop.prev.summary?.models, _eraDrop.latest.summary?.models) || 'AI models updated') : '';
+const pfAllEra = pfDrops.length > 0 && pfDrops.every((b) => b.eraChanged);
+// Workload : brands ranked by the critical gaps waiting in their action plan.
+const pfWorkload = brands.filter((b) => b.latest && b.crit > 0).sort((a, b) => b.crit - a.crit);
+// Attention : never completed, or stale (latest completed > 30d) and not running.
+const pfAttention = brands.filter((b) => {
+  if (b.running) return false;
+  if (!b.latest) return true;
+  return (Date.now() - new Date(b.latest.completed_at || b.latest.created_at).getTime()) > 30 * 86400000;
+});
 ---
 
 <DashboardLayout title="Dashboard" activeSection="dashboard" mobileReady>
@@ -405,8 +463,8 @@ const priorityDot: Record<string, string> = {
       </div>
     )}
 
-    {/* ── HERO : the latest tracked brand, or the setup in progress ── */}
-    {latestCompleted ? (
+    {/* ── HERO (single-brand workspace only) : the tracked brand, or setup ── */}
+    {!isMultiBrand && (latestCompleted ? (
       <div class="hero">
         <div style="flex:none">
           {heroGrade
@@ -467,10 +525,61 @@ const priorityDot: Record<string, string> = {
           <a class="btn btn--primary btn--md" href={`/app/scans/${latestAny.id}`}>Continue setup</a>
         </div>
       </div>
-    ) : null}
+    ) : null)}
 
-    {/* ── KPI row : only meaningful once a scan completed ── */}
-    {latestCompleted && (
+    {/* ── PORTFOLIO header + pulse + live (multi-brand workspace) ── */}
+    {isMultiBrand && (
+      <div style="margin-bottom:16px">
+        <h1 style="font-size:22px;font-weight:700;letter-spacing:-.02em;color:var(--color-text-primary)">{activeClient?.name || 'Your workspace'}</h1>
+        <p style="font-size:13px;color:var(--color-text-muted);margin-top:3px">Tracking {numLineages} brands{pfScanning.length ? ` · ${pfScanning.length} scanning now` : ''}</p>
+      </div>
+    )}
+    {isMultiBrand && (
+      <div class="kpis">
+        <div class="card card--flat stat">
+          <div class="stat__label">Brands tracked</div>
+          <div class="stat__row"><div class="stat__value">{numLineages}</div></div>
+          <a class="spark spark--empty" href="/app/scans" style="text-decoration:none;color:var(--coral-700);font-weight:600;font-style:normal">Manage in My Scans</a>
+        </div>
+        <div class="card card--flat stat">
+          <div class="stat__label">Scanning now</div>
+          <div class="stat__row"><div class="stat__value">{pfScanning.length}</div></div>
+          <div class="spark spark--empty">{pfScanning.length ? 'Live, refreshes on its own' : 'Nothing running'}</div>
+        </div>
+        <div class="card card--flat stat">
+          <div class="stat__label">Critical gaps</div>
+          <div class="stat__row"><div class="stat__value" style={pfCritTotal > 0 ? 'color:var(--status-critical)' : ''}>{pfCritTotal.toLocaleString('en-US')}</div></div>
+          <div class="spark spark--empty">Across all your brands</div>
+        </div>
+        <div class="card card--flat stat">
+          <div class="stat__label">Auto-tracking</div>
+          <div class="stat__row"><div class="stat__value" style={pfScheduled === 0 ? 'color:var(--sev-medium)' : ''}>{pfScheduled}</div></div>
+          <div class="spark spark--empty">{pfScheduled === 0 ? 'No brand on a schedule' : `${pfScheduled} scheduled`}</div>
+        </div>
+      </div>
+    )}
+
+    {isMultiBrand && pfScanning.length > 0 && (
+      <div class="panel">
+        <div class="panel__head">
+          <div class="panel__title">Scanning now</div>
+          <span class="chip chip--sm chip--info"><span class="chip__dot"></span>Live</span>
+        </div>
+        <div class="gaps">
+          {pfScanning.map((b) => (
+            <a class="gap" href={`/app/scans/${b.running.id}`}>
+              <span class="gap__sev" style="background:var(--sev-medium)"></span>
+              <span class="gap__q">{b.name}<span style="color:var(--color-text-muted);font-weight:400"> · {b.latest ? 'rescan' : 'first scan'}{b.running.progress_pct ? ` · ${b.running.progress_pct}%` : ''}</span></span>
+              <span class="gap__rate">{statusLabel(b.running.status)}</span>
+            </a>
+          ))}
+        </div>
+        <script is:inline>setTimeout(function(){location.reload();}, 20000);</script>
+      </div>
+    )}
+
+    {/* ── KPI row (single-brand) : only meaningful once a scan completed ── */}
+    {!isMultiBrand && latestCompleted && (
       <div class="kpis">
         <div class="card card--flat stat">
           <div class="stat__label">Mention rate</div>
@@ -518,6 +627,68 @@ const priorityDot: Record<string, string> = {
     {/* ── MAIN GRID ── */}
     <div class="grid">
       <div class="stack">
+        {isMultiBrand ? (
+          <>
+            {pfDrops.length > 0 && (
+              <div class="panel">
+                <div class="panel__head">
+                  <div class="panel__title">{pfAllEra ? 'Visibility dropped after the AI models changed' : 'Biggest visibility drops'}</div>
+                </div>
+                {pfEraLabel && (
+                  <p style="font-size:12.5px;color:var(--color-text-secondary);padding:2px 2px 12px;line-height:1.5">
+                    Mention rate fell across your brands at the same time the AI models changed ({pfEraLabel}). That points to a model shift, not your content.
+                  </p>
+                )}
+                <div class="gaps">
+                  {pfDrops.slice(0, 6).map((b) => (
+                    <a class="gap" href={`/app/scans/${b.latest.id}/results`}>
+                      <span class="gap__sev" style="background:var(--sev-high)"></span>
+                      <span class="gap__q">{b.name}<span style="color:var(--color-text-muted);font-weight:400"> · {Math.round(b.prevRate)}% → {Math.round(b.rate)}%</span></span>
+                      <span class="gap__rate" style="color:var(--status-critical)">▼ {Math.abs(b.delta)} pts{b.eraChanged ? ' ⟳' : ''}</span>
+                    </a>
+                  ))}
+                </div>
+              </div>
+            )}
+            {pfWorkload.length > 0 && (
+              <div class="panel">
+                <div class="panel__head">
+                  <div class="panel__title">Where the work is</div>
+                  <a class="panel__act" href="/app/scans">All brands</a>
+                </div>
+                <div class="gaps">
+                  {pfWorkload.slice(0, 6).map((b) => (
+                    <a class="gap" href={`/app/scans/${b.latest.id}/actions`}>
+                      <span class="gap__sev" style="background:var(--sev-high)"></span>
+                      <span class="gap__q">{b.name}</span>
+                      <span class="gap__rate">{b.crit.toLocaleString('en-US')} critical</span>
+                    </a>
+                  ))}
+                </div>
+              </div>
+            )}
+            {pfAttention.length > 0 && (
+              <div class="panel">
+                <div class="panel__head"><div class="panel__title">Needs attention</div></div>
+                <div class="gaps">
+                  {pfAttention.map((b) => (
+                    <a class="gap" href={`/app/scans/${b.id}`}>
+                      <span class="gap__sev" style="background:var(--sev-medium)"></span>
+                      <span class="gap__q">{b.name}<span style="color:var(--color-text-muted);font-weight:400"> · {b.latest ? `last scan ${timeAgo(b.latest.completed_at)}` : 'never scanned'}</span></span>
+                      <span class="gap__rate">{b.latest ? 'Rescan' : 'Set up'}</span>
+                    </a>
+                  ))}
+                </div>
+              </div>
+            )}
+            {pfDrops.length === 0 && pfWorkload.length === 0 && pfAttention.length === 0 && (
+              <div class="panel">
+                <div class="panel__head"><div class="panel__title">Portfolio</div></div>
+                <p style="font-size:13px;color:var(--color-text-secondary);padding:4px 2px 2px">All brands look stable. Nothing needs your attention right now.</p>
+              </div>
+            )}
+          </>
+        ) : (
         <div class="panel">
           <div class="panel__head">
             <div class="panel__title">Recent scans</div>
@@ -572,6 +743,7 @@ const priorityDot: Record<string, string> = {
             </div>
           )}
         </div>
+        )}
       </div>
 
       <div class="stack">
@@ -603,7 +775,7 @@ const priorityDot: Record<string, string> = {
           </div>
         </div>
 
-        {latestCompleted && topGaps.length > 0 && (
+        {!isMultiBrand && latestCompleted && topGaps.length > 0 && (
           <div class="panel">
             <div class="panel__head">
               <div class="panel__title">Top gaps to close</div>

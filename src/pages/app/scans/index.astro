@@ -112,6 +112,19 @@ function rootActivity(root) {
 }
 roots.sort((a, b) => (rootActivity(b) > rootActivity(a) ? 1 : -1));
 
+// The collapsed root row summarizes the LATEST scan of the lineage, not the
+// root. The root is the OLDEST run (run 1 for platform scans, the import head
+// for antedated seo-llm imports), so without this the list showed stale first-
+// scan metrics + date while the freshest rescan hid in the expander. Prefer the
+// most recent COMPLETED run (it has a usable summary) ; fall back to the newest
+// run of any status when none has completed yet (e.g. "Ready to scan").
+function latestScan(root) {
+  const lineage = [root, ...(childrenByRoot[root.id] || [])];
+  const completed = lineage.filter(s => s.status === 'completed');
+  const pool = completed.length ? completed : lineage;
+  return pool.reduce((a, b) => ((b.created_at || '') > (a.created_at || '') ? b : a));
+}
+
 const allScanIds = scans.map(s => s.id);
 ---
 
@@ -160,13 +173,17 @@ const allScanIds = scans.map(s => s.id);
                 <th class="text-center px-3 py-3"><Tip id="status" position="bottom">Status</Tip></th>
                 <th class="text-center px-3 py-3"><Tip id="visibility" position="bottom">Visibility</Tip></th>
                 <th class="text-center px-3 py-3"><Tip id="opportunities" position="bottom">Opportunities</Tip></th>
-                <th class="text-right px-3 py-3">Date</th>
+                <th class="text-right px-3 py-3"><Tip id="last_scan" position="bottom">Last scan</Tip></th>
                 <th class="text-right px-3 py-3 rounded-tr-xl">Actions</th>
               </tr>
             </thead>
             {roots.map(root => {
               const kids = childrenByRoot[root.id] || [];
               const hasKids = kids.length > 0;
+              // Status / visibility / opportunities / date reflect the latest
+              // completed run (see latestScan); identity columns (name, type,
+              // focus brand) and the row actions stay on the canonical root.
+              const ls = latestScan(root);
               return (
                 <tbody class="divide-y divide-gray-100 border-t border-gray-100" x-data="{ expanded: false }">
                   {/* Root row */}
@@ -226,24 +243,24 @@ const allScanIds = scans.map(s => s.id);
                       )}
                     </td>
                     <td class="px-3 py-4 text-center">
-                      <span class={`text-xs px-2.5 py-1 rounded-full bg-${statusColor(root.status)}-100 text-${statusColor(root.status)}-700 font-medium`}>
-                        {statusLabel(root.status)}
+                      <span class={`text-xs px-2.5 py-1 rounded-full bg-${statusColor(ls.status)}-100 text-${statusColor(ls.status)}-700 font-medium`}>
+                        {statusLabel(ls.status)}
                       </span>
                     </td>
                     <td class="px-3 py-4 text-center">
-                      {(root.summary?.brand_mention_rate ?? root.summary?.citation_rate) !== undefined
-                        ? <span class="font-semibold">{root.summary.brand_mention_rate ?? root.summary.citation_rate}%</span>
+                      {(ls.summary?.brand_mention_rate ?? ls.summary?.citation_rate) !== undefined
+                        ? <span class="font-semibold">{ls.summary.brand_mention_rate ?? ls.summary.citation_rate}%</span>
                         : <span class="text-charcoal-light">—</span>
                       }
                     </td>
                     <td class="px-3 py-4 text-center">
-                      {root.summary?.opportunities?.critique
-                        ? <span class="text-red-500 font-semibold">{root.summary.opportunities.critique}</span>
+                      {ls.summary?.opportunities?.critique
+                        ? <span class="text-red-500 font-semibold">{ls.summary.opportunities.critique}</span>
                         : <span class="text-charcoal-light">—</span>
                       }
                     </td>
                     <td class="px-3 py-4 text-right text-charcoal-light whitespace-nowrap">
-                      {root.created_at?.split('T')[0]}
+                      {ls.created_at?.split('T')[0]}
                     </td>
                     <td class="px-3 py-4 text-right whitespace-nowrap">
                       <div class="inline-flex items-center gap-1.5">

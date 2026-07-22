@@ -84,6 +84,10 @@ const softwareSchema = {
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    {/* Google Search Console - URL-prefix property https://sen-ai.fr/
+        verification (public token, safe to expose). Lives in BaseLayout so
+        the homepage and every public page carry it. */}
+    <meta name="google-site-verification" content="LEzratE4HdRZrBlFhvrvqoPRcjBS-9CoSWAR2E-jk3s" />
     <meta name="description" content={description} />
     <meta name="robots" content={noindex ? 'noindex, nofollow' : 'index, follow'} />
     <link rel="canonical" href={canonicalURL.href} />

@@ -192,6 +192,9 @@ const problems = keys.filter(k => k.configured && k.provider !== 'mistral' && (k
                   {isManager && !p.comingSoon && (
                     <>
                       <button class="btn btn--secondary btn--sm" x-show={`!st('${p.id}').editing`} @click={`st('${p.id}').editing = true`}>Replace key</button>
+                      {/* Cancel clears any pasted value so it can't get resent
+                          on a later cap-only save (see save() note). */}
+                      <button class="btn btn--secondary btn--sm" x-show={`st('${p.id}').editing`} @click={`st('${p.id}').editing = false; st('${p.id}').input = ''; st('${p.id}').err = ''`}>Cancel</button>
                       <button class="btn btn--secondary btn--sm" x-show={`st('${p.id}').status === 'invalid'`} :disabled={`st('${p.id}').saving`} @click={`revalidate('${p.id}')`}>Re-validate</button>
                       <button class="btn btn--danger btn--sm" @click={`del('${p.id}')`}>Delete</button>
                     </>
@@ -245,7 +248,10 @@ const problems = keys.filter(k => k.configured && k.provider !== 'mistral' && (k
                     <span x-show={`!st('${p.id}').err && !st('${p.id}').saved && !st('${p.id}').saving`}>Unsaved changes</span>
                     <span x-show={`!st('${p.id}').err && st('${p.id}').saving`}>Validating & saving...</span>
                   </span>
-                  <button class="btn btn--primary btn--sm" @click={`save('${p.id}')`} :disabled={`st('${p.id}').saving || st('${p.id}').saved`}>Save & validate</button>
+                  {/* Label says what the click will do : validating only
+                      happens when a key is actually being set/replaced. */}
+                  <button class="btn btn--primary btn--sm" @click={`save('${p.id}')`} :disabled={`st('${p.id}').saving || st('${p.id}').saved`}
+                          x-text={`(!st('${p.id}').configured || st('${p.id}').editing) ? 'Save & validate' : 'Save cap'`}>Save &amp; validate</button>
                 </div>
               </div>
             )}
@@ -321,9 +327,16 @@ const problems = keys.filter(k => k.configured && k.provider !== 'mistral' && (k
       async save(p) {
         const s = this.st(p);
         const key = (s.input || '').trim();
-        if (!key && !s.configured) { s.err = 'Paste an API key first'; return; }
+        // Only submit a key when the user is actually setting/replacing one
+        // (the key input is visible = not configured, or editing). On a
+        // configured card that isn't being edited we send the cap ONLY and
+        // never re-validate the stored key - a stale/partial value left in the
+        // hidden input must not be resent (that trapped a cap change behind a
+        // leftover bad key : a failed validation kept the bad key in s.input).
+        const replacing = !s.configured || s.editing;
+        if (replacing && !key) { s.err = 'Paste an API key first'; return; }
         const body = { monthly_cap_usd: s.capInput === '' ? null : Number(s.capInput) };
-        if (key) body.api_key = key;
+        if (replacing && key) body.api_key = key;
         if (body.monthly_cap_usd !== null && (!isFinite(body.monthly_cap_usd) || body.monthly_cap_usd < 0)) {
           s.err = 'Monthly cap must be a positive number'; return;
         }

@@ -75,6 +75,12 @@ function canRescan(status) {
   return status === 'completed' || status === 'personas_ready';
 }
 
+// A lineage member actively running (a rescan goes straight to run_llm_tests
+// = status 'scanning'). Mirrors the blue set in statusColor.
+function isProcessing(status) {
+  return ['scanning', 'fetching_keywords', 'generating_personas', 'assigning_keywords'].includes(status);
+}
+
 // --- Lineage grouping -------------------------------------------------------
 // Build roots (parent_scan_id == null) + children (parent_scan_id == root.id).
 // Orphaned children (parent_scan_id points at a missing scan) are promoted to
@@ -184,6 +190,13 @@ const allScanIds = scans.map(s => s.id);
               // completed run (see latestScan); identity columns (name, type,
               // focus brand) and the row actions stay on the canonical root.
               const ls = latestScan(root);
+              // Rescan-in-flight badge : latestScan prefers the COMPLETED run,
+              // so a rescan running on top of a completed lineage would show
+              // "Completed" and hide the in-flight child. Surface it here like
+              // the Overview header's "Rescan running" chip does.
+              const _lineage = [root, ...(childrenByRoot[root.id] || [])];
+              const rescanning = _lineage.find(s => isProcessing(s.status));
+              const showRescanChip = rescanning && ls.status === 'completed';
               return (
                 <tbody class="divide-y divide-gray-100 border-t border-gray-100" x-data="{ expanded: false }">
                   {/* Root row */}
@@ -246,6 +259,15 @@ const allScanIds = scans.map(s => s.id);
                       <span class={`text-xs px-2.5 py-1 rounded-full bg-${statusColor(ls.status)}-100 text-${statusColor(ls.status)}-700 font-medium`}>
                         {statusLabel(ls.status)}
                       </span>
+                      {showRescanChip ? (
+                        <div class="mt-1">
+                          <span class="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 font-medium"
+                                title="A rescan is currently running for this tracker. The metrics above are the last completed run until it finishes.">
+                            <span class="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></span>
+                            Rescanning{rescanning.progress_pct ? ` ${rescanning.progress_pct}%` : '...'}
+                          </span>
+                        </div>
+                      ) : null}
                     </td>
                     <td class="px-3 py-4 text-center">
                       {(ls.summary?.brand_mention_rate ?? ls.summary?.citation_rate) !== undefined

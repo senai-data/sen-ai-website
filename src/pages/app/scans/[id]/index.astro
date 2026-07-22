@@ -2283,19 +2283,23 @@ const isReviewing = effectiveView !== null && (
               <span class="font-medium text-charcoal-dark" x-text="totals.active_questions + ' questions × ' + runsDepth + ' run' + (runsDepth > 1 ? 's' : '') + (byokCovered ? ' × 50% BYOK' : '')"></span> =
               <span class="font-medium text-coral" x-text="displayCredits().toLocaleString() + ' credit' + (displayCredits() !== 1 ? 's' : '')"></span>
             </p>
-            <label class="text-[11px] text-charcoal-light mt-1 inline-flex items-center gap-1.5">
-              Sampling
-              <select class="text-[11px] border border-gray-200 rounded px-1.5 py-0.5 bg-white"
-                      :disabled="savingRuns"
-                      :value="runsDepth"
-                      @change="saveRunsDepth($event.target.value)"
-                      title="How many times each question is asked to each AI. AI answers vary between identical runs - more runs = a mention rate with a real margin of error. 1 credit = 1 question × 1 run.">
-                <option value="1">1 run (single pass)</option>
-                <option value="5">5 runs</option>
-                <option value="10">10 runs (recommended)</option>
-                <option value="20">20 runs</option>
-              </select>
-            </label>
+            {/* Sampling = slider, same format as the Rescan settings panel
+                (ScanResultsLayout) : free 1-20, the credits line above updates
+                live while dragging, PATCH on release. Was a 4-preset dropdown -
+                aligned so launch and rescan read identically. */}
+            <div class="mt-1.5" style="max-width:240px">
+              <div class="flex items-center justify-between text-[11px]">
+                <span class="text-charcoal-light">Sampling</span>
+                <span class="font-semibold text-charcoal-dark" x-text="runsDepth + ' run' + (runsDepth > 1 ? 's' : '')"></span>
+              </div>
+              <input type="range" min="1" max="20" step="1" class="w-full mt-0.5 accent-coral"
+                     :value="runsDepth"
+                     :disabled="savingRuns"
+                     @input="runsDepth = parseInt($event.target.value, 10) || 1"
+                     @change="saveRunsDepth($event.target.value)"
+                     title="How many times each question is asked to each AI. AI answers vary between identical runs - more runs = a mention rate with a real margin of error. 1 credit = 1 question × 1 run." />
+              <div class="flex justify-between text-[9px] text-gray-400"><span>1</span><span>10 recommended</span><span>20</span></div>
+            </div>
           </div>
           {isReviewing ? (
             <a href={`/app/scans/${id}`} class="btn btn--primary btn--md shrink-0">

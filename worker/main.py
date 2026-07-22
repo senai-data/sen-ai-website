@@ -1,6 +1,8 @@
 """Worker main loop - polls PostgreSQL for pending jobs and executes handlers."""
 
 import logging
+import os
+import signal
 import time
 from datetime import datetime, timedelta
 
@@ -61,8 +63,84 @@ def _format_user_error(exc: Exception) -> str:
 # (LLM calls per question × providers - can run 30-60 min for big scans).
 # 2h is a comfortable cap; anything past that is definitely worker-killed.
 STUCK_JOB_TIMEOUT_HOURS = 2
+# T7 (robustesse worker): run_llm_tests bumps scan.updated_at on every test, so
+# a genuinely-progressing scan is never mistaken for stuck. A run whose scan has
+# not advanced for this long is hung (a frozen provider call - LLM timeout is
+# 120s, so 15 min of zero progress means the worker itself died or wedged) or
+# orphaned - reclaim it fast instead of waiting out STUCK_JOB_TIMEOUT_HOURS.
+# Only run_llm_tests is progress-tracked; every other job type keeps the start-
+# age cap (their runtimes are bounded, and a 5-15 min content gen carries no
+# per-progress heartbeat so it must never be reclaimed mid-flight).
+PROGRESS_STALL_MINUTES = 15
 CLEANUP_INTERVAL_SECONDS = 300  # run sweep at most every 5 min
 _LAST_CLEANUP_TS = 0.0
+
+# --- Graceful shutdown (T5, robustesse worker) ---
+# docker stop / a deploy sends SIGTERM. With no handler, the default action
+# kills the process mid-job, leaving run_llm_tests' row stuck in 'running' with
+# no live worker = a ZOMBIE that freezes the user's scan until the stuck-job
+# sweep reclaims it (the 2026-07-22 Elgydium-at-24% incident). Instead we catch
+# SIGTERM/SIGINT and, if a job is executing, atomically re-pend it (status back
+# to 'pending', started_at cleared) so a fresh worker resumes it cleanly -
+# run_llm_tests is resumable (T6), so no LLM spend is wasted. poll_and_execute
+# records the in-flight job id here; the handler resets that row on its OWN db
+# connection (the main thread is blocked deep inside the synchronous handler, so
+# we cannot wait for the loop to notice a flag between jobs) and exits within
+# docker's stop_grace_period.
+_current_job_id = None
+_shutting_down = False
+
+
+def _graceful_shutdown(signum, frame):
+    """SIGTERM/SIGINT handler: re-pend the in-flight job, then exit fast.
+
+    Runs in the main thread (Python delivers signals there), which is blocked
+    inside the running handler - so we do the re-pend right here on a fresh DB
+    connection rather than deferring to the poll loop, then os._exit(0). We must
+    NOT raise/sys.exit: unwinding through the handler's `with ThreadPoolExecutor`
+    would call shutdown(wait=True) and block for the full job duration, exactly
+    what we're trying to avoid.
+    """
+    global _shutting_down
+    if _shutting_down:
+        # A second signal (or docker escalating) - bail immediately. The
+        # stuck-job sweep is the backstop if the re-pend below didn't commit.
+        os._exit(0)
+    _shutting_down = True
+    sig_name = signal.Signals(signum).name if hasattr(signal, "Signals") else str(signum)
+    job_id = _current_job_id
+    logger.info(f"Received {sig_name} - graceful shutdown (in-flight job={job_id})")
+
+    if job_id is not None:
+        # Re-pend on a FRESH connection so a half-open main-thread transaction
+        # can't corrupt this write. Attempt-neutral (attempts-1) so repeated
+        # deploys never exhaust a scan's retries; payload.resume flags intent for
+        # the logs. The status guard makes it a no-op if the job already finished
+        # between the signal firing and here.
+        try:
+            db = SessionLocal()
+            try:
+                db.execute(
+                    text("""
+                        UPDATE jobs
+                        SET status = 'pending',
+                            started_at = NULL,
+                            attempts = GREATEST(COALESCE(attempts, 1) - 1, 0),
+                            payload = COALESCE(payload, '{}'::jsonb) || '{"resume": true}'::jsonb
+                        WHERE id = :id AND status = 'running'
+                    """),
+                    {"id": str(job_id)},
+                )
+                db.commit()
+                logger.info(f"Re-pended in-flight job {job_id} for clean resume")
+            finally:
+                db.close()
+        except Exception:
+            # Never block shutdown on the reset - the progress-stall sweep (T7)
+            # will reclaim the row if this failed.
+            logger.exception(f"Graceful re-pend of job {job_id} failed")
+
+    os._exit(0)
 
 # Phase E Pilier 7 - T+14 post-publish measurement loop.
 # Every hour we sweep for content items that were published ≥ N days ago and
@@ -382,18 +460,28 @@ def _refund_scan_credits(scan_id, db: Session) -> None:
 
 
 def cleanup_stuck_jobs() -> None:
-    """Sweep for jobs stuck in 'running' for too long and reclaim them.
+    """Reclaim jobs stuck in 'running' - killed worker, frozen provider call.
 
-    H4: a worker that crashes (OOM, kill -9, container restart, host reboot)
-    leaves its job in status='running' forever - the existing retry logic
-    only fires when the handler raises an exception in the same process,
-    so a hard-killed worker bypasses C2 entirely. This sweep is the safety
-    net: any job that started > STUCK_JOB_TIMEOUT_HOURS ago gets marked
-    failed, its scan marked failed, and credits refunded via the C2 helper.
+    A worker that dies (OOM, kill -9, container restart, host reboot with no
+    SIGTERM) leaves its job in status='running' forever - the in-process retry
+    logic only fires when the handler raises in the same process, so a
+    hard-killed worker bypasses it entirely. This sweep is the safety net.
 
-    Cheap no-op most of the time: only runs every CLEANUP_INTERVAL_SECONDS,
-    and uses FOR UPDATE SKIP LOCKED so multiple workers don't fight over
-    the same row.
+    Two detection modes (T7, robustesse worker):
+      - `run_llm_tests` is progress-tracked: it bumps scan.updated_at on every
+        test, so a scan that has not advanced for PROGRESS_STALL_MINUTES is hung
+        or orphaned - caught in ~15 min instead of the old 2 h start-age wait.
+        Because it is resumable (T6), a stalled run WITH retries left is
+        RE-PENDED (a fresh / restarted worker resumes it, skipping the pairs
+        already persisted - zero wasted LLM spend). Out of retries -> fail.
+      - every other job type keeps the start-age cap (STUCK_JOB_TIMEOUT_HOURS):
+        their runtimes are bounded, they carry no per-progress heartbeat, and a
+        5-15 min content gen must never be reclaimed mid-flight. These fail +
+        refund (unchanged behavior).
+
+    Cheap no-op most of the time: throttled to CLEANUP_INTERVAL_SECONDS, and
+    FOR UPDATE OF j SKIP LOCKED so multiple workers don't fight over a row (and
+    we never lock the scans row a live run_llm_tests is busy updating).
     """
     global _LAST_CLEANUP_TS
     now = time.time()
@@ -403,25 +491,37 @@ def cleanup_stuck_jobs() -> None:
 
     db = SessionLocal()
     try:
-        cutoff = datetime.utcnow() - timedelta(hours=STUCK_JOB_TIMEOUT_HOURS)
+        now_dt = datetime.utcnow()
+        stall_cutoff = now_dt - timedelta(minutes=PROGRESS_STALL_MINUTES)
+        age_cutoff = now_dt - timedelta(hours=STUCK_JOB_TIMEOUT_HOURS)
         stuck_rows = db.execute(
             text("""
-                SELECT id FROM jobs
-                WHERE status = 'running' AND started_at < :cutoff
-                FOR UPDATE SKIP LOCKED
+                SELECT j.id
+                FROM jobs j
+                LEFT JOIN scans s ON s.id = j.scan_id
+                WHERE j.status = 'running'
+                  AND (
+                    (j.job_type = 'run_llm_tests'
+                       AND GREATEST(COALESCE(s.updated_at, j.started_at),
+                                    j.started_at) < :stall_cutoff)
+                    OR
+                    (j.job_type <> 'run_llm_tests'
+                       AND j.started_at < :age_cutoff)
+                  )
+                FOR UPDATE OF j SKIP LOCKED
             """),
-            {"cutoff": cutoff},
+            {"stall_cutoff": stall_cutoff, "age_cutoff": age_cutoff},
         ).fetchall()
 
         if not stuck_rows:
             return
 
         logger.warning(
-            f"Stuck-job sweep: found {len(stuck_rows)} job(s) running > "
-            f"{STUCK_JOB_TIMEOUT_HOURS}h - reclaiming"
+            f"Stuck-job sweep: found {len(stuck_rows)} stuck running job(s) - reclaiming"
         )
 
         from models import Scan  # local import: only loaded if there's work
+        from sqlalchemy.orm.attributes import flag_modified
 
         for (job_id,) in stuck_rows:
             job = db.query(Job).filter(Job.id == job_id).first()
@@ -430,21 +530,46 @@ def cleanup_stuck_jobs() -> None:
 
             elapsed_min = 0
             if job.started_at:
-                elapsed_min = int((datetime.utcnow() - job.started_at).total_seconds() / 60)
+                elapsed_min = int((now_dt - job.started_at).total_seconds() / 60)
             error_msg = (
                 f"Job stuck - no progress for {elapsed_min} min "
-                f"(worker likely killed mid-execution)"
+                f"(worker killed mid-execution or a provider call froze)"
             )
 
+            # Resumable + retries left -> re-pend for a clean resume rather than
+            # fail. Only ONE scan-worker runs run_llm_tests (single-threaded), so
+            # there is never a concurrent second execution of the same job; T6
+            # skips the pairs already written on re-pickup. Attempts climb on
+            # re-pickup, so a genuinely-broken scan that keeps stalling still
+            # falls through to the terminal path once it runs out of retries
+            # (no infinite reclaim loop).
+            if (
+                job.job_type == "run_llm_tests"
+                and (job.attempts or 0) < (job.max_attempts or 3)
+            ):
+                job.status = "pending"
+                job.started_at = None
+                job.result = {"reclaimed": True, "reason": error_msg}
+                payload = dict(job.payload or {})
+                payload["resume"] = True
+                job.payload = payload
+                flag_modified(job, "payload")  # JSONB in-place mutation
+                logger.warning(
+                    f"Reclaimed stalled run_llm_tests {job_id} (scan={job.scan_id}, "
+                    f"attempts={job.attempts}/{job.max_attempts}) - re-pending for resume"
+                )
+                continue
+
+            # Terminal path: mark job + scan failed and refund.
             job.status = "failed"
             job.result = {"error": error_msg, "stuck_cleanup": True}
-            job.completed_at = datetime.utcnow()
+            job.completed_at = now_dt
 
             scan = db.query(Scan).filter(Scan.id == job.scan_id).first()
             if scan:
                 scan.status = "failed"
                 scan.error_message = error_msg
-                scan.updated_at = datetime.utcnow()
+                scan.updated_at = now_dt
 
             try:
                 _refund_scan_credits(job.scan_id, db)
@@ -455,7 +580,7 @@ def cleanup_stuck_jobs() -> None:
 
             logger.warning(
                 f"Reclaimed stuck job {job_id} (scan={job.scan_id}, "
-                f"type={job.job_type}, elapsed={elapsed_min}min)"
+                f"type={job.job_type}, elapsed={elapsed_min}min) - failed + refunded"
             )
 
         db.commit()
@@ -838,6 +963,7 @@ def poll_and_execute():
     10-min `generate_article` never sits in front of a 3-sec
     `fetch_keywords` (FIFO head-of-line blocking).
     """
+    global _current_job_id
     db = SessionLocal()
     try:
         include = settings.job_types_include
@@ -880,6 +1006,12 @@ def poll_and_execute():
         job_obj = db.query(Job).filter(Job.id == job_id).first()
         if not job_obj:
             return False
+
+        # Record the in-flight job BEFORE the running-commit so the graceful
+        # shutdown handler (T5) can re-pend it on SIGTERM. Set even before the
+        # commit: if SIGTERM fires in that window the job is still 'pending' and
+        # the handler's `WHERE status='running'` guard makes the re-pend a no-op.
+        _current_job_id = job_id
 
         job_obj.status = "running"
         job_obj.started_at = datetime.utcnow()
@@ -1034,6 +1166,9 @@ def poll_and_execute():
         return True
 
     finally:
+        # No job in flight once we return - a SIGTERM while idle/polling should
+        # just exit, not try to re-pend a stale id.
+        _current_job_id = None
         db.close()
 
 
@@ -1054,6 +1189,12 @@ def wait_for_db():
 
 def main():
     logger.info(f"Worker {settings.worker_id} starting, poll interval={settings.poll_interval}s")
+    # Graceful shutdown (T5): catch the deploy/`docker stop` SIGTERM and Ctrl-C
+    # so the in-flight job is re-pended for a clean resume instead of orphaned
+    # as a 'running' zombie. Registered in the main thread (signals are only
+    # delivered there). Supersedes the KeyboardInterrupt path below.
+    signal.signal(signal.SIGTERM, _graceful_shutdown)
+    signal.signal(signal.SIGINT, _graceful_shutdown)
     wait_for_db()
     load_handlers()
     logger.info(f"Registered handlers: {list(HANDLERS.keys())}")

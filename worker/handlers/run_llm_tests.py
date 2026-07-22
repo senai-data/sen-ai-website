@@ -343,26 +343,59 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
         folded = _fold(text)
         return any(p.search(folded) for p in _brand_patterns)
 
-    consensus_texts: dict = defaultdict(list)  # (question_id, provider) -> [response_text]
-
     # --- Run tests ---
-    total_tests = len(questions) * len(llm_clients)
-    scan.progress_pct = 0
-    scan.progress_message = f"Scan LLM: 0/{total_tests} tests..."
-    db.commit()
+    # T6 resume support (robustesse worker). A prior execution of THIS job may
+    # have been interrupted mid-flight (deploy SIGTERM re-pend, worker crash, or
+    # a progress-stall reclaim) AFTER persisting some result rows. Those rows are
+    # the expensive artifact - real LLM spend (BYOK bills the customer's own
+    # provider account), so we RESUME from them instead of the old blind
+    # wipe-and-restart. A genuine fresh scan/rescan always starts with zero rows
+    # for its scan_id (a rescan mints a NEW scan_id, and run_llm_tests is the
+    # first writer), so the mere presence of run rows unambiguously means
+    # "resume" - no reliance on the payload flag (T7's reclaim re-pends without
+    # setting it, and a manual retry_scan doesn't either).
+    existing_rows = (
+        db.query(ScanLLMResult.question_id, ScanLLMResult.provider,
+                 ScanLLMResult.run_index, ScanLLMResult.target_cited,
+                 ScanLLMResult.brand_analysis)
+        .filter(ScanLLMResult.scan_id == scan_id, ScanLLMResult.run_index >= 1)
+        .all()
+    )
+    is_resume = len(existing_rows) > 0
+    # (question_id, provider, run_index) triples already persisted - skipped
+    # below. Keys are str-normalized on BOTH sides (there is no DB unique
+    # constraint to catch a mismatch, so a UUID-vs-str type slip would silently
+    # re-run - and duplicate - already-done pairs).
+    done_pairs = {(str(r.question_id), r.provider, r.run_index) for r in existing_rows}
 
-    db.query(ScanLLMResult).filter(ScanLLMResult.scan_id == scan_id).delete()
-    db.commit()
+    if is_resume:
+        # Seed the running tallies so progress % AND the final citation / brand
+        # rates cover the WHOLE scan, not just this session's leftover slice.
+        target_cited_count = sum(1 for r in existing_rows if r.target_cited)
+        brand_mentioned_count = sum(
+            1 for r in existing_rows
+            if (r.brand_analysis or {}).get("marque_cible_mentionnee")
+        )
+        logger.info(
+            f"run_llm_tests RESUME scan {scan_id}: {len(done_pairs)} pair(s) already "
+            f"done, skipping them (payload.resume={job_payload.get('resume')})"
+        )
+    else:
+        # Fresh run: wipe any stray rows (no-op when truly empty) so a restart
+        # from scratch cannot double up.
+        db.query(ScanLLMResult).filter(ScanLLMResult.scan_id == scan_id).delete()
+        db.commit()
+        target_cited_count = 0
+        brand_mentioned_count = 0
 
-    completed = 0
-    target_cited_count = 0
-    brand_mentioned_count = 0
     errors = 0
 
     # Build all test tasks: [(question, persona, provider, llm_client, run_idx), ...]
     # Sprint N-runs : outer loop on run_idx so the executor sees ALL N×Q×P tasks
     # at once (head-of-line blocking eliminated across runs too - a slow run 1
-    # task doesn't block run 2 tasks from another q/provider).
+    # task doesn't block run 2 tasks from another q/provider). T6 resume : skip
+    # (question, provider, run) triples already persisted by a prior execution.
+    all_pairs = 0
     tasks = []
     for run_idx in range(1, runs_depth + 1):
         for question in questions:
@@ -370,12 +403,25 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
             if not persona:
                 continue
             for provider, llm_client in llm_clients.items():
+                all_pairs += 1
+                if (str(question.id), provider, run_idx) in done_pairs:
+                    continue
                 tasks.append((question, persona, provider, llm_client, run_idx))
 
-    total_tests = len(tasks)
+    # Progress denominator = the WHOLE scan (all pairs), so a resumed scan shows
+    # e.g. 348/1440 -> 1440/1440, not a misleading 0/1092 over the leftover
+    # slice. `completed` starts at the already-done count (0 for a fresh run).
+    total_tests = all_pairs
+    completed = all_pairs - len(tasks)
+    scan.progress_pct = int(completed / total_tests * 100) if total_tests else 0
+    scan.progress_message = f"Scan LLM: {completed}/{total_tests} tests..."
+    scan.updated_at = datetime.utcnow()
+    db.commit()
+
     logger.info(
-        f"Running {total_tests} tests in a single pool of {MAX_WORKERS} workers "
-        f"(runs_depth={runs_depth}, questions={len(questions)}, providers={len(llm_clients)})"
+        f"Running {len(tasks)} of {total_tests} tests in a single pool of "
+        f"{MAX_WORKERS} workers (runs_depth={runs_depth}, questions={len(questions)}, "
+        f"providers={len(llm_clients)}, already_done={completed})"
     )
 
     from sqlalchemy import func as sql_func
@@ -504,8 +550,8 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
                         "_method": "regex_per_run",
                     }
                     result["brand_mentions"] = []
-                    if result.get("response_text"):
-                        consensus_texts[(question.id, provider)].append(result["response_text"])
+                    # (consensus texts are gathered from the DB post-loop, not
+                    # in-memory, so the pass is correct on a resumed partial scan)
 
                 db.add(ScanLLMResult(
                     scan_id=scan_id,
@@ -616,6 +662,7 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
             # of magnitude more time than the commit itself).
             scan.progress_pct = int(completed / total_tests * 100)
             scan.progress_message = f"Scan LLM: {completed}/{total_tests} tests..."
+            scan.updated_at = datetime.utcnow()  # T7 progress heartbeat (stall-based reclaim)
             db.commit()
 
     # --- Sprint 1.6 consensus pass (run_index=0) ---
@@ -623,10 +670,40 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
     # run responses - same call COUNT as legacy N=1, so the analyzer cost does
     # NOT scale with runs_depth. Rows are meta-only (response_text NULL,
     # target_cited NULL) : every rate aggregation MUST stay on run_index > 0.
+    #
+    # T6 resume : the work-set is rebuilt from the DB (not the in-memory
+    # collection), so it covers every (question, provider) pair that has run
+    # rows but no consensus row yet - whether those runs were produced this
+    # session or recovered from a resumed partial scan - and is idempotent if a
+    # prior execution died mid-consensus (pairs that already carry a run_index=0
+    # row are skipped, so we never double the analyzer spend).
+    consensus_texts: dict = defaultdict(list)  # (question_id, provider) -> [response_text]
+    if use_consensus:
+        _done_consensus = {
+            (qid, prov)
+            for qid, prov in db.query(
+                ScanLLMResult.question_id, ScanLLMResult.provider
+            ).filter(
+                ScanLLMResult.scan_id == scan_id,
+                ScanLLMResult.run_index == 0,
+            ).all()
+        }
+        for qid, prov, rtext in db.query(
+            ScanLLMResult.question_id, ScanLLMResult.provider,
+            ScanLLMResult.response_text,
+        ).filter(
+            ScanLLMResult.scan_id == scan_id,
+            ScanLLMResult.run_index >= 1,
+        ).all():
+            if (qid, prov) in _done_consensus or not rtext:
+                continue
+            consensus_texts[(qid, prov)].append(rtext)
+
     if use_consensus and consensus_texts:
         CONSENSUS_CHAR_CAP = 30000  # ~10K tokens, flash-lite comfort zone
         _qtext = {q.id: q.question for q in questions}
         scan.progress_message = f"Analyzing brands (consensus over {runs_depth} runs)..."
+        scan.updated_at = datetime.utcnow()
         db.commit()
         logger.info(f"Consensus pass: {len(consensus_texts)} (question, provider) pairs")
 
@@ -695,6 +772,7 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
                         scan_id=scan_id, client_id=str(scan.client_id),
                         key_source=analyzer_key_source,
                     )
+                scan.updated_at = datetime.utcnow()  # T7 heartbeat during a long consensus pass
                 db.commit()
         logger.info(f"Consensus pass done: {consensus_ok}/{len(consensus_texts)} rows written")
 
@@ -793,49 +871,65 @@ def execute(job_payload: dict, scan_id: str, db: Session) -> dict:
     # and is consumed by Crisis radar + Overview/per-persona chips. Capped
     # at $0.05/scan and idempotent on (slr_id, mention_index, contexte_hash)
     # so a manual /sentiment-judge/refresh post-scan stays safe.
-    db.add(JobModel(scan_id=scan_id, job_type="classify_question_intent"))
-    db.add(JobModel(scan_id=scan_id, job_type="judge_question_responses"))
-    db.add(JobModel(scan_id=scan_id, job_type="generate_opportunities"))
-    db.add(JobModel(scan_id=scan_id, job_type="generate_editorial"))
-    db.add(JobModel(scan_id=scan_id, job_type="cleanup_brands"))
-    db.add(JobModel(scan_id=scan_id, job_type="judge_sentiment"))
+    # Idempotency guard (T5/T6 resume). This finalization enqueues the post-scan
+    # chain exactly once. A run re-pended by a graceful shutdown / stall reclaim
+    # in the tiny window AFTER the first execution committed this chain but
+    # BEFORE poll_and_execute flipped the job to 'completed' would otherwise
+    # resume, reach finalization again, and DOUBLE-enqueue every chain job. Skip
+    # the whole enqueue when the chain already exists for this scan.
+    _chain_already = db.query(JobModel.id).filter(
+        JobModel.scan_id == scan_id,
+        JobModel.job_type == "classify_question_intent",
+    ).first()
+    if _chain_already:
+        logger.info(
+            f"run_llm_tests finalize: post-scan chain already enqueued for scan "
+            f"{scan_id} - skipping re-enqueue (resumed finalization)"
+        )
+    else:
+        db.add(JobModel(scan_id=scan_id, job_type="classify_question_intent"))
+        db.add(JobModel(scan_id=scan_id, job_type="judge_question_responses"))
+        db.add(JobModel(scan_id=scan_id, job_type="generate_opportunities"))
+        db.add(JobModel(scan_id=scan_id, job_type="generate_editorial"))
+        db.add(JobModel(scan_id=scan_id, job_type="cleanup_brands"))
+        db.add(JobModel(scan_id=scan_id, job_type="judge_sentiment"))
 
-    # Post-scan audit auto-chain (free, heuristic / external-free-API only).
-    # All are in POST_SCAN_AUDIT_JOB_TYPES so a failure stays sandboxed and
-    # never cascades to scan.status='failed'. Each one is also idempotent
-    # at row level so re-running via the manual /refresh endpoint stays
-    # safe. Deliberately NOT included :
-    #   - audit_reddit_threads     (~$0.03 Haiku, opt-in by design)
-    #   - audit_competitor_pages   (Babbar rate-limit risk, ~1-2 min)
-    # Both still triggerable manually via their /refresh endpoints.
-    # Crisis radar reads scan_sentiment_judgements ; if it happens to run
-    # before judge_sentiment finishes (FIFO ordering on identical
-    # created_at is unspecified) it falls back to raw brand_mentions[]
-    # .sentiment per migration 057 design - acceptable.
-    # priority=50 (migration 063): these run AFTER the scan is already flipped
-    # 'completed' (line 753), so they never gate the visible result - drop them
-    # below user-waited scan work so a fresh rescan is never stuck behind
-    # another lineage's audit tail. The analytical chain above stays at the
-    # neutral 100 (it produces the results the user is watching for).
-    db.add(JobModel(scan_id=scan_id, job_type="check_brand_wikipedia", priority=50))
-    db.add(JobModel(scan_id=scan_id, job_type="audit_scan_pages", priority=50))
-    db.add(JobModel(scan_id=scan_id, job_type="audit_scan_schemas", priority=50))
-    db.add(JobModel(scan_id=scan_id, job_type="audit_internal_links", priority=50))
-    db.add(JobModel(scan_id=scan_id, job_type="build_pr_outreach", priority=50))
-    db.add(JobModel(scan_id=scan_id, job_type="audit_youtube_creators", priority=50))
-    db.add(JobModel(scan_id=scan_id, job_type="build_crisis_radar", priority=50))
+        # Post-scan audit auto-chain (free, heuristic / external-free-API only).
+        # All are in POST_SCAN_AUDIT_JOB_TYPES so a failure stays sandboxed and
+        # never cascades to scan.status='failed'. Each one is also idempotent
+        # at row level so re-running via the manual /refresh endpoint stays
+        # safe. Deliberately NOT included :
+        #   - audit_reddit_threads     (~$0.03 Haiku, opt-in by design)
+        #   - audit_competitor_pages   (Babbar rate-limit risk, ~1-2 min)
+        # Both still triggerable manually via their /refresh endpoints.
+        # Crisis radar reads scan_sentiment_judgements ; if it happens to run
+        # before judge_sentiment finishes (FIFO ordering on identical
+        # created_at is unspecified) it falls back to raw brand_mentions[]
+        # .sentiment per migration 057 design - acceptable.
+        # priority=50 (migration 063): these run AFTER the scan is already flipped
+        # 'completed' (line 753), so they never gate the visible result - drop them
+        # below user-waited scan work so a fresh rescan is never stuck behind
+        # another lineage's audit tail. The analytical chain above stays at the
+        # neutral 100 (it produces the results the user is watching for).
+        db.add(JobModel(scan_id=scan_id, job_type="check_brand_wikipedia", priority=50))
+        db.add(JobModel(scan_id=scan_id, job_type="audit_scan_pages", priority=50))
+        db.add(JobModel(scan_id=scan_id, job_type="audit_scan_schemas", priority=50))
+        db.add(JobModel(scan_id=scan_id, job_type="audit_internal_links", priority=50))
+        db.add(JobModel(scan_id=scan_id, job_type="build_pr_outreach", priority=50))
+        db.add(JobModel(scan_id=scan_id, job_type="audit_youtube_creators", priority=50))
+        db.add(JobModel(scan_id=scan_id, job_type="build_crisis_radar", priority=50))
 
-    # Placements module (migration 062) : match published-article URLs against
-    # this rescan's citations. EXISTS-guarded so tenants without placements pay
-    # zero overhead, and try/except so the completion commit can never fail on
-    # it. Also in POST_SCAN_AUDIT_JOB_TYPES (failure never cascades).
-    try:
-        from models import ScanPlacement
-        _placements_root = scan.parent_scan_id or scan.id
-        if db.query(ScanPlacement.id).filter(ScanPlacement.scan_id == _placements_root).first():
-            db.add(JobModel(scan_id=scan_id, job_type="match_placements", priority=50))
-    except Exception:
-        logger.warning(f"match_placements enqueue skipped for scan {scan_id}", exc_info=True)
+        # Placements module (migration 062) : match published-article URLs against
+        # this rescan's citations. EXISTS-guarded so tenants without placements pay
+        # zero overhead, and try/except so the completion commit can never fail on
+        # it. Also in POST_SCAN_AUDIT_JOB_TYPES (failure never cascades).
+        try:
+            from models import ScanPlacement
+            _placements_root = scan.parent_scan_id or scan.id
+            if db.query(ScanPlacement.id).filter(ScanPlacement.scan_id == _placements_root).first():
+                db.add(JobModel(scan_id=scan_id, job_type="match_placements", priority=50))
+        except Exception:
+            logger.warning(f"match_placements enqueue skipped for scan {scan_id}", exc_info=True)
 
     db.commit()
 

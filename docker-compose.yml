@@ -54,6 +54,12 @@ services:
       context: ./worker
       dockerfile: Dockerfile
     container_name: senai-worker
+    # T5 (robustesse worker): on `docker stop`/deploy, SIGTERM triggers the
+    # graceful handler which re-pends the in-flight job (a single UPDATE, <1s)
+    # then os._exit - we do NOT wait for the 30-60min job to finish. This grace
+    # window is only headroom for that UPDATE to commit under DB load; the
+    # container exits as soon as the re-pend lands.
+    stop_grace_period: 30s
     env_file: ./worker/.env
     environment:
       WORKER_ID: worker-scan
@@ -81,6 +87,7 @@ services:
       context: ./worker
       dockerfile: Dockerfile
     container_name: senai-worker-content
+    stop_grace_period: 30s  # T5: graceful SIGTERM re-pend (see senai-worker)
     env_file: ./worker/.env
     environment:
       WORKER_ID: worker-content
@@ -112,6 +119,7 @@ services:
       context: ./worker
       dockerfile: Dockerfile
     container_name: senai-worker-maint
+    stop_grace_period: 30s  # T5: graceful SIGTERM re-pend (see senai-worker)
     env_file: ./worker/.env
     environment:
       WORKER_ID: worker-maint

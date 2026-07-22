@@ -118,6 +118,16 @@ try {
   }
 } catch (e) {}
 
+// Hint for the near-empty "To create" column : how many older-run suggestions
+// the default current-run filter is hiding (Show history reveals them). This
+// respects the active content_type filter (the API counts post-filter).
+const hiddenHistory: number = Number(kanban.hidden_to_create || 0);
+const showHistoryUrl = (() => {
+  const u = new URL(Astro.url);
+  u.searchParams.set('history', '1');
+  return u.pathname + '?' + u.searchParams.toString();
+})();
+
 const baseColumns = [
   {
     key: 'to_create',
@@ -644,6 +654,12 @@ function ageLabel(iso: string | null): string {
                     <span>&middot;</span>
                     <a href={moreUrl('all')}>Show all {count.toLocaleString('en-US')}</a>
                     <span class="col__more-hint">{hidden.toLocaleString('en-US')} hidden</span>
+                  </div>
+                )}
+                {col.key === 'to_create' && !showHistory && hiddenHistory > 0 && (
+                  <div class="col__more">
+                    <a href={showHistoryUrl}>Show history</a>
+                    <span class="col__more-hint">{hiddenHistory.toLocaleString('en-US')} older suggestions hidden</span>
                   </div>
                 )}
               </div>

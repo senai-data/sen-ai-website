@@ -416,6 +416,7 @@ def list_content_items(
 
     items = q.all()
 
+    hidden_to_create = 0  # to_create items suppressed by the default current-run filter
     if not history and not scan_id:
         # Latest scan per lineage : the scans table is small per client, so
         # resolving the current run of each root in Python is cheap.
@@ -434,12 +435,17 @@ def list_content_items(
         # 'Untouched backlog' = anything living in the to_create COLUMN
         # (statuses identified / draft / NULL - 'to_create' is the column
         # name, not a status value). Acted-on items map to other columns
-        # and are never trimmed.
-        items = [
-            it for it in items
-            if COLUMN_BY_STATUS.get(it.status, "to_create") != "to_create"
-            or str(it.scan_id) in current_scan_ids
-        ]
+        # and are never trimmed. Count what we drop so the UI can hint
+        # "N older items hidden - Show history" (respects the active filters,
+        # since `items` is already filtered by content_type/status here).
+        kept = []
+        for it in items:
+            in_to_create = COLUMN_BY_STATUS.get(it.status, "to_create") == "to_create"
+            if in_to_create and str(it.scan_id) not in current_scan_ids:
+                hidden_to_create += 1
+            else:
+                kept.append(it)
+        items = kept
 
     # Sort: priority rank asc (critique=0 first), then identified_at desc
     items.sort(key=lambda i: (

@@ -395,7 +395,7 @@ async def competitor_share(
         WITH latest AS (
             SELECT DISTINCT ON (COALESCE(s.parent_scan_id, s.id)) s.id
               FROM scans s
-             WHERE s.client_id = :cid AND s.status = 'completed'
+             WHERE s.client_id = :cid::uuid AND s.status = 'completed'
              ORDER BY COALESCE(s.parent_scan_id, s.id), s.completed_at DESC
         ),
         own AS (
@@ -403,7 +403,7 @@ async def competitor_share(
               FROM scan_brand_classifications sbc
               JOIN client_brands cb ON cb.id = sbc.brand_id
               JOIN scans s ON s.id = sbc.scan_id
-             WHERE s.client_id = :cid AND sbc.classification = 'my_brand'
+             WHERE s.client_id = :cid::uuid AND sbc.classification = 'my_brand'
         )
         SELECT lower(trim(COALESCE(bm->>'brand_name_groupby', bm->>'brand_name'))) AS competitor,
                COUNT(*) AS mentions,
